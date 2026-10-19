@@ -34,9 +34,7 @@ impl PointDistanceFunction for DistanceCalculationMode {
             DistanceCalculationMode::Euclidean => {
                 delta_x * delta_x + delta_y * delta_y + delta_z * delta_z
             }
-            DistanceCalculationMode::Manhattan => {
-                delta_x.abs() + delta_y.abs() + delta_z.abs()
-            }
+            DistanceCalculationMode::Manhattan => delta_x.abs() + delta_y.abs() + delta_z.abs(),
             DistanceCalculationMode::Natural => {
                 delta_x.abs()
                     + delta_y.abs()
@@ -45,9 +43,7 @@ impl PointDistanceFunction for DistanceCalculationMode {
                     + delta_y * delta_y
                     + delta_z * delta_z
             }
-            DistanceCalculationMode::Max => {
-                delta_x.abs().max(delta_y.abs().max(delta_z.abs()))
-            }
+            DistanceCalculationMode::Max => delta_x.abs().max(delta_y.abs().max(delta_z.abs())),
         }
     }
 }

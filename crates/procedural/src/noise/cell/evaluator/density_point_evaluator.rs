@@ -44,7 +44,9 @@ impl DensityPointEvaluator {
 
     /// Java static `getDensityCondition(@Nullable IDoubleCondition)`:
     /// `null` → `seed -> true`; otherwise `seed -> threshold.eval(randomDensityCondition(seed))`.
-    pub fn get_density_condition(threshold: Option<Rc<dyn IDoubleCondition>>) -> Rc<dyn IIntCondition> {
+    pub fn get_density_condition(
+        threshold: Option<Rc<dyn IDoubleCondition>>,
+    ) -> Rc<dyn IIntCondition> {
         match threshold {
             None => Rc::new(AlwaysTrueIntCondition),
             Some(threshold) => Rc::new(DensityCondition { threshold }),

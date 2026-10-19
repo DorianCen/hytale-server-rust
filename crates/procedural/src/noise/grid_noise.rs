@@ -100,7 +100,6 @@ impl NoiseFunction3d for GridNoise {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,7 +128,10 @@ mod tests {
     fn periodic_per_unit_cell() {
         let noise = GridNoise::new(0.25, 0.25, 0.25);
         // integer offsets leave the fractional part unchanged
-        assert_eq!(NoiseFunction2d::get(&noise, 1, 2, 3.5, 4.5), NoiseFunction2d::get(&noise, 1, 2, -6.5, 101.5));
+        assert_eq!(
+            NoiseFunction2d::get(&noise, 1, 2, 3.5, 4.5),
+            NoiseFunction2d::get(&noise, 1, 2, -6.5, 101.5)
+        );
     }
 
     #[test]

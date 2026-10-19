@@ -158,8 +158,10 @@ fn build_noise(key: &str) -> NoisePair {
             Some(match key {
                 "SIMPLEX" => Box::new(SimplexNoise::INSTANCE) as Box<dyn NoiseFunction3d>,
                 "OLD_SIMPLEX" => Box::new(OldSimplexNoise::INSTANCE) as Box<dyn NoiseFunction3d>,
-                "VALUE" => Box::new(ValueNoise::new(InterpolationMode::Quintic)) as Box<dyn NoiseFunction3d>,
-                "PERLIN" => Box::new(PerlinNoise::new(InterpolationMode::Quintic)) as Box<dyn NoiseFunction3d>,
+                "VALUE" => Box::new(ValueNoise::new(InterpolationMode::Quintic))
+                    as Box<dyn NoiseFunction3d>,
+                "PERLIN" => Box::new(PerlinNoise::new(InterpolationMode::Quintic))
+                    as Box<dyn NoiseFunction3d>,
                 "CONSTANT" => Box::new(ConstantNoise::new(0.5)) as Box<dyn NoiseFunction3d>,
                 "GRID" => Box::new(GridNoise::new(0.1, 0.1, 0.1)) as Box<dyn NoiseFunction3d>,
                 "CELL" => Box::new(CellNoise::new(
@@ -173,7 +175,9 @@ fn build_noise(key: &str) -> NoisePair {
                     NormalPointEvaluator::euclidean(),
                     Rc::new(Distance2Mode::Sub),
                 )) as Box<dyn NoiseFunction3d>,
-                "POINT" => Box::new(PointNoise::new(1.5, -2.0, 0.5, 1.0, 8.0)) as Box<dyn NoiseFunction3d>,
+                "POINT" => {
+                    Box::new(PointNoise::new(1.5, -2.0, 0.5, 1.0, 8.0)) as Box<dyn NoiseFunction3d>
+                }
                 other => panic!("unexpected 3d noise key {other}"),
             })
         }
@@ -256,7 +260,9 @@ fn golden_noise_2d() {
                 let y = start + yi as f64 * step;
                 for (xi, v) in row.as_array().unwrap().iter().enumerate() {
                     let x = start + xi as f64 * step;
-                    let expected_hex = v.as_str().unwrap_or_else(|| panic!("{key} value is string"));
+                    let expected_hex = v
+                        .as_str()
+                        .unwrap_or_else(|| panic!("{key} value is string"));
                     let expected = parse_java_hex_double(expected_hex);
                     let got = pair.noise_2d.get(seed, seed, x, y);
                     assert_eq!(

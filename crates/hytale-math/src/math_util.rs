@@ -394,7 +394,11 @@ pub fn half_float_to_float(hbits: i32) -> f32 {
     #[inline]
     fn java_int_bits_to_float(bits: u32) -> f32 {
         let v = f32::from_bits(bits);
-        if v.is_nan() { f32::NAN } else { v }
+        if v.is_nan() {
+            f32::NAN
+        } else {
+            v
+        }
     }
 
     let mut mant = hbits & 0x03ff; // 10 bits mantissa
@@ -407,7 +411,9 @@ pub fn half_float_to_float(hbits: i32) -> f32 {
         exp += 0x1c000; // exp - 15 + 127
         if mant == 0 && exp > 0x1c400 {
             // smooth transition
-            return java_int_bits_to_float(((hbits & 0x8000) << 16) as u32 | ((exp << 13) as u32) | 0x3ff);
+            return java_int_bits_to_float(
+                ((hbits & 0x8000) << 16) as u32 | ((exp << 13) as u32) | 0x3ff,
+            );
         }
     } else if mant != 0 {
         // && exp==0 -> subnormal
@@ -457,8 +463,8 @@ pub fn half_float_from_float(fval: f32) -> i32 {
         return sign; // becomes +/-0
     }
     let val = (fbits & 0x7fff_ffff) >> 23; // tmp exp for subnormal calc
-    // add subnormal bit + round depending on cut off, then divide by
-    // 2^(1-(exp-127+15)) and >> 13 | exp=0
+                                           // add subnormal bit + round depending on cut off, then divide by
+                                           // 2^(1-(exp-127+15)) and >> 13 | exp=0
     sign | ((((fbits & 0x007f_ffff) | 0x0080_0000) as i64
         + ((0x0080_0000_u32 >> (val - 102)) as i64))
         >> (126 - val)) as i32
@@ -706,7 +712,13 @@ pub fn side_of_line(x: f64, y: f64, ax: f64, ay: f64, bx: f64, by: f64) -> i32 {
 }
 
 /// Java `MathUtil.mapToRange(float…)`.
-pub fn map_to_range(value: f32, value_min: f32, value_max: f32, range_min: f32, range_max: f32) -> f32 {
+pub fn map_to_range(
+    value: f32,
+    value_min: f32,
+    value_max: f32,
+    range_min: f32,
+    range_max: f32,
+) -> f32 {
     let alpha = (value - value_min) / (value_max - value_min);
     range_min + alpha * (range_max - range_min)
 }

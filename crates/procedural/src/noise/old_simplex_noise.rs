@@ -225,7 +225,8 @@ impl NoiseFunction2d for OldSimplexNoise {
         let mut attn_ext = 2.0 - dx_ext * dx_ext - dy_ext * dy_ext;
         if attn_ext > 0.0 {
             attn_ext *= attn_ext;
-            value += attn_ext * attn_ext * extrapolate2d(offset_seed, xsv_ext, ysv_ext, dx_ext, dy_ext);
+            value +=
+                attn_ext * attn_ext * extrapolate2d(offset_seed, xsv_ext, ysv_ext, dx_ext, dy_ext);
         }
 
         value / NORM_CONSTANT_2D
@@ -403,7 +404,9 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn1 = 2.0 - dx1 * dx1 - dy1 * dy1 - dz1 * dz1;
             if attn1 > 0.0 {
                 attn1 *= attn1;
-                value += attn1 * attn1 * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb, zsb, dx1, dy1, dz1);
+                value += attn1
+                    * attn1
+                    * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb, zsb, dx1, dy1, dz1);
             }
 
             // Contribution (0,1,0)
@@ -413,7 +416,9 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn2 = 2.0 - dx2 * dx2 - dy2 * dy2 - dz2 * dz2;
             if attn2 > 0.0 {
                 attn2 *= attn2;
-                value += attn2 * attn2 * extrapolate3d(offset_seed, xsb, ysb.wrapping_add(1), zsb, dx2, dy2, dz2);
+                value += attn2
+                    * attn2
+                    * extrapolate3d(offset_seed, xsb, ysb.wrapping_add(1), zsb, dx2, dy2, dz2);
             }
 
             // Contribution (0,0,1)
@@ -423,7 +428,9 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn3 = 2.0 - dx3 * dx3 - dy3 * dy3 - dz3 * dz3;
             if attn3 > 0.0 {
                 attn3 *= attn3;
-                value += attn3 * attn3 * extrapolate3d(offset_seed, xsb, ysb, zsb.wrapping_add(1), dx3, dy3, dz3);
+                value += attn3
+                    * attn3
+                    * extrapolate3d(offset_seed, xsb, ysb, zsb.wrapping_add(1), dx3, dy3, dz3);
             }
         } else if in_sum >= 2.0 {
             // We're inside the tetrahedron (3-Simplex) at (1,1,1)
@@ -538,7 +545,17 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn3 = 2.0 - dx3 * dx3 - dy3 * dy3 - dz3 * dz3;
             if attn3 > 0.0 {
                 attn3 *= attn3;
-                value += attn3 * attn3 * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb.wrapping_add(1), zsb, dx3, dy3, dz3);
+                value += attn3
+                    * attn3
+                    * extrapolate3d(
+                        offset_seed,
+                        xsb.wrapping_add(1),
+                        ysb.wrapping_add(1),
+                        zsb,
+                        dx3,
+                        dy3,
+                        dz3,
+                    );
             }
 
             // Contribution (1,0,1)
@@ -548,7 +565,17 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn2 = 2.0 - dx2 * dx2 - dy2 * dy2 - dz2 * dz2;
             if attn2 > 0.0 {
                 attn2 *= attn2;
-                value += attn2 * attn2 * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb, zsb.wrapping_add(1), dx2, dy2, dz2);
+                value += attn2
+                    * attn2
+                    * extrapolate3d(
+                        offset_seed,
+                        xsb.wrapping_add(1),
+                        ysb,
+                        zsb.wrapping_add(1),
+                        dx2,
+                        dy2,
+                        dz2,
+                    );
             }
 
             // Contribution (0,1,1)
@@ -558,7 +585,17 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn1 = 2.0 - dx1 * dx1 - dy1 * dy1 - dz1 * dz1;
             if attn1 > 0.0 {
                 attn1 *= attn1;
-                value += attn1 * attn1 * extrapolate3d(offset_seed, xsb, ysb.wrapping_add(1), zsb.wrapping_add(1), dx1, dy1, dz1);
+                value += attn1
+                    * attn1
+                    * extrapolate3d(
+                        offset_seed,
+                        xsb,
+                        ysb.wrapping_add(1),
+                        zsb.wrapping_add(1),
+                        dx1,
+                        dy1,
+                        dz1,
+                    );
             }
 
             // Contribution (1,1,1)
@@ -568,7 +605,17 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn0 = 2.0 - dx0 * dx0 - dy0 * dy0 - dz0 * dz0;
             if attn0 > 0.0 {
                 attn0 *= attn0;
-                value += attn0 * attn0 * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb.wrapping_add(1), zsb.wrapping_add(1), dx0, dy0, dz0);
+                value += attn0
+                    * attn0
+                    * extrapolate3d(
+                        offset_seed,
+                        xsb.wrapping_add(1),
+                        ysb.wrapping_add(1),
+                        zsb.wrapping_add(1),
+                        dx0,
+                        dy0,
+                        dz0,
+                    );
             }
         } else {
             // We're inside the octahedron (Rectified 3-Simplex) in between.
@@ -764,7 +811,9 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn1 = 2.0 - dx1 * dx1 - dy1 * dy1 - dz1 * dz1;
             if attn1 > 0.0 {
                 attn1 *= attn1;
-                value += attn1 * attn1 * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb, zsb, dx1, dy1, dz1);
+                value += attn1
+                    * attn1
+                    * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb, zsb, dx1, dy1, dz1);
             }
 
             // Contribution (0,1,0)
@@ -774,7 +823,9 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn2 = 2.0 - dx2 * dx2 - dy2 * dy2 - dz2 * dz2;
             if attn2 > 0.0 {
                 attn2 *= attn2;
-                value += attn2 * attn2 * extrapolate3d(offset_seed, xsb, ysb.wrapping_add(1), zsb, dx2, dy2, dz2);
+                value += attn2
+                    * attn2
+                    * extrapolate3d(offset_seed, xsb, ysb.wrapping_add(1), zsb, dx2, dy2, dz2);
             }
 
             // Contribution (0,0,1)
@@ -784,7 +835,9 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn3 = 2.0 - dx3 * dx3 - dy3 * dy3 - dz3 * dz3;
             if attn3 > 0.0 {
                 attn3 *= attn3;
-                value += attn3 * attn3 * extrapolate3d(offset_seed, xsb, ysb, zsb.wrapping_add(1), dx3, dy3, dz3);
+                value += attn3
+                    * attn3
+                    * extrapolate3d(offset_seed, xsb, ysb, zsb.wrapping_add(1), dx3, dy3, dz3);
             }
 
             // Contribution (1,1,0)
@@ -794,7 +847,17 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn4 = 2.0 - dx4 * dx4 - dy4 * dy4 - dz4 * dz4;
             if attn4 > 0.0 {
                 attn4 *= attn4;
-                value += attn4 * attn4 * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb.wrapping_add(1), zsb, dx4, dy4, dz4);
+                value += attn4
+                    * attn4
+                    * extrapolate3d(
+                        offset_seed,
+                        xsb.wrapping_add(1),
+                        ysb.wrapping_add(1),
+                        zsb,
+                        dx4,
+                        dy4,
+                        dz4,
+                    );
             }
 
             // Contribution (1,0,1)
@@ -804,7 +867,17 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn5 = 2.0 - dx5 * dx5 - dy5 * dy5 - dz5 * dz5;
             if attn5 > 0.0 {
                 attn5 *= attn5;
-                value += attn5 * attn5 * extrapolate3d(offset_seed, xsb.wrapping_add(1), ysb, zsb.wrapping_add(1), dx5, dy5, dz5);
+                value += attn5
+                    * attn5
+                    * extrapolate3d(
+                        offset_seed,
+                        xsb.wrapping_add(1),
+                        ysb,
+                        zsb.wrapping_add(1),
+                        dx5,
+                        dy5,
+                        dz5,
+                    );
             }
 
             // Contribution (0,1,1)
@@ -814,7 +887,17 @@ impl NoiseFunction3d for OldSimplexNoise {
             let mut attn6 = 2.0 - dx6 * dx6 - dy6 * dy6 - dz6 * dz6;
             if attn6 > 0.0 {
                 attn6 *= attn6;
-                value += attn6 * attn6 * extrapolate3d(offset_seed, xsb, ysb.wrapping_add(1), zsb.wrapping_add(1), dx6, dy6, dz6);
+                value += attn6
+                    * attn6
+                    * extrapolate3d(
+                        offset_seed,
+                        xsb,
+                        ysb.wrapping_add(1),
+                        zsb.wrapping_add(1),
+                        dx6,
+                        dy6,
+                        dz6,
+                    );
             }
         }
 
@@ -822,20 +905,39 @@ impl NoiseFunction3d for OldSimplexNoise {
         let mut attn_ext0 = 2.0 - dx_ext0 * dx_ext0 - dy_ext0 * dy_ext0 - dz_ext0 * dz_ext0;
         if attn_ext0 > 0.0 {
             attn_ext0 *= attn_ext0;
-            value += attn_ext0 * attn_ext0 * extrapolate3d(offset_seed, xsv_ext0, ysv_ext0, zsv_ext0, dx_ext0, dy_ext0, dz_ext0);
+            value += attn_ext0
+                * attn_ext0
+                * extrapolate3d(
+                    offset_seed,
+                    xsv_ext0,
+                    ysv_ext0,
+                    zsv_ext0,
+                    dx_ext0,
+                    dy_ext0,
+                    dz_ext0,
+                );
         }
 
         // Second extra vertex
         let mut attn_ext1 = 2.0 - dx_ext1 * dx_ext1 - dy_ext1 * dy_ext1 - dz_ext1 * dz_ext1;
         if attn_ext1 > 0.0 {
             attn_ext1 *= attn_ext1;
-            value += attn_ext1 * attn_ext1 * extrapolate3d(offset_seed, xsv_ext1, ysv_ext1, zsv_ext1, dx_ext1, dy_ext1, dz_ext1);
+            value += attn_ext1
+                * attn_ext1
+                * extrapolate3d(
+                    offset_seed,
+                    xsv_ext1,
+                    ysv_ext1,
+                    zsv_ext1,
+                    dx_ext1,
+                    dy_ext1,
+                    dz_ext1,
+                );
         }
 
         value / NORM_CONSTANT_3D
     }
 }
-
 
 #[cfg(test)]
 mod tests {

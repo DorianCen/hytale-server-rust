@@ -67,7 +67,10 @@ struct DistanceModifier {
 
 impl ISeedDoubleRange for DistanceModifier {
     fn get_value(&self, seed: i32, value: f64) -> f64 {
-        value * self.range.get_value(Self::random_distance_modification(seed))
+        value
+            * self
+                .range
+                .get_value(Self::random_distance_modification(seed))
     }
 }
 
@@ -109,7 +112,14 @@ impl PointEvaluator for DistancePointEvaluator {
             cell_point_y - y,
         );
         let distance = self.distance_mod.get_value(cell_hash, distance);
-        buffer.register(cell_hash, cell_x, cell_y, distance, cell_point_x, cell_point_y);
+        buffer.register(
+            cell_hash,
+            cell_x,
+            cell_y,
+            distance,
+            cell_point_x,
+            cell_point_y,
+        );
     }
 
     fn eval_point2_2d(
@@ -134,7 +144,14 @@ impl PointEvaluator for DistancePointEvaluator {
             cell_point_y - y,
         );
         let distance = self.distance_mod.get_value(cell_hash, distance);
-        buffer.register2(cell_hash, cell_x, cell_y, distance, cell_point_x, cell_point_y);
+        buffer.register2(
+            cell_hash,
+            cell_x,
+            cell_y,
+            distance,
+            cell_point_x,
+            cell_point_y,
+        );
     }
 
     fn eval_point_3d(

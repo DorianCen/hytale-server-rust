@@ -24,9 +24,13 @@ fn parse_hex_f64(s: &str) -> f64 {
         None => (1.0f64, s.trim_start_matches('+')),
     };
     let rest = rest
-        .strip_prefix("0X").or_else(|| rest.strip_prefix("0x"))
+        .strip_prefix("0X")
+        .or_else(|| rest.strip_prefix("0x"))
         .expect("hex prefix");
-    let (mantissa_hex, exp_str) = rest.split_once('p').or_else(|| rest.split_once('P')).expect("p exponent");
+    let (mantissa_hex, exp_str) = rest
+        .split_once('p')
+        .or_else(|| rest.split_once('P'))
+        .expect("p exponent");
     let exp: i32 = exp_str.parse().expect("exponent");
     let (int_part, frac_part) = match mantissa_hex.split_once('.') {
         Some((i, f)) => (i, f),
@@ -100,7 +104,11 @@ fn golden_fastrandom() {
             assert_eq!(rng.next_int(), as_i32(expected), "nextInt seed={seed}");
         }
         for expected in entry["nextInt_bound100_128"].as_array().unwrap() {
-            assert_eq!(rng.next_int_bound(100), as_i32(expected), "nextInt(100) seed={seed}");
+            assert_eq!(
+                rng.next_int_bound(100),
+                as_i32(expected),
+                "nextInt(100) seed={seed}"
+            );
         }
         for expected in entry["nextLong_128"].as_array().unwrap() {
             assert_eq!(rng.next_long(), as_i64(expected), "nextLong seed={seed}");
@@ -212,48 +220,98 @@ fn check_f64_rows(root: &serde_json::Value, key: &str, f: impl Fn(&serde_json::V
 fn golden_mathutil() {
     let root = load("mathutil.json");
     // int in / int out
-    check_f64_rows(&root, "abs_int", |r| math_util::abs(as_i32(&r["in"])) as f64);
+    check_f64_rows(&root, "abs_int", |r| {
+        math_util::abs(as_i32(&r["in"])) as f64
+    });
     for row in root["abs_int"].as_array().unwrap() {
-        assert_eq!(math_util::abs(as_i32(&row["in"])), as_i32(&row["out"]), "abs_int {row}");
+        assert_eq!(
+            math_util::abs(as_i32(&row["in"])),
+            as_i32(&row["out"]),
+            "abs_int {row}"
+        );
     }
     for row in root["byteCount"].as_array().unwrap() {
-        assert_eq!(math_util::byte_count(as_i32(&row["in"])), as_i32(&row["out"]), "byteCount {row}");
+        assert_eq!(
+            math_util::byte_count(as_i32(&row["in"])),
+            as_i32(&row["out"]),
+            "byteCount {row}"
+        );
     }
 
     // f64 -> i32/i64
     for row in root["floor_double"].as_array().unwrap() {
-        assert_eq!(math_util::floor(as_f64(&row["in"])), as_i32(&row["out"]), "floor {row}");
+        assert_eq!(
+            math_util::floor(as_f64(&row["in"])),
+            as_i32(&row["out"]),
+            "floor {row}"
+        );
     }
     for row in root["ceil_double"].as_array().unwrap() {
-        assert_eq!(math_util::ceil(as_f64(&row["in"])), as_i32(&row["out"]), "ceil {row}");
+        assert_eq!(
+            math_util::ceil(as_f64(&row["in"])),
+            as_i32(&row["out"]),
+            "ceil {row}"
+        );
     }
     for row in root["fastFloor_double"].as_array().unwrap() {
-        assert_eq!(math_util::fast_floor_f64(as_f64(&row["in"])), as_i64(&row["out"]), "fastFloor f64 {row}");
+        assert_eq!(
+            math_util::fast_floor_f64(as_f64(&row["in"])),
+            as_i64(&row["out"]),
+            "fastFloor f64 {row}"
+        );
     }
     for row in root["fastFloor_float"].as_array().unwrap() {
-        assert_eq!(math_util::fast_floor_f32(as_f32(&row["in"])), as_i32(&row["out"]), "fastFloor f32 {row}");
+        assert_eq!(
+            math_util::fast_floor_f32(as_f32(&row["in"])),
+            as_i32(&row["out"]),
+            "fastFloor f32 {row}"
+        );
     }
     for row in root["fastCeil_double"].as_array().unwrap() {
-        assert_eq!(math_util::fast_ceil_f64(as_f64(&row["in"])), as_i64(&row["out"]), "fastCeil f64 {row}");
+        assert_eq!(
+            math_util::fast_ceil_f64(as_f64(&row["in"])),
+            as_i64(&row["out"]),
+            "fastCeil f64 {row}"
+        );
     }
     for row in root["fastCeil_float"].as_array().unwrap() {
-        assert_eq!(math_util::fast_ceil_f32(as_f32(&row["in"])), as_i32(&row["out"]), "fastCeil f32 {row}");
+        assert_eq!(
+            math_util::fast_ceil_f32(as_f32(&row["in"])),
+            as_i32(&row["out"]),
+            "fastCeil f32 {row}"
+        );
     }
     for row in root["fastRound_double"].as_array().unwrap() {
-        assert_eq!(math_util::fast_round_f64(as_f64(&row["in"])), as_i64(&row["out"]), "fastRound f64 {row}");
+        assert_eq!(
+            math_util::fast_round_f64(as_f64(&row["in"])),
+            as_i64(&row["out"]),
+            "fastRound f64 {row}"
+        );
     }
     for row in root["fastRound_float"].as_array().unwrap() {
-        assert_eq!(math_util::fast_round_f32(as_f32(&row["in"])), as_i32(&row["out"]), "fastRound f32 {row}");
+        assert_eq!(
+            math_util::fast_round_f32(as_f32(&row["in"])),
+            as_i32(&row["out"]),
+            "fastRound f32 {row}"
+        );
     }
 
     // clamps
     for row in root["clamp_double"].as_array().unwrap() {
         let got = math_util::clamp_f64(as_f64(&row["v"]), as_f64(&row["min"]), as_f64(&row["max"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "clamp f64 {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "clamp f64 {row}"
+        );
     }
     for row in root["clamp_float"].as_array().unwrap() {
         let got = math_util::clamp_f32(as_f32(&row["v"]), as_f32(&row["min"]), as_f32(&row["max"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "clamp f32 {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "clamp f32 {row}"
+        );
     }
     for row in root["clamp_int"].as_array().unwrap() {
         assert_eq!(
@@ -273,49 +331,96 @@ fn golden_mathutil() {
     // lerp family
     for row in root["lerp_double"].as_array().unwrap() {
         let got = math_util::lerp_f64(as_f64(&row["a"]), as_f64(&row["b"]), as_f64(&row["t"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "lerp f64 {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "lerp f64 {row}"
+        );
     }
     for row in root["lerpUnclamped_double"].as_array().unwrap() {
-        let got = math_util::lerp_unclamped_f64(as_f64(&row["a"]), as_f64(&row["b"]), as_f64(&row["t"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "lerpUnclamped f64 {row}");
+        let got =
+            math_util::lerp_unclamped_f64(as_f64(&row["a"]), as_f64(&row["b"]), as_f64(&row["t"]));
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "lerpUnclamped f64 {row}"
+        );
     }
     for row in root["lerp_float"].as_array().unwrap() {
         let got = math_util::lerp_f32(as_f32(&row["a"]), as_f32(&row["b"]), as_f32(&row["t"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "lerp f32 {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "lerp f32 {row}"
+        );
     }
     for row in root["lerpUnclamped_float"].as_array().unwrap() {
-        let got = math_util::lerp_unclamped_f32(as_f32(&row["a"]), as_f32(&row["b"]), as_f32(&row["t"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "lerpUnclamped f32 {row}");
+        let got =
+            math_util::lerp_unclamped_f32(as_f32(&row["a"]), as_f32(&row["b"]), as_f32(&row["t"]));
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "lerpUnclamped f32 {row}"
+        );
     }
     for row in root["seededLerp_float"].as_array().unwrap() {
-        let got = math_util::seeded_lerp(as_f32(&row["a"]), as_f32(&row["b"]), as_i64(&row["seed"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "seededLerp {row}");
+        let got =
+            math_util::seeded_lerp(as_f32(&row["a"]), as_f32(&row["b"]), as_i64(&row["seed"]));
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "seededLerp {row}"
+        );
     }
     for row in root["floorMod_double"].as_array().unwrap() {
         let got = math_util::floor_mod_f64(as_f64(&row["x"]), as_f64(&row["y"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "floorMod {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "floorMod {row}"
+        );
     }
     for row in root["compareAngle_double"].as_array().unwrap() {
         let got = math_util::compare_angle(as_f64(&row["a"]), as_f64(&row["b"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "compareAngle {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "compareAngle {row}"
+        );
     }
     for row in root["shortAngleDistance_float"].as_array().unwrap() {
         let got = math_util::short_angle_distance(as_f32(&row["a"]), as_f32(&row["b"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "shortAngleDistance {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "shortAngleDistance {row}"
+        );
     }
     for row in root["lerpAngle_float"].as_array().unwrap() {
         let got = math_util::lerp_angle(as_f32(&row["a"]), as_f32(&row["b"]), as_f32(&row["t"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "lerpAngle {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "lerpAngle {row}"
+        );
     }
     for row in root["wrapAngle_float"].as_array().unwrap() {
         let got = math_util::wrap_angle(as_f32(&row["angle"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "wrapAngle {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "wrapAngle {row}"
+        );
     }
 
     // half floats / packing
     for row in root["halfFloatToFloat"].as_array().unwrap() {
         let got = math_util::half_float_to_float(as_i32(&row["in"]));
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "halfFloatToFloat {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "halfFloatToFloat {row}"
+        );
     }
     for row in root["halfFloatFromFloat"].as_array().unwrap() {
         assert_eq!(
@@ -327,32 +432,65 @@ fn golden_mathutil() {
     for row in root["packInt"].as_array().unwrap() {
         let packed = math_util::pack_int(as_i32(&row["x"]), as_i32(&row["z"]));
         assert_eq!(packed, as_i32(&row["packed"]), "packInt {row}");
-        assert_eq!(math_util::unpack_left_int(packed), as_i32(&row["unpackLeft"]), "packInt unpackLeft {row}");
-        assert_eq!(math_util::unpack_right_int(packed), as_i32(&row["unpackRight"]), "packInt unpackRight {row}");
+        assert_eq!(
+            math_util::unpack_left_int(packed),
+            as_i32(&row["unpackLeft"]),
+            "packInt unpackLeft {row}"
+        );
+        assert_eq!(
+            math_util::unpack_right_int(packed),
+            as_i32(&row["unpackRight"]),
+            "packInt unpackRight {row}"
+        );
     }
     for row in root["packLong"].as_array().unwrap() {
         let packed = math_util::pack_long(as_i32(&row["left"]), as_i32(&row["right"]));
         assert_eq!(packed, as_i64(&row["packed"]), "packLong {row}");
-        assert_eq!(math_util::unpack_left_long(packed), as_i32(&row["unpackLeft"]), "packLong unpackLeft {row}");
-        assert_eq!(math_util::unpack_right_long(packed), as_i32(&row["unpackRight"]), "packLong unpackRight {row}");
+        assert_eq!(
+            math_util::unpack_left_long(packed),
+            as_i32(&row["unpackLeft"]),
+            "packLong unpackLeft {row}"
+        );
+        assert_eq!(
+            math_util::unpack_right_long(packed),
+            as_i32(&row["unpackRight"]),
+            "packLong unpackRight {row}"
+        );
     }
 
     // lengths
     for row in root["lengthSquared_2d"].as_array().unwrap() {
         let got = math_util::length_squared2_f64(as_f64(&row["x"]), as_f64(&row["y"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "lengthSquared2 {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "lengthSquared2 {row}"
+        );
     }
     for row in root["length_2d"].as_array().unwrap() {
         let got = math_util::length2_f64(as_f64(&row["x"]), as_f64(&row["y"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "length2 {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "length2 {row}"
+        );
     }
     for row in root["lengthSquared_3d"].as_array().unwrap() {
-        let got = math_util::length_squared3_f64(as_f64(&row["x"]), as_f64(&row["y"]), as_f64(&row["z"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "lengthSquared3 {row}");
+        let got =
+            math_util::length_squared3_f64(as_f64(&row["x"]), as_f64(&row["y"]), as_f64(&row["z"]));
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "lengthSquared3 {row}"
+        );
     }
     for row in root["length_3d"].as_array().unwrap() {
         let got = math_util::length3_f64(as_f64(&row["x"]), as_f64(&row["y"]), as_f64(&row["z"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "length3 {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "length3 {row}"
+        );
     }
 
     // misc
@@ -362,14 +500,22 @@ fn golden_mathutil() {
     }
     for row in root["within_double"].as_array().unwrap() {
         assert_eq!(
-            math_util::within(as_f64(&row["val"]), as_f64(&row["min"]), as_f64(&row["max"])),
+            math_util::within(
+                as_f64(&row["val"]),
+                as_f64(&row["min"]),
+                as_f64(&row["max"])
+            ),
             row["out"].as_bool().unwrap(),
             "within {row}"
         );
     }
     for row in root["clipToZero_double"].as_array().unwrap() {
         let got = math_util::clip_to_zero_f64(as_f64(&row["v"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "clipToZero {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "clipToZero {row}"
+        );
     }
     for row in root["closeToZero_double"].as_array().unwrap() {
         assert_eq!(
@@ -387,7 +533,11 @@ fn golden_mathutil() {
     }
     for row in root["percent"].as_array().unwrap() {
         let got = math_util::percent(as_i32(&row["v"]), as_i32(&row["total"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "percent {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "percent {row}"
+        );
     }
     for row in root["saturatedMultiply"].as_array().unwrap() {
         assert_eq!(
@@ -407,7 +557,11 @@ fn golden_mathutil() {
             as_f64(&row["bx"]),
             as_f64(&row["by"]),
         );
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "distanceToLineSq {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "distanceToLineSq {row}"
+        );
     }
     for row in root["distanceToInfLineSq"].as_array().unwrap() {
         let got = math_util::distance_to_inf_line_sq(
@@ -418,7 +572,11 @@ fn golden_mathutil() {
             as_f64(&row["bx"]),
             as_f64(&row["by"]),
         );
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "distanceToInfLineSq {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "distanceToInfLineSq {row}"
+        );
     }
     for row in root["sideOfLine"].as_array().unwrap() {
         assert_eq!(
@@ -442,11 +600,24 @@ fn golden_mathutil() {
             as_f32(&row["rangeMin"]),
             as_f32(&row["rangeMax"]),
         );
-        assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "mapToRange {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f32(&row["out"]).to_bits(),
+            "mapToRange {row}"
+        );
     }
     for row in root["percentile"].as_array().unwrap() {
-        let data: Vec<i64> = row["sortedData"].as_array().unwrap().iter().map(as_i64).collect();
+        let data: Vec<i64> = row["sortedData"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(as_i64)
+            .collect();
         let got = math_util::percentile(&data, as_f64(&row["percentile"]));
-        assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "percentile {row}");
+        assert_eq!(
+            got.to_bits(),
+            as_f64(&row["out"]).to_bits(),
+            "percentile {row}"
+        );
     }
 }

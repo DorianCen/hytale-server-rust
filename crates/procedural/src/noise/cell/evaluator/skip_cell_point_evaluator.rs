@@ -10,7 +10,7 @@ use std::rc::Rc;
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
 use crate::noise::cell::jitter::CellJitter;
 use crate::noise::result_buffer::{ResultBuffer2d, ResultBuffer3d};
-use crate::noise::support::{fastutil_next_power_of_two};
+use crate::noise::support::fastutil_next_power_of_two;
 
 /// Java `SkipCellPointEvaluator.Mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39,11 +39,7 @@ pub struct SkipCellPointEvaluator {
 
 impl SkipCellPointEvaluator {
     /// Java `SkipCellPointEvaluator(PointEvaluator, Mode, int period)`.
-    pub fn new(
-        point_evaluator: Rc<dyn PointEvaluator>,
-        mode: SkipCellMode,
-        period: i32,
-    ) -> Self {
+    pub fn new(point_evaluator: Rc<dyn PointEvaluator>, mode: SkipCellMode, period: i32) -> Self {
         // Java: final int interval = HashCommon.nextPowerOfTwo(Math.max(0, period) + 1);
         let interval = fastutil_next_power_of_two(period.max(0).wrapping_add(1));
         Self {

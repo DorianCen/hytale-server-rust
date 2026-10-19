@@ -12,9 +12,7 @@ use hytale_math::fast_random::FastRandom;
 use hytale_math::hash_util;
 
 use crate::noise::general_noise::fast_floor;
-use crate::noise::support::{
-    IDoubleCondition, IDoubleThreshold, IIntCondition, NoiseProperty,
-};
+use crate::noise::support::{IDoubleCondition, IDoubleThreshold, IIntCondition, NoiseProperty};
 
 // ---------------------------------------------------------------------
 // int conditions
@@ -458,8 +456,10 @@ impl BasicHeightThresholdInterpreter {
                     if i == 0 {
                         threshold = thresholds[i];
                     } else {
-                        let distance = (y - positions[i - 1]) as f32 / (pos - positions[i - 1]) as f32;
-                        threshold = height_threshold_lerp(thresholds[i - 1], thresholds[i], distance);
+                        let distance =
+                            (y - positions[i - 1]) as f32 / (pos - positions[i - 1]) as f32;
+                        threshold =
+                            height_threshold_lerp(thresholds[i - 1], thresholds[i], distance);
                     }
                     break;
                 }
@@ -515,7 +515,14 @@ impl IHeightThresholdInterpreter for BasicHeightThresholdInterpreter {
         self.get_threshold_with_context(seed, x, y, height, context)
     }
 
-    fn get_threshold_with_context(&self, _seed: i32, _x: f64, _y: f64, height: i32, _context: f64) -> f32 {
+    fn get_threshold_with_context(
+        &self,
+        _seed: i32,
+        _x: f64,
+        _y: f64,
+        height: i32,
+        _context: f64,
+    ) -> f32 {
         if height > self.highest_non_zero {
             return 0.0;
         }
@@ -623,7 +630,14 @@ impl IHeightThresholdInterpreter for NoiseHeightThresholdInterpreter {
         self.get_threshold_with_context(seed, x, z, height, context)
     }
 
-    fn get_threshold_with_context(&self, seed: i32, x: f64, z: f64, height: i32, context: f64) -> f32 {
+    fn get_threshold_with_context(
+        &self,
+        seed: i32,
+        x: f64,
+        z: f64,
+        height: i32,
+        context: f64,
+    ) -> f32 {
         if height > self.highest_non_zero {
             return 0.0;
         }
@@ -711,8 +725,16 @@ mod tests {
     #[test]
     fn noise_interpreter_blends_by_context() {
         // positions/thresholds must have equal lengths (Java precondition)
-        let low = Rc::new(BasicHeightThresholdInterpreter::new(&[25, 50], &[1.0, 0.0], 100));
-        let high = Rc::new(BasicHeightThresholdInterpreter::new(&[50, 75], &[1.0, 0.0], 100));
+        let low = Rc::new(BasicHeightThresholdInterpreter::new(
+            &[25, 50],
+            &[1.0, 0.0],
+            100,
+        ));
+        let high = Rc::new(BasicHeightThresholdInterpreter::new(
+            &[50, 75],
+            &[1.0, 0.0],
+            100,
+        ));
         // ConstantNoise(0.5) → SingleNoiseProperty: 0.5*0.5+0.5 = 0.75
         // keys[i] pairs with values[i]: context <= keys[i] blends values[i-1..i]
         let interp = NoiseHeightThresholdInterpreter::new(
@@ -740,6 +762,9 @@ mod tests {
 
     fn constant_property(v: f64) -> Rc<dyn NoiseProperty> {
         use crate::noise::property::single_noise_property::SingleNoiseProperty;
-        Rc::new(SingleNoiseProperty::new(0, Rc::new(crate::noise::constant_noise::ConstantNoise::new(v))))
+        Rc::new(SingleNoiseProperty::new(
+            0,
+            Rc::new(crate::noise::constant_noise::ConstantNoise::new(v)),
+        ))
     }
 }

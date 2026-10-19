@@ -24,7 +24,10 @@ impl SingleNoiseProperty {
 
     /// Java `SingleNoiseProperty(int seedOffset, NoiseFunction function)`.
     pub fn new(seed_offset: i32, function: Rc<dyn NoiseFunction>) -> Self {
-        Self { seed_offset, function }
+        Self {
+            seed_offset,
+            function,
+        }
     }
 
     /// Java `getSeedOffset()`.

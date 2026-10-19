@@ -28,22 +28,86 @@ pub const GRAD_2D: [Double2; 8] = [
 /// (Last four entries intentionally repeat the `{1,1,0}` shape pattern of the
 /// first four — transcribed exactly as in Java.)
 pub const GRAD_3D: [Double3; 16] = [
-    Double3 { x: 1.0, y: 1.0, z: 0.0 },
-    Double3 { x: -1.0, y: 1.0, z: 0.0 },
-    Double3 { x: 1.0, y: -1.0, z: 0.0 },
-    Double3 { x: -1.0, y: -1.0, z: 0.0 },
-    Double3 { x: 1.0, y: 0.0, z: 1.0 },
-    Double3 { x: -1.0, y: 0.0, z: 1.0 },
-    Double3 { x: 1.0, y: 0.0, z: -1.0 },
-    Double3 { x: -1.0, y: 0.0, z: -1.0 },
-    Double3 { x: 0.0, y: 1.0, z: 1.0 },
-    Double3 { x: 0.0, y: -1.0, z: 1.0 },
-    Double3 { x: 0.0, y: 1.0, z: -1.0 },
-    Double3 { x: 0.0, y: -1.0, z: -1.0 },
-    Double3 { x: 1.0, y: 1.0, z: 0.0 },
-    Double3 { x: 0.0, y: -1.0, z: 1.0 },
-    Double3 { x: -1.0, y: 1.0, z: 0.0 },
-    Double3 { x: 0.0, y: -1.0, z: -1.0 },
+    Double3 {
+        x: 1.0,
+        y: 1.0,
+        z: 0.0,
+    },
+    Double3 {
+        x: -1.0,
+        y: 1.0,
+        z: 0.0,
+    },
+    Double3 {
+        x: 1.0,
+        y: -1.0,
+        z: 0.0,
+    },
+    Double3 {
+        x: -1.0,
+        y: -1.0,
+        z: 0.0,
+    },
+    Double3 {
+        x: 1.0,
+        y: 0.0,
+        z: 1.0,
+    },
+    Double3 {
+        x: -1.0,
+        y: 0.0,
+        z: 1.0,
+    },
+    Double3 {
+        x: 1.0,
+        y: 0.0,
+        z: -1.0,
+    },
+    Double3 {
+        x: -1.0,
+        y: 0.0,
+        z: -1.0,
+    },
+    Double3 {
+        x: 0.0,
+        y: 1.0,
+        z: 1.0,
+    },
+    Double3 {
+        x: 0.0,
+        y: -1.0,
+        z: 1.0,
+    },
+    Double3 {
+        x: 0.0,
+        y: 1.0,
+        z: -1.0,
+    },
+    Double3 {
+        x: 0.0,
+        y: -1.0,
+        z: -1.0,
+    },
+    Double3 {
+        x: 1.0,
+        y: 1.0,
+        z: 0.0,
+    },
+    Double3 {
+        x: 0.0,
+        y: -1.0,
+        z: 1.0,
+    },
+    Double3 {
+        x: -1.0,
+        y: 1.0,
+        z: 0.0,
+    },
+    Double3 {
+        x: 0.0,
+        y: -1.0,
+        z: -1.0,
+    },
 ];
 
 /// Java `GeneralNoise.fastFloor(double)`.

@@ -203,7 +203,10 @@ impl IntRange {
     pub fn set_inclusive_min(&mut self, inclusive_min: i32) {
         self.inclusive_min = inclusive_min;
         // Java: this.range = this.inclusiveMax - inclusiveMin + 1 (wraps silently)
-        self.range = self.inclusive_max.wrapping_sub(inclusive_min).wrapping_add(1);
+        self.range = self
+            .inclusive_max
+            .wrapping_sub(inclusive_min)
+            .wrapping_add(1);
     }
 
     /// Java `setInclusiveMax(int)`.
@@ -303,7 +306,7 @@ mod tests {
     #[test]
     fn int_range_maps_factor() {
         let mut r = IntRange::new(0, 2); // range = 3
-        // getInt(float): 0 + fastFloor(3 * factor), clamped by inclusive_max
+                                         // getInt(float): 0 + fastFloor(3 * factor), clamped by inclusive_max
         assert_eq!(r.get_int_f32(0.0), 0);
         assert_eq!(r.get_int_f32(1.0), 2);
         assert_eq!(r.get_int_f64(1.0), 2);

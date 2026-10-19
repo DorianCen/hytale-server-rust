@@ -68,7 +68,8 @@ impl PointEvaluator for BorderPointEvaluator {
             return;
         }
 
-        let distance = Self::get_border_distance(x, y, buffer.x2, buffer.y2, cell_point_x, cell_point_y);
+        let distance =
+            Self::get_border_distance(x, y, buffer.x2, buffer.y2, cell_point_x, cell_point_y);
         if distance < buffer.distance {
             buffer.distance = distance;
         }
@@ -91,7 +92,8 @@ impl PointEvaluator for BorderPointEvaluator {
             return;
         }
 
-        let distance = Self::get_border_distance(x, y, buffer.x2, buffer.y2, cell_point_x, cell_point_y);
+        let distance =
+            Self::get_border_distance(x, y, buffer.x2, buffer.y2, cell_point_x, cell_point_y);
         if distance < buffer.distance {
             buffer.distance2 = buffer.distance;
             buffer.distance = distance;
@@ -116,7 +118,9 @@ impl PointEvaluator for BorderPointEvaluator {
         _buffer: &mut ResultBuffer3d,
     ) {
         // Java: throw new UnsupportedOperationException();
-        panic!("BorderPointEvaluator.evalPoint 3d is unsupported (Java UnsupportedOperationException)");
+        panic!(
+            "BorderPointEvaluator.evalPoint 3d is unsupported (Java UnsupportedOperationException)"
+        );
     }
 
     fn eval_point2_3d(

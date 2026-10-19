@@ -20,6 +20,7 @@ thiserror = "2"
 rayon = "1"
 png = "0.17"
 moka = { version = "0.12", features = ["sync"] }
+log = "0.4"
 clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
 

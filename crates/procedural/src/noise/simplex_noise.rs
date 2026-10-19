@@ -2,8 +2,8 @@
 //! Java `SimplexNoise` (the two- and three-dimensional simplex noise used as a
 //! singleton, `SimplexNoise.INSTANCE`).
 
-use crate::noise::general_noise::{fast_floor, grad_coord_2d, grad_coord_3d};
 use crate::noise::function::{NoiseFunction2d, NoiseFunction3d};
+use crate::noise::general_noise::{fast_floor, grad_coord_2d, grad_coord_3d};
 
 // Java fields:
 // private final static double F2 = 1.0 / 2.0;
@@ -194,7 +194,6 @@ impl NoiseFunction3d for SimplexNoise {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,7 +215,10 @@ mod tests {
                 let a3 = NoiseFunction3d::get(&NOISE, seed, 7777, x, y, z);
                 let b3 = NoiseFunction3d::get(&NOISE, seed, 7777, x, y, z);
                 assert_eq!(a3, b3, "3d not deterministic at seed={seed}");
-                assert!(a3.is_finite(), "3d NaN/inf at seed={seed} x={x} y={y} z={z}");
+                assert!(
+                    a3.is_finite(),
+                    "3d NaN/inf at seed={seed} x={x} y={y} z={z}"
+                );
                 assert!(a3.abs() <= 2.0, "3d out of expected |v|<=2 range: {a3}");
             }
         }

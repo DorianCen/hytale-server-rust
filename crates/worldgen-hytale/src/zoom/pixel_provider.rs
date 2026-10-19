@@ -17,20 +17,32 @@ impl PixelProvider {
     /// Java `PixelProvider(BufferedImage)` — from a row-major RGBA8 buffer
     /// (`0xAARRGGBB` ints, as `BufferedImage.getRGB` returns; masked to
     /// `0xFFFFFF`).
-    pub fn from_rgb_image(width: usize, height: usize, get_rgb: impl Fn(usize, usize) -> i32) -> Self {
+    pub fn from_rgb_image(
+        width: usize,
+        height: usize,
+        get_rgb: impl Fn(usize, usize) -> i32,
+    ) -> Self {
         let mut pixels = vec![0i32; width * height];
         for x in 0..width {
             for y in 0..height {
                 pixels[x * height + y] = get_rgb(x, y) & 0xFFFFFF;
             }
         }
-        Self { pixels, width, height }
+        Self {
+            pixels,
+            width,
+            height,
+        }
     }
 
     /// Java `PixelProvider(PixelProvider other)` — see [`PixelProvider::clone`].
     pub fn from_pixels(width: usize, height: usize, pixels: Vec<i32>) -> Self {
         assert_eq!(pixels.len(), width * height, "pixel buffer size mismatch");
-        Self { pixels, width, height }
+        Self {
+            pixels,
+            width,
+            height,
+        }
     }
 
     /// Java `getWidth()`.

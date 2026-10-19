@@ -207,7 +207,9 @@ impl CellFunction for CellMode {
                 noise_lookup.get(seed, px, py)
             }
             CellMode::Distance => f64::sqrt(buffer.distance),
-            CellMode::Direction => Self::direction_eval_2d(seed, offset_seed, x, y, buffer, noise_lookup),
+            CellMode::Direction => {
+                Self::direction_eval_2d(seed, offset_seed, x, y, buffer, noise_lookup)
+            }
         }
     }
 
@@ -242,7 +244,9 @@ impl CellFunction for CellMode {
             }
             CellMode::Distance => f64::sqrt(buffer.distance),
             // Java: throw new UnsupportedOperationException();
-            CellMode::Direction => panic!("Direction cell function does not support 3d (Java UnsupportedOperationException)"),
+            CellMode::Direction => panic!(
+                "Direction cell function does not support 3d (Java UnsupportedOperationException)"
+            ),
         }
     }
 }
@@ -261,8 +265,8 @@ impl CellMode {
         // Choose a random angle for the cell based on its 'unique' hash or
         // noiseLookup if present.
         // Java: float angle = (float) getAngleNoise(seed, offsetSeed, buffer, noiseLookup) * TrigMathUtil.PI2;
-        let angle =
-            (Self::get_angle_noise(seed, offset_seed, buffer, noise_property) as f32) * trig_math_util::PI2;
+        let angle = (Self::get_angle_noise(seed, offset_seed, buffer, noise_property) as f32)
+            * trig_math_util::PI2;
 
         let dx = trig_math_util::sin(angle);
         let dy = trig_math_util::cos(angle);

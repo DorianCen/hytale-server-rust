@@ -22,23 +22,29 @@ pub fn hash(v: i64) -> i64 {
 /// Java `HashUtil.hash(long l1, long l2)`.
 pub fn hash2(l1: i64, l2: i64) -> i64 {
     // Java: l1 = ((hash(l1) >>> 30) ^ l1) * 0xbf58476d_1ce4e5b9L;
-    let l1 = ((((hash(l1) as u64) >> 30) ^ (l1 as u64)) as i64).wrapping_mul(0xbf58_476d_1ce4_e5b9u64 as i64);
+    let l1 = ((((hash(l1) as u64) >> 30) ^ (l1 as u64)) as i64)
+        .wrapping_mul(0xbf58_476d_1ce4_e5b9u64 as i64);
     // Java: l1 = ((hash(l2) >>> 31) ^ l1);
     ((hash(l2) as u64) >> 31) as i64 ^ l1
 }
 
 /// Java `HashUtil.hash(long l1, long l2, long l3)`.
 pub fn hash3(l1: i64, l2: i64, l3: i64) -> i64 {
-    let l1 = ((((hash(l1) as u64) >> 30) ^ (l1 as u64)) as i64).wrapping_mul(0xbf58_476d_1ce4_e5b9u64 as i64);
-    let l1 = ((((hash(l2) as u64) >> 27) ^ (l1 as u64)) as i64).wrapping_mul(0x94d0_49bb_1331_11ebu64 as i64);
+    let l1 = ((((hash(l1) as u64) >> 30) ^ (l1 as u64)) as i64)
+        .wrapping_mul(0xbf58_476d_1ce4_e5b9u64 as i64);
+    let l1 = ((((hash(l2) as u64) >> 27) ^ (l1 as u64)) as i64)
+        .wrapping_mul(0x94d0_49bb_1331_11ebu64 as i64);
     ((hash(l3) as u64) >> 31) as i64 ^ l1
 }
 
 /// Java `HashUtil.hash(long l1, long l2, long l3, long l4)`.
 pub fn hash4(l1: i64, l2: i64, l3: i64, l4: i64) -> i64 {
-    let l1 = ((((hash(l1) as u64) >> 30) ^ (l1 as u64)) as i64).wrapping_mul(0xbf58_476d_1ce4_e5b9u64 as i64);
-    let l1 = ((((hash(l2) as u64) >> 27) ^ (l1 as u64)) as i64).wrapping_mul(0x94d0_49bb_1331_11ebu64 as i64);
-    let l1 = ((((hash(l3) as u64) >> 30) ^ (l1 as u64)) as i64).wrapping_mul(0xa753_2714_2784_b77du64 as i64);
+    let l1 = ((((hash(l1) as u64) >> 30) ^ (l1 as u64)) as i64)
+        .wrapping_mul(0xbf58_476d_1ce4_e5b9u64 as i64);
+    let l1 = ((((hash(l2) as u64) >> 27) ^ (l1 as u64)) as i64)
+        .wrapping_mul(0x94d0_49bb_1331_11ebu64 as i64);
+    let l1 = ((((hash(l3) as u64) >> 30) ^ (l1 as u64)) as i64)
+        .wrapping_mul(0xa753_2714_2784_b77du64 as i64);
     ((hash(l4) as u64) >> 31) as i64 ^ l1
 }
 
@@ -120,7 +126,11 @@ mod tests {
         // small distinct inputs.
         assert_eq!(hash(1), hash(1));
         assert_ne!(hash(1), hash(2));
-        assert_ne!(hash2(1, 2), hash2(2, 1), "hash combines l1/l2 asymmetrically");
+        assert_ne!(
+            hash2(1, 2),
+            hash2(2, 1),
+            "hash combines l1/l2 asymmetrically"
+        );
     }
 
     #[test]

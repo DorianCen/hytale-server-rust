@@ -36,7 +36,10 @@ pub struct AmplitudeNoiseProperty {
 impl AmplitudeNoiseProperty {
     /// Java `AmplitudeNoiseProperty(NoiseProperty, double)`.
     pub fn new(property: Rc<dyn NoiseProperty>, amplitude: f64) -> Self {
-        Self { property, amplitude }
+        Self {
+            property,
+            amplitude,
+        }
     }
 }
 
@@ -57,7 +60,11 @@ impl CoordinateRandomizer {
         y_noise: Vec<AmplitudeNoiseProperty>,
         z_noise: Vec<AmplitudeNoiseProperty>,
     ) -> Self {
-        Self { x_noise, y_noise, z_noise }
+        Self {
+            x_noise,
+            y_noise,
+            z_noise,
+        }
     }
 }
 
@@ -329,7 +336,10 @@ pub struct RotatedCoordinateRandomizer {
 impl RotatedCoordinateRandomizer {
     /// Java `RotatedCoordinateRandomizer(ICoordinateRandomizer, CoordinateRotator)`.
     pub fn new(randomizer: Rc<dyn ICoordinateRandomizer>, rotation: CoordinateRotator) -> Self {
-        Self { randomizer, rotation }
+        Self {
+            randomizer,
+            rotation,
+        }
     }
 }
 

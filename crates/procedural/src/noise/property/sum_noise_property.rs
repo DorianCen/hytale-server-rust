@@ -17,7 +17,10 @@ pub struct SumNoisePropertyEntry {
 impl SumNoisePropertyEntry {
     /// Java `Entry(NoiseProperty, double)`.
     pub fn new(noise_property: Rc<dyn NoiseProperty>, factor: f64) -> Self {
-        Self { noise_property, factor }
+        Self {
+            noise_property,
+            factor,
+        }
     }
 }
 

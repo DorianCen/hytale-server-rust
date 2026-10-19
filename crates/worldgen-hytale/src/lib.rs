@@ -6,5 +6,7 @@
 
 pub mod climate;
 pub mod unique_zone_placement;
+pub mod util;
+pub mod weighted_map;
 pub mod zone;
 pub mod zoom;

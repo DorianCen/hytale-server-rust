@@ -113,7 +113,9 @@ impl BranchEvaluator {
                     1
                 }
             }
-            BranchDirection::Random => RANDOM_DIRECTIONS[(region_hash & RANDOM_DIRECTION_MASK) as usize].x,
+            BranchDirection::Random => {
+                RANDOM_DIRECTIONS[(region_hash & RANDOM_DIRECTION_MASK) as usize].x
+            }
         }
     }
 
@@ -145,7 +147,9 @@ impl BranchEvaluator {
                     1
                 }
             }
-            BranchDirection::Random => RANDOM_DIRECTIONS[(region_hash & RANDOM_DIRECTION_MASK) as usize].y,
+            BranchDirection::Random => {
+                RANDOM_DIRECTIONS[(region_hash & RANDOM_DIRECTION_MASK) as usize].y
+            }
         }
     }
 

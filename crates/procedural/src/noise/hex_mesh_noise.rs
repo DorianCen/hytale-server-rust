@@ -7,9 +7,7 @@
 
 use std::rc::Rc;
 
-use crate::noise::cell::hex_cell_distance_function::{
-    HexCellDistanceFunction, HEX_CELL_2D, SCALE,
-};
+use crate::noise::cell::hex_cell_distance_function::{HexCellDistanceFunction, HEX_CELL_2D, SCALE};
 use crate::noise::function::{NoiseFunction2d, NoiseFunction3d};
 use crate::noise::math_util;
 use crate::noise::support::IIntCondition;
@@ -90,21 +88,17 @@ impl HexMeshNoise {
         let ady = y - ay;
 
         if self.lines_x {
-            nearest = nearest.min(self.dist_2_cell(
-                offset_seed, x, y, adx, ady, ax, ay, cx - 1, cy,
-            ));
-            nearest = nearest.min(self.dist_2_cell(
-                offset_seed, x, y, adx, ady, ax, ay, cx + 1, cy,
-            ));
+            nearest =
+                nearest.min(self.dist_2_cell(offset_seed, x, y, adx, ady, ax, ay, cx - 1, cy));
+            nearest =
+                nearest.min(self.dist_2_cell(offset_seed, x, y, adx, ady, ax, ay, cx + 1, cy));
         }
 
         if self.lines_y {
-            nearest = nearest.min(self.dist_2_cell(
-                offset_seed, x, y, adx, ady, ax, ay, cx, cy - 1,
-            ));
-            nearest = nearest.min(self.dist_2_cell(
-                offset_seed, x, y, adx, ady, ax, ay, cx, cy + 1,
-            ));
+            nearest =
+                nearest.min(self.dist_2_cell(offset_seed, x, y, adx, ady, ax, ay, cx, cy - 1));
+            nearest =
+                nearest.min(self.dist_2_cell(offset_seed, x, y, adx, ady, ax, ay, cx, cy + 1));
         }
 
         nearest
@@ -137,12 +131,10 @@ impl HexMeshNoise {
         let adx = x - ax;
         let ady = y - ay;
 
-        nearest = nearest.min(self.dist_2_cell(
-            offset_seed, x, y, adx, ady, ax, ay, cx - 1, cy + 1,
-        ));
-        nearest = nearest.min(self.dist_2_cell(
-            offset_seed, x, y, adx, ady, ax, ay, cx + 1, cy - 1,
-        ));
+        nearest =
+            nearest.min(self.dist_2_cell(offset_seed, x, y, adx, ady, ax, ay, cx - 1, cy + 1));
+        nearest =
+            nearest.min(self.dist_2_cell(offset_seed, x, y, adx, ady, ax, ay, cx + 1, cy - 1));
 
         nearest
     }
@@ -174,18 +166,7 @@ impl HexMeshNoise {
         let by = HexCellDistanceFunction::to_hex_y(px, py);
 
         // Java: MathUtil.distanceToLineSq(x, y, ax, ay, bx, by, adx, ady, bx - ax, by - ay)
-        math_util::distance_to_line_sq_deltas(
-            x,
-            y,
-            ax,
-            ay,
-            bx,
-            by,
-            adx,
-            ady,
-            bx - ax,
-            by - ay,
-        )
+        math_util::distance_to_line_sq_deltas(x, y, ax, ay, bx, by, adx, ady, bx - ax, by - ay)
     }
 }
 

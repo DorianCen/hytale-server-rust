@@ -75,7 +75,6 @@ impl NoiseFunction3d for PointNoise {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

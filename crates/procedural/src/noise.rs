@@ -35,6 +35,7 @@ pub mod branch_noise;
 pub mod cell;
 pub mod cell_noise;
 pub mod cellular_noise;
+pub mod condition;
 pub mod constant_noise;
 pub mod distance_noise;
 pub mod double_array;
@@ -46,26 +47,26 @@ pub mod math_util;
 pub mod mesh_noise;
 pub mod old_simplex_noise;
 pub mod perlin_noise;
-pub mod point_noise;
-pub mod condition;
 pub mod point;
+pub mod point_noise;
 pub mod property;
 pub mod random;
 pub mod result_buffer;
 pub mod simplex_noise;
+pub mod supplier;
 pub mod support;
 pub mod trig_math_util;
 pub mod value_noise;
 
 pub use branch_noise::BranchNoise;
-pub use cell_noise::{CellMode, CellNoise, CellFunction};
+pub use cell_noise::{CellFunction, CellMode, CellNoise};
 pub use cellular_noise::{CELL_2D, CELL_3D};
 pub use constant_noise::ConstantNoise;
 pub use distance_noise::{Distance2Mode, DistanceNoise};
 pub use double_array::{Double2, Double3};
 pub use function::{NoiseFunction, NoiseFunction2d, NoiseFunction3d, NoiseFunctionPair, NoiseType};
 pub use general_noise::{
-    fast_ceil, fast_floor, grad_coord_2d, grad_coord_3d, hash2d, hash3d, limit, lerp,
+    fast_ceil, fast_floor, grad_coord_2d, grad_coord_3d, hash2d, hash3d, lerp, limit,
     InterpolationFunction, InterpolationMode, X_PRIME, Y_PRIME, Z_PRIME,
 };
 pub use grid_noise::GridNoise;
@@ -73,15 +74,18 @@ pub use hex_mesh_noise::HexMeshNoise;
 pub use mesh_noise::MeshNoise;
 pub use old_simplex_noise::OldSimplexNoise;
 pub use perlin_noise::PerlinNoise;
+pub use point::{
+    DistortedPointGenerator, IPointGenerator, OffsetPointGenerator, PointGenerator,
+    ScaledPointGenerator,
+};
 pub use point_noise::PointNoise;
-pub use point::{DistortedPointGenerator, IPointGenerator, OffsetPointGenerator, PointGenerator, ScaledPointGenerator};
 pub use property::{
     BlendNoiseProperty, CurveNoiseProperty, DistortedNoiseProperty, FractalMode,
     FractalNoiseProperty, GradientMode, GradientNoiseProperty, InvertNoiseProperty,
-    MaxNoiseProperty, MinNoiseProperty, MultiplyNoiseProperty, NoiseFormula,
-    NoiseFormulaProperty, NoisePropertyType, NormalizeNoiseProperty, OffsetNoiseProperty,
-    PowerCurve, RotateNoiseProperty, ScaleNoiseProperty, SingleNoiseProperty,
-    SumNoiseProperty, SumNoisePropertyEntry,
+    MaxNoiseProperty, MinNoiseProperty, MultiplyNoiseProperty, NoiseFormula, NoiseFormulaProperty,
+    NoisePropertyType, NormalizeNoiseProperty, OffsetNoiseProperty, PowerCurve,
+    RotateNoiseProperty, ScaleNoiseProperty, SingleNoiseProperty, SumNoiseProperty,
+    SumNoisePropertyEntry,
 };
 pub use random::{
     AmplitudeNoiseProperty, CoordinateOriginRotator, CoordinateRandomizer, CoordinateRotator,

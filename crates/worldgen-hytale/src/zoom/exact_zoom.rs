@@ -6,8 +6,8 @@ use hytale_math::fast_random::FastRandom;
 use hytale_math::math_util;
 use procedural::noise::support::Vector2i;
 
-pub use crate::unique_zone_placement::{select_candidate_position, test_zone_fit};
 use crate::unique_zone_placement::test_zone_fit_for_entry;
+pub use crate::unique_zone_placement::{select_candidate_position, test_zone_fit};
 use crate::zone::{Unique, UniqueCandidate, UniqueEntry};
 use crate::zoom::pixel_distance_provider::PixelDistanceProvider;
 use crate::zoom::pixel_provider::PixelProvider;
@@ -75,7 +75,9 @@ impl ExactZoom {
         y /= self.zoom_y;
 
         let px = math_util::floor(x).max(0).min(self.source.width as i32 - 1);
-        let py = math_util::floor(y).max(0).min(self.source.height as i32 - 1);
+        let py = math_util::floor(y)
+            .max(0)
+            .min(self.source.height as i32 - 1);
 
         self.source.get_pixel(px, py)
     }
@@ -208,4 +210,3 @@ impl ExactZoom {
         &self.source
     }
 }
-

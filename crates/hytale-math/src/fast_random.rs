@@ -133,7 +133,8 @@ impl FastRandom {
     pub fn next_double(&mut self) -> f64 {
         let high = self.next_bits(26);
         let low = self.next_bits(27);
-        (((high as i64) << 27).wrapping_add(low as i64)) as f64 * f64::from_bits((1023 - 53) << 52) // 0x1.0p-53
+        (((high as i64) << 27).wrapping_add(low as i64)) as f64 * f64::from_bits((1023 - 53) << 52)
+        // 0x1.0p-53
     }
 }
 
@@ -238,9 +239,8 @@ mod tests {
     #[test]
     fn negative_int_bound_panics_like_java() {
         let mut random = FastRandom::new(0);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            random.next_int_bound(-1)
-        }));
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| random.next_int_bound(-1)));
         assert!(result.is_err());
     }
 

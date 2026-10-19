@@ -65,7 +65,14 @@ impl PointEvaluator for NormalPointEvaluator {
             cell_point_x - x,
             cell_point_y - y,
         );
-        buffer.register(cell_hash, cell_x, cell_y, distance, cell_point_x, cell_point_y);
+        buffer.register(
+            cell_hash,
+            cell_x,
+            cell_y,
+            distance,
+            cell_point_x,
+            cell_point_y,
+        );
     }
 
     fn eval_point2_2d(
@@ -89,7 +96,14 @@ impl PointEvaluator for NormalPointEvaluator {
             cell_point_x - x,
             cell_point_y - y,
         );
-        buffer.register2(cell_hash, cell_x, cell_y, distance, cell_point_x, cell_point_y);
+        buffer.register2(
+            cell_hash,
+            cell_x,
+            cell_y,
+            distance,
+            cell_point_x,
+            cell_point_y,
+        );
     }
 
     fn eval_point_3d(

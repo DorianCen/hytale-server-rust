@@ -10,10 +10,28 @@ subtasks in dependency order, sized for ~200k-context subagent runs
 - `procedural`: all 11 noise types — golden tests vs `testdata/golden/noise.json` (bit-exact 2d+3d); NoiseProperty DSL; random/ (coordinate randomizers + rotators); point/ (IPointGenerator family); condition/ package.
 - `worldgen-hytale`: zoom/ (PixelProvider, PixelDistanceProvider, ExactZoom, FuzzyZoom, unique-zone placement helpers); climate/ core (ClimateType, ClimateGraph, DistanceTransform, ClimateNoise, ClimateSearch, DirectGrid, IntMap/DoubleMap).
 
-## Subtask 1 — weighted map + worldgen/util (~1.9k Java lines) [independent]
-- Common/map: IWeightedMap, WeightedMap, DefaultMap, IWeightedElement → `crates/worldgen-hytale/src/weighted_map/`
-- worldgen/util: ArrayUtli, BlockArray, NoiseBlockArray, ResolvedBlockArray, BlockFluidEntry, ListPool, ObjectPool, ConstantNoiseProperty, LogUtil, function/, bounds/, cache/ (use moka), condition/
-- Skip ChunkThreadPoolExecutor/ChunkWorkerThreadFactory (different worker design)
+## Subtask 1 — weighted map + worldgen/util (~1.9k Java lines) [DONE]
+- Common/map: IWeightedElement, IWeightedMap, WeightedMap (Builder +
+  SingletonWeightedMap unified into one struct), DefaultMap →
+  `crates/worldgen-hytale/src/weighted_map/` (20 unit tests). `resolveKeys`
+  is a free `resolve_keys` fn; singleton `forEachEntry` yields weight 1.0;
+  `get` uses a NaN-propagating `java_math_min` (Java `Math.min` semantics).
+- worldgen/util: ArrayUtli, BlockArray, BlockFluidEntry, NoiseBlockArray,
+  ResolvedBlockArray, ListPool (Drop-guard = Java `close()`), ObjectPool,
+  ConstantNoiseProperty, LogUtil (`log` crate, target `WorldGenerator`),
+  function/ (ICoordinateDoubleSupplier family), bounds/ (all four classes;
+  PrefabRotation rotated-bounds methods deferred to Phase 5),
+  cache/ (semantic contract on moka: sized + time-to-idle, lazy eviction +
+  explicit `cleanup()`, use-after-shutdown panics; destroyer/computeKey →
+  Rust Drop/moka internals, documented), condition/ (+ flag/).
+- Skip ChunkThreadPoolExecutor/ChunkWorkerThreadFactory (different worker
+  design). ResolvedBlockArray global registries arrive with Phase-2 loaders.
+- Also ported (prerequisite of NoiseBlockArray): `procedurallib.supplier`
+  → `procedural::noise::supplier` (IDoubleRange with 2d/3d coordinate
+  overloads, DoubleRange Constant/Normal/Multiple, DoubleRangeNoiseSupplier,
+  NoisePropertySupplier2d/3d method-reference adapters). The reduced seams in
+  `procedural::noise::support` stay for the noise core; integration of those
+  seams is deferred.
 
 ## Subtask 2 — biome package (~508 lines) [needs subtask 1: container + IWeightedMap]
 - biome/: Biome, TileBiome, CustomBiome, CustomBiomeGenerator, BiomePatternGenerator, BiomeInterpolation

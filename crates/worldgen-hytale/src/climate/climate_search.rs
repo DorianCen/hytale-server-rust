@@ -2,10 +2,10 @@
 //! Java `climate.ClimateSearch` — ring-spiral scoring search for unique zone
 //! positions matching climate rules.
 
-use hytale_math::fast_random::FastRandom;
-use hytale_math::hash_util;
 use crate::climate::climate_graph::ClimateGraph;
 use crate::climate::climate_noise::ClimateNoise;
+use hytale_math::fast_random::FastRandom;
+use hytale_math::hash_util;
 
 /// Java `ClimateSearch.STEP_SIZE`.
 pub const STEP_SIZE: i32 = 100;
@@ -173,7 +173,14 @@ pub fn search(
 }
 
 /// Java private static `collect(int seed, int x, int y, ClimateNoise, ClimateGraph, Rule)`.
-fn collect(seed: i32, x: i32, y: i32, noise: &ClimateNoise, graph: &ClimateGraph, rule: &Rule) -> f64 {
+fn collect(
+    seed: i32,
+    x: i32,
+    y: i32,
+    noise: &ClimateNoise,
+    graph: &ClimateGraph,
+    rule: &Rule,
+) -> f64 {
     let xf = x as f64;
     let yf = y as f64;
 

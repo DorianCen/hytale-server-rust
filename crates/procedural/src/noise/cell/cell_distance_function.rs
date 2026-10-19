@@ -11,8 +11,8 @@
 //! are suffixed `_2d`/`_3d` (`getCellX(x, y, z)` → `get_cell_x3`).
 
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
-use crate::noise::result_buffer::{Bounds2d, ResultBuffer2d, ResultBuffer3d};
 use crate::noise::math_util;
+use crate::noise::result_buffer::{Bounds2d, ResultBuffer2d, ResultBuffer3d};
 
 /// Java `CellDistanceFunction`.
 pub trait CellDistanceFunction {

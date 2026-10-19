@@ -68,7 +68,9 @@ impl ClimateType {
     /// Java static `name(ClimateType parent, ClimateType type)`.
     pub fn display_name(parent: Option<&ClimateType>, climate_type: &ClimateType) -> String {
         match parent {
-            Some(p) if !std::ptr::eq(p, climate_type) => format!("{} / {}", p.name, climate_type.name),
+            Some(p) if !std::ptr::eq(p, climate_type) => {
+                format!("{} / {}", p.name, climate_type.name)
+            }
             _ => climate_type.name.clone(),
         }
     }

@@ -20,7 +20,7 @@ use crate::noise::distance_noise::Distance2Function;
 use crate::noise::function::{NoiseFunction2d, NoiseFunction3d};
 use crate::noise::math_util;
 use crate::noise::result_buffer::ResultBuffer2d;
-use crate::noise::support::{IIntCondition, IDoubleRange, NoiseFormula};
+use crate::noise::support::{IDoubleRange, IIntCondition, NoiseFormula};
 
 /// Java `BranchNoise implements NoiseFunction`.
 pub struct BranchNoise {
@@ -95,13 +95,7 @@ impl BranchNoise {
     }
 
     /// Java `getParentNoise(int seed, double x, double y)`.
-    fn get_parent_noise(
-        &self,
-        seed: i32,
-        x: f64,
-        y: f64,
-        buffer: &mut ResultBuffer2d,
-    ) {
+    fn get_parent_noise(&self, seed: i32, x: f64, y: f64, buffer: &mut ResultBuffer2d) {
         buffer.distance = f64::INFINITY;
         buffer.distance2 = f64::INFINITY;
 
@@ -197,9 +191,10 @@ impl NoiseFunction2d for BranchNoise {
             return self.empty_value;
         }
 
-        let parent_distance = self
-            .noise_formula
-            .eval(self.distance2_function.eval(buffer.distance, buffer.distance2));
+        let parent_distance = self.noise_formula.eval(
+            self.distance2_function
+                .eval(buffer.distance, buffer.distance2),
+        );
 
         // The distance to the nearest line segment
         let line_value = self.get_line_value(

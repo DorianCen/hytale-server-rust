@@ -31,7 +31,6 @@ impl NoiseFunction3d for ConstantNoise {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

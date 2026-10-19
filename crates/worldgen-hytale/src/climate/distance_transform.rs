@@ -14,7 +14,16 @@ const DX: [i32; 8] = [-1, 1, 0, 0, -1, -1, 1, 1];
 /// Java `DistanceTransform.DY`.
 const DY: [i32; 8] = [0, 0, -1, 1, -1, 1, -1, 1];
 /// Java `DistanceTransform.COST`.
-const COST: [f64; 8] = [1.0, 1.0, 1.0, 1.0, std::f64::consts::SQRT_2, std::f64::consts::SQRT_2, std::f64::consts::SQRT_2, std::f64::consts::SQRT_2];
+const COST: [f64; 8] = [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    std::f64::consts::SQRT_2,
+    std::f64::consts::SQRT_2,
+    std::f64::consts::SQRT_2,
+    std::f64::consts::SQRT_2,
+];
 
 /// Java `DistanceTransform.apply(IntMap source, DoubleMap dest, double radius)`.
 ///

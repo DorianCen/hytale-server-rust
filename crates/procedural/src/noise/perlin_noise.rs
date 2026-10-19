@@ -112,7 +112,6 @@ impl NoiseFunction3d for PerlinNoise {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -39,7 +39,8 @@ impl OffsetNoiseProperty {
 
 impl NoiseProperty for OffsetNoiseProperty {
     fn get(&self, seed: i32, x: f64, y: f64) -> f64 {
-        self.noise_property.get(seed, x + self.offset_x, y + self.offset_y)
+        self.noise_property
+            .get(seed, x + self.offset_x, y + self.offset_y)
     }
 
     fn get_3d(&self, seed: i32, x: f64, y: f64, z: f64) -> f64 {

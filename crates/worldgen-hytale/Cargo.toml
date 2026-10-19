@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 hytale-math = { path = "../hytale-math" }
 procedural = { path = "../procedural" }
+log = { workspace = true }
+moka = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

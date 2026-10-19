@@ -301,9 +301,10 @@ impl IPointGenerator for OffsetPointGenerator {
         consumer: &mut dyn FnMut(f64, f64),
     ) {
         let (ox, oy) = (self.offset_x, self.offset_y);
-        self.generator.collect(seed, min_x, min_y, max_x, max_y, &mut |x, y| {
-            consumer(x + ox, y + oy);
-        });
+        self.generator
+            .collect(seed, min_x, min_y, max_x, max_y, &mut |x, y| {
+                consumer(x + ox, y + oy);
+            });
     }
 }
 
@@ -337,12 +338,9 @@ impl IPointGenerator for ScaledPointGenerator {
     }
 
     fn nearest_3d(&self, seed: i32, x: f64, y: f64, z: f64) -> ResultBuffer3d {
-        let mut buf = self.point_generator.nearest_3d(
-            seed,
-            x * self.scale,
-            y * self.scale,
-            z * self.scale,
-        );
+        let mut buf =
+            self.point_generator
+                .nearest_3d(seed, x * self.scale, y * self.scale, z * self.scale);
         buf.x /= self.scale;
         buf.y /= self.scale;
         buf.z /= self.scale;
@@ -399,9 +397,10 @@ impl IPointGenerator for ScaledPointGenerator {
         max_x *= self.scale;
         max_y *= self.scale;
         let scale = self.scale;
-        self.point_generator.collect0(seed, min_x, min_y, max_x, max_y, &mut |x, y| {
-            consumer(x / scale, y / scale);
-        });
+        self.point_generator
+            .collect0(seed, min_x, min_y, max_x, max_y, &mut |x, y| {
+                consumer(x / scale, y / scale);
+            });
     }
 }
 

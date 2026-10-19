@@ -1,1 +1,3 @@
-fn main() { println!("worldgen-cli"); }
+fn main() {
+    println!("worldgen-cli");
+}

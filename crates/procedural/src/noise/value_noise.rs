@@ -103,7 +103,6 @@ impl NoiseFunction3d for ValueNoise {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,8 +131,17 @@ mod tests {
     fn deterministic_and_seed_sensitive() {
         let noise = ValueNoise::new(InterpolationMode::Linear);
         let (x, y) = (3.75, -11.25);
-        assert_eq!(NoiseFunction2d::get(&noise, 42, 0, x, y), NoiseFunction2d::get(&noise, 42, 0, x, y));
-        assert_ne!(NoiseFunction2d::get(&noise, 42, 1, x, y), NoiseFunction2d::get(&noise, 42, 2, x, y));
-        let (_, _) = (NoiseFunction3d::get(&noise, 42, 0, x, y, 0.5), NoiseFunction3d::get(&noise, 42, 0, x, y, 1.5));
+        assert_eq!(
+            NoiseFunction2d::get(&noise, 42, 0, x, y),
+            NoiseFunction2d::get(&noise, 42, 0, x, y)
+        );
+        assert_ne!(
+            NoiseFunction2d::get(&noise, 42, 1, x, y),
+            NoiseFunction2d::get(&noise, 42, 2, x, y)
+        );
+        let (_, _) = (
+            NoiseFunction3d::get(&noise, 42, 0, x, y, 0.5),
+            NoiseFunction3d::get(&noise, 42, 0, x, y, 1.5),
+        );
     }
 }

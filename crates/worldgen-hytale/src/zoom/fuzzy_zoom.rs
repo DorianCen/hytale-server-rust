@@ -36,7 +36,10 @@ impl FuzzyZoom {
     }
 
     /// Java `FuzzyZoom(ICoordinateRandomizer, ExactZoom)`.
-    pub fn from_exact_zoom(randomizer: Rc<dyn ICoordinateRandomizer>, exact_zoom: ExactZoom) -> Self {
+    pub fn from_exact_zoom(
+        randomizer: Rc<dyn ICoordinateRandomizer>,
+        exact_zoom: ExactZoom,
+    ) -> Self {
         Self {
             randomizer,
             exact_zoom,

@@ -104,7 +104,11 @@ impl NoiseFunction2d for DistanceNoise {
         );
         buffer.distance = f64::sqrt(buffer.distance);
         buffer.distance2 = f64::sqrt(buffer.distance2);
-        limit(self.distance2_function.eval(buffer.distance, buffer.distance2)) * 2.0 - 1.0
+        limit(
+            self.distance2_function
+                .eval(buffer.distance, buffer.distance2),
+        ) * 2.0
+            - 1.0
     }
 }
 
@@ -138,6 +142,10 @@ impl NoiseFunction3d for DistanceNoise {
         );
         buffer.distance = f64::sqrt(buffer.distance);
         buffer.distance2 = f64::sqrt(buffer.distance2);
-        limit(self.distance2_function.eval(buffer.distance, buffer.distance2)) * 2.0 - 1.0
+        limit(
+            self.distance2_function
+                .eval(buffer.distance, buffer.distance2),
+        ) * 2.0
+            - 1.0
     }
 }

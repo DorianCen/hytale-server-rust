@@ -6,8 +6,8 @@
 use hytale_math::fast_random::FastRandom;
 use procedural::noise::support::Vector2i;
 
-use crate::zoom::pixel_provider::PixelProvider;
 use crate::zone::{UniqueCandidate, UniqueEntry};
+use crate::zoom::pixel_provider::PixelProvider;
 
 /// Java `ExactZoom.testZoneFit(Zone.UniqueEntry, PixelProvider, int x, int y, int radius)`.
 pub fn test_zone_fit_for_entry(

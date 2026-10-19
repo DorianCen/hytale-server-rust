@@ -102,7 +102,14 @@ impl PixelDistanceProvider {
     }
 
     /// Java `protected double distanceSqToDiffInSeq(...)`.
-    fn distance_sq_to_diff_in_seq(&self, ox: f64, oy: f64, pixel: i32, cell_x: i32, cell_y: i32) -> f64 {
+    fn distance_sq_to_diff_in_seq(
+        &self,
+        ox: f64,
+        oy: f64,
+        pixel: i32,
+        cell_x: i32,
+        cell_y: i32,
+    ) -> f64 {
         let mut dist_sq = f64::INFINITY;
         if self.has_different_pixel(cell_x, cell_y, pixel) {
             let offset_x = cell_x * TABLE_SIZE;
@@ -112,7 +119,8 @@ impl PixelDistanceProvider {
                 for iy in 0..TABLE_SIZE {
                     let py = iy + offset_y;
                     if pixel != self.image.get_pixel(px, py) {
-                        let dist = super::pixel_distance_provider::distance_sq_to_pixel(ox, oy, px, py);
+                        let dist =
+                            super::pixel_distance_provider::distance_sq_to_pixel(ox, oy, px, py);
                         if dist < dist_sq {
                             dist_sq = dist;
                         }
@@ -204,11 +212,8 @@ mod tests {
     #[test]
     fn uniform_image_has_infinite_distance() {
         // 64x64 solid image: no different pixel anywhere
-        let provider = PixelDistanceProvider::new(PixelProvider::from_pixels(
-            64,
-            64,
-            vec![0x112233; 64 * 64],
-        ));
+        let provider =
+            PixelDistanceProvider::new(PixelProvider::from_pixels(64, 64, vec![0x112233; 64 * 64]));
         let d = provider.distance_sq_to_different_pixel(10.0, 10.0, 10, 10);
         assert_eq!(d, f64::INFINITY);
     }
