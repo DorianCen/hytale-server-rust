@@ -33,5 +33,13 @@ online build if the local repository is incomplete.
 
 - `pom.xml` – build and dependencies.
 - `run.sh` – build + run entry point.
-- `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper.
+- `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
+  (math/noise dumps).
+- `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
+  dumps (`zoom.json`, `climate.json`): the Default world mask and the procedural
+  climate mask, loaded through the real Java loaders.
 - `lib/` and `target/` – generated build output, not source.
+
+The upstream `ProceduralLibrary`/`WorldGenerator` classes reference `fastutil` and
+`sentry`; both are resolved from the local Maven repository and added to the runtime
+classpath by `run.sh`.

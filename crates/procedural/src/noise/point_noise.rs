@@ -19,8 +19,19 @@ pub struct PointNoise {
 impl PointNoise {
     /// Java `PointNoise(double x, double y, double z, double innerRadius, double outerRadius)`.
     pub fn new(x: f64, y: f64, z: f64, inner_radius: f64, outer_radius: f64) -> Self {
-        let inner_radius2 = inner_radius * inner_radius;
-        let outer_radius2 = outer_radius * outer_radius;
+        Self::from_squares(
+            x,
+            y,
+            z,
+            inner_radius * inner_radius,
+            outer_radius * outer_radius,
+        )
+    }
+
+    /// Java `PointNoise` stores the **squared** radii; this constructor mirrors
+    /// that internal state (`innerRadius2` / `outerRadius2`) and is used when the
+    /// resolved Java object is dumped (see the golden dumper).
+    pub fn from_squares(x: f64, y: f64, z: f64, inner_radius2: f64, outer_radius2: f64) -> Self {
         let range = outer_radius2 - inner_radius2;
         let inv_range2 = if range == 0.0 { 1.0 } else { 1.0 / range };
         Self {

@@ -51,7 +51,10 @@ import java.util.UUID;
  * {@link Float#toHexString(float)} so a Rust port can verify bit-exact results without
  * decimal-rounding ambiguity.
  * <p>
- * Usage: {@code GoldenDumper <output-directory>}
+ * Usage: {@code GoldenDumper <output-directory> [world-directory]}
+ * <p>
+ * The optional world directory defaults to {@code <output-directory>/../Default} and
+ * holds the Default world assets ({@code World.json}, {@code Mask.json}, ...).
  */
 public final class GoldenDumper {
     private static final Gson GSON = new GsonBuilder()
@@ -83,16 +86,28 @@ public final class GoldenDumper {
         Path output = Path.of(args[0]);
         Files.createDirectories(output);
 
+        final Path worldDir = args.length > 1
+            ? Path.of(args[1]).toAbsolutePath()
+            : output.toAbsolutePath().getParent().resolve("Default");
+
         write(output.resolve("fastrandom.json"), dumpFastRandom());
         write(output.resolve("hashutil.json"), dumpHashUtil());
         write(output.resolve("mathutil.json"), dumpMathUtil());
         write(output.resolve("noise.json"), dumpNoise());
+
+        // Phase 2: world mask (zoom) + procedural climate mask.
+        writeText(output.resolve("zoom.json"), Phase2Dumper.dumpZoom(worldDir));
+        writeText(output.resolve("climate.json"), Phase2Dumper.dumpClimate(worldDir));
 
         System.out.println("Golden files written to " + output.toAbsolutePath());
     }
 
     private static void write(Path file, JsonObject json) throws IOException {
         Files.writeString(file, GSON.toJson(json) + "\n", StandardCharsets.UTF_8);
+    }
+
+    private static void writeText(Path file, String json) throws IOException {
+        Files.writeString(file, json, StandardCharsets.UTF_8);
     }
 
     // ------------------------------------------------------------------

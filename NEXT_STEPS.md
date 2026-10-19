@@ -8,7 +8,7 @@ subtasks in dependency order, sized for ~200k-context subagent runs
 ## Verified so far (do not regress — `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` must stay green)
 - `hytale-math`: FastRandom, HashUtil, MathUtil, ChunkUtil, TrigMathUtil, ranges — golden tests vs `testdata/golden/{fastrandom,hashutil,mathutil}.json` (bit-exact).
 - `procedural`: all 11 noise types — golden tests vs `testdata/golden/noise.json` (bit-exact 2d+3d); NoiseProperty DSL; random/ (coordinate randomizers + rotators); point/ (IPointGenerator family); condition/ package.
-- `worldgen-hytale`: zoom/ (PixelProvider, PixelDistanceProvider, ExactZoom, FuzzyZoom, unique-zone placement helpers); climate/ core (ClimateType, ClimateGraph, DistanceTransform, ClimateNoise, ClimateSearch, DirectGrid, IntMap/DoubleMap).
+- `worldgen-hytale`: zoom/ (PixelProvider, PixelDistanceProvider, ExactZoom, FuzzyZoom, unique-zone placement helpers); climate/ core (ClimateType, ClimateGraph, DistanceTransform, ClimateNoise, ClimateSearch, DirectGrid, IntMap/DoubleMap) — golden-verified against `testdata/golden/{zoom,climate}.json` (Phase-2 dumper, Subtask 6).
 
 ## Subtask 1 — weighted map + worldgen/util (~1.9k Java lines) [DONE]
 - Common/map: IWeightedElement, IWeightedMap, WeightedMap (Builder +
@@ -135,9 +135,15 @@ subtasks in dependency order, sized for ~200k-context subagent runs
   registry seam is data-driven and empty (water writes nothing).
 - 23 new tests (374 workspace total).
 
-## Subtask 6 — Java dumper extension (Phase 2 golden data)
-- Extend `tools/java-dumper` to dump: ExactZoom.generate over a test grid from the real Default-world Mask, ClimateNoise.generate maps, ClimateGraph table/fade maps for fixed seeds → `testdata/golden/{zoom,climate}.json`
-- Then wire `crates/worldgen-hytale/tests/golden.rs`
+## Subtask 6 — Java dumper extension (Phase 2 golden data) [DONE]
+- `tools/java-dumper` (`Phase2Dumper.java`) now dumps the Default world mask
+  (`testdata/golden/zoom.json`: the real `Mask.json` randomizer warp over the
+  rasterised continent mask — `getX/getY`, `generate`, `distance`, `inBounds` for
+  the seeds 0/1/42/1234567) and the procedural climate mask
+  (`testdata/golden/climate.json`: the 512×512 `ClimateGraph` table + fade map,
+  the resolved noise construction and the `ClimateNoise.generate` sample grids).
+  Both are wired into `crates/worldgen-hytale/tests/golden.rs`
+  (`zoom_golden_parity`, `climate_golden_parity` — bit-exact).
 
 ## Subtask 7 — serde loaders for World.json / Zones.json / mask config (Phase 2 close)
 - 77 Java loader classes become #[derive(Deserialize)] structs; transcribe defaults/validation faithfully (plan risk #3)

@@ -13,8 +13,12 @@ tools/java-dumper/run.sh
 
 The dumper compiles the already-compiled upstream classes (read-only, under
 `.hytale-source/`) into `tools/java-dumper/lib/`, compiles itself with Maven, and
-writes all four JSON files into this directory. Output is deterministic: running the
+writes all six JSON files into this directory. Output is deterministic: running the
 script twice produces byte-identical files.
+
+The Phase-2 dumps (`zoom.json`, `climate.json`) read the Default world assets from
+`testdata/Default` (the dumper takes the world directory as an optional second
+argument; it defaults to `<output-directory>/../Default`).
 
 ## Floating-point encoding
 
@@ -115,3 +119,60 @@ by construction (constant value / axis-aligned grid planes).
 
 Sanity checks performed by the dumper: every emitted noise value is checked to be
 finite (no `NaN`/`Infinity`); observed ranges are within roughly `[-1, 1]`.
+
+### `zoom.json`
+The world mask of the Default world (`com.hypixel.hytale.server.worldgen.zoom.FuzzyZoom`).
+
+The Default world uses the **procedural climate mask**: `World.json` points at
+`Mask.json`, and the legacy `Mask.png` image mask no longer exists. The dumper
+therefore
+
+- loads the real configuration through the real loaders
+  (`ClimateNoiseJsonLoader`, `CoordinateRandomizerJsonLoader`) and
+- rasterises the real `Noise.Continent` property into a 128×128 land/ocean mask
+  (one pixel = 32 world blocks, `zoomX = zoomY = 32`, offsets `0/0`).
+
+The rasterised pixels are dumped per seed (in `PixelProvider` array order,
+`index = x * height + y`) so the Rust port can rebuild the exact same
+`PixelProvider`; they are *input* data, not expected results.
+
+Per seed (`0`, `1`, `42`, `1234567`) the dump contains, for 281 world coordinates
+(`{-1000,-333,0,333,1000}²` plus a 16×16 grid around the origin, step 32):
+
+- `getX` / `getY` — the fuzzy domain warp of the real `Mask.json` randomizer
+  (`SIMPLEX`, scale `0.01`, amplitude `16.0`, seed label `RANDOMIZER`).
+- `mask` — `FuzzyZoom.generate(rx, rz) & 0xFFFFFF` at the **warped** coordinates,
+  exactly like `ZonePatternGenerator.generate` does.
+- `inBounds` — `FuzzyZoom.inBounds(rx, rz)`.
+- `distance` — the distance the generator uses (`Infinity` when out of bounds) and
+  `distanceRaw` — the unconditional `FuzzyZoom.distance(rx, rz)`.
+- `uniqueZoneCandidates` — two `ExactZoom.generateUniqueZoneCandidates` runs
+  (`maxPositions = 64`): one scanning for the land colour (radius `4`, padding `2`)
+  and one for the ocean colour (radius `2`, padding `0`), with the viable
+  positions of each entry.
+
+`construction.randomizerConstruction` additionally dumps the **resolved** randomizer
+(the generator noise property with the integer seed offset the loader derived from
+the seed string).
+
+### `climate.json`
+The procedural climate mask of the Default world
+(`com.hypixel.hytale.server.worldgen.climate.ClimateGraph` / `ClimateNoise`).
+
+- `construction.graph` — the climate type tree (names, colours, island colours,
+  points with their modifier, children) plus the graph parameters
+  (`resolution = 512`, `fadeMode = CHILDREN`, `fadeRadius = 50`, `fadeDistance = 100`).
+- `graph.table` — the 512×512 climate-type id table (flat row-major array,
+  `index = y * width + x`).
+- `graph.fade` — the 512×512 raw distance-transform map (hex doubles).
+- `noise.seeds.<seed>.construction` — the **resolved** `ClimateNoise`:
+  the grid, the thresholds and the three noise properties (continent, temperature,
+  intensity) as trees with the integer seed offsets the loaders derived.
+- `noise.seeds.<seed>.{id,continent,temperature,intensity,fade}` — the
+  `ClimateNoise.generate` results on a 16×16 grid over `[-2048, 2048)` blocks
+  (step 256), flat row-major (`index = z * width + x`).
+
+The noise-property trees mirror the Java objects 1:1
+(`SINGLE`, `FRACTAL`, `NORMALIZE`, `SCALE`, `OFFSET`, `DISTORTED`, `BLEND`, `SUM`
+and the `SIMPLEX` / `CONSTANT` / `POINT` / `GRID` noise functions) so the Rust port
+can rebuild the identical graph — and therefore compare bit patterns.

@@ -56,6 +56,8 @@ find_jar() {
 
 GSON_JAR="$(find_jar 'com/google/code/gson/gson' 'gson')"
 JOML_JAR="$(find_jar 'org/joml/joml' 'joml')"
+FASTUTIL_JAR="$(find_jar 'it/unimi/dsi/fastutil' 'fastutil')"
+SENTRY_JAR="$(find_jar 'io/sentry/sentry' 'sentry')"
 
 echo "Building dumper..."
 if ! mvn -q -o -f "$SCRIPT_DIR/pom.xml" compile; then
@@ -67,7 +69,7 @@ CP="$SCRIPT_DIR/target/classes"
 CP="$CP:$LIB_DIR/hytale-Math.jar"
 CP="$CP:$LIB_DIR/hytale-ProceduralLibrary.jar"
 CP="$CP:$LIB_DIR/hytale-WorldGenerator.jar"
-CP="$CP:$GSON_JAR:$JOML_JAR"
+CP="$CP:$GSON_JAR:$JOML_JAR:$FASTUTIL_JAR:$SENTRY_JAR"
 
 echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
 java -cp "$CP" com.hypixel.hytale.tools.golden.GoldenDumper "$OUT_DIR"
