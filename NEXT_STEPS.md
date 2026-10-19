@@ -103,6 +103,38 @@ subtasks in dependency order, sized for ~200k-context subagent runs
 ## Subtask 5 — ClimateMaskProvider + UniqueClimateGenerator [needs 3+4]
 - Finishes the climate package
 
+## Phase 3 populator slice (Block + Covers + Layers + Water) [DONE]
+- `worldgen-model::registry` — the registry SEAM: `DrawType` (protocol enum
+  1:1, default `Cube`), `BlockTypeInfo`/`BlockRegistry`, `FluidRegistry`
+  (`maxFluidLevel` default 8), `Registries::empty()`; `FluidTicker.isSolid`
+  (Cube | CubeWithModel) ported as a free fn.
+- `chunk::populator::block_populator.rs` — BlockPopulator + private
+  LayerPopulator: one FastRandom per chunk seeded with
+  `hash4(seed, chunkX, chunkZ, 0x4e5facef_afd03ace)`, shared across the 32×32
+  column walk (draw order = parity); threshold walk quirks transcribed
+  (`threshold as f64 > noise || threshold == 1.0` f32 compare; the
+  `if (empty) add(y)` boundary add at `min-1`; static-layer `--layerY` inside
+  getBlock; `if (layerY <= min) return` exits the WHOLE static-layer method —
+  Java quirk kept; labelled `layerLoop` break; env-only branch with clamped
+  min/max; surface-list in-place `set(i, maxY)`), cover draw-order chain
+  exact (parent → column-draw → height-draw), the Java always-false
+  `parentCondition == ConstantIntCondition.DEFAULT_*` dead code documented,
+  not ported.
+- `chunk::populator::water_populator.rs` — submerge logic exact (raw
+  priority + FLAG_SUBMERGE gate, block override only below WATER priority,
+  registry null/solid skip).
+- `ChunkGeneratorExecution`: `registry: Rc<Registries>` field +
+  `execute(seed, &mut resource)` now runs tint → env → BlockPopulator →
+  WaterPopulator (cave/prefab stages = Phase 4/5; terrain+water path is
+  bit-exact modulo missing stages).
+- ⚠ DISCOVERED BLOCKER (documented in REMAINING.md §6): the game's BlockType/
+  Fluid asset packs are NOT in `.hytale-source` (only schema + name lists).
+  Java itself resolves block names at load time and throws on unknown names —
+  so Java cannot load the Default world without the pack either; chunk-level
+  golden parity is blocked on the pack (or obtaining it). Until then the
+  registry seam is data-driven and empty (water writes nothing).
+- 23 new tests (374 workspace total).
+
 ## Subtask 6 — Java dumper extension (Phase 2 golden data)
 - Extend `tools/java-dumper` to dump: ExactZoom.generate over a test grid from the real Default-world Mask, ClimateNoise.generate maps, ClimateGraph table/fade maps for fixed seeds → `testdata/golden/{zoom,climate}.json`
 - Then wire `crates/worldgen-hytale/tests/golden.rs`

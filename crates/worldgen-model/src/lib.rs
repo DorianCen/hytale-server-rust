@@ -17,6 +17,13 @@
 //!   flattened into a per-column base value plus per-block overrides.
 //! - `CoreServer/.../world/chunk/section/FluidSection.java` → [`chunk`] —
 //!   flattened into a fluid id array plus a fluid level array.
+//! - `Protocol/.../DrawType.java` → [`registry`] — the block draw-type enum.
+//! - `CoreServer/.../asset/type/blocktype/config/BlockType.java` →
+//!   [`registry`] — reduced to the draw type the generator observes.
+//! - `CoreServer/.../asset/type/fluid/Fluid.java` → [`registry`] — reduced to
+//!   the max fluid level the generator observes.
+//! - `CoreServer/.../asset/type/fluid/FluidTicker.java` → [`registry`] — the
+//!   `isSolid` predicate.
 //!
 //! ## Why this crate does *not* port CoreServer's chunk classes verbatim
 //!
@@ -39,6 +46,8 @@
 
 pub mod block_priority;
 pub mod chunk;
+pub mod registry;
 
 pub use block_priority::{BlockPriorityChunk, BlockPriorityModifier, NoneModifier};
 pub use chunk::GeneratedChunk;
+pub use registry::{BlockRegistry, BlockTypeInfo, DrawType, FluidRegistry, Registries};

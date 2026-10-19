@@ -10,15 +10,18 @@
 //! | `HeightThresholdInterpolator` | [`height_threshold_interpolator`]            |
 //! | `ZoneBiomeResult`             | [`zone_biome_result`]                        |
 //! | `MaskProvider`                | [`mask_provider`]                            |
+//! | `BlockPopulator`              | [`populator::block_populator`]               |
+//! | `WaterPopulator`              | [`populator::water_populator`]               |
 //!
 //! # Deferred to the later chunk-core slices
 //!
 //! * `ValidationUtil` — Phase 5 (it validates the caves and the unique
 //!   prefabs).
-//! * The populators (`BlockPopulator`, `CavePopulator`, `PrefabPopulator`,
-//!   `WaterPopulator` and the layer/cover populators) — the populator slice.
-//!   Until they land, `ChunkGeneratorExecution::execute` only produces the
-//!   tint and the environment map and is **not bit-exact**.
+//! * The cave and prefab populators (`CavePopulator`,
+//!   `PrefabPopulator`) — Phase 4 / Phase 5. Until they land,
+//!   `ChunkGeneratorExecution::execute` produces the tint map, the
+//!   environment map, the terrain, the covers and the water, but **not** the
+//!   caves and the prefabs — it is **not bit-exact**.
 //! * The worker pool and the `CompletableFuture` generation API of
 //!   `ChunkGenerator` — Phase 6 (`trait WorldGen`).
 //! * The caves (`CaveGeneratorCache`, `generateCave`) — Phase 4.
@@ -60,6 +63,7 @@ pub mod chunk_generator_execution;
 pub mod chunk_generator_resource;
 pub mod height_threshold_interpolator;
 pub mod mask_provider;
+pub mod populator;
 pub mod zone_biome_result;
 
 pub use chunk_generator::{generate_interpolated_threshold, ChunkGenerator};

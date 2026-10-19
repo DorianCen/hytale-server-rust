@@ -28,3 +28,47 @@ is explicitly **deferred** and not ported:
 ## 5. `.lpf` prefab cache format
 - JSON (`.prefab.json`) is the source of truth. The binary `.lpf` cache format is only
   investigated if profiling shows prefab parsing is a bottleneck.
+
+## 6. BlockType / Fluid asset packs are missing from the shared source
+- The shared source tree only ships the **schema** and the **name lists**:
+  - `HytaleAssets/Schema/BlockType.json` — the JSON schema plus the
+    `internalKeys` prefix list (`Empty`, `Unknown`, `Debug_Cube`, `Debug_Model`).
+  - `HytaleAssets/Server/BlockTypeList/*.json` — the *block type list* assets
+    (name lists such as `Fluids.json` = `["Fluid_Water", "Fluid_Lava", …]`).
+  - `HytaleAssets/Server/Item/Block/Fluids/*.json` — the fluid assets.
+  - The actual block-type assets (`Rock_Stone`, `Rock_Shale`, `Soil_*`, `Grass`,
+    …) live in the base-game content pack, which is **not** part of
+    `.hytale-source/`.
+- The Java world generator resolves the names **at load time** through
+  `BlockType.getAssetMap().getIndex(name)` / `Fluid.getAssetMap().getIndex(name)`
+  and **throws** when a name is unknown, e.g.
+  - `loader/container/LayerContainerJsonLoader` — the `Layers.Default` filling
+    block (`Rock_Stone`, `Rock_Shale`, …),
+  - `loader/container/WaterContainerJsonLoader` — the water entry block/fluid
+    (`Water_Source`, `Lava_Source`, `Rock_Ice`, …),
+  - `loader/util/ResolvedBlockArrayJsonLoader`,
+    `loader/cave/CaveNodeTypeJsonLoader`, `loader/cave/FluidLevelJsonLoader`,
+    …
+  Without the pack the Java generator therefore **cannot load the Default
+  world at all**.
+- The Rust port therefore carries a **data-driven registry seam**
+  (`worldgen-model::registry`) that the loader subtask fills:
+  - `BlockRegistry` — id → `BlockTypeInfo { draw_type }`
+    (Java `BlockTypeAssetMap.getAsset(index)` → `Option`, `null` on a miss),
+  - `FluidRegistry` — id → max fluid level
+    (Java `Fluid.getAssetMap().getAssetOrDefault(index, Fluid.EMPTY)
+    .getMaxFluidLevel()`, the `Fluid.EMPTY` default being `8`),
+  - `Registries::empty()` — the default until the assets are loaded.
+- **Observable consequences while the registry is empty** (both are *correct*
+  Java semantics for a missing asset, but they differ from the Java generator
+  that has the pack):
+  - `WaterPopulator` skips every block, because
+    `BlockType.getAssetMap().getAsset(id)` is `null` → **no water is written
+    at all**.
+  - `ChunkGeneratorExecution.setFluid(x, y, z, type, fluid)` defaults the
+    fluid level to `8` instead of the level of the real fluid.
+- **Consequence for the parity plan**: the chunk-level golden verification is
+  blocked on the asset pack (or on obtaining it). The noise, the terrain
+  thresholds, the layer/cover geometry and the random draw order are
+  verified independently; the block/fluid **ids** and the fluid **levels**
+  are only as good as the registry that is loaded.

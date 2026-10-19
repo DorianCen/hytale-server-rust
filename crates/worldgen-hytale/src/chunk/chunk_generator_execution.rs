@@ -7,11 +7,12 @@
 //!
 //! # What is *not* ported (see `NEXT_STEPS.md` / `plan.md`)
 //!
-//! * **The populator stages of `execute`** (`BlockPopulator`,
-//!   `CavePopulator`, `PrefabPopulator`, `WaterPopulator`) — they arrive
-//!   with the populator slice. [`ChunkGeneratorExecution::execute`] therefore
-//!   only produces the tint and environment maps: **the execution is NOT
-//!   BIT-EXACT until the populators land.**
+//! * **The cave and prefab stages of `execute`** (`CavePopulator`,
+//!   `PrefabPopulator`) — they arrive with Phase 4 / Phase 5. The
+//!   [`ChunkGeneratorExecution::execute`] method therefore produces the tint
+//!   map, the environment map, the terrain, the covers and the water:
+//!   **the execution is NOT BIT-EXACT until the caves and the prefabs
+//!   land.**
 //! * **The ECS boundary**: `chunk.setState(x, y, z, holder)` and the
 //!   `Holder<ChunkStore>` section machinery are CoreServer concepts and are
 //!   not ported (see `plan.md`) — the calls are no-ops here.
@@ -20,11 +21,11 @@
 //!   here.
 //! * **The entity chunk** (`chunk.getEntityChunk()`) — not part of the
 //!   generation-only scope.
-//! * **The fluid level lookup** of the Java `setFluid(x, y, z, type, fluid)`
-//!   convenience overload (`Fluid.getAssetMap().getAssetOrDefault(fluid,
-//!   Fluid.EMPTY).getMaxFluidLevel()`) needs the fluid registry, which
-//!   arrives with the registry slice of the chunk core: the Rust port asks
-//!   for the level explicitly.
+//! * **The block/fluid registries**: Java reads them from the static
+//!   CoreServer asset maps. The asset packs are not part of the shared
+//!   source tree, so the Rust port carries a data-driven seam
+//!   ([`worldgen_model::registry`]) that the loader subtask fills (see
+//!   `REMAINING.md` § 6).
 //!
 //! # Deviations
 //!
@@ -34,6 +35,9 @@
 //! * **The Java method overloads are collapsed** into distinct Rust
 //!   functions (`set_block`, `set_block_entry`, `set_block_with_environment`,
 //!   …) because Rust has no overloading.
+//! * **`execute` takes the resource** (`execute(&mut self, seed, resource)`)
+//!   because Java reaches the reused scratch buffers through the static
+//!   `ChunkGenerator.getResource()`.
 use std::rc::Rc;
 
 use hytale_math::chunk_util;
@@ -42,10 +46,13 @@ use worldgen_model::block_priority::{
     BlockPriorityChunk, BlockPriorityModifier, NoneModifier, FLAG_MASK, HEIGHT, MASK, NO_CHANGE,
 };
 use worldgen_model::chunk::GeneratedChunk;
+use worldgen_model::registry::Registries;
 
 use crate::cache::core_data_cache_entry::CoreDataCacheEntry;
 use crate::chunk::chunk_generator::{ChunkGenerator, TINT_INTERPOLATION_RADIUS};
+use crate::chunk::chunk_generator_resource::ChunkGeneratorResource;
 use crate::chunk::height_threshold_interpolator::HeightThresholdInterpolator;
+use crate::chunk::populator::{BlockPopulator, WaterPopulator};
 use crate::chunk::zone_biome_result::ZoneBiomeResult;
 use crate::util::block_fluid_entry::BlockFluidEntry;
 
@@ -67,12 +74,35 @@ pub struct ChunkGeneratorExecution {
     interpolator: HeightThresholdInterpolator,
     /// Java `private BlockPriorityModifier blockPriorityModifier`.
     block_priority_modifier: Rc<dyn BlockPriorityModifier>,
+    /// Java `BlockType.getAssetMap()` / `Fluid.getAssetMap()` — the block and
+    /// fluid registries.
+    ///
+    /// Deviation: Java reads the asset maps from the static CoreServer
+    /// registries; the Rust port carries them on the execution so the
+    /// populators can reach them (the asset packs themselves are not part of
+    /// the shared source tree — see `REMAINING.md` § 6).
+    registry: Rc<Registries>,
 }
 
 impl ChunkGeneratorExecution {
     /// Java `ChunkGeneratorExecution(int seed, @Nonnull ChunkGenerator
     /// chunkGenerator, GeneratedChunk chunk)`.
+    ///
+    /// Deviation: the Java class reads the block/fluid registries from the
+    /// static CoreServer asset maps; the Rust port uses an empty registry
+    /// until the loader subtask fills it (see `REMAINING.md` § 6).
     pub fn new(seed: i32, chunk_generator: Rc<ChunkGenerator>, chunk: GeneratedChunk) -> Self {
+        Self::with_registry(seed, chunk_generator, chunk, Rc::new(Registries::empty()))
+    }
+
+    /// Java `ChunkGeneratorExecution(int seed, @Nonnull ChunkGenerator
+    /// chunkGenerator, GeneratedChunk chunk)` — with an explicit registry.
+    pub fn with_registry(
+        seed: i32,
+        chunk_generator: Rc<ChunkGenerator>,
+        chunk: GeneratedChunk,
+        registry: Rc<Registries>,
+    ) -> Self {
         // Java: `ChunkGenerator.getResource().priorityChunk.reset()` — the
         // Rust port allocates a fresh (already reset) grid instead of
         // recycling the pooled one.
@@ -90,21 +120,42 @@ impl ChunkGeneratorExecution {
             priority_chunk,
             interpolator,
             block_priority_modifier: Rc::new(NoneModifier::NONE),
+            registry,
         }
+    }
+
+    /// The block and fluid registries of this execution.
+    pub fn registry(&self) -> &Rc<Registries> {
+        &self.registry
     }
 
     /// Java `public void execute(int seed)`.
     ///
-    /// ⚠ **NOT BIT-EXACT YET**: the four populator stages
-    /// (`BlockPopulator`, `CavePopulator`, `PrefabPopulator`,
-    /// `WaterPopulator`) are not ported — they arrive with the populator
-    /// slice. Only the tint and the environment map are produced here.
-    pub fn execute(&mut self, seed: i32) {
+    /// Deviation: the Java method reaches the reused scratch buffers through
+    /// the static `ChunkGenerator.getResource()`; the Rust port takes the
+    /// [`ChunkGeneratorResource`] as an explicit parameter.
+    ///
+    /// ⚠ **NOT BIT-EXACT YET**: the cave and prefab stages are missing
+    /// (Phase 4 / Phase 5), so the chunk is missing the caves and the
+    /// prefabs. The terrain, the covers and the water are bit-exact.
+    pub fn execute(&mut self, seed: i32, resource: &mut ChunkGeneratorResource) {
         // Generate the tint map
         self.generate_tint_mapping(seed);
 
         // Generate the environment map
         self.generate_environment_mapping(seed);
+
+        // Generate filling + layers + covers
+        BlockPopulator::populate(seed, self, resource);
+
+        // Generate caves
+        // TODO(Phase 4): CavePopulator::populate(seed, self);
+
+        // Generate prefabs
+        // TODO(Phase 5): PrefabPopulator::populate(seed, self);
+
+        // Generate water
+        WaterPopulator::populate(seed, self);
     }
 
     /* ============================================================================================================ \\
@@ -425,6 +476,38 @@ impl ChunkGeneratorExecution {
         false
     }
 
+    /// Java `public boolean setFluid(int x, int y, int z, byte type, int
+    /// fluid)`.
+    ///
+    /// The fluid level defaults to `Fluid.getAssetMap().getAssetOrDefault
+    /// (fluid, Fluid.EMPTY).getMaxFluidLevel()`.
+    pub fn set_fluid_defaulted(&mut self, x: i32, y: i32, z: i32, type_: i8, fluid: i32) -> bool {
+        let fluid_level = self.registry.fluids.get_max_fluid_level(fluid);
+        self.set_fluid(x, y, z, type_, fluid, fluid_level)
+    }
+
+    /// Java `public boolean setFluid(int x, int y, int z, byte type, int
+    /// fluid, int environment)`.
+    ///
+    /// ⚠ The Java overload takes the **environment**, not a fluid level — it
+    /// delegates to the five-argument overload, so the fluid level is
+    /// defaulted from the fluid registry.
+    pub fn set_fluid_with_environment(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        type_: i8,
+        fluid: i32,
+        environment: i32,
+    ) -> bool {
+        if self.set_fluid_defaulted(x, y, z, type_, fluid) {
+            self.set_environment(x, y, z, environment);
+            return true;
+        }
+        false
+    }
+
     /// Java `public boolean setFluid(int x, int y, int z, final byte type,
     /// int fluid, byte fluidLevel)`.
     pub fn set_fluid(
@@ -466,9 +549,15 @@ impl ChunkGeneratorExecution {
     }
 
     /// Java `public boolean setFluid(int x, int y, int z, byte type, int
-    /// fluid, int environment)`.
+    /// fluid, byte fluidLevel, int environment)`.
+    ///
+    /// ⚠ There is no such Java overload: the Java environment variant takes
+    /// an `int environment` and *defaults* the fluid level (see
+    /// [`ChunkGeneratorExecution::set_fluid_with_environment`]). This
+    /// function is the explicit-level variant the Rust port keeps for
+    /// callers that know the level.
     #[allow(clippy::too_many_arguments)]
-    pub fn set_fluid_with_environment(
+    pub fn set_fluid_with_level_and_environment(
         &mut self,
         x: i32,
         y: i32,
@@ -691,7 +780,11 @@ mod tests {
     }
 
     fn generator(tint: i32, environment: i32) -> Rc<ChunkGenerator> {
-        let biome = tile_biome(7, tint, environment);
+        generator_for_biome(tile_biome(7, tint, environment))
+    }
+
+    /// A world whose every column resolves to `biome`.
+    fn generator_for_biome(biome: Rc<TileBiome>) -> Rc<ChunkGenerator> {
         let mut builder = WeightedMap::<Rc<TileBiome>>::builder();
         builder.put(Rc::clone(&biome), 1.0);
         let tile_biomes: Rc<dyn IWeightedMap<Rc<TileBiome>>> = Rc::new(builder.build());
@@ -868,5 +961,54 @@ mod tests {
         assert_eq!(execution.local_z(-40), -40 - (-32));
         assert_eq!(execution.global_x(5), 2 * 32 + 5);
         assert_eq!(execution.global_z(5), -32 + 5);
+    }
+
+    #[test]
+    fn the_execute_pipeline_fills_the_tint_the_environment_and_the_terrain() {
+        // A biome whose filling block is a real block (42) so that the
+        // terrain is observable.
+        let biome = Rc::new(TileBiome::new(
+            7,
+            "biome-7".to_string(),
+            Rc::new(BiomeInterpolation::create(
+                crate::chunk::MAX_RADIUS,
+                std::collections::HashMap::new(),
+            )),
+            Rc::new(StubInterpreter::new(0.75, 0.0, 0, 63)),
+            Rc::new(CoverContainer::new(Vec::new())),
+            Rc::new(LayerContainer::new(42, 0, Vec::new(), Vec::new())),
+            None,
+            tint_container(0x112233),
+            environment_container(5),
+            Rc::new(WaterContainer::new(Vec::new())),
+            fade_container(),
+            Rc::new(ConstantNoise(0.5)),
+            1.0,
+            1.0,
+            0,
+        ));
+        let generator = generator_for_biome(biome);
+        let chunk = GeneratedChunk::with_coordinates(0, 0, 0);
+        let mut execution = ChunkGeneratorExecution::new(42, generator, chunk);
+        let mut resource = ChunkGeneratorResource::new();
+
+        execution.execute(42, &mut resource);
+
+        // The tint map.
+        assert_eq!(execution.get_chunk().get_tint(0, 0), 0xFF11_2233u32 as i32);
+        // The environment map. (The per-block environment of the filled
+        // blocks is the *filling* environment of the layer container, which
+        // overrides the column environment — exactly like the Java
+        // `setBlock(…, filling, fillingEnvironment)`.)
+        assert_eq!(execution.get_chunk().environment_column()[0], 5);
+        assert_eq!(execution.get_chunk().get_environment(0, 0, 0), 0);
+        // The terrain (the stub threshold is 0.75, the height noise is 0.5).
+        assert_eq!(execution.get_block(0, 0, 0), 42);
+        assert_eq!(execution.get_block(0, 63, 0), 42);
+        assert_eq!(execution.get_block(0, 64, 0), 0);
+        assert_eq!(
+            execution.get_priority_chunk().get(0, 10, 0),
+            worldgen_model::block_priority::FILLING
+        );
     }
 }
