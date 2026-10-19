@@ -60,7 +60,25 @@ pub trait IWeightedMap<T> {
     fn get(&self, value: f64) -> Option<&T>;
 
     /// Java `IWeightedMap.get(Random)`: `get(random.next_double())`.
+    /// Java `IWeightedMap.get(Random)`.
+    ///
+    /// ⚠ Bit-exactness: Java's `WeightedMap.get(Random)` calls
+    /// `random.nextDouble()`, but the nested `SingletonWeightedMap.get(Random)`
+    /// returns the key **without consuming the random source**. The override
+    /// below reproduces that split, because consuming a draw on the singleton
+    /// path would shift every subsequent `random` draw in the same column.
+    /// Java `IWeightedMap.get(Random)`.
+    ///
+    /// ⚠ Bit-exactness: Java's plain `WeightedMap.get(Random)` draws
+    /// `random.nextDouble()`, but the nested `SingletonWeightedMap.get(Random)`
+    /// returns the key **without consuming the random source**. The default
+    /// below reproduces that split (singleton ⇔ at most one key), because
+    /// consuming a draw on the singleton path would shift every subsequent
+    /// random draw for the same column.
     fn get_random(&self, random: &mut FastRandom) -> Option<&T> {
+        if self.size() <= 1 {
+            return self.internal_keys().first();
+        }
         self.get(random.next_double())
     }
 
@@ -466,5 +484,19 @@ mod tests {
         let mut rng2 = FastRandom::new(0);
         let expected = m.get(rng2.next_double());
         assert_eq!(pick, expected);
+    }
+
+    #[test]
+    fn singleton_get_random_does_not_consume_a_draw() {
+        // Java `SingletonWeightedMap.get(Random)` returns the key without
+        // touching the random source.
+        let mut b = WeightedMap::<i32>::builder();
+        b.put(7, 5.0);
+        let m = b.build();
+        let mut rng = FastRandom::new(42);
+        assert_eq!(m.get_random(&mut rng), Some(&7));
+        // The random source is untouched: the first draw is still first.
+        let mut reference = FastRandom::new(42);
+        assert_eq!(rng.next_double(), reference.next_double());
     }
 }
