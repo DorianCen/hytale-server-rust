@@ -399,11 +399,15 @@ dependencies = [
  "moka",
  "procedural",
  "serde_json",
+ "worldgen-model",
 ]
 
 [[package]]
 name = "worldgen-model"
 version = "0.1.0"
+dependencies = [
+ "hytale-math",
+]
 
 [[package]]
 name = "zmij"

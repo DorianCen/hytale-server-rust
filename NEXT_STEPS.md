@@ -60,18 +60,45 @@ subtasks in dependency order, sized for ~200k-context subagent runs
 - Bit-exactness caveat for Phase 3: Java `IWeightedMap.get(Random)` on a
   singleton must not shift FastRandom streams; covered by a regression test.
 
-## Subtask 3 — chunk core skeleton (~1.3k lines) [needs 1+2]
-- chunk/: BlockPriorityChunk (69 lines, priority enum per plan), BlockPriorityModifier, ZoneBiomeResult, MaskProvider (59), ValidationUtil, HeightThresholdInterpolator (+ cache/CoreDataCacheEntry, cache/InterpolatedBiomeCountList, ChunkGeneratorExecution, ChunkGeneratorCache)
-- ChunkGenerator skeleton: getCoreData, generateInterpolatedHeightNoise,
-  static generateInterpolatedThreshold, generateLowest/HighestThresholdDependent
-  (needs ZonePatternProvider seam until Subtask 4)
-- Registries: block/fluid/environment string→int maps extracted from `testdata/Default` JSON usage
+## Subtask 3 — chunk core skeleton (~1.3k lines) [DONE]
+- worldgen-model crate (locked "own chunk model" decision): `block_priority.rs`
+  (BlockPriorityChunk 1:1 — byte grid, priority ladder NO_CHANGE..PREFAB,
+  MASK/FLAG_MASK/FLAG_SUBMERGE with exact `~31` byte math, BlockPriorityModifier
+  trait + identity NoneModifier) and `chunk.rs` (GeneratedChunk — flat
+  `y<<10|z<<5|x` grid proven identical to Java's 10-lazy-section layout;
+  block/rotation/filler/tint/environment-column+per-block/fluid id+level;
+  "air write into a fresh section is a no-op" reproduced; palette/Holder/ECS
+  not ported per plan). 17 tests.
+- zone/ remainder: ZoneColorMapping, ZonePatternProvider (+ maxExtent fold),
+  ZonePatternGenerator (exact generate/getZone incl. `hash3 & 0x7FFF_FFFF % len`
+  and the in-bounds POSITIVE_INFINITY quirk on solid masks — regression-tested),
+  ZonePatternGeneratorCache (computeIfAbsent -> RwLock<HashMap> + Java error
+  wrapping). Zone record: `biome_pattern_generator` appended; UniqueEntry/
+  UniqueCandidate restructured to carry the zone handle.
+- cache/: CoreDataCacheEntry (interior mutability for moka-shared entries),
+  InterpolatedBiomeCountList (+ AverageCollector.add = val - val/n + v/n
+  inlined + attributed), CoordinateCache/CoordinateKey, ExtendedCoordinateCache,
+  ChunkGeneratorCache (compute-once sized + time-to-idle over moka).
+- chunk/: ZoneBiomeResult, MaskProvider, HeightThresholdInterpolator (full
+  populate/interpolation; holds Rc<ChunkGenerator> + chunk x/z instead of the
+  execution — cycle-break, identical arithmetic), ChunkGeneratorResource
+  partial (GenContext scratch), ChunkGeneratorExecution partial (tint/env
+  mapping EXACT; setBlock/setFluid/override arbitration exact over the
+  worldgen-model grid; BlockPhysics/Holder no-ops documented; execute() stage
+  list appends when the populators land — NOT BIT-EXACT until then, in-code
+  flag), ChunkGenerator skeleton (all core-data/height hot paths 1:1 incl.
+  f32-vs-f64 threshold compare; owns a private cache twin because the ported
+  cache closures are Send-bound while the worldgen graph is Rc-based).
+- Deferred w/ doc notes: registries (string→int maps -> Subtask 7, needs
+  asset-map ordering), ValidationUtil (Phase 5), cave/unique-prefab/spawn/
+  world-map/executor (Phases 4-6). 45 new tests in the slice.
 
-## Subtask 4 — zone package + unique zones (~524 lines) [needs 1+2+3]
-- zone/: full Zone class (replaces the partial `zone/zone.rs` slice; appends
-  biomePatternGenerator + caveGenerator handle), ZoneColorMapping,
-  ZonePatternProvider/Generator(+Cache)
-- ZoneGeneratorResult gains the real Zone payload; ZoneBiomeResult port
+## Subtask 4 — zone package unique-zone wiring [mostly absorbed into Subtask 3]
+- ZoneColorMapping / ZonePatternProvider / Generator / Cache landed with
+  Subtask 3; Zone record still lacks caveGenerator (Phase 4) and
+  uniquePrefabContainer (Phase 5) — those porters append the fields.
+- Remaining: cross-check unique-zone candidate/painting semantics against the
+  loader JSON during Subtask 7.
 
 ## Subtask 5 — ClimateMaskProvider + UniqueClimateGenerator [needs 3+4]
 - Finishes the climate package

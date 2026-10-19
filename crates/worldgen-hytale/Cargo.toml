@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 hytale-math = { path = "../hytale-math" }
 procedural = { path = "../procedural" }
+worldgen-model = { path = "../worldgen-model" }
 log = { workspace = true }
 moka = { workspace = true }
 

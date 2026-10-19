@@ -2,6 +2,8 @@
 //! Java `zoom.ExactZoom` — nearest-neighbor sampling of a pixel map under a
 //! zoom/offset transform, plus unique-zone scan/paint placement.
 
+use std::rc::Rc;
+
 use hytale_math::fast_random::FastRandom;
 use hytale_math::math_util;
 use procedural::noise::support::Vector2i;
@@ -117,7 +119,7 @@ impl ExactZoom {
                     // Java: LogUtil warning "Failed to place unique zone: %s"
                     eprintln!(
                         "WARNING: Failed to place unique zone: {}",
-                        candidate.zone.zone_id
+                        candidate.zone.zone.id
                     );
                     continue;
                 }
@@ -138,7 +140,7 @@ impl ExactZoom {
             // Record the placed unique zone scaled in world-space coords.
             // Java: (int) ((pos.x * zoomX) - offsetX) — double math, truncating cast.
             zones.push(Unique {
-                zone_id: candidate.zone.zone_id,
+                zone: Rc::clone(&candidate.zone.zone),
                 position: Vector2i::new(
                     ((pos.x as f64 * self.zoom_x) - self.offset_x as f64) as i32,
                     ((pos.y as f64 * self.zoom_y) - self.offset_y as f64) as i32,
@@ -181,7 +183,7 @@ impl ExactZoom {
             if size == 0 {
                 panic!(
                     "No parent matches found for unique zone entry: {}",
-                    entry.zone_id
+                    entry.zone.id
                 );
             } else if size > max_positions {
                 // Select every Nth position to reduce the number of candidates.

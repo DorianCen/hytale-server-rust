@@ -1,11 +1,35 @@
-// Ported from: `.hytale-source/.../worldgen/chunk/` (scaffolding slice)
-//! Java `com.hypixel.hytale.server.worldgen.chunk` package — scaffolding.
+// Ported from: `.hytale-source/.../worldgen/chunk/`
+//! Java `com.hypixel.hytale.server.worldgen.chunk` package — the chunk-core
+//! types.
 //!
-//! ⚠ Partial: only the shared constants of `HeightThresholdInterpolator`
-//! live here for now; the full `HeightThresholdInterpolator` port (with
-//! `CoreDataCacheEntry`, `InterpolatedBiomeCountList`, `ZoneBiomeResult` and
-//! the `ChunkGenerator` skeleton it drives) is Subtask 3 (chunk core) per
-//! `NEXT_STEPS.md`. `BiomeInterpolation` only consumes these constants.
+//! | Java class                    | Rust module                                  |
+//! |-------------------------------|----------------------------------------------|
+//! | `ChunkGenerator`              | [`chunk_generator`]                          |
+//! | `ChunkGeneratorExecution`     | [`chunk_generator_execution`]                 |
+//! | `ChunkGeneratorResource`      | [`chunk_generator_resource`]                 |
+//! | `HeightThresholdInterpolator` | [`height_threshold_interpolator`]            |
+//! | `ZoneBiomeResult`             | [`zone_biome_result`]                        |
+//! | `MaskProvider`                | [`mask_provider`]                            |
+//!
+//! # Deferred to the later chunk-core slices
+//!
+//! * `ValidationUtil` — Phase 5 (it validates the caves and the unique
+//!   prefabs).
+//! * The populators (`BlockPopulator`, `CavePopulator`, `PrefabPopulator`,
+//!   `WaterPopulator` and the layer/cover populators) — the populator slice.
+//!   Until they land, `ChunkGeneratorExecution::execute` only produces the
+//!   tint and the environment map and is **not bit-exact**.
+//! * The worker pool and the `CompletableFuture` generation API of
+//!   `ChunkGenerator` — Phase 6 (`trait WorldGen`).
+//! * The caves (`CaveGeneratorCache`, `generateCave`) — Phase 4.
+//! * The prefabs (`PrefabLoadingCache`, `UniquePrefabCache`,
+//!   `getUniquePrefabs`, `getSpawnPoints`) — Phase 5.
+//! * The world map (`getGenerator`) and the benchmark/timings collectors —
+//!   Phase 6.
+
+use std::sync::LazyLock;
+
+use hytale_math::math_util::fast_ceil_f32;
 
 /// Java `HeightThresholdInterpolator.MAX_RADIUS` — the maximum interpolation
 /// radius (the per-chunk table is `(2*MAX_RADIUS + 32)^2` entries).
@@ -14,3 +38,33 @@ pub const MAX_RADIUS: i32 = 5;
 /// Java `HeightThresholdInterpolator.MAX_RADIUS2` = `MAX_RADIUS * MAX_RADIUS`
 /// — the squared interpolation radius used as the default per-biome radius.
 pub const MAX_RADIUS2: i32 = MAX_RADIUS * MAX_RADIUS;
+
+/// Java `ChunkGenerator.POOL_SIZE`
+/// = `Math.max(2, MathUtil.fastCeil(Runtime.getRuntime()
+/// .availableProcessors() * 0.75f))`.
+///
+/// Deviation: a Rust `const` cannot call
+/// `std::thread::available_parallelism()`, so the Java `static final`
+/// (computed once per class load) maps to a `LazyLock<i32>` (computed once
+/// per process, on first access). The formula itself is unchanged: f32
+/// scaling then `fastCeil` (`MathUtil.fastCeil(float)`), clamped to 2.
+pub static POOL_SIZE: LazyLock<i32> = LazyLock::new(|| {
+    let processors = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1) as f32;
+    fast_ceil_f32(processors * 0.75).max(2)
+});
+
+pub mod chunk_generator;
+pub mod chunk_generator_execution;
+pub mod chunk_generator_resource;
+pub mod height_threshold_interpolator;
+pub mod mask_provider;
+pub mod zone_biome_result;
+
+pub use chunk_generator::{generate_interpolated_threshold, ChunkGenerator};
+pub use chunk_generator_execution::ChunkGeneratorExecution;
+pub use chunk_generator_resource::ChunkGeneratorResource;
+pub use height_threshold_interpolator::HeightThresholdInterpolator;
+pub use mask_provider::MaskProvider;
+pub use zone_biome_result::ZoneBiomeResult;
