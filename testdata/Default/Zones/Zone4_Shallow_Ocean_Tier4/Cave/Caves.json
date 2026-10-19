@@ -1,0 +1,13 @@
+{
+	"Types": [
+		{
+      "File": "Ores.Zone4.IronPlacement"
+    },
+    {
+      "File": "Ores.Zone4.SilverPlacement"
+    },
+    {
+      "File": "Ores.Zone4.AdamantitePlacement"
+    }
+	]
+}

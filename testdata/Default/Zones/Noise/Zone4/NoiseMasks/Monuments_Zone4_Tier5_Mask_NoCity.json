@@ -1,0 +1,64 @@
+{
+  "$Comment": "Monument mask for Zone4_Tier5 biomes WITHOUT Cities (e.g. mountain variants). Excludes Monuments_Cities grid.",
+  "Type": "MIN",
+  "Noise": [
+    {
+      "$Comment": "Shared Monuments_Temple_Entrances",
+      "Type": "MIN",
+      "Noise": [
+        {
+          "File": "Zones.Noise.Shared.Grids.Monuments_Temple_Entrances"
+        }
+      ],
+      "Normalize": 0.03
+    },
+    {
+      "$Comment": "Remove trees around encounters",
+      "Type": "MAX",
+      "Noise": [
+        {
+          "$Comment": "Remove trees around all encounters",
+          "Type": "MIN",
+          "Noise": [
+            {
+              "Type": "INVERT",
+              "Noise": {
+                "File": "Zones.Noise.Shared.Grids.Monuments_Encounter"
+              }
+            }
+          ],
+          "Normalize": 0.4
+        },
+        {
+          "$Comment": "Allow trees where encounters are culled by density",
+          "Type": "MIN",
+          "Noise": [
+            {
+              "Type": "INVERT",
+              "Noise": {
+                "Seed": "Pattern_Monuments",
+                "NoiseType": "CELL",
+                "Formula": "INVERTED_SQRT",
+                "CellMode": "DISTANCE",
+                "Scale": 0.004,
+                "Jitter": 0.75,
+                "Density": [0.40, 0.625]
+              }
+            }
+          ],
+          "Normalize": 0.4
+        }
+      ]
+    },
+    {
+      "$Comment": "Zone 4 Monuments_Dungeon_Challenge",
+      "Type": "MIN",
+      "Noise": [
+        {
+          "File": "Zones.Noise.Zone4.Grids.Monuments_Tier5_Dungeon_Challenge"
+        }
+      ],
+      "Normalize": 0.1
+    }
+  ]
+}

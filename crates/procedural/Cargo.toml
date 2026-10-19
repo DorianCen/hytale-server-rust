@@ -1,0 +1,11 @@
+[package]
+name = "procedural"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hytale-math = { path = "../hytale-math" }
+
+[dev-dependencies]
+serde_json = { workspace = true }

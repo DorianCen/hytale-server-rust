@@ -1,0 +1,8 @@
+{
+  "$Comment": "Grid for Zone4_Tier4 Monuments_Cities, Monuments_Cities_Town, and Monuments_Dungeon_Challenge (all share same grid)",
+  "Seed": "Monuments-Firelands",
+  "NoiseType": "CELL",
+  "CellMode": "DISTANCE",
+  "Scale": 0.003,
+  "Jitter": 0.75
+}

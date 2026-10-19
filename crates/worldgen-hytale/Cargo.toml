@@ -1,0 +1,5 @@
+[package]
+name = "worldgen-hytale"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

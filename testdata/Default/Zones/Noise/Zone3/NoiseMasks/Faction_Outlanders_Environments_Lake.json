@@ -1,0 +1,9 @@
+{
+  "Seed": "Pattern_Monuments",
+  "NoiseType": "CELL",
+  "Formula": "INVERTED_SQRT",
+  "CellMode": "DISTANCE",
+  "Scale": 0.005,
+  "Jitter": 0.75,
+  "Density": [0.5, 0.75]
+}

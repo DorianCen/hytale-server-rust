@@ -1,0 +1,24 @@
+{
+  "GridGenerator": {
+		"Seed": "Forest_Burned_Trees",
+    "Scale": 0.065,
+    "Jitter": 0.6,
+    "Density": 1
+  },
+  "NoiseMask": {
+    "Type": "MIN",
+    "Noise": [
+      {
+        "File": "Zones.Noise.Zone4.NoiseMasks.Monuments_Zone4_Tier5_Mask"
+      }
+    ],
+    "Threshold": [0.25, 1]
+  },
+  "HeightThreshold": {
+    "Positions": [120, 121, 160, 170],
+    "Values": [0, 1, 1, 0]
+  },
+  "Mask": {
+    "File": "Zones.Zone4_Tier5.Masks.Trees"
+  }
+}

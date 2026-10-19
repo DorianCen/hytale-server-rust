@@ -1,0 +1,55 @@
+{
+  "Name": "Entry",
+  "Children": [
+    {
+      "Weights": [100],
+      "Node": [
+        {
+          "Type": "EMPTY_LINE",
+          "Children": [
+            {
+              "Weights": [100],
+              "Node": [
+                {
+                  "Name": "Encasement",
+                  "Length": [7.25, 7.25],
+                  "Radius": [1.5, 2],
+                  "Filling": "Ore_Adamantite_Magma_Cracked"
+                }
+              ]
+            },
+            {
+              "Weights": [100],
+              "Node": [
+                {
+                  "Name": "Offset",
+                  "Type": "EMPTY_LINE",
+                  "Length": [0.5, 0.5],
+                  "Children": [
+                    {
+                      "Weights": [100],
+                      "Node": [
+                        {
+                          "Name": "Vein",
+                          "Length": [6, 7],
+                          "Radius": [0.75, 0.75],
+                          "Filling": "Ore_Adamantite_Magma"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "PitchSet": [50, 130],
+      "YawSet": [0, 360]
+    }
+  ],
+  "Type": "EMPTY_LINE",
+
+  "$Comment": "Length = Column Height",
+  "Length": [25, 160]
+}

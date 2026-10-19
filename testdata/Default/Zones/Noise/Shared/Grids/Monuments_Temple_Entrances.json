@@ -1,0 +1,8 @@
+{
+  "$Comment": "Grid for PrefabPatterns_Shared/Monuments_Temple_Entrances - used across all zones",
+  "Seed": "Monuments_Temple_Entrances",
+  "NoiseType": "CELL",
+  "CellMode": "DISTANCE",
+  "Scale": 0.0015,
+  "Jitter": 0.75
+}

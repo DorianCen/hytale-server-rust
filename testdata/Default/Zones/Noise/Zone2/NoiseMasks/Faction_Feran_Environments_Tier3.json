@@ -1,0 +1,9 @@
+{
+  "Seed": "Drylands-Pattern-Monuments-Tier-3",
+  "NoiseType": "CELL",
+  "Formula": "INVERTED_SQRT",
+  "CellMode": "DISTANCE",
+  "Scale": 0.0050012,
+  "Jitter": 0.6,
+  "Density": [0.8125, 1]
+}

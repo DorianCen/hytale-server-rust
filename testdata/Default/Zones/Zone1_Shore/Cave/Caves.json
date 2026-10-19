@@ -1,0 +1,16 @@
+{
+  "Types": [
+    {
+      "File": "Ores.Zone1.CopperPlacement"
+    },
+    {
+      "File": "Ores.Zone1.IronPlacement"
+    },
+    {
+      "File": "Ores.Zone1.GoldPlacement"
+    },
+    {
+      "File": "Ores.Zone1.SilverPlacement"
+    }
+  ]
+}

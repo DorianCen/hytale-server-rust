@@ -1,0 +1,9 @@
+{
+    "Seed": "Monuments-Firelands",
+    "NoiseType": "CELL",
+    "Formula": "INVERTED_SQRT",
+    "CellMode": "DISTANCE",
+    "Scale": 0.003,
+    "Jitter": 0.75,
+    "Density": 1
+}

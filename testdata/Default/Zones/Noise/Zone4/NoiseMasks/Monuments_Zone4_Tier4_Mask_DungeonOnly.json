@@ -1,0 +1,26 @@
+{
+  "$Comment": "Mask for Zone4_Tier4 biomes with only Dungeon_Challenge (e.g. Forest_Swamp). No shared encounter in these biomes.",
+  "Type": "MIN",
+  "Noise": [
+    {
+      "$Comment": "Shared Monuments_Temple_Entrances",
+      "Type": "MIN",
+      "Noise": [
+        {
+          "File": "Zones.Noise.Shared.Grids.Monuments_Temple_Entrances"
+        }
+      ],
+      "Normalize": 0.03
+    },
+    {
+      "$Comment": "Zone4_Tier4 Dungeon_Challenge",
+      "Type": "MIN",
+      "Noise": [
+        {
+          "File": "Zones.Noise.Zone4.Grids.Monuments_Tier4_Cities"
+        }
+      ],
+      "Normalize": 0.17
+    }
+  ]
+}

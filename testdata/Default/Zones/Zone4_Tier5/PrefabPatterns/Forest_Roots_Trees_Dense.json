@@ -1,0 +1,49 @@
+{
+  "GridGenerator": {
+		"Seed": "Forest_Roots_Trees",
+    "Density": [0, 0.7],
+    "Scale": 0.08,
+    "Jitter": 0.7
+  },
+  "NoiseMask": {
+		"Type": "MIN",
+		"Noise": [
+			{
+				"Type":"DISTORTED",
+				"Noise":{
+					"Seed": "Firelands_Biomes_Pattern",
+					"Formula": "INVERTED",
+					"NoiseType": "DISTANCE",
+					"DistanceMode": "NATURAL",
+					"Distance2Mode": "DIV",
+					"Scale": 0.003,
+					"Jitter": 0.711
+				},
+				"Randomizer": {
+					"Generators": [
+							{
+									"Seed": "Firelands-Hills",
+									"NoiseType": "SIMPLEX",
+									"Octaves": 4,
+									"Persistence": 0.3,
+									"Scale": 0.008,
+									"Amplitude": 30
+							}
+					]
+				},
+				"Normalize": 0.11
+			},
+			{
+				"File": "Zones.Noise.Zone4.NoiseMasks.Monuments_Zone4_Tier5_Mask"
+			}
+		],
+    "Threshold": [0.5, 1]
+  },
+  "HeightThreshold": {
+    "Positions": [120, 121, 155, 160],
+    "Values": [0, 1, 1, 0]
+  },
+  "Mask": {
+    "File": "Zones.Zone4_Tier5.Masks.Trees"
+  }
+}

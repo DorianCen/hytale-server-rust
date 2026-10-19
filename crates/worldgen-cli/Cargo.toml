@@ -1,0 +1,9 @@
+[package]
+name = "worldgen-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "worldgen-cli"
+path = "src/main.rs"

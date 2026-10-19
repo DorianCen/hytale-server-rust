@@ -1,0 +1,19 @@
+{
+  "Types": [
+    {
+      "File": "Ores.Zone2.CopperPlacement"
+    },
+    {
+      "File": "Ores.Zone2.IronPlacement"
+    },
+    {
+      "File": "Ores.Zone2.SilverPlacement"
+    },
+    {
+      "File": "Ores.Zone2.GoldPlacement"
+    },
+    {
+      "File": "Ores.Zone2.ThoriumPlacement"
+    }
+  ]
+}

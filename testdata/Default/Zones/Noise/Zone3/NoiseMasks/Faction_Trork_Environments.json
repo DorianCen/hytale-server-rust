@@ -1,0 +1,9 @@
+{
+    "Seed": "Snowlands-Pattern-Monuments-Tier-3",
+    "NoiseType": "CELL",
+    "Formula": "INVERTED_SQRT",
+    "CellMode": "DISTANCE",
+    "Scale": 0.005,
+    "Jitter": 0.6,
+    "Density": 0.75
+}

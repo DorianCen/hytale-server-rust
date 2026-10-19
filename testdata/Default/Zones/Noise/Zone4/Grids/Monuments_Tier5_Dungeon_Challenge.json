@@ -1,0 +1,9 @@
+{
+  "$Comment": "Grid for Zone4_Tier5/Monuments_Dungeon_Challenge",
+  "Seed": "Monuments-Firelands",
+  "NoiseType": "CELL",
+  "CellMode": "DISTANCE",
+  "Scale": 0.005,
+  "Jitter": 0.75,
+  "Density": [0, 0.1]
+}

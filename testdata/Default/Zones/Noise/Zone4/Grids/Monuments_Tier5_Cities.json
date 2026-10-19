@@ -1,0 +1,8 @@
+{
+  "$Comment": "Grid for Zone4_Tier5/Monuments_Cities and Monuments_Cities_Town",
+  "Seed": "Monuments-Firelands",
+  "NoiseType": "CELL",
+  "CellMode": "DISTANCE",
+  "Scale": 0.003,
+  "Jitter": 0.75
+}
