@@ -47,6 +47,8 @@ pub mod mesh_noise;
 pub mod old_simplex_noise;
 pub mod perlin_noise;
 pub mod point_noise;
+pub mod condition;
+pub mod point;
 pub mod property;
 pub mod random;
 pub mod result_buffer;
@@ -72,6 +74,7 @@ pub use mesh_noise::MeshNoise;
 pub use old_simplex_noise::OldSimplexNoise;
 pub use perlin_noise::PerlinNoise;
 pub use point_noise::PointNoise;
+pub use point::{DistortedPointGenerator, IPointGenerator, OffsetPointGenerator, PointGenerator, ScaledPointGenerator};
 pub use property::{
     BlendNoiseProperty, CurveNoiseProperty, DistortedNoiseProperty, FractalMode,
     FractalNoiseProperty, GradientMode, GradientNoiseProperty, InvertNoiseProperty,

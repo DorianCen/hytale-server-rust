@@ -27,6 +27,14 @@ pub trait IDoubleCondition {
     fn eval(&self, value: f64) -> bool;
 }
 
+/// Java `condition.IDoubleThreshold`.
+pub trait IDoubleThreshold {
+    /// Java `IDoubleThreshold.eval(double d)`.
+    fn eval(&self, d: f64) -> bool;
+    /// Java `IDoubleThreshold.eval(double d, double factor)`.
+    fn eval_factor(&self, d: f64, factor: f64) -> bool;
+}
+
 /// Java `supplier.IDoubleRange` — only the `double getValue(double)` overload
 /// is used by the noise core.
 pub trait IDoubleRange {
