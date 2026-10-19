@@ -55,10 +55,11 @@ hytale-server-rust/
 - [x] Golden tests vs Phase 0 dumper output (`crates/*/tests/golden.rs`)
 
 ### Phase 2 — World layout: mask → zones → biomes (~2.9k lines)
-- [ ] `PixelProvider`, `ExactZoom`, `FuzzyZoom`, `PixelDistanceProvider` (8×8 cell spatial index for border distance), `MaskProvider`
-- [ ] Climate: `ClimateType` tree + flag bits (IS_OCEAN/IS_SHORE/IS_ISLAND), 512×512 `ClimateGraph`, `DistanceTransform` (Dijkstra chamfer), `ClimateNoise` (jittered-grid quantized sampling), `ClimateSearch`/`UniqueClimateGenerator`
-- [ ] `Zone`, `ZonePatternProvider`/`Generator`, `ZoneColorMapping`, unique-zone candidate scan/painting
-- [ ] `Biome`, `TileBiome`, `CustomBiome(Generator)`, `BiomePatternGenerator` (weighted voronoi + `sizeModifier` warp), `BiomeInterpolation`
+- [x] `PixelProvider`, `ExactZoom`, `FuzzyZoom`, `PixelDistanceProvider` (8×8 cell spatial index for border distance)
+- [x] Climate core: `ClimateType` tree + flag bits (IS_OCEAN/IS_SHORE/IS_ISLAND), `ClimateGraph` (512×512 hierarchical weighted-voronoi), `DistanceTransform` (Dijkstra), `ClimateNoise` (jittered-grid quantized sampling), `ClimateSearch`, `DirectGrid`, `IntMap`/`DoubleMap`
+- [ ] `MaskProvider`, `ClimateMaskProvider`, `UniqueClimateGenerator` (blocked on: `ChunkGenerator` skeleton + full `Zone`)
+- [ ] `Zone`, `ZonePatternProvider`/`Generator`, `ZoneColorMapping`, unique-zone candidate scan/painting (partial: `zone.rs` has `UniqueEntry`/`UniqueCandidate`/`Unique` value types)
+- [ ] `Biome`, `TileBiome`, `CustomBiome(Generator)`, `BiomePatternGenerator` (weighted voronoi + `sizeModifier` warp), `BiomeInterpolation` (blocked on: `worldgen/container/*` + `IWeightedMap` + `HeightThresholdInterpolator`)
 - [ ] serde loaders: `World.json`, mask/climate/biome/zone JSON
 - [ ] Verification: PNG mask/zone/biome renders pixel-diffed vs Java
 
