@@ -12,14 +12,13 @@ use std::rc::Rc;
 
 use procedural::noise::branch_noise::BranchNoise;
 use procedural::noise::cell::cell_distance_function::CellDistanceFunction;
-use procedural::noise::cell::distance_calculation_mode::DistanceCalculationMode;
 use procedural::noise::cell::evaluator::branch_evaluator::{BranchDirection, BranchEvaluator};
 use procedural::noise::cell::evaluator::density_point_evaluator::DensityPointEvaluator;
 use procedural::noise::cell::evaluator::normal_point_evaluator::NormalPointEvaluator;
 use procedural::noise::cell::grid_cell_distance_function::GridCellDistanceFunction;
 use procedural::noise::cell::grid_cell_distance_function::GridCellPointFunction;
 use procedural::noise::cell::jitter::CellJitter;
-use procedural::noise::cell_noise::{CellFunction, CellMode, CellNoise};
+use procedural::noise::cell_noise::{CellMode, CellNoise};
 use procedural::noise::constant_noise::ConstantNoise;
 use procedural::noise::distance_noise::{Distance2Mode, DistanceNoise};
 use procedural::noise::function::{NoiseFunction2d, NoiseFunction3d};
@@ -75,7 +74,7 @@ fn parse_java_hex_double(s: &str) -> f64 {
         scale *= 16.0;
         m = m * 16.0 + c.to_digit(16).unwrap() as f64;
     }
-    let frac_digits = frac_part.len() as i32;
+    let _ = frac_part.len();
 
     // value = sign * m / scale * 2^exp — computed exactly for normal doubles:
     // m < 2^53 (exact), 1/scale is a power of 4 (exact), 2^exp exact.
@@ -279,7 +278,7 @@ fn golden_noise_2d() {
 #[test]
 fn golden_noise_3d() {
     let root = golden_root();
-    let (size, start, step) = parse_grid(&root["grid3d"]);
+    let (_size, start, step) = parse_grid(&root["grid3d"]);
     let noise3d = match root.get("noise3d") {
         Some(n) => n,
         None => return,

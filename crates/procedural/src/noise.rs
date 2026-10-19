@@ -47,6 +47,8 @@ pub mod mesh_noise;
 pub mod old_simplex_noise;
 pub mod perlin_noise;
 pub mod point_noise;
+pub mod property;
+pub mod random;
 pub mod result_buffer;
 pub mod simplex_noise;
 pub mod support;
@@ -70,6 +72,18 @@ pub use mesh_noise::MeshNoise;
 pub use old_simplex_noise::OldSimplexNoise;
 pub use perlin_noise::PerlinNoise;
 pub use point_noise::PointNoise;
+pub use property::{
+    BlendNoiseProperty, CurveNoiseProperty, DistortedNoiseProperty, FractalMode,
+    FractalNoiseProperty, GradientMode, GradientNoiseProperty, InvertNoiseProperty,
+    MaxNoiseProperty, MinNoiseProperty, MultiplyNoiseProperty, NoiseFormula,
+    NoiseFormulaProperty, NoisePropertyType, NormalizeNoiseProperty, OffsetNoiseProperty,
+    PowerCurve, RotateNoiseProperty, ScaleNoiseProperty, SingleNoiseProperty,
+    SumNoiseProperty, SumNoisePropertyEntry,
+};
+pub use random::{
+    AmplitudeNoiseProperty, CoordinateOriginRotator, CoordinateRandomizer, CoordinateRotator,
+    EmptyCoordinateRandomizer, ICoordinateRandomizer, RotatedCoordinateRandomizer,
+};
 pub use result_buffer::{Bounds2d, ResultBuffer2d, ResultBuffer3d};
 pub use simplex_noise::SimplexNoise;
 pub use value_noise::ValueNoise;

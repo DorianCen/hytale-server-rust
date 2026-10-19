@@ -208,22 +208,9 @@ fn check_f64_rows(root: &serde_json::Value, key: &str, f: impl Fn(&serde_json::V
     }
 }
 
-fn check_f32_rows(root: &serde_json::Value, key: &str, f: impl Fn(&serde_json::Value) -> f32) {
-    for row in root[key].as_array().unwrap() {
-        let expected = as_f32(&row["out"]);
-        let got = f(row);
-        assert_eq!(
-            got.to_bits(),
-            expected.to_bits(),
-            "{key} row {row}: expected {expected}, got {got}"
-        );
-    }
-}
-
 #[test]
 fn golden_mathutil() {
     let root = load("mathutil.json");
-
     // int in / int out
     check_f64_rows(&root, "abs_int", |r| math_util::abs(as_i32(&r["in"])) as f64);
     for row in root["abs_int"].as_array().unwrap() {
@@ -458,7 +445,7 @@ fn golden_mathutil() {
         assert_eq!(got.to_bits(), as_f32(&row["out"]).to_bits(), "mapToRange {row}");
     }
     for row in root["percentile"].as_array().unwrap() {
-        let data: Vec<i64> = row["sortedData"].as_array().unwrap().iter().map(|v| as_i64(v)).collect();
+        let data: Vec<i64> = row["sortedData"].as_array().unwrap().iter().map(as_i64).collect();
         let got = math_util::percentile(&data, as_f64(&row["percentile"]));
         assert_eq!(got.to_bits(), as_f64(&row["out"]).to_bits(), "percentile {row}");
     }
