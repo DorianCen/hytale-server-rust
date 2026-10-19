@@ -41,18 +41,18 @@ hytale-server-rust/
 ## Phases
 
 ### Phase 0 — Scaffolding
-- [ ] Cargo workspace, CI, clippy/fmt, `worldgen-cli` skeleton
-- [ ] Extract the Default world assets into `testdata/`
-- [ ] Write `REMAINING.md` (deferred scope: modifier/event plugin system, entity serialization from prefabs, CoreServer/ECS integration, world map UI)
-- [ ] Build the Java generator via Maven + a Java "dumper" emitting golden JSON/bytes for fixed seeds (noise samples, zone/biome maps, chunk dumps) — the parity backbone reused by every later phase
+- [x] Cargo workspace, CI, clippy/fmt, `worldgen-cli` skeleton
+- [x] Extract the Default world assets into `testdata/`
+- [x] Write `REMAINING.md` (deferred scope: modifier/event plugin system, entity serialization from prefabs, CoreServer/ECS integration, world map UI)
+- [x] Build the Java generator via Maven + a Java "dumper" emitting golden JSON/bytes for fixed seeds (noise samples, zone/biome maps, chunk dumps) — the parity backbone reused by every later phase (`tools/java-dumper/`)
 
 ### Phase 1 — `hytale-math` + `procedural` (~2.5k Java lines)
-- [ ] `FastRandom`, `HashUtil` (seed hashing/rehashing), `ChunkUtil`, `MathUtil` — exact Java float/int semantics
-- [ ] Noise: Simplex, Perlin, Value, Cell (`CellNoise`), Grid, Mesh/Hex, Distance, Point + `ResultBuffer2d/3d`
-- [ ] `NoiseProperty` combinator DSL (fractal, sum, scale, rotate, distort, blend, gradient, curve)
-- [ ] `IPointGenerator` jittered grids (`nearest2D`, `collect`; 3×3 cell search, 256-entry offset tables), `CoordinateRandomizer` (fuzzy domain warp)
-- [ ] Conditions: `IIntCondition`, `ICoordinateCondition`, `IHeightThresholdInterpreter`, `DoubleRange`, thresholds
-- [ ] Golden tests vs Phase 0 dumper output
+- [x] `FastRandom`, `HashUtil` (seed hashing/rehashing), `ChunkUtil`, `MathUtil` — exact Java float/int semantics (golden-verified)
+- [x] Noise: Simplex, Perlin, Value, Cell (`CellNoise`), Grid, Mesh/Hex, Distance, Point + `ResultBuffer2d/3d` (golden-verified bit-exact, 2d + 3d)
+- [x] `NoiseProperty` combinator DSL (fractal, sum, scale, rotate, distort, blend, gradient, curve)
+- [x] `IPointGenerator` jittered grids (`nearest2D`, `collect`; 3×3 cell search, 256-entry offset tables), `CoordinateRandomizer` (fuzzy domain warp)
+- [x] Conditions: `IIntCondition`, `ICoordinateCondition`, `IHeightThresholdInterpreter`, `DoubleRange`, thresholds
+- [x] Golden tests vs Phase 0 dumper output (`crates/*/tests/golden.rs`)
 
 ### Phase 2 — World layout: mask → zones → biomes (~2.9k lines)
 - [ ] `PixelProvider`, `ExactZoom`, `FuzzyZoom`, `PixelDistanceProvider` (8×8 cell spatial index for border distance), `MaskProvider`

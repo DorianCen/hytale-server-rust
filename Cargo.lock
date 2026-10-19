@@ -113,6 +113,11 @@ version = "0.1.0"
 [[package]]
 name = "worldgen-hytale"
 version = "0.1.0"
+dependencies = [
+ "hytale-math",
+ "procedural",
+ "serde_json",
+]
 
 [[package]]
 name = "worldgen-model"
