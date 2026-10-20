@@ -1,9 +1,14 @@
-# Next steps — Phase 2/3 continuation roadmap
+# Next steps — continuation roadmap (updated 2026-10-20)
 
-Status: Phase 0 + Phase 1 complete and golden-verified. Phase 2 partially done
-(`zoom/` + climate core in `crates/worldgen-hytale`). This file lists the next
-subtasks in dependency order, sized for ~200k-context subagent runs
-(`opencode/glm-5.3-flash-free` / `opencode/deepseek-v4.1-flash-free`).
+Status: Phase 0 + Phase 1 complete and golden-verified. Phase 2 zoom/climate
+golden-verified (Subtask 6). Subtasks 1–4 + 6 DONE; Phase 3 terrain/water
+populators DONE. This file lists the remaining work in dependency order,
+sized for ~200k-context subagent runs. Free-model pool (subagents):
+`opencode/minimax-m3.1-flash-free`, `opencode/longcat-2.5-preview-free`,
+`opencode/deepseek-v4.1-flash-free`, `opencode/glm-5.3-flash-free` — note
+they intermittently rate-limit / IP-block; retry with a different model or
+fall back to porting in-session (each retry costs ~1 min, a full port ~10–20
+min — don't burn more than ~3 retries before switching).
 
 ## Verified so far (do not regress — `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` must stay green)
 - `hytale-math`: FastRandom, HashUtil, MathUtil, ChunkUtil, TrigMathUtil, ranges — golden tests vs `testdata/golden/{fastrandom,hashutil,mathutil}.json` (bit-exact).
@@ -100,9 +105,6 @@ subtasks in dependency order, sized for ~200k-context subagent runs
 - Remaining: cross-check unique-zone candidate/painting semantics against the
   loader JSON during Subtask 7.
 
-## Subtask 5 — ClimateMaskProvider + UniqueClimateGenerator [needs 3+4]
-- Finishes the climate package
-
 ## Phase 3 populator slice (Block + Covers + Layers + Water) [DONE]
 - `worldgen-model::registry` — the registry SEAM: `DrawType` (protocol enum
   1:1, default `Cube`), `BlockTypeInfo`/`BlockRegistry`, `FluidRegistry`
@@ -151,33 +153,94 @@ subtasks in dependency order, sized for ~200k-context subagent runs
   Both are wired into `crates/worldgen-hytale/tests/golden.rs`
   (`zoom_golden_parity`, `climate_golden_parity` — bit-exact).
 
-## Subtask 7 — serde loaders for World.json / Zones.json / mask config (Phase 2 close)
-- 77 Java loader classes become #[derive(Deserialize)] structs; transcribe defaults/validation faithfully (plan risk #3)
-- Flexible gson semantics: untyped maps, weighted-map shorthands (`"!Rock_Bedrock"`, `"*"` in masks)
+## Subtask 7 — serde loaders: World.json / Mask.json / Zones.json / zone files (Phase 2 close) [NEXT UP]
+Java sources: `worldgen/loader/**` (77 classes) — sized as 2–3 subagent runs.
+- 7a. Core config path: `WorldGenConfig`, `ChunkGeneratorJsonLoader`,
+  `MaskProviderJsonLoader`/`ClimateMaskJsonLoader`, `ZoneJsonLoader`,
+  `ZoneColorMappingJsonLoader` → `#[derive(Deserialize)]` structs in
+  `crates/worldgen-hytale/src/loader/`. Transcribe defaults/validation
+  faithfully (plan risk #3); flexible gson semantics: untyped maps,
+  weighted-map shorthands (`"!Rock_Bedrock"`, `"*"` in masks) need custom
+  serde deserializers; `SeedString` seed labels (`"RANDOMIZER"`) reproduce
+  the dumper's verified convention (`hash("<seed>.<label>") * 114512143`).
+- 7b. Registries wiring: extend `Registries::from_golden` with the NAME → id
+  direction (`BlockType.getAssetMap().getIndex(name)` + case-insensitive
+  lookup, rotation suffixes via `BlockPattern.BlockEntry.decode` —
+  `"Name@rotation"`), switch `ChunkGeneratorExecution`'s default registry
+  from `Registries::empty()` to the golden-loaded one (a `Registries::load()`
+  reading `testdata/golden/registries.json` — path configurable later).
+- 7c. Content loaders the biome/zone configs reference: NoiseBlockArray /
+  ResolvedBlockArray / ResolvedVariantsBlockArray JSON loaders, tint/env
+  mapping, cover/layer/water/prefab container loaders, cave config loaders
+  (with the Phase-4 cave types), `Prefabs.json` + `.prefab.json` parsing
+  (10,050 files under `Assets/extracted/Server/Prefabs/` — the `PrefabStore:
+  ASSETS` store), environments.
+- 7d. Loader golden tests: Java dumper extension loading a REAL Zone config
+  and dumping the resolved containers/biomes; Rust asserts equality. This
+  also cross-checks the Subtask-4 unique-zone wiring note.
 
-## Subtask 8 — wire the golden registries into the world generator [DONE: the data is there]
-- The base-game asset pack (`Assets/Assets.zip`) is provided and extracted under
-  `Assets/extracted/` (git-ignored).
-- The block definitions were **not** missing: they are the `"BlockType"` objects
-  embedded in the `Server/Item/Items/**` item assets, registered as child assets
-  of the BlockType store by `ContainedAssetCodec` (mode `INHERIT_ID_AND_PARENT`).
-- `tools/java-dumper` (`RegistryDumper.java`) boots the vanilla CoreServer asset
-  pipeline (`AssetRegistryLoader`) over the pack (mounted as a zip `FileSystem`,
-  like the vanilla server) and dumps `testdata/golden/registries.json`:
-  6,135 block types (`name`, `index`, `drawType`), 19 fluids (`maxFluidLevel`),
-  135 environments, plus a `meta` block with the boot description and the
-  load-order caveat.
-- The Rust seam now has its data: `worldgen_model::registry::Registries::from_golden`
-  loads the dump (serde) into the `BlockRegistry` (index → draw type), the
-  `FluidRegistry` (index → max fluid level) and the new `EnvironmentRegistry`
-  (index → name). `Registries::empty()` is unchanged and stays the default.
-- **Still open (the loader subtask)**: wire the golden-loaded `Registries` into
-  `ChunkGeneratorExecution` (it currently builds `Registries::empty()`), and add
-  the **name → id** resolution the Java loaders do
-  (`BlockType.getAssetMap().getIndex(name)`, `Fluid.getAssetMap().getIndex(name)`,
-  `Environment.getAssetMap().getIndex(name)`) — the dump carries the names, but
-  the Rust registries only expose the index direction so far.
-- **Still open**: confirm the dumped ids against a real server dump (the ids are
-  pinned to the dumper's canonical load order, see the `meta` block of the dump).
+## Subtask 5 — ClimateMaskProvider + UniqueClimateGenerator [after 7a/7b]
+- `chunk/MaskProvider` (the chunk-level one the ChunkGenerator uses) +
+  `ClimateMaskProvider` + `UniqueClimateGenerator` (unique-zone placement via
+  ring-spiral `ClimateSearch` scoring — the zoom/ unique-placement helpers
+  already ported cover the image path; this is the climate path).
+- Finishes the climate package; needs the loaders (7a) for the mask configs.
 
-Then Phase 3 (populators) per plan.md.
+## Phase 4 — Caves (~4.6k Java lines, largest phase) [after 5]
+Port slices in order, each ending green + reviewed:
+- 4a. Core value types: `Cave`, `CaveType`, `CaveNodeType`,
+  `CaveBiomeMaskFlags`, `CaveGeneratorCache` (+ ExtendedCoordinateCache use),
+  `CaveBlockPriorityModifier` (the modifier that lets regular caves carve
+  into prefab caves); Zone record gains the `caveGenerator` field;
+  ChunkGenerator gains `getCave`/`generateCave` + `cave_generator_cache`.
+- 4b. Node-graph growth: `CaveGenerator` recursive yaw/pitch walk, anchors,
+  radius inheritance, GENERATE/POPULATE/CONTINUE flags, chunk-bucket compile.
+- 4c. Shapes: pipe, cylinder, ellipsoid, empty-line, prefab-as-node.
+- 4d. The distorted family (largest): extrusion/body math, interpolation
+  curves, pitch compensation, width/floor/ceiling distortion noise;
+  `CaveNodeShapeUtils` (anchors, covers, support invalidation), fillings/
+  fluids.
+- 4e. Cave JSON loaders (cross-zone node references, `CaveNodeTypeStorage`)
+  + golden verification: Java dumper dumps whole caves for fixed seeds →
+  chunk-slice PNGs + block-histogram invariants vs Java.
+
+## Phase 5 — Prefabs (~2.5k lines + format work) [after 4a]
+- 5a. `PrefabPasteUtil` + reusable paste buffer (block-mask gating,
+  per-column heightmap fitting, environments, recursive child composition
+  depth ≤ 10, seed composition); parse `.prefab.json` (10k files, data
+  ready under `Assets/extracted/Server/Prefabs/`); `PrefabRotation` (also
+  unlocks the deferred IChunkBounds rotated-bounds methods).
+- 5b. `PrefabPopulator`: sparse 8-block biome sampling, lattice collection,
+  weighted picks, rotation, deep-search heights, `PrefabBaseCheck` evenness,
+  AABB invalidation by category priority; Zone gains `uniquePrefabContainer`;
+  ChunkGenerator gains the prefab caches.
+- 5c. Unique prefabs: `UniquePrefabConfiguration`, exclusion radii,
+  zone-border exclusion, inverse domain-warp placement, spawn points
+  (`getSpawnPoints`), `ValidationUtil`, `UniquePrefabContainer` port.
+- Entities: stubbed (deferred per scope); `getExtents`/`PrefabContainerEntry`
+  seams replaced with the real types.
+- Verification: prefab placement coordinate lists + structure maps vs Java.
+
+## Phase 6 — Integration & polish [last]
+- Final `trait WorldGen` (async `generate(seed, index, x, z, cancel, priority)`),
+  worker pool (replaces the private cache twin with the real concurrent
+  design), graceful shutdown, per-stage timing metrics.
+- `worldgen-cli`: `generate`, `render-map`, `dump-chunk`, `validate`, `bench`
+  (criterion ports of the two JMH benchmarks).
+- `HytaleWorldGenProvider` config semantics (Name/Version/Path); the serde
+  loaders read an asset root (defaults to `Assets/extracted/` layout).
+- Architecture doc: Java class → Rust module mapping (1:1 mapping table).
+
+## Cross-cutting / open risks (tracked, do not forget)
+- **Id-order caveat**: the dumped registry ids are pinned to the dumper's
+  canonical single-threaded load order; a real-server dump should be diffed
+  when available (see `testdata/golden/registries.json` `meta`).
+- `procedural::noise::support` reduced seams still shadow the full
+  `supplier`/`condition` ports — integrate them when a loader phase touches
+  those files.
+- Chunk-level golden parity now depends on the FULL Java pipeline in the
+  dumper (blocks resolve!): extend `RegistryDumper`'s boot to run the actual
+  Default-world generation for fixed seeds/chunks and dump block grids —
+  the definitive Phase-3 verification (was blocked on the asset pack).
+- `ChunkGeneratorExecution::execute()` still lacks the cave/prefab stages —
+  the in-code NOT-BIT-EXACT flag comes off at Phase 4/5.
