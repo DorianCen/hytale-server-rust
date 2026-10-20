@@ -133,6 +133,12 @@ subtasks in dependency order, sized for ~200k-context subagent runs
   so Java cannot load the Default world without the pack either; chunk-level
   golden parity is blocked on the pack (or obtaining it). Until then the
   registry seam is data-driven and empty (water writes nothing).
+  → **RESOLVED**: the base-game pack was provided (`Assets/Assets.zip`) and the
+  block definitions turned out to be the `"BlockType"` objects **embedded in the
+  `Server/Item/Items/**` item assets** (registered as child assets by
+  `ContainedAssetCodec` with mode `INHERIT_ID_AND_PARENT`). The real pipeline
+  now runs in the Java dumper, so the registries arrive as golden data — see
+  the registry subtask below.
 - 23 new tests (374 workspace total).
 
 ## Subtask 6 — Java dumper extension (Phase 2 golden data) [DONE]
@@ -148,5 +154,30 @@ subtasks in dependency order, sized for ~200k-context subagent runs
 ## Subtask 7 — serde loaders for World.json / Zones.json / mask config (Phase 2 close)
 - 77 Java loader classes become #[derive(Deserialize)] structs; transcribe defaults/validation faithfully (plan risk #3)
 - Flexible gson semantics: untyped maps, weighted-map shorthands (`"!Rock_Bedrock"`, `"*"` in masks)
+
+## Subtask 8 — wire the golden registries into the world generator [DONE: the data is there]
+- The base-game asset pack (`Assets/Assets.zip`) is provided and extracted under
+  `Assets/extracted/` (git-ignored).
+- The block definitions were **not** missing: they are the `"BlockType"` objects
+  embedded in the `Server/Item/Items/**` item assets, registered as child assets
+  of the BlockType store by `ContainedAssetCodec` (mode `INHERIT_ID_AND_PARENT`).
+- `tools/java-dumper` (`RegistryDumper.java`) boots the vanilla CoreServer asset
+  pipeline (`AssetRegistryLoader`) over the pack (mounted as a zip `FileSystem`,
+  like the vanilla server) and dumps `testdata/golden/registries.json`:
+  6,135 block types (`name`, `index`, `drawType`), 19 fluids (`maxFluidLevel`),
+  135 environments, plus a `meta` block with the boot description and the
+  load-order caveat.
+- The Rust seam now has its data: `worldgen_model::registry::Registries::from_golden`
+  loads the dump (serde) into the `BlockRegistry` (index → draw type), the
+  `FluidRegistry` (index → max fluid level) and the new `EnvironmentRegistry`
+  (index → name). `Registries::empty()` is unchanged and stays the default.
+- **Still open (the loader subtask)**: wire the golden-loaded `Registries` into
+  `ChunkGeneratorExecution` (it currently builds `Registries::empty()`), and add
+  the **name → id** resolution the Java loaders do
+  (`BlockType.getAssetMap().getIndex(name)`, `Fluid.getAssetMap().getIndex(name)`,
+  `Environment.getAssetMap().getIndex(name)`) — the dump carries the names, but
+  the Rust registries only expose the index direction so far.
+- **Still open**: confirm the dumped ids against a real server dump (the ids are
+  pinned to the dumper's canonical load order, see the `meta` block of the dump).
 
 Then Phase 3 (populators) per plan.md.

@@ -13,7 +13,7 @@ tools/java-dumper/run.sh
 
 The dumper compiles the already-compiled upstream classes (read-only, under
 `.hytale-source/`) into `tools/java-dumper/lib/`, compiles itself with Maven, and
-writes all six JSON files into this directory. Output is deterministic: running the
+writes all seven JSON files into this directory. Output is deterministic: running the
 script twice produces byte-identical files.
 
 The Phase-2 dumps (`zoom.json`, `climate.json`) read the Default world assets from
@@ -176,3 +176,39 @@ The noise-property trees mirror the Java objects 1:1
 (`SINGLE`, `FRACTAL`, `NORMALIZE`, `SCALE`, `OFFSET`, `DISTORTED`, `BLEND`, `SUM`
 and the `SIMPLEX` / `CONSTANT` / `POINT` / `GRID` noise functions) so the Rust port
 can rebuild the identical graph — and therefore compare bit patterns.
+
+### `registries.json`
+The **real** block, fluid and environment registries of the base-game asset pack
+(`Assets/Assets.zip`, which is not part of the source tree).
+
+The block types are not standalone assets: they are the `"BlockType"` objects
+*embedded* in the `Server/Item/Items/**` item assets, which `Item.CODEC` registers as
+child assets of the BlockType store through
+`ContainedAssetCodec(BlockType.class, BlockType.CODEC, Mode.INHERIT_ID_AND_PARENT)`
+— the block id is the item key and the parent is inherited from the item's
+`"Parent"`. The numeric ids are handed out by `BlockTypeAssetMap.putAll0` in
+asset-load order, so they can only be obtained by running the real asset pipeline.
+
+`RegistryDumper.java` therefore boots the vanilla CoreServer asset pipeline
+(`AssetRegistryLoader`) over the pack (mounted as a zip `FileSystem`, exactly like
+the vanilla server) and dumps:
+
+- `meta` — the boot description, the load-order strategy, the id-order caveat and
+  the known gaps.
+- `blocks.count` / `blocks.assets[]` — `{ name, index, drawType, drawTypeId, unknown }`
+  per registered block type, plus `preLoadOrder` and the `emptyId` / `unknownId` /
+  `debugCubeId` / `debugModelId` constants (the four hard-coded block types are
+  ids 0…3).
+- `fluids.count` / `fluids.assets[]` — `{ name, index, maxFluidLevel }` per fluid.
+- `environments.count` / `environments.assets[]` — `{ name, index }` per environment
+  (the world generator resolves the environment names through
+  `Environment.getAssetMap().getIndex(name)`).
+
+The dump is deterministic: it contains no timestamps, the asset files are collected
+with the vanilla `Files.walkFileTree` (the zip entry order) and the dumper runs the
+pipeline with a single worker thread of the common fork join pool, because the
+vanilla pipeline collects the parallel decode results in a `ConcurrentHashMap` whose
+iteration order would otherwise depend on the thread scheduling.
+
+The ids are pinned to the load order this dumper observed; they are only identical
+to a real server's ids when the real server loads the same pack in the same order.

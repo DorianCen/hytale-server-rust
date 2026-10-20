@@ -6,16 +6,18 @@
 //!
 //! The Java world generator resolves block and fluid *names* to integer ids
 //! through the CoreServer asset maps (`BlockType.getAssetMap().getIndex(name)`
-//! / `Fluid.getAssetMap().getIndex(name)`). The asset packs themselves (the
-//! `BlockType.json` / `Fluid.json` bundles) are **not** part of the shared
-//! source tree, so the exact name → id maps cannot be reconstructed here (see
-//! `REMAINING.md` § 6).
+//! / `Fluid.getAssetMap().getIndex(name)`). The base-game asset pack defines
+//! the block types as the `"BlockType"` objects embedded in the
+//! `Server/Item/Items/**` item assets, and the numeric ids are handed out by
+//! the asset pipeline in load order — so they can only be obtained by running
+//! the real Java pipeline (see `tools/java-dumper`, which dumps them to
+//! `testdata/golden/registries.json`).
 //!
 //! The Rust port therefore carries a *data-driven* seam: the registries below
-//! are plain lookup tables that the loader subtask fills with the real assets.
-//! Until then [`Registries::empty`] is used, in which every block lookup
-//! misses (`getAsset` → `None`) and every fluid lookup falls back to the
-//! default max fluid level — exactly the Java semantics of
+//! are plain lookup tables that [`Registries::from_golden`] fills with the
+//! real assets. Until then [`Registries::empty`] is used, in which every block
+//! lookup misses (`BlockRegistry::get` → `None`) and every fluid lookup falls
+//! back to the default max fluid level — exactly the Java semantics of
 //! `getAssetOrDefault(index, Fluid.EMPTY)`.
 //!
 //! ## Bit-exactness
@@ -33,7 +35,11 @@
 //!
 //! Every other registry field is irrelevant for the generated chunk bytes.
 
+use std::fmt;
+use std::path::Path;
 use std::sync::LazyLock;
+
+use serde::Deserialize;
 
 /// Java `com.hypixel.hytale.protocol.DrawType` — the protocol enum that
 /// mirrors the CoreServer `BlockType.drawType` field.
@@ -73,6 +79,19 @@ impl DrawType {
             2 => Some(DrawType::Cube),
             3 => Some(DrawType::Model),
             4 => Some(DrawType::CubeWithModel),
+            _ => None,
+        }
+    }
+
+    /// Java `DrawType.valueOf(String)` (the enum constant name).
+    #[inline]
+    pub fn from_name(name: &str) -> Option<DrawType> {
+        match name {
+            "Empty" => Some(DrawType::Empty),
+            "GizmoCube" => Some(DrawType::GizmoCube),
+            "Cube" => Some(DrawType::Cube),
+            "Model" => Some(DrawType::Model),
+            "CubeWithModel" => Some(DrawType::CubeWithModel),
             _ => None,
         }
     }
@@ -247,19 +266,102 @@ impl FluidRegistry {
     }
 }
 
-/// The block and fluid registries of a world.
+/// Java `IndexedLookupTableAssetMap<String, Environment>` — the id →
+/// environment asset table.
+///
+/// The world generator resolves the environment *names* of the biome
+/// environment containers and of the prefab contents to their numeric ids
+/// (`Environment.getAssetMap().getIndex(name)`), so the table is kept as
+/// name-per-index. The environment assets themselves carry no data the
+/// generator observes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EnvironmentRegistry {
+    /// Java `private final Environment[] array` — the indexed asset table.
+    names: Vec<String>,
+}
+
+impl EnvironmentRegistry {
+    /// Java `IndexedLookupTableAssetMap` — the indexed environment table.
+    pub fn new(names: Vec<String>) -> Self {
+        Self { names }
+    }
+
+    /// An empty registry — every lookup misses.
+    pub fn empty() -> Self {
+        Self { names: Vec::new() }
+    }
+
+    /// The environment name at `index` (Java: `getAsset(index).getId()`).
+    #[inline]
+    pub fn name(&self, index: i32) -> Option<&str> {
+        if index < 0 {
+            return None;
+        }
+        self.names.get(index as usize).map(String::as_str)
+    }
+
+    /// The numeric id of an environment name (Java: `getIndex(name)`).
+    ///
+    /// The Java map compares the keys case-insensitively
+    /// (`CaseInsensitiveHashStrategy`), so the lookup is case-insensitive too.
+    pub fn index_of(&self, name: &str) -> Option<i32> {
+        self.names
+            .iter()
+            .position(|candidate| candidate.eq_ignore_ascii_case(name))
+            .map(|index| index as i32)
+    }
+
+    /// The indexed environment table.
+    #[inline]
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// The number of indexed slots.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Whether the registry holds no slot at all.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+}
+
+/// The block, fluid and environment registries of a world.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Registries {
     /// Java `BlockType.getAssetMap()`.
     pub blocks: BlockRegistry,
     /// Java `Fluid.getAssetMap()`.
     pub fluids: FluidRegistry,
+    /// Java `Environment.getAssetMap()`.
+    pub environments: EnvironmentRegistry,
 }
 
 impl Registries {
     /// A registry pair.
     pub fn new(blocks: BlockRegistry, fluids: FluidRegistry) -> Self {
-        Self { blocks, fluids }
+        Self {
+            blocks,
+            fluids,
+            environments: EnvironmentRegistry::empty(),
+        }
+    }
+
+    /// A registry triple (the environment table is empty in [`Registries::new`]).
+    pub fn with_environments(
+        blocks: BlockRegistry,
+        fluids: FluidRegistry,
+        environments: EnvironmentRegistry,
+    ) -> Self {
+        Self {
+            blocks,
+            fluids,
+            environments,
+        }
     }
 
     /// An empty registry pair — every block lookup misses and every fluid
@@ -268,7 +370,184 @@ impl Registries {
         Self {
             blocks: BlockRegistry::empty(),
             fluids: FluidRegistry::empty(),
+            environments: EnvironmentRegistry::empty(),
         }
+    }
+
+    /// Loads the registries from the golden dump the Java dumper produced
+    /// (`testdata/golden/registries.json`).
+    ///
+    /// The dump is the output of the *real* Java asset pipeline (the vanilla
+    /// `AssetRegistryLoader` running over the base-game asset pack), so the
+    /// ids it contains are the ids the Java world generator uses. The Rust
+    /// side never re-derives them.
+    pub fn from_golden(path: impl AsRef<Path>) -> Result<Registries, RegistryLoadError> {
+        let text = std::fs::read_to_string(path.as_ref()).map_err(RegistryLoadError::Io)?;
+        let dump: GoldenDump = serde_json::from_str(&text).map_err(RegistryLoadError::Json)?;
+        dump.into_registries()
+    }
+}
+
+/// The error of [`Registries::from_golden`].
+#[derive(Debug)]
+pub enum RegistryLoadError {
+    /// The golden file could not be read.
+    Io(std::io::Error),
+    /// The golden file is not valid JSON (or does not have the expected shape).
+    Json(serde_json::Error),
+    /// The golden file contains inconsistent data.
+    Invalid(String),
+}
+
+impl fmt::Display for RegistryLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RegistryLoadError::Io(error) => write!(f, "cannot read the registry dump: {error}"),
+            RegistryLoadError::Json(error) => write!(f, "cannot parse the registry dump: {error}"),
+            RegistryLoadError::Invalid(message) => {
+                write!(f, "invalid registry dump: {message}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RegistryLoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            RegistryLoadError::Io(error) => Some(error),
+            RegistryLoadError::Json(error) => Some(error),
+            RegistryLoadError::Invalid(_) => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// The golden dump format
+// ---------------------------------------------------------------------
+
+/// The root of `testdata/golden/registries.json`.
+#[derive(Debug, Deserialize)]
+struct GoldenDump {
+    blocks: GoldenBlocks,
+    fluids: GoldenFluids,
+    #[serde(default)]
+    environments: Option<GoldenEnvironments>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoldenBlocks {
+    #[serde(default)]
+    assets: Vec<GoldenBlock>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoldenBlock {
+    name: String,
+    index: i32,
+    #[serde(rename = "drawType")]
+    draw_type: String,
+    #[serde(rename = "drawTypeId")]
+    draw_type_id: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoldenFluids {
+    #[serde(default)]
+    assets: Vec<GoldenFluid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoldenFluid {
+    name: String,
+    index: i32,
+    #[serde(rename = "maxFluidLevel")]
+    max_fluid_level: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoldenEnvironments {
+    #[serde(default)]
+    assets: Vec<GoldenEnvironment>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoldenEnvironment {
+    name: String,
+    index: i32,
+}
+
+impl GoldenDump {
+    fn into_registries(self) -> Result<Registries, RegistryLoadError> {
+        // --- blocks ------------------------------------------------------
+        let mut blocks: Vec<Option<BlockTypeInfo>> = Vec::new();
+        for asset in &self.blocks.assets {
+            if asset.index < 0 {
+                return Err(RegistryLoadError::Invalid(format!(
+                    "the block '{}' has a negative index",
+                    asset.name
+                )));
+            }
+            let draw_type = DrawType::from_name(&asset.draw_type).ok_or_else(|| {
+                RegistryLoadError::Invalid(format!(
+                    "the block '{}' has the unknown draw type '{}'",
+                    asset.name, asset.draw_type
+                ))
+            })?;
+            if draw_type.get_value() != asset.draw_type_id {
+                return Err(RegistryLoadError::Invalid(format!(
+                    "the block '{}' has the draw type '{}' (id {}) but the dump says id {}",
+                    asset.name,
+                    asset.draw_type,
+                    draw_type.get_value(),
+                    asset.draw_type_id
+                )));
+            }
+            let index = asset.index as usize;
+            if blocks.len() <= index {
+                blocks.resize(index + 1, None);
+            }
+            blocks[index] = Some(BlockTypeInfo::new(draw_type));
+        }
+
+        // --- fluids ------------------------------------------------------
+        let mut fluids: Vec<i8> = Vec::new();
+        for asset in &self.fluids.assets {
+            if asset.index < 0 {
+                return Err(RegistryLoadError::Invalid(format!(
+                    "the fluid '{}' has a negative index",
+                    asset.name
+                )));
+            }
+            let index = asset.index as usize;
+            if fluids.len() <= index {
+                fluids.resize(index + 1, DEFAULT_MAX_FLUID_LEVEL);
+            }
+            fluids[index] = asset.max_fluid_level as i8;
+        }
+
+        // --- environments ------------------------------------------------
+        let mut environments: Vec<String> = Vec::new();
+        if let Some(section) = &self.environments {
+            for asset in &section.assets {
+                if asset.index < 0 {
+                    return Err(RegistryLoadError::Invalid(format!(
+                        "the environment '{}' has a negative index",
+                        asset.name
+                    )));
+                }
+                let index = asset.index as usize;
+                if environments.len() <= index {
+                    environments.resize(index + 1, String::new());
+                }
+                environments[index] = asset.name.clone();
+            }
+        }
+
+        Ok(Registries::with_environments(
+            BlockRegistry::new(blocks),
+            FluidRegistry::new(fluids),
+            EnvironmentRegistry::new(environments),
+        ))
     }
 }
 
@@ -390,5 +669,101 @@ mod tests {
         assert_eq!(registry.get_max_fluid_level(4), 8);
         assert_eq!(registry.get_max_fluid_level(-1), 8);
         assert_eq!(registry.len(), 4);
+    }
+
+    #[test]
+    fn the_environment_registry_resolves_names_case_insensitively() {
+        let registry = EnvironmentRegistry::new(vec![
+            "Unknown".to_string(),
+            "Default".to_string(),
+            "Env_Zone0".to_string(),
+        ]);
+
+        assert_eq!(registry.name(0), Some("Unknown"));
+        assert_eq!(registry.name(2), Some("Env_Zone0"));
+        assert_eq!(registry.name(3), None);
+        assert_eq!(registry.name(-1), None);
+
+        assert_eq!(registry.index_of("Default"), Some(1));
+        assert_eq!(registry.index_of("default"), Some(1));
+        assert_eq!(registry.index_of("Missing"), None);
+        assert_eq!(registry.len(), 3);
+    }
+
+    #[test]
+    fn the_golden_loader_fills_the_registries() {
+        let json = r#"{
+            "blocks": {
+                "count": 3,
+                "assets": [
+                    {"name": "Empty", "index": 0, "drawType": "Empty", "drawTypeId": 0, "unknown": false},
+                    {"name": "Unknown", "index": 1, "drawType": "Cube", "drawTypeId": 2, "unknown": true},
+                    {"name": "Rock_Stone", "index": 7, "drawType": "Cube", "drawTypeId": 2, "unknown": false}
+                ]
+            },
+            "fluids": {
+                "count": 2,
+                "assets": [
+                    {"name": "Empty", "index": 0, "maxFluidLevel": 8},
+                    {"name": "Water_Source", "index": 1, "maxFluidLevel": 1}
+                ]
+            },
+            "environments": {
+                "count": 2,
+                "assets": [
+                    {"name": "Unknown", "index": 0},
+                    {"name": "Default", "index": 1}
+                ]
+            }
+        }"#;
+
+        let path = std::env::temp_dir().join("worldgen-registry-golden-test.json");
+        std::fs::write(&path, json).expect("write the temporary dump");
+
+        let registries = Registries::from_golden(&path).expect("load the dump");
+        let _ = std::fs::remove_file(&path);
+
+        // The blocks keep their index (the gap between 1 and 7 is a hole).
+        assert_eq!(registries.blocks.len(), 8);
+        assert_eq!(
+            registries.blocks.get(0).map(|b| b.draw_type),
+            Some(DrawType::Empty)
+        );
+        assert_eq!(
+            registries.blocks.get(1).map(|b| b.draw_type),
+            Some(DrawType::Cube)
+        );
+        assert!(registries.blocks.get(2).is_none());
+        assert_eq!(
+            registries.blocks.get(7).map(|b| b.draw_type),
+            Some(DrawType::Cube)
+        );
+
+        // The fluids keep their max fluid level per index.
+        assert_eq!(registries.fluids.get_max_fluid_level(0), 8);
+        assert_eq!(registries.fluids.get_max_fluid_level(1), 1);
+        assert_eq!(registries.fluids.get_max_fluid_level(2), 8);
+
+        // The environments keep their name per index.
+        assert_eq!(registries.environments.name(1), Some("Default"));
+        assert_eq!(registries.environments.index_of("default"), Some(1));
+    }
+
+    #[test]
+    fn the_golden_loader_rejects_an_unknown_draw_type() {
+        let json = r#"{
+            "blocks": {"assets": [
+                {"name": "Broken", "index": 0, "drawType": "Nope", "drawTypeId": 9, "unknown": false}
+            ]},
+            "fluids": {"assets": []}
+        }"#;
+
+        let path = std::env::temp_dir().join("worldgen-registry-golden-broken.json");
+        std::fs::write(&path, json).expect("write the temporary dump");
+
+        let error = Registries::from_golden(&path).expect_err("the dump must be rejected");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(matches!(error, RegistryLoadError::Invalid(_)));
     }
 }

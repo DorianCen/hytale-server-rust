@@ -1,8 +1,10 @@
-//! Golden parity tests for the Phase-2 world mask (`zoom`) and the procedural
-//! climate mask (`climate`) of the Default world.
+//! Golden parity tests for the Phase-2 world mask (`zoom`), the procedural
+//! climate mask (`climate`) of the Default world and the block / fluid /
+//! environment registries of the base-game asset pack (`registries`).
 //!
-//! Reference data: `testdata/golden/zoom.json` and `testdata/golden/climate.json`,
-//! produced by `tools/java-dumper` (see `Phase2Dumper.java`). The Java side loads
+//! Reference data: `testdata/golden/zoom.json`, `testdata/golden/climate.json`
+//! and `testdata/golden/registries.json`, produced by `tools/java-dumper` (see
+//! `Phase2Dumper.java` and `RegistryDumper.java`). The Java side loads
 //! the real `testdata/Default/Mask.json` configuration through the real loaders
 //! (`ClimateNoiseJsonLoader`, `ClimateGraphJsonLoader`,
 //! `CoordinateRandomizerJsonLoader`) and dumps
@@ -11,6 +13,10 @@
 //!   seed offsets the loaders derived from the seed strings) so this test can
 //!   rebuild the exact same graph, and
 //! * the sampled results of the ported code paths.
+//!
+//! The registry dump comes from the real CoreServer asset pipeline (the vanilla
+//! `AssetRegistryLoader`) running over `Assets/Assets.zip`, so the block, fluid
+//! and environment ids it contains are the ids the Java world generator uses.
 //!
 //! All floating-point comparisons are **bit-exact** (`to_bits()`), matching the
 //! Java `Double.toHexString` dump format.
@@ -610,4 +616,136 @@ fn climate_golden_parity() {
     }
 
     assert!(checked > 500, "suspiciously few checks: {checked}");
+}
+
+// ---------------------------------------------------------------------
+// Registry parity (blocks / fluids / environments)
+// ---------------------------------------------------------------------
+
+/// The registries of the base-game asset pack.
+///
+/// The reference data is `testdata/golden/registries.json`, produced by
+/// `tools/java-dumper` (`RegistryDumper.java`). The Java side boots the real
+/// CoreServer asset pipeline (the vanilla `AssetRegistryLoader`) over the
+/// base-game asset pack, so the ids in the dump are the ids the Java world
+/// generator uses — the Rust side never re-derives them.
+#[test]
+fn registries_golden_test() {
+    let Some(root) = load_golden("registries.json") else {
+        return;
+    };
+
+    // --- the loader ----------------------------------------------------
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let path = format!("{manifest}/../../testdata/golden/registries.json");
+    let registries = worldgen_model::registry::Registries::from_golden(&path)
+        .expect("the golden registry dump must load");
+
+    // --- blocks --------------------------------------------------------
+    let block_assets = root["blocks"]["assets"].as_array().expect("blocks.assets");
+    assert!(
+        !block_assets.is_empty(),
+        "the dump must contain block types"
+    );
+    assert_eq!(
+        registries.blocks.len(),
+        root["blocks"]["count"].as_u64().expect("blocks.count") as usize,
+        "the loaded block registry must have one slot per dumped block"
+    );
+
+    // The four pre-loaded block types keep their hard-coded ids.
+    for (name, id) in [
+        ("Empty", 0_i64),
+        ("Unknown", 1),
+        ("Debug_Cube", 2),
+        ("Debug_Model", 3),
+    ] {
+        let expected = block_assets
+            .iter()
+            .find(|asset| asset["name"] == name)
+            .unwrap_or_else(|| panic!("the dump must contain the block '{name}'"));
+        assert_eq!(expected["index"].as_i64(), Some(id), "the id of '{name}'");
+    }
+
+    // The four pre-loaded block types are at the front of the registry and
+    // carry the draw types of the Java constants.
+    assert_eq!(
+        registries.blocks.get(0).map(|block| block.draw_type),
+        Some(worldgen_model::registry::DrawType::Empty)
+    );
+    assert_eq!(
+        registries.blocks.get(2).map(|block| block.draw_type),
+        Some(worldgen_model::registry::DrawType::Cube)
+    );
+    assert_eq!(
+        registries.blocks.get(3).map(|block| block.draw_type),
+        Some(worldgen_model::registry::DrawType::Model)
+    );
+
+    // The blocks the world generator resolves by name must be there with a
+    // real index and a real draw type.
+    for name in ["Soil_Dirt", "Rock_Stone"] {
+        let asset = block_assets
+            .iter()
+            .find(|asset| asset["name"] == name)
+            .unwrap_or_else(|| panic!("the dump must contain the block '{name}'"));
+        let index = asset["index"].as_i64().expect("block index") as i32;
+        assert!(
+            index >= 4,
+            "the block '{name}' must have a real id: {index}"
+        );
+
+        let draw_type = asset["drawType"].as_str().expect("drawType");
+        let expected = worldgen_model::registry::DrawType::from_name(draw_type)
+            .unwrap_or_else(|| panic!("unknown draw type '{draw_type}'"));
+        assert_eq!(
+            registries.blocks.get(index).map(|block| block.draw_type),
+            Some(expected),
+            "the draw type of '{name}' (id {index})"
+        );
+    }
+
+    // --- fluids --------------------------------------------------------
+    let fluid_assets = root["fluids"]["assets"].as_array().expect("fluids.assets");
+    assert!(!fluid_assets.is_empty(), "the dump must contain fluids");
+    assert_eq!(
+        registries.fluids.len(),
+        root["fluids"]["count"].as_u64().expect("fluids.count") as usize,
+        "the loaded fluid registry must have one slot per dumped fluid"
+    );
+
+    let water = fluid_assets
+        .iter()
+        .find(|asset| asset["name"] == "Fluid_Water" || asset["name"] == "Water")
+        .expect("the dump must contain the water fluid");
+    let water_index = water["index"].as_i64().expect("fluid index") as i32;
+    let water_level = water["maxFluidLevel"].as_i64().expect("maxFluidLevel") as i8;
+    assert!(
+        (0..=8).contains(&water_level),
+        "the water fluid must have a sane max fluid level: {water_level}"
+    );
+    assert_eq!(
+        registries.fluids.get_max_fluid_level(water_index),
+        water_level,
+        "the max fluid level of the water fluid (id {water_index})"
+    );
+
+    // --- environments --------------------------------------------------
+    let environment_assets = root["environments"]["assets"]
+        .as_array()
+        .expect("environments.assets");
+    assert!(
+        !environment_assets.is_empty(),
+        "the dump must contain environments"
+    );
+    for asset in environment_assets {
+        let index = asset["index"].as_i64().expect("environment index") as i32;
+        let name = asset["name"].as_str().expect("environment name");
+        assert_eq!(
+            registries.environments.name(index),
+            Some(name),
+            "the name of the environment at id {index}"
+        );
+    }
+    assert!(registries.environments.index_of("Default").is_some());
 }

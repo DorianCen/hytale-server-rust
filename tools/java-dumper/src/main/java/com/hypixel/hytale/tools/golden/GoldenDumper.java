@@ -57,6 +57,12 @@ import java.util.UUID;
  * holds the Default world assets ({@code World.json}, {@code Mask.json}, ...).
  */
 public final class GoldenDumper {
+    /**
+     * The real stderr. The CoreServer boot replaces {@code System.err} with a
+     * logger stream, so the original one is kept for fatal error reports.
+     */
+    private static final java.io.PrintStream REAL_ERR = System.err;
+
     private static final Gson GSON = new GsonBuilder()
         .setPrettyPrinting()
         .disableHtmlEscaping()
@@ -78,8 +84,8 @@ public final class GoldenDumper {
     }
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 1) {
-            System.err.println("Usage: GoldenDumper <output-directory>");
+        if (args.length < 1) {
+            REAL_ERR.println("Usage: GoldenDumper <output-directory> [world-directory] [repository-root]");
             System.exit(2);
         }
 
@@ -90,16 +96,34 @@ public final class GoldenDumper {
             ? Path.of(args[1]).toAbsolutePath()
             : output.toAbsolutePath().getParent().resolve("Default");
 
-        write(output.resolve("fastrandom.json"), dumpFastRandom());
-        write(output.resolve("hashutil.json"), dumpHashUtil());
-        write(output.resolve("mathutil.json"), dumpMathUtil());
-        write(output.resolve("noise.json"), dumpNoise());
+        // The repository root holds the asset pack the registries are dumped
+        // from; by default it is the parent of the testdata directory.
+        final Path repoRoot = args.length > 2
+            ? Path.of(args[2]).toAbsolutePath().normalize()
+            : output.toAbsolutePath().getParent().getParent();
 
-        // Phase 2: world mask (zoom) + procedural climate mask.
-        writeText(output.resolve("zoom.json"), Phase2Dumper.dumpZoom(worldDir));
-        writeText(output.resolve("climate.json"), Phase2Dumper.dumpClimate(worldDir));
+        try {
+            write(output.resolve("fastrandom.json"), dumpFastRandom());
+            write(output.resolve("hashutil.json"), dumpHashUtil());
+            write(output.resolve("mathutil.json"), dumpMathUtil());
+            write(output.resolve("noise.json"), dumpNoise());
 
-        System.out.println("Golden files written to " + output.toAbsolutePath());
+            // Phase 2: world mask (zoom) + procedural climate mask.
+            writeText(output.resolve("zoom.json"), Phase2Dumper.dumpZoom(worldDir));
+            writeText(output.resolve("climate.json"), Phase2Dumper.dumpClimate(worldDir));
+
+            // Phase 3: the real block / fluid / environment registries of the
+            // base-game asset pack (see RegistryDumper for the boot description).
+            writeText(output.resolve("registries.json"), RegistryDumper.dumpRegistries(repoRoot));
+        } catch (Throwable t) {
+            // The CoreServer boot replaces System.err with a logger stream, so
+            // the failure is reported on the original stderr.
+            REAL_ERR.println("GoldenDumper failed:");
+            t.printStackTrace(REAL_ERR);
+            System.exit(1);
+        }
+
+        REAL_ERR.println("Golden files written to " + output.toAbsolutePath());
     }
 
     private static void write(Path file, JsonObject json) throws IOException {

@@ -50,4 +50,7 @@ pub mod registry;
 
 pub use block_priority::{BlockPriorityChunk, BlockPriorityModifier, NoneModifier};
 pub use chunk::GeneratedChunk;
-pub use registry::{BlockRegistry, BlockTypeInfo, DrawType, FluidRegistry, Registries};
+pub use registry::{
+    BlockRegistry, BlockTypeInfo, DrawType, EnvironmentRegistry, FluidRegistry, Registries,
+    RegistryLoadError,
+};

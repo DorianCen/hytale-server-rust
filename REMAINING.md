@@ -29,7 +29,7 @@ is explicitly **deferred** and not ported:
 - JSON (`.prefab.json`) is the source of truth. The binary `.lpf` cache format is only
   investigated if profiling shows prefab parsing is a bottleneck.
 
-## 6. BlockType definition assets are still missing (the rest of the pack arrived)
+## 6. BlockType definition assets — FOUND (the registries are now golden data)
 - The 3.7 GB base-game asset pack **has been provided** and is extracted under
   `Assets/` (git-ignored — the zip plus the extracted tree are several GB of
   game content). It fills the world-side gaps that were open before:
@@ -43,38 +43,53 @@ is explicitly **deferred** and not ported:
     (`Rock.json`, `Soils.json`, `Fluids.json`, …).
   - `Assets/extracted/Server/World/Default` — byte-identical to `testdata/Default`,
     so the world-side assets are complete.
-- **STILL MISSING**: the block-type **definition** assets (`Server/Item/Block/Blocks`).
-  The pack ships only `Server/Item/Block/Fluids`; the shared source tree ships
-  only `HytaleAssets/Server/Item/Block/Blocks/_Debug/Debug_Test_Block.json`.
-  The individual block definitions (`Rock_Stone`, `Rock_Shale`, `Soil_*`, `Grass`,
-  …) live in the base-game content pack and are **not** part of `.hytale-source/`.
-  The shared source still provides the **schema** and the **name lists**:
-  - `HytaleAssets/Schema/BlockType.json` — the JSON schema plus the
-    `internalKeys` prefix list (`Empty`, `Unknown`, `Debug_Cube`, `Debug_Model`).
-  - `HytaleAssets/Server/BlockTypeList/*.json` — the *block type list* assets
-    (name lists such as `Fluids.json` = `["Fluid_Water", "Fluid_Lava", …]`).
-  - `HytaleAssets/Server/Item/Block/Fluids/*.json` — the fluid assets.
-- The Java world generator resolves the names **at load time** through
-  `BlockType.getAssetMap().getIndex(name)` / `Fluid.getAssetMap().getIndex(name)`
-  and **throws** when a name is unknown, e.g.
-  - `loader/container/LayerContainerJsonLoader` — the `Layers.Default` filling
-    block (`Rock_Stone`, `Rock_Shale`, …),
-  - `loader/container/WaterContainerJsonLoader` — the water entry block/fluid
-    (`Water_Source`, `Lava_Source`, `Rock_Ice`, …),
-  - `loader/util/ResolvedBlockArrayJsonLoader`,
-    `loader/cave/CaveNodeTypeJsonLoader`, `loader/cave/FluidLevelJsonLoader`,
-    …
-  Without the block definitions the Java generator therefore **cannot load the
-  Default world at all** — the block ids (and with them the chunk-level golden
-  parity) stay blocked on that pack (or on obtaining it from the game install).
-- The Rust port therefore carries a **data-driven registry seam**
-  (`worldgen-model::registry`) that the loader subtask fills:
-  - `BlockRegistry` — id → `BlockTypeInfo { draw_type }`
-    (Java `BlockTypeAssetMap.getAsset(index)` → `Option`, `null` on a miss),
-  - `FluidRegistry` — id → max fluid level
-    (Java `Fluid.getAssetMap().getAssetOrDefault(index, Fluid.EMPTY)
-    .getMaxFluidLevel()`, the `Fluid.EMPTY` default being `8`),
-  - `Registries::empty()` — the default until the assets are loaded.
+- **THE BLOCK DEFINITIONS WERE NOT MISSING.** They are the `"BlockType"`
+  objects **embedded in the item assets** (`Server/Item/Items/**`, 3,960 files,
+  3,178 of which carry a `"BlockType"`):
+  - `Server/Item/Items/Rock/Aqua/Rock_Aqua.json` contains a `"BlockType": {…}`
+    object next to the item's own `"Parent": "Rock_Stone"`.
+  - `Item.CODEC` registers that object in the **BlockType asset store** as a
+    *child* asset via
+    `ContainedAssetCodec(BlockType.class, BlockType.CODEC, Mode.INHERIT_ID_AND_PARENT)`
+    (`AssetStore/…/codec/ContainedAssetCodec.java`): the block id is inherited
+    from the container item's key (`Rock_Aqua`) and the parent is inherited from
+    the item's `"Parent"` (`Rock_Stone`), so the blocks form a parent chain.
+  - The numeric ids are handed out by `BlockTypeAssetMap.putAll0` in
+    **asset-load order** (the four hard-coded `preLoadAssets` — `Empty`,
+    `Unknown`, `Debug_Cube`, `Debug_Model` — are ids 0…3), so the ids can only
+    be obtained by running the real asset pipeline.
+- **The registries are now golden data.** `tools/java-dumper`
+  (`RegistryDumper.java`) boots the vanilla CoreServer asset pipeline
+  (`AssetRegistryLoader`) over `Assets/Assets.zip` (mounted as a zip
+  `FileSystem`, exactly like the vanilla server) and dumps
+  `testdata/golden/registries.json`:
+  - `blocks` — 6,135 block types: `{ name, index, drawType, drawTypeId, unknown }`
+    plus the `preLoadOrder` and the `emptyId`/`unknownId`/`debugCubeId`/
+    `debugModelId` constants,
+  - `fluids` — 19 fluids: `{ name, index, maxFluidLevel }`,
+  - `environments` — 135 environments: `{ name, index }` (the world generator
+    resolves the environment names of the biome environment containers and of
+    the prefab contents through `Environment.getAssetMap().getIndex(name)`),
+  - a `meta` block documenting the boot, the load-order strategy and the
+    remaining gap.
+- The Rust side loads the dump through `worldgen_model::registry::Registries::
+  from_golden` (serde) — it fills the `BlockRegistry` (index → draw type) and
+  the `FluidRegistry` (index → max fluid level) exactly as dumped; the Rust
+  side never re-derives the ordering. `Registries::empty()` is unchanged and
+  stays the default until the loader subtask wires the dump into the world
+  generator.
+- **The remaining open question is the load order.** The dump pins the ids to
+  the order this dumper observed (the zip entry order of the pack, with a
+  single-threaded decode — see the `meta` block of the dump). They are only
+  identical to a real server's ids when the real server loads the same pack in
+  the same order; a real-server dump has to be compared before the ids are
+  treated as authoritative.
+- **Known gap:** the prefab list assets (`Server/PrefabList`) cannot be
+  decoded without the prefab store, so the single block type that references
+  such a list (`ExamplePrefabPlacementBlock_Tree`) is missing from the dump.
+  The other stores the registries do not depend on (interaction, particle and
+  weather) also report load failures for the same reason — they do not
+  influence the block, fluid and environment ids.
 - **Observable consequences while the registry is empty** (both are *correct*
   Java semantics for a missing asset, but they differ from the Java generator
   that has the pack):
@@ -83,8 +98,8 @@ is explicitly **deferred** and not ported:
     at all**.
   - `ChunkGeneratorExecution.setFluid(x, y, z, type, fluid)` defaults the
     fluid level to `8` instead of the level of the real fluid.
-- **Consequence for the parity plan**: the chunk-level golden verification is
-  blocked on the block-definition pack (or on obtaining it). The noise, the terrain
-  thresholds, the layer/cover geometry and the random draw order are
-  verified independently; the block/fluid **ids** and the fluid **levels**
-  are only as good as the registry that is loaded.
+- **Consequence for the parity plan**: the chunk-level golden verification now
+  has the block/fluid ids available; it is no longer blocked on the pack. The
+  noise, the terrain thresholds, the layer/cover geometry and the random draw
+  order are verified independently; the block/fluid **ids** and the fluid
+  **levels** come from the golden dump.

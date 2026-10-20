@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 hytale-math = { path = "../hytale-math" }
+serde = { workspace = true }
+serde_json = { workspace = true }

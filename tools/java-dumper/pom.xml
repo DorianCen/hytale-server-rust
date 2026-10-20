@@ -50,6 +50,156 @@
             <systemPath>${project.basedir}/lib/hytale-WorldGenerator.jar</systemPath>
         </dependency>
 
+        <!--
+          The registry dumper boots the vanilla CoreServer asset pipeline, so the
+          asset store classes and their module dependencies are needed too.
+        -->
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>AssetStore</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-AssetStore.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Codec</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Codec.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Common</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Common.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Component</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Component.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Protocol</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Protocol.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>CoreServer</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-CoreServer.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Logger</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Logger.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Event</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Event.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>SneakyThrow</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-SneakyThrow.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Registry</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Registry.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Storage</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Storage.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Unsafe</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Unsafe.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>FunctionalInterfaces</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-FunctionalInterfaces.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Metrics</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Metrics.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel</groupId>
+            <artifactId>ConcurrentFastUtil</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-ConcurrentFastUtil.jar</systemPath>
+        </dependency>
+        <!--
+          The built-in plugins that register the codec variants of the block
+          tick procedures and of the farming stages (both are BlockType
+          fields, so the blocks cannot be decoded without them).
+        -->
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>BlockTick</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-BlockTick.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>RandomTick</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-RandomTick.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>Farming</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-Farming.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>WorldLocationCondition</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-WorldLocationCondition.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>FallingBlocks</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-FallingBlocks.jar</systemPath>
+        </dependency>
+
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
@@ -77,6 +227,77 @@
             <groupId>io.sentry</groupId>
             <artifactId>sentry</artifactId>
             <version>${sentry.version}</version>
+        </dependency>
+
+        <!--
+          Runtime dependencies of the CoreServer asset pipeline (the option
+          parser, the file logger and the crypto helpers the server config
+          touches while the asset stores boot).
+        -->
+        <dependency>
+            <groupId>org.mongodb</groupId>
+            <artifactId>bson</artifactId>
+            <version>5.6.2</version>
+        </dependency>
+        <dependency>
+            <groupId>net.sf.jopt-simple</groupId>
+            <artifactId>jopt-simple</artifactId>
+            <version>5.0.4</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline</artifactId>
+            <version>3.30.6</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>jsr305</artifactId>
+            <version>3.0.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.errorprone</groupId>
+            <artifactId>error_prone_annotations</artifactId>
+            <version>2.49.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.flogger</groupId>
+            <artifactId>flogger</artifactId>
+            <version>0.6</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.flogger</groupId>
+            <artifactId>flogger-system-backend</artifactId>
+            <version>0.6</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.crypto.tink</groupId>
+            <artifactId>tink</artifactId>
+            <version>1.20.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>10.6</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>1.84</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.84</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.luben</groupId>
+            <artifactId>zstd-jni</artifactId>
+            <version>1.5.7-6</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.randelshofer</groupId>
+            <artifactId>fastdoubleparser</artifactId>
+            <version>2.0.1</version>
         </dependency>
     </dependencies>
 

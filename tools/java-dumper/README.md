@@ -20,6 +20,15 @@ this project does not depend on them through the parent reactor. Instead
 If an upstream `target/classes` tree is missing, the script compiles that module first
 via `mvn -pl <Module> -am compile`.
 
+The **registry dump** additionally boots the real CoreServer asset pipeline, so the
+upstream `CoreServer` module (and its dependencies `AssetStore`, `Codec`, `Common`,
+`Component`, `Protocol`, `Logger`, `Event`, `SneakyThrow`, `Registry`, `Storage`,
+`Unsafe`, `FunctionalInterfaces`, `Metrics` and the vendored `ConcurrentFastUtil`) plus
+the built-in plugins that register the block tick / farming codec variants
+(`builtin/BlockTick`, `builtin/RandomTick`, `builtin/FallingBlocks`,
+`builtin/adventure/Farming`, `builtin/adventure/WorldLocationCondition`) are packaged
+into jars as well.
+
 ## Run
 
 ```sh
@@ -28,6 +37,9 @@ tools/java-dumper/run.sh
 
 Requires JDK 25 and Maven 3.10+. The build tries `mvn -o` first and falls back to an
 online build if the local repository is incomplete.
+
+The registry dump needs the base-game asset pack at `Assets/Assets.zip` (the script
+resolves it relative to the repository root — the pack is not part of the source tree).
 
 ## Layout
 
@@ -38,6 +50,10 @@ online build if the local repository is incomplete.
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
   dumps (`zoom.json`, `climate.json`): the Default world mask and the procedural
   climate mask, loaded through the real Java loaders.
+- `src/main/java/com/hypixel/hytale/tools/golden/RegistryDumper.java` – the registry
+  dump (`registries.json`): the real block / fluid / environment registries of the
+  base-game asset pack, produced by running the vanilla CoreServer asset pipeline
+  (`AssetRegistryLoader`) over `Assets/Assets.zip`.
 - `lib/` and `target/` – generated build output, not source.
 
 The upstream `ProceduralLibrary`/`WorldGenerator` classes reference `fastutil` and

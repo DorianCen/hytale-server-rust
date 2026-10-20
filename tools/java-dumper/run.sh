@@ -23,8 +23,9 @@ mkdir -p "$LIB_DIR" "$OUT_DIR"
 
 build_module_jar() {
     local module="$1"
+    local name="$2"
     local classes="$SERVER_ROOT/$module/target/classes"
-    local jar="$LIB_DIR/hytale-$module.jar"
+    local jar="$LIB_DIR/hytale-$name.jar"
 
     if [ ! -d "$classes" ] || [ -z "$(find "$classes" -name '*.class' -print -quit)" ]; then
         echo "Compiling $module..."
@@ -35,9 +36,36 @@ build_module_jar() {
     jar --create --file "$jar" -C "$classes" .
 }
 
-build_module_jar Math
-build_module_jar ProceduralLibrary
-build_module_jar WorldGenerator
+build_module_jar Math Math
+build_module_jar ProceduralLibrary ProceduralLibrary
+build_module_jar WorldGenerator WorldGenerator
+
+# The registry dumper boots the real CoreServer asset pipeline (the vanilla
+# AssetRegistryLoader), so the asset store classes and their module
+# dependencies have to be on the classpath as well.
+build_module_jar AssetStore AssetStore
+build_module_jar Codec Codec
+build_module_jar Common Common
+build_module_jar Component Component
+build_module_jar Protocol Protocol
+build_module_jar CoreServer CoreServer
+build_module_jar Logger Logger
+build_module_jar Event Event
+build_module_jar SneakyThrow SneakyThrow
+build_module_jar Registry Registry
+build_module_jar Storage Storage
+build_module_jar Unsafe Unsafe
+build_module_jar FunctionalInterfaces FunctionalInterfaces
+build_module_jar Metrics Metrics
+build_module_jar libs/ConcurrentFastUtil ConcurrentFastUtil
+
+# The built-in plugins register the codec variants of the block tick
+# procedures and of the farming stages (both are BlockType fields).
+build_module_jar builtin/BlockTick BlockTick
+build_module_jar builtin/RandomTick RandomTick
+build_module_jar builtin/adventure/Farming Farming
+build_module_jar builtin/adventure/WorldLocationCondition WorldLocationCondition
+build_module_jar builtin/FallingBlocks FallingBlocks
 
 # Prefer the exact versions declared in pom.xml, but resolve from the local repository
 # so the run does not depend on the exec plugin being installed.
@@ -59,6 +87,21 @@ JOML_JAR="$(find_jar 'org/joml/joml' 'joml')"
 FASTUTIL_JAR="$(find_jar 'it/unimi/dsi/fastutil' 'fastutil')"
 SENTRY_JAR="$(find_jar 'io/sentry/sentry' 'sentry')"
 
+# Runtime dependencies of the CoreServer asset pipeline.
+BSON_JAR="$(find_jar 'org/mongodb/bson' 'bson')"
+JOPT_JAR="$(find_jar 'net/sf/jopt-simple' 'jopt-simple')"
+JLINE_JAR="$(find_jar 'org/jline/jline' 'jline')"
+JSR305_JAR="$(find_jar 'com/google/code/findbugs/jsr305' 'jsr305')"
+ERRORPRONE_JAR="$(find_jar 'com/google/errorprone' 'error_prone_annotations')"
+FLOGGER_JAR="$(find_jar 'com/google/flogger' 'flogger')"
+FLOGGER_BACKEND_JAR="$(find_jar 'com/google/flogger' 'flogger-system-backend')"
+TINK_JAR="$(find_jar 'com/google/crypto/tink' 'tink')"
+NIMBUS_JAR="$(find_jar 'com/nimbusds' 'nimbus-jose-jwt')"
+BCPKIX_JAR="$(find_jar 'org/bouncycastle' 'bcpkix-jdk18on')"
+BCPROV_JAR="$(find_jar 'org/bouncycastle' 'bcprov-jdk18on')"
+ZSTD_JAR="$(find_jar 'com/github/luben/zstd-jni' 'zstd-jni')"
+FASTDOUBLE_JAR="$(find_jar 'ch/randelshofer/fastdoubleparser' 'fastdoubleparser')"
+
 echo "Building dumper..."
 if ! mvn -q -o -f "$SCRIPT_DIR/pom.xml" compile; then
     echo "Offline build failed; retrying with network access..." >&2
@@ -66,13 +109,26 @@ if ! mvn -q -o -f "$SCRIPT_DIR/pom.xml" compile; then
 fi
 
 CP="$SCRIPT_DIR/target/classes"
-CP="$CP:$LIB_DIR/hytale-Math.jar"
-CP="$CP:$LIB_DIR/hytale-ProceduralLibrary.jar"
-CP="$CP:$LIB_DIR/hytale-WorldGenerator.jar"
+for module in Math ProceduralLibrary WorldGenerator \
+             AssetStore Codec Common Component Protocol CoreServer \
+             Logger Event SneakyThrow Registry Storage Unsafe \
+             FunctionalInterfaces Metrics ConcurrentFastUtil \
+             BlockTick RandomTick Farming FallingBlocks WorldLocationCondition; do
+    CP="$CP:$LIB_DIR/hytale-$module.jar"
+done
 CP="$CP:$GSON_JAR:$JOML_JAR:$FASTUTIL_JAR:$SENTRY_JAR"
+CP="$CP:$BSON_JAR:$JOPT_JAR:$JLINE_JAR:$JSR305_JAR:$ERRORPRONE_JAR"
+CP="$CP:$FLOGGER_JAR:$FLOGGER_BACKEND_JAR:$TINK_JAR:$NIMBUS_JAR:$BCPKIX_JAR:$BCPROV_JAR:$ZSTD_JAR"
+CP="$CP:$FASTDOUBLE_JAR"
 
 echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
-java -cp "$CP" com.hypixel.hytale.tools.golden.GoldenDumper "$OUT_DIR"
+# The asset pipeline decodes the assets in parallel and collects the decoded
+# assets in a ConcurrentHashMap, whose iteration order depends on the order in
+# which the parallel decodes finish. A single worker thread of the common fork
+# join pool makes that order deterministic (the tasks then run in submission
+# order), which is what makes the dumped registry ids reproducible.
+java -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 \
+     -cp "$CP" com.hypixel.hytale.tools.golden.GoldenDumper "$OUT_DIR"
 
 echo "Done. Golden files:"
 ls -lh "$OUT_DIR"/*.json
