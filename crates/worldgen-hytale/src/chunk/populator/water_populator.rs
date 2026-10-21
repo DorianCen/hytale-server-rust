@@ -7,8 +7,8 @@
 //!
 //! * **The block registry lives on the execution.** Java reads the block
 //!   asset from the static `BlockType.getAssetMap()`; the Rust port reads it
-//!   from the execution's [`worldgen_model::registry::Registries`], which is
-//!   empty until the loader subtask fills it (see `REMAINING.md` § 6).
+//!   from the execution's [`worldgen_model::registry::Registries`], which the
+//!   loader fills from the golden registry dump (see `REMAINING.md` § 6).
 //! * **The fluid level is looked up in the fluid registry** — Java's
 //!   `setFluid(x, y, z, type, fluid)` overload defaults it to
 //!   `Fluid.getAssetMap().getAssetOrDefault(fluid, Fluid.EMPTY)

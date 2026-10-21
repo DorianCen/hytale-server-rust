@@ -6,9 +6,9 @@
 //! image) → zone pattern provider → `FileContextLoader` → zones →
 //! `ChunkGenerator`. The golden registry dump is loaded before the zones and
 //! threaded down so the biome containers resolve block/fluid/environment
-//! names. Known seams inside the zone files: the Phase-4 cave package and the
-//! Phase-5 unique-prefab containers (see `zone_json_loader`); prefab
-//! container entries are likewise a Phase-5 seam.
+//! names. The cave package and the regular / unique prefab containers are
+//! ported; the only remaining guards are the `SEAM(prefab-loader)` checks for
+//! callers that construct a generator without the loader chain.
 
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;

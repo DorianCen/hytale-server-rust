@@ -101,11 +101,13 @@ is explicitly **deferred** and not ported:
   - a `meta` block documenting the boot, the load-order strategy and the
     remaining gap.
 - The Rust side loads the dump through `worldgen_model::registry::Registries::
-  from_golden` (serde) — it fills the `BlockRegistry` (index → draw type) and
-  the `FluidRegistry` (index → max fluid level) exactly as dumped; the Rust
-  side never re-derives the ordering. `Registries::empty()` is unchanged and
-  stays the default until the loader subtask wires the dump into the world
-  generator.
+  from_golden` (serde) — it fills the `BlockRegistry` (index → draw type,
+  opacity, per-rotation support) and the `FluidRegistry` (index → max fluid
+  level) exactly as dumped; the Rust side never re-derives the ordering.
+  `ChunkGeneratorJsonLoader::load()` wires the dump into every generation path
+  (`Registries::load()` or an explicit `with_registries_path(...)`); the
+  `Registries::empty()` fallback remains only for unit tests that construct a
+  `ChunkGeneratorExecution` directly.
 - **The remaining open question is the load order.** The dump pins the ids to
   the order this dumper observed (the zip entry order of the pack, with a
   single-threaded decode — see the `meta` block of the dump). They are only
@@ -118,16 +120,8 @@ is explicitly **deferred** and not ported:
   The other stores the registries do not depend on (interaction, particle and
   weather) also report load failures for the same reason — they do not
   influence the block, fluid and environment ids.
-- **Observable consequences while the registry is empty** (both are *correct*
-  Java semantics for a missing asset, but they differ from the Java generator
-  that has the pack):
-  - `WaterPopulator` skips every block, because
-    `BlockType.getAssetMap().getAsset(id)` is `null` → **no water is written
-    at all**.
-  - `ChunkGeneratorExecution.setFluid(x, y, z, type, fluid)` defaults the
-    fluid level to `8` instead of the level of the real fluid.
 - **Consequence for the parity plan**: the chunk-level golden verification now
-  has the block/fluid ids available; it is no longer blocked on the pack. The
-  noise, the terrain thresholds, the layer/cover geometry and the random draw
-  order are verified independently; the block/fluid **ids** and the fluid
-  **levels** come from the golden dump.
+  has the block/fluid ids available and is **complete** — `tests/chunks_golden.rs`
+  compares all 21 chunks / 21,504 columns bit-exactly (blocks, rotations,
+  fillers, fluids, fluid levels, environments and priority bytes), including
+  water and the cave/prefab stages.

@@ -16,8 +16,9 @@
 //!   its caves.
 //! * The Java `get` wraps a failure in an `Error("Failed to receive
 //!   UniquePrefabEntry for " + seed)`; the Rust port lets the panic of the
-//!   compute function propagate (the compute function does not fail today —
-//!   the unique prefabs are the Phase-5c seam).
+//!   compute function propagate (the compute function does not fail: the
+//!   unique prefabs are loaded and generated — Phase 5c — and their placement
+//!   is verified by the chunk golden test).
 
 use std::collections::HashMap;
 use std::rc::Rc;

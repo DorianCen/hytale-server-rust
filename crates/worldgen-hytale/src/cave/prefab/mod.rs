@@ -3,11 +3,11 @@
 //!
 //! | Java class          | Rust module                    | State        |
 //! |---------------------|--------------------------------|--------------|
-//! | `CavePrefabContainer` | [`cave_prefab_container`]    | SEAM(4b/5)   |
+//! | `CavePrefabContainer` | [`cave_prefab_container`]    | ✅           |
 //!
-//! The prefab supplier seam ([`cave_prefab_supplier`]) stands in for the
-//! loader's `WorldGenPrefabSupplier` until the prefab package (Phase 5) is
-//! ported.
+//! The prefab supplier abstraction ([`cave_prefab_supplier`]) is implemented
+//! by the real `WorldGenPrefabSupplier` of the Phase-5 prefab store
+//! (`crate::prefab::prefab_supplier`).
 
 pub mod cave_prefab_container;
 pub mod cave_prefab_supplier;

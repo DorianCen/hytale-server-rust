@@ -9,19 +9,12 @@
 //! | `CavePopulator`   | [`cave_populator`]                           | 4b ✅ |
 //! | `PrefabPopulator` | [`prefab_populator`]                         | 5b ✅ |
 //!
-//! # Deferred to the later phases
+//! # Status
 //!
-//! * **The cave shapes** (Phase 4c/4d) — [`cave_populator`] runs the real
-//!   cave stage (the cave graph is grown and compiled, the nodes are visited
-//!   in bucket order and the [`CaveBlockPriorityModifier`] is installed), but
-//!   the shape `populateChunk` implementations are still the 4a seam, so no
-//!   blocks are carved yet.
-//! * **The unique prefabs** (Phase 5c) — [`prefab_populator`] places the
-//!   *biome* prefabs (the regular prefab categories) and carries the
-//!   placement path of the unique prefabs, but the unique prefab *entries*
-//!   are not generated yet (the `Zone.uniquePrefabContainer` is not loaded),
-//!   so no unique prefab is placed and the exclusion radius of the regular
-//!   prefabs never triggers.
+//! All four stages are ported and active. The generated chunk grid is bit-exact
+//! against the Java pipeline on the golden chunk grid
+//! (`crates/worldgen-hytale/tests/chunks_golden.rs`): terrain, layers, covers,
+//! water, caves (all shapes) and the regular/unique prefabs.
 //!
 //! The stage order of the Java `ChunkGeneratorExecution.execute` (tint →
 //! environment → blocks → caves → prefabs → water) is visible in

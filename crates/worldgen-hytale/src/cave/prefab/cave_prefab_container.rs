@@ -2,10 +2,11 @@
 //! Java `com.hypixel.hytale.server.worldgen.cave.prefab.CavePrefabContainer` —
 //! the prefabs a cave node can spawn.
 //!
-//! ⚠ **SEAM(phase-4b / phase-5)**: the prefab suppliers are CoreServer /
-//! loader types (`worldgen.loader.WorldGenPrefabSupplier` and the prefab
-//! buffer it hands out). They are not ported yet, so the container talks to
-//! them through the [`CavePrefabSupplier`] seam (see
+//! The prefab suppliers are CoreServer / loader types
+//! (`worldgen.loader.WorldGenPrefabSupplier` and the prefab buffer it hands
+//! out); the Rust port implements them in
+//! `crate::prefab::prefab_supplier` and the cave package talks to them through
+//! the [`CavePrefabSupplier`] abstraction (see
 //! `cave/prefab/cave_prefab_supplier.rs`).
 
 use std::rc::Rc;

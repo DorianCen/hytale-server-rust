@@ -111,8 +111,10 @@ impl ChunkGeneratorExecution {
     /// chunkGenerator, GeneratedChunk chunk)`.
     ///
     /// Deviation: the Java class reads the block/fluid registries from the
-    /// static CoreServer asset maps; the Rust port uses an empty registry
-    /// until the loader subtask fills it (see `REMAINING.md` § 6).
+    /// static CoreServer asset maps; this constructor keeps the test default
+    /// [`Registries::empty`] (unit tests construct executions without the
+    /// asset pipeline), while every loader/generation path uses
+    /// [`Self::with_registry`] with the registry dump (see `REMAINING.md` § 6).
     pub fn new(seed: i32, chunk_generator: Rc<ChunkGenerator>, chunk: GeneratedChunk) -> Self {
         Self::with_registry(seed, chunk_generator, chunk, Rc::new(Registries::empty()))
     }

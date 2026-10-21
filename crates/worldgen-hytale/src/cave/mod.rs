@@ -14,8 +14,8 @@
 //! | `CaveGenerator`                       | [`cave_generator`]                 | ✅ 4b      |
 //! | `element.CaveElement`                 | [`element::cave_element`]          | ✅         |
 //! | `element.CaveNode`                    | [`element::cave_node`]             | ✅         |
-//! | `element.CavePrefab`                  | [`element::cave_prefab`]           | SEAM(5)    |
-//! | `prefab.CavePrefabContainer`          | [`prefab::cave_prefab_container`]  | SEAM(5)    |
+//! | `element.CavePrefab`                  | [`element::cave_prefab`]           | ✅         |
+//! | `prefab.CavePrefabContainer`          | [`prefab::cave_prefab_container`]  | ✅         |
 //! | `shape.CaveNodeShape`                 | [`shape::cave_node_shape`]         | ✅         |
 //! | `shape.CaveNodeShapeEnum`             | [`shape::cave_node_shape_enum`]    | ✅         |
 //! | `shape.AbstractCaveNodeShape`         | [`shape::abstract_cave_node_shape`]| ✅ 4c      |
