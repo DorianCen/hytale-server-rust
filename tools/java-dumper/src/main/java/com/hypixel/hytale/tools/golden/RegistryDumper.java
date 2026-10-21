@@ -558,6 +558,61 @@ final class RegistryDumper {
         meta(w, root);
         w.endObject();
 
+        writeRegistrySections(w);
+
+        w.endObject();
+        return w.toString();
+    }
+
+    /**
+     * Writes a snapshot of the block / fluid / environment maps that are
+     * currently loaded in this JVM.
+     *
+     * <p>This is the live-server entry point: a server that has finished
+     * {@code AssetRegistryLoader.loadAssets} (including its mods) can call
+     * {@link RegistrySnapshot#write(Path)} to produce the file the Rust port
+     * consumes through {@code WorldGenOptions::registries_path}. Unlike
+     * {@link #writeDump(Path)} it writes a minimal meta block and no
+     * golden-dump metadata.
+     *
+     * @param packRoot the asset-pack root to record in the meta block, or
+     *                 {@code null}
+     */
+    static String writeSnapshot(Path packRoot) {
+        if (!hasLoadedRegistries()) {
+            throw new IllegalStateException(
+                "the CoreServer asset pipeline is not loaded in this JVM: call "
+                    + "AssetRegistryLoader.loadAssets(...) before RegistrySnapshot.write(...)");
+        }
+        final Phase2Dumper.JsonWriter w = new Phase2Dumper.JsonWriter();
+        w.beginObject();
+        w.name("meta");
+        w.beginObject();
+        w.name("producer").value("RegistrySnapshot (live CoreServer asset maps)");
+        w.name("idOrder").value("the ids are the ids of this JVM's asset boot; they may differ "
+            + "from testdata/golden/registries.json because the vanilla asset pipeline assigns "
+            + "sibling ids in decode-scheduling order");
+        if (packRoot != null) {
+            w.name("packRoot").value(packRoot.toString());
+        }
+        w.endObject();
+        writeRegistrySections(w);
+        w.endObject();
+        return w.toString();
+    }
+
+    /** Whether the block / fluid / environment maps hold loaded assets. */
+    static boolean hasLoadedRegistries() {
+        return BlockType.getAssetMap().getNextIndex() > BlockType.DEBUG_MODEL_ID
+            || Fluid.getAssetMap().getNextIndex() > 0
+            || Environment.getAssetMap().getNextIndex() > 0;
+    }
+
+    /**
+     * The {@code blocks} / {@code fluids} / {@code environments} sections,
+     * shared by the golden dump and the live snapshot.
+     */
+    private static void writeRegistrySections(Phase2Dumper.JsonWriter w) {
         // --- blocks ------------------------------------------------------
         final BlockTypeAssetMap<String, BlockType> blockMap = BlockType.getAssetMap();
         final StringBuilder blocks = new StringBuilder();
@@ -632,9 +687,6 @@ final class RegistryDumper {
         w.name("count").value(environmentCount);
         w.name("assets").rawArray(environments.toString());
         w.endObject();
-
-        w.endObject();
-        return w.toString();
     }
 
     private static void meta(Phase2Dumper.JsonWriter w, Path root) {

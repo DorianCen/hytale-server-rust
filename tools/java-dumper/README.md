@@ -42,6 +42,27 @@ online build if the local repository is incomplete.
 The registry dump needs the base-game asset pack at `Assets/Assets.zip` (the script
 resolves it relative to the repository root — the pack is not part of the source tree).
 
+## Live registry snapshot
+
+`RegistrySnapshot` writes the block / fluid / environment maps of the
+**currently loaded** JVM in the same schema as `registries.json`. A server
+calls it after its asset load (including mods):
+
+```java
+RegistrySnapshot.write(Path.of("run/worldgen-registries.json"));
+```
+
+The class reads the static CoreServer maps; it does not boot anything. For a
+standalone exercise of the writer (booting the stubs first):
+
+```sh
+DUMPER_MAIN=com.hypixel.hytale.tools.golden.RegistrySnapshot \
+  tools/java-dumper/run.sh /tmp/live-registries
+```
+
+See [`../../LIVE_SNAPSHOT.md`](../../LIVE_SNAPSHOT.md) for the full
+integration and validation workflow (`worldgen-cli registries --compare`).
+
 ## Determinism check
 
 ```sh

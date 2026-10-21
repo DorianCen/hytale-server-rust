@@ -232,7 +232,8 @@ sibling block ids such as 2591 ↔ 2592, and `Lava`/`Tar` 13 ↔ 14, when the
 dumper runs with `DUMPER_PARALLELISM=16`). The name → id set is stable. A
 production server integration must feed the port the server's own snapshot
 (same schema); the golden ids are the canonical reference for the parity
-tests.
+tests. The exporter and the validation workflow are in
+[`LIVE_SNAPSHOT.md`](../../LIVE_SNAPSHOT.md).
 
 ### `loader.json`
 The real Default-world loader chain (`ChunkGeneratorJsonLoader` →

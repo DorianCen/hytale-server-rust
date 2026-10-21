@@ -1101,3 +1101,26 @@ unchanged and still needs a real-server dump; see `NEXT_STEPS.md` §1.
   caves 0.057 s). Benchmark at ≥ 32 chunks per worker.
 - Criterion: weighted prefab lookup 10.8–13.5 ns; moka sized/TTI cache hit
   91.7 ns vs 6.3 ns raw `HashMap`.
+
+### Live registry snapshot exporter (post-port session, same day)
+
+- `tools/java-dumper/.../RegistrySnapshot.java`: `write(Path)` dumps the
+  block/fluid/environment maps of the **currently loaded** JVM in the
+  `registries.json` schema (the server calls it after
+  `AssetRegistryLoader.loadAssets`, with mods). `main(...)` boots the vanilla
+  stub pipeline first, for offline writer/reader tests. `run.sh` honours
+  `DUMPER_MAIN` so the standalone mode reuses the classpath builder.
+- `RegistryDumper` now shares its `blocks`/`fluids`/`environments` writer
+  with the snapshot (`writeRegistrySections`); the golden output is
+  byte-identical.
+- New `worldgen-cli registries --path <snapshot> [--compare <snapshot>]`:
+  prints counts and compares by name. Id shifts are reported but accepted
+  (the scheduling effect); a different name set or block/fluid metadata exits
+  non-zero. Verified against a parallelism-16 standalone snapshot: 6,135
+  blocks / 19 fluids / 135 environments, 12 block id swaps, 0 metadata/name
+  differences → structurally identical.
+- `LIVE_SNAPSHOT.md` documents the Java call, the Rust consumption
+  (`--registries` / `WorldGenOptions::registries_path`), the validator, the
+  single-threaded-server shortcut and the limits.
+- Tests: `crates/worldgen-cli/tests/registries_cli.rs` (self-compare, pure id
+  shifts accepted, missing block rejected).

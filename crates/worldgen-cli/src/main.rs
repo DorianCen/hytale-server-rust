@@ -10,6 +10,8 @@
 //!   cave node (exit code 1 when invalid).
 //! * `bench` — generate a grid of chunks through the worker pool and print the
 //!   per-stage timing averages.
+//! * `registries` — inspect a registry snapshot and compare two snapshots by
+//!   name (id swaps are tolerated, structural differences fail).
 //!
 //! The world-gen folder is resolved with the Java `HytaleWorldGenProvider`
 //! semantics (`--world`, `--name`, `--version`).
@@ -31,6 +33,7 @@ use worldgen_hytale::world_gen::{
 use worldgen_hytale::world_gen_config::WorldGenConfig;
 use worldgen_hytale::world_gen_provider::HytaleWorldGenProvider;
 use worldgen_model::block_priority::HEIGHT;
+use worldgen_model::registry::Registries;
 
 #[derive(Parser)]
 #[command(
@@ -55,6 +58,8 @@ enum Command {
     Validate(ValidateArgs),
     /// Benchmark the worker pool.
     Bench(BenchArgs),
+    /// Inspect or compare a registry snapshot (`registries.json` schema).
+    Registries(RegistriesArgs),
 }
 
 /// The shared world-resolution arguments (Java `HytaleWorldGenProvider`).
@@ -488,6 +493,239 @@ fn run_bench(args: &BenchArgs) -> Result<(), String> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// registries
+// ---------------------------------------------------------------------------
+
+#[derive(Args)]
+struct RegistriesArgs {
+    /// The snapshot to inspect (the `registries.json` schema).
+    #[arg(long)]
+    path: PathBuf,
+    /// A second snapshot to compare against (e.g.
+    /// `testdata/golden/registries.json`). Id swaps are reported but do not
+    /// fail: the vanilla asset pipeline assigns sibling ids in
+    /// decode-scheduling order. Name-set or block/fluid metadata differences
+    /// do fail.
+    #[arg(long)]
+    compare: Option<PathBuf>,
+}
+
+fn run_registries(args: &RegistriesArgs) -> Result<(), String> {
+    let registries = load_registries(&args.path)?;
+    let (blocks, fluids, environments) = count_registries(&registries);
+    println!(
+        "{}: {blocks} blocks, {fluids} fluids, {environments} environments",
+        args.path.display()
+    );
+
+    if let Some(compare_path) = &args.compare {
+        let reference = load_registries(compare_path)?;
+        let (ref_blocks, ref_fluids, ref_environments) = count_registries(&reference);
+        println!(
+            "{}: {ref_blocks} blocks, {ref_fluids} fluids, {ref_environments} environments",
+            compare_path.display()
+        );
+        let structural = compare_registries(&registries, &reference, compare_path);
+        if structural {
+            return Err("the snapshots differ structurally (see above)".to_string());
+        }
+        println!("structurally identical (names and block/fluid metadata match)");
+    }
+    Ok(())
+}
+
+fn load_registries(path: &Path) -> Result<Registries, String> {
+    Registries::load_from(path).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+fn count_registries(registries: &Registries) -> (usize, usize, usize) {
+    let blocks = registries.blocks.assets().iter().flatten().count();
+    let fluids = (0..registries.fluids.len() as i32)
+        .filter(|index| registries.fluids.name(*index).is_some())
+        .count();
+    let environments = registries
+        .environments
+        .names()
+        .iter()
+        .filter(|n| !n.is_empty())
+        .count();
+    (blocks, fluids, environments)
+}
+
+/// Compares two snapshots by name. Returns `true` when the name sets or the
+/// observable block/fluid metadata differ (id swaps alone are not structural).
+fn compare_registries(left: &Registries, right: &Registries, right_path: &Path) -> bool {
+    let mut structural = false;
+
+    // --- blocks ----------------------------------------------------------
+    let left_blocks: std::collections::HashMap<
+        &str,
+        (i32, &worldgen_model::registry::BlockTypeInfo),
+    > = (0..left.blocks.len() as i32)
+        .filter_map(|index| {
+            left.blocks
+                .name(index)
+                .map(|name| (name, (index, left.blocks.get(index).unwrap())))
+        })
+        .collect();
+    let right_blocks: std::collections::HashMap<
+        &str,
+        (i32, &worldgen_model::registry::BlockTypeInfo),
+    > = (0..right.blocks.len() as i32)
+        .filter_map(|index| {
+            right
+                .blocks
+                .name(index)
+                .map(|name| (name, (index, right.blocks.get(index).unwrap())))
+        })
+        .collect();
+
+    let mut missing = 0usize;
+    let mut extra = 0usize;
+    let mut id_swaps = 0usize;
+    let mut metadata = 0usize;
+    for (name, (left_index, left_info)) in &left_blocks {
+        match right_blocks.get(name) {
+            None => {
+                extra += 1;
+                if extra <= 10 {
+                    println!(
+                        "only in {}: block '{name}' (id {left_index})",
+                        right_path.display()
+                    );
+                }
+            }
+            Some((right_index, right_info)) => {
+                if left_index != right_index {
+                    id_swaps += 1;
+                }
+                if left_info != right_info {
+                    metadata += 1;
+                    if metadata <= 10 {
+                        println!(
+                            "block metadata differs: '{name}' ({}: {left_info:?}, {}: {right_info:?})",
+                            right_path.display(),
+                            right_path.display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+    for name in right_blocks.keys() {
+        if !left_blocks.contains_key(name) {
+            missing += 1;
+            if missing <= 10 {
+                println!("only in {}: block '{name}'", right_path.display());
+            }
+        }
+    }
+    println!(
+        "blocks: {id_swaps} id swaps, {metadata} metadata differences, {extra} only in the first file, {missing} only in {}",
+        right_path.display()
+    );
+    // Extra blocks in the first snapshot are fine (mods); missing ones mean a
+    // different block set.
+    structural |= metadata > 0 || missing > 0;
+
+    // --- fluids ----------------------------------------------------------
+    let left_fluids: std::collections::HashMap<&str, (i32, i8)> = (0..left.fluids.len() as i32)
+        .filter_map(|index| {
+            left.fluids
+                .name(index)
+                .map(|name| (name, (index, left.fluids.get_max_fluid_level(index))))
+        })
+        .collect();
+    let right_fluids: std::collections::HashMap<&str, (i32, i8)> = (0..right.fluids.len() as i32)
+        .filter_map(|index| {
+            right
+                .fluids
+                .name(index)
+                .map(|name| (name, (index, right.fluids.get_max_fluid_level(index))))
+        })
+        .collect();
+    let mut fluid_swaps = 0usize;
+    let mut fluid_metadata = 0usize;
+    let mut fluid_missing = 0usize;
+    let mut fluid_extra = 0usize;
+    for (name, (left_index, left_level)) in &left_fluids {
+        match right_fluids.get(name) {
+            None => {
+                fluid_extra += 1;
+                println!("only in the first snapshot: fluid '{name}'");
+            }
+            Some((right_index, right_level)) => {
+                if left_index != right_index {
+                    fluid_swaps += 1;
+                }
+                if left_level != right_level {
+                    fluid_metadata += 1;
+                    println!(
+                        "fluid '{name}': maxFluidLevel {left_level} vs {right_level} ({})",
+                        right_path.display()
+                    );
+                }
+            }
+        }
+    }
+    for name in right_fluids.keys() {
+        if !left_fluids.contains_key(name) {
+            fluid_missing += 1;
+            println!("only in {}: fluid '{name}'", right_path.display());
+        }
+    }
+    println!(
+        "fluids: {fluid_swaps} id swaps, {fluid_metadata} max-level differences, {fluid_extra} only in the first snapshot, {fluid_missing} only in {}",
+        right_path.display()
+    );
+    structural |= fluid_metadata > 0 || fluid_missing > 0;
+
+    // --- environments ----------------------------------------------------
+    let left_envs: std::collections::HashMap<&str, i32> = left
+        .environments
+        .names()
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| !name.is_empty())
+        .map(|(index, name)| (name.as_str(), index as i32))
+        .collect();
+    let right_envs: std::collections::HashMap<&str, i32> = right
+        .environments
+        .names()
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| !name.is_empty())
+        .map(|(index, name)| (name.as_str(), index as i32))
+        .collect();
+    let mut env_swaps = 0usize;
+    let mut env_missing = 0usize;
+    let mut env_extra = 0usize;
+    for (name, left_index) in &left_envs {
+        match right_envs.get(name) {
+            None => {
+                env_extra += 1;
+                println!("only in the first snapshot: environment '{name}'");
+            }
+            Some(right_index) if left_index != right_index => env_swaps += 1,
+            Some(_) => {}
+        }
+    }
+    for name in right_envs.keys() {
+        if !left_envs.contains_key(name) {
+            env_missing += 1;
+            println!("only in {}: environment '{name}'", right_path.display());
+        }
+    }
+    println!(
+        "environments: {env_swaps} id swaps, {env_extra} only in the first snapshot, {env_missing} only in {}",
+        right_path.display()
+    );
+    structural |= env_missing > 0;
+
+    structural
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match &cli.command {
@@ -496,6 +734,7 @@ fn main() -> ExitCode {
         Command::RenderMap(args) => run_render_map(args),
         Command::Validate(args) => run_validate(args),
         Command::Bench(args) => run_bench(args),
+        Command::Registries(args) => run_registries(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

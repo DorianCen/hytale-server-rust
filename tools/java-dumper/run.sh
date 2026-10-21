@@ -21,6 +21,10 @@ WORLD_DIR="$ROOT/testdata/Default"
 # canonical golden-dump setting; override it (e.g. DUMPER_PARALLELISM=16) to
 # verify that the dumped ids do not depend on the decode scheduling.
 PARALLELISM="${DUMPER_PARALLELISM:-1}"
+# The entry point (default: the golden dumper). Set it to
+# com.hypixel.hytale.tools.golden.RegistrySnapshot to exercise the live-server
+# snapshot writer standalone.
+MAIN_CLASS="${DUMPER_MAIN:-com.hypixel.hytale.tools.golden.GoldenDumper}"
 
 if [ ! -d "$SERVER_ROOT" ]; then
     echo "error: Java source root not found: $SERVER_ROOT" >&2
@@ -147,7 +151,7 @@ echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
 # join pool makes that order deterministic (the tasks then run in submission
 # order), which is what makes the dumped registry ids reproducible.
 java -Djava.util.concurrent.ForkJoinPool.common.parallelism="$PARALLELISM" \
-     -cp "$CP" com.hypixel.hytale.tools.golden.GoldenDumper "$OUT_DIR" "$WORLD_DIR" "$ROOT"
+     -cp "$CP" "$MAIN_CLASS" "$OUT_DIR" "$WORLD_DIR" "$ROOT"
 
 echo "Done. Golden files:"
 ls -lh "$OUT_DIR"/*.json

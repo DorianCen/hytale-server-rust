@@ -4,7 +4,7 @@ This document maps the original Java world generator (`.hytale-source/hytale-sha
 
 - **Goal:** bit-exact generation — same seed + same world assets + same registry dump ⇒ identical chunk bytes.
 - **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches and the `worldgen-server` chunk-provider adapter. The remaining post-port backlog (a live-server registry snapshot) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md); release-mode numbers are in [`BENCHMARKS.md`](BENCHMARKS.md).
-- **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`BENCHMARKS.md`](BENCHMARKS.md) (release-mode baseline), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
+- **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`BENCHMARKS.md`](BENCHMARKS.md) (release-mode baseline), [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md) (live-server registry snapshot), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
 
 Paths in the tables are relative to the repository root. A row maps one Java class, or a tightly coupled class family where the Rust port merges them; grouped rows list **every** Rust file they cover.
 
@@ -327,10 +327,11 @@ Java root: `CoreServer/src/main/java/com/hypixel/hytale/server/core/**` plus the
 
 | Rust file | Responsibility |
 |---|---|
-| `crates/worldgen-cli/src/main.rs` | clap CLI: `generate`, `dump-chunk`, `render-map`, `validate`, `bench`; world resolution via the provider semantics. |
+| `crates/worldgen-cli/src/main.rs` | clap CLI: `generate`, `dump-chunk`, `render-map`, `validate`, `bench`, `registries` (snapshot inspect/compare); world resolution via the provider semantics. |
 | `crates/worldgen-hytale/benches/cache.rs` | Criterion port of the Java `CacheBenchmark` (sized/TTI cache churn). |
 | `crates/worldgen-hytale/benches/prefab_weights.rs` | Criterion port of the Java `PrefabWeightsBenchmark`. |
 | `crates/worldgen-server/src/lib.rs` | Server-facing `ChunkProvider` trait + `WorldGenChunkProvider`: maps `IWorldGen.generate(seed, index, x, z, stillNeeded, priority)` onto `WorldGenRequest` and shutdown onto the service. |
+| `tools/java-dumper/.../RegistrySnapshot.java` | Writes the live CoreServer block/fluid/environment maps in the `registries.json` schema for a running server (see `LIVE_SNAPSHOT.md`). |
 
 ---
 
@@ -463,6 +464,7 @@ Verification matrix (must stay green):
 | `crates/worldgen-hytale/tests/world_gen_service.rs` | — | Worker-pool output == direct output; cancellation; shutdown; custom registry-snapshot path |
 | `crates/worldgen-server/tests/provider.rs` | `chunks.json` parity via the direct path | Adapter output == direct output; `stillNeeded`; cancellation token; drain-on-shutdown; object safety |
 | `crates/worldgen-cli/tests/render_golden.rs` | `testdata/golden/render/*.png` | Visual regression of the fixed height / zone / biome renders (pixel-exact) |
+| `crates/worldgen-cli/tests/registries_cli.rs` | `registries.json` | Snapshot inspect/compare: id shifts tolerated, name/metadata differences fail |
 | `crates/worldgen-hytale/tests/generation_smoke.rs` | — | End-to-end smoke generation |
 
 Run everything with:
@@ -561,5 +563,5 @@ After regenerating, run `cargo test --workspace` (and the clippy command above).
 | See what blocks/fluids exist | `crates/worldgen-model/src/registry.rs`, `testdata/golden/registries.json` |
 | Run a headless generation | `crates/worldgen-cli/src/main.rs` |
 | See release-mode performance | `BENCHMARKS.md`, `crates/worldgen-hytale/benches/` |
-| Integrate generation into a server | `crates/worldgen-server/src/lib.rs` |
+| Integrate generation into a server | `crates/worldgen-server/src/lib.rs`, `LIVE_SNAPSHOT.md` |
 | Add a golden check | `testdata/golden/README.md`, then the matching suite under `crates/worldgen-hytale/tests/` |

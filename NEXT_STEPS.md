@@ -14,6 +14,7 @@ for the parity claim.
 - Architecture / Java→Rust mapping: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Deliberately deferred scope: [`REMAINING.md`](REMAINING.md).
 - Golden-data formats / regeneration: [`testdata/golden/README.md`](testdata/golden/README.md).
+- Live server registry snapshot: [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md).
 
 ## Regression gate (must stay green)
 
@@ -39,16 +40,19 @@ tools/java-dumper/check.sh        # two isolated runs + diff against the committ
 - **Why it matters:** the Java generator resolves names through the live
   `BlockType` / `Fluid` / `Environment` maps at generation time. A server
   must therefore generate chunks against *its own* snapshot, not the dump.
-- **How:** at server boot, write the live maps in the `registries.json`
-  schema (the dumper's `RegistryDumper` writer is the reference) and pass the
-  file through `WorldGenOptions::registries_path` (CLI `--registries`); the
-  loader already threads it into `ChunkGenerator::get_registries()`. A
-  real-server dump also lets us diff the expected sibling swaps and confirm
-  that names/structure are identical.
-- **Done when:** the `worldgen-server` adapter documentation describes the
-  snapshot handoff and a real server boot has been generated against its own
-  maps (chunk ids consistent with that boot). No attempt should be made to
-  find one universal id order — the `meta` block documents why.
+- **Exporter (landed):** `RegistrySnapshot.write(Path)` in
+  `tools/java-dumper` dumps the currently loaded CoreServer maps in the
+  `registries.json` schema; a standalone mode (which boots the stubs first)
+  and `worldgen-cli registries --path ... --compare ...` were verified
+  end-to-end. Full guide: [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md).
+- **Remaining:** call `RegistrySnapshot.write` from a real server boot (after
+  `AssetRegistryLoader.loadAssets`, with the server's mods/overrides), then
+  run `worldgen-cli registries --compare` to confirm that names/metadata are
+  identical and only the expected sibling ids swap. Pass the file via
+  `WorldGenOptions::registries_path` / CLI `--registries`.
+- **Done when:** a real server boot has been generated against its own maps
+  (chunk ids consistent with that boot). No attempt should be made to find
+  one universal id order — the `meta` block documents why.
 
 ## 2. Deferred by design — do not implement unless scope changes
 

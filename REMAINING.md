@@ -123,10 +123,13 @@ is explicitly **deferred** and not ported:
   The Java world generator resolves names through the live asset maps at
   generation time, so a production server integration must hand the port its
   **own** registry snapshot (the same `registries.json` schema, via
-  `with_registries_path` / `WorldGenOptions::registries_path`). A real-server
-  snapshot has not been collected yet (no server runtime in this workspace);
-  the caveat therefore stays open in `NEXT_STEPS.md` §1. Names, structure and
-  the generation logic are unaffected.
+  `with_registries_path` / `WorldGenOptions::registries_path`). The exporter
+  is implemented (`RegistrySnapshot` in `tools/java-dumper`, plus the
+  `worldgen-cli registries --compare` validator); only the call from a real
+  server boot is still outstanding (no server runtime in this workspace).
+  See [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md); the caveat stays open in
+  `NEXT_STEPS.md` §1. Names, structure and the generation logic are
+  unaffected.
 - **Known gap:** the prefab list assets (`Server/PrefabList`) cannot be
   decoded without the prefab store, so the single block type that references
   such a list (`ExamplePrefabPlacementBlock_Tree`) is missing from the dump.

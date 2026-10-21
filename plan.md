@@ -96,7 +96,7 @@ hytale-server-rust/
 
 ### Post-port backlog (outside the parity claim)
 Ordered list lives in [`NEXT_STEPS.md`](NEXT_STEPS.md):
-1. Feed a live server registry snapshot (the vanilla decode order is schedule-dependent; see `NEXT_STEPS.md`).
+1. Wire the live-server registry snapshot exporter into a real server boot (exporter + validator landed; see `LIVE_SNAPSHOT.md`).
 2. Deferred by design (see `REMAINING.md`): modifier/event plugins, entities/components/ECS, world-map UI, `.lpf`.
 
 Closed after the port: the golden-regeneration determinism gate
