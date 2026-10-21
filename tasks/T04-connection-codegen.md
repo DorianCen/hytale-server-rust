@@ -1,6 +1,6 @@
 # T04 — Connection packet codegen
 
-**Status:** todo
+**Status:** done (session 2)
 **Agent fit:** medium (depends on T03/T05; bounded generated output)
 **Depends on:** T03, T05
 **Owns:** `tools/protocol-gen/**`, `crates/hytale-protocol/src/generated/**`,

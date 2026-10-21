@@ -7,9 +7,10 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
 - **Goal:** a Rust server that loads unmodified Hytale assets, hosts worlds,
   speaks the matching Hytale protocol to a vanilla client, and reads/writes
   vanilla `IndexedStorage` saves.
-- **Status:** session 1 landed (scaffolding, protocol inventory/IR, wire
-  primitives, `IndexedStorageFile`, asset VFS/inventory, section palettes).
-  Codegen, QUIC, runtime chunks, and join are still open; see
+- **Status:** session 2 landed (connection codegen, QUIC mTLS transport,
+  runtime sections/`ChunkColumn`, storage/packet section round-trips,
+  `client-bot`, and P0 asset-packet goldens). Full protocol codegen, chunk
+  packet goldens, server wiring, and join are still open; see
   [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -300,16 +301,16 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `ProceduralLibrary/**` (generation subset) | `procedural` | ported |
 | `CoreServer/.../world/worldgen/{Generated*}` | `worldgen-model::chunk` | ported as generation buffer |
 | `CoreServer/.../world/worldgen/IWorldGen` | `worldgen-server` adapter | ported |
-| `Protocol/**` generated | `hytale-protocol` | inventory + connection IR landed; codegen pending (M1) |
-| `Protocol/.../io/*` wire helpers | `hytale-protocol::io` | varint/fixed/UUID/strings/bitsets/framing/zstd landed (M1) |
-| `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; typed stores pending (M2) |
+| `Protocol/**` generated | `hytale-protocol` | inventory + connection IR + connection codegen landed (M1); full codegen pending |
+| `Protocol/.../io/*` wire helpers | `hytale-protocol::io` | varint/fixed/UUID/strings/bitsets/framing/zstd + big-endian storage accessors landed (M1) |
+| `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); typed stores pending |
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
-| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette types landed; sections/column pending (M3) |
+| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk` landed (M3) |
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` | planned (M3) |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world` | planned (M3) |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` | planned (M4) |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` | QUIC mTLS spike + `PeerIdentity` landed (M4); packet decoding/session pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | planned (M4) |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |

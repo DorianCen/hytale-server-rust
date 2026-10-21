@@ -1,6 +1,6 @@
 # T10c — ChunkColumn and generated-chunk conversion
 
-**Status:** todo
+**Status:** done (session 2)
 **Agent fit:** medium (integration over T10a/T10b and worldgen-model)
 **Depends on:** T10a, T10b
 **Owns:** `crates/hytale-world/src/chunk/column.rs`,

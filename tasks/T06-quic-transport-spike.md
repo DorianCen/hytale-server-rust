@@ -1,6 +1,6 @@
 # T06 — QUIC transport spike
 
-**Status:** todo
+**Status:** done (session 2)
 **Agent fit:** low/medium (TLS/QUIC behavior; use a careful agent)
 **Depends on:** T01
 **Owns:** `crates/hytale-net/**`

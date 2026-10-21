@@ -1,6 +1,6 @@
 # T13 — Rust client bot skeleton
 
-**Status:** todo
+**Status:** done (session 2)
 **Agent fit:** medium (needs T04/T06; small CLI)
 **Depends on:** T04, T06
 **Owns:** `tools/client-bot/**`

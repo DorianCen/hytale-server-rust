@@ -14,18 +14,18 @@ task done until its acceptance section is satisfied.
 | [T01](T01-workspace-scaffolding.md) | Workspace crate scaffolding | — | high | done (session 1) |
 | [T02](T02-protocol-inventory.md) | Protocol source inventory | T01 | high | done (session 1) |
 | [T03](T03-connection-packet-ir.md) | Connection packet IR | T02 | medium | done (session 1) |
-| [T04](T04-connection-codegen.md) | Connection packet codegen | T03, T05 | medium | todo |
+| [T04](T04-connection-codegen.md) | Connection packet codegen | T03, T05 | medium | done (session 2) |
 | [T05](T05-wire-primitives.md) | Wire primitives + framing | T01 | high | done (session 1) |
-| [T06](T06-quic-transport-spike.md) | QUIC transport spike | T01 | low/medium | todo |
+| [T06](T06-quic-transport-spike.md) | QUIC transport spike | T01 | low/medium | done (session 2) |
 | [T07](T07-indexed-storage-reader.md) | IndexedStorageFile reader/writer | T01 | medium | done (session 1) |
 | [T08](T08-asset-store-inventory.md) | Asset store inventory | T01 | high | done (session 1) |
 | [T09](T09-asset-parent-resolver.md) | Asset pack + Parent resolver | T01 | medium | done (session 1) |
 | [T10a](T10a-palette.md) | Section palette types | T01 | high | done (session 1) |
-| [T10b](T10b-block-section.md) | BlockSection + serialization | T10a | medium | todo |
-| [T10c](T10c-chunk-column.md) | ChunkColumn + generated conversion | T10a, T10b | medium | todo |
-| [T11](T11-asset-golden-dumper.md) | Java asset-packet golden dumper | T08 | medium | todo |
+| [T10b](T10b-block-section.md) | BlockSection + serialization | T10a | medium | done (session 2) |
+| [T10c](T10c-chunk-column.md) | ChunkColumn + generated conversion | T10a, T10b | medium | done (session 2) |
+| [T11](T11-asset-golden-dumper.md) | Java asset-packet golden dumper | T08 | medium | done (session 2) |
 | [T12](T12-chunk-packet-goldens.md) | Java chunk-packet goldens | T10b | medium | todo |
-| [T13](T13-client-bot.md) | Rust client bot skeleton | T04, T06 | medium | todo |
+| [T13](T13-client-bot.md) | Rust client bot skeleton | T04, T06 | medium | done (session 2) |
 | [T14](T14-full-protocol-codegen.md) | Full protocol codegen | T04 | medium | todo |
 
 ## Rules

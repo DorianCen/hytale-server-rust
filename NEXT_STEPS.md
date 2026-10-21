@@ -1,13 +1,18 @@
 # Next steps — CoreServer rewrite, session 1
 
-**Status:** the rewrite plan is frozen in [`plan.md`](plan.md). Session 1 has
-landed: workspace scaffolding, protocol inventory/IR, wire primitives, the
-`IndexedStorageFile` container, asset-store inventory, asset pack/`Parent`
-resolution, and section palettes. See [`PORTING_HISTORY.md`](PORTING_HISTORY.md).
-The completed worldgen port is archived under [`done/`](done/) and its
+**Status:** the rewrite plan is frozen in [`plan.md`](plan.md). Session 2 has
+landed on top of session 1: connection codegen (`protocol-gen` + generated
+`Connect` family), the QUIC mTLS transport and `PeerIdentity`, runtime
+`BlockSection`/`FluidSection`/`EnvironmentSection` with storage/packet
+round-trips, `ChunkColumn::from_generated_chunk`, and the `client-bot` skeleton.
+See [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
+[`tasks/README.md`](tasks/README.md).
+
+**Next up:** T12 (Java chunk-packet goldens) and T14 (full protocol codegen).
+T12 needs the Java dumper and the 3.7 GB asset pack; T14 should extend the
+existing `protocol-gen` rather than replacing it. The completed worldgen port is archived under [`done/`](done/) and its
 regression gate must stay green. The session-1 sections below remain as the
-record of what was planned; use [`tasks/README.md`](tasks/README.md) for the
-current status board.
+record of what was planned.
 
 **Session 1 goal:** stand up the workspace skeleton and prove the two highest-risk
 foundations — **protocol codegen** and **Java-compatible storage** — on a small,

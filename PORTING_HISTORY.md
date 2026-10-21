@@ -88,3 +88,80 @@ Format:
   - T06 QUIC transport spike is still open.
   - Session 2: T04, T09 asset stores from the inventory, T10b `BlockSection`,
     T10c `ChunkColumn::from_generated_chunk`, then T11/T12 goldens.
+
+---
+
+## Session 2 — codegen, transport, runtime chunks, client bot (2026-10-22)
+
+- **Goal:** turn the session-1 foundations into the first end-to-end wire and
+  runtime-chunk slice.
+- **Landed:**
+  - T04: `tools/protocol-gen` (connection mode, `--check`) and generated
+    `hytale-protocol/src/generated/{mod,wire,common,connection}.rs`. The
+    generator consumes `connection.json`, resolves nested structs/unions
+    (`HostAddress`, `InstantData`, `FormattedMessage`, `PlayerSkin`,
+    `ParamValue` and its subtypes), and emits `Wire`/`Packet` impls.
+  - Protocol-dumper connection IR now includes the reachable struct/union
+    closure, maps, arrays of structs, and absolute nullable bit indexes.
+  - T06: `hytale-net` QUIC mTLS spike with ALPN `hytale/3`, injected
+    certificate-policy seam, `PeerIdentity` fingerprints, example and ignored
+    loopback test.
+  - T10b: `BlockSection`, `FluidSection`, `EnvironmentSection`, and
+    `LightData` (octree storage/packet layout) with storage and packet
+    round-trips.
+  - T10c: `ChunkColumn`, lazy 10-section allocation, tint/environment
+    columns, flags/heightmap placeholders, and lossless
+    `ChunkColumn::from_generated_chunk`.
+  - T13: `tools/client-bot` with `--dry-run`, framed `Connect`, packet logging,
+    and an ignored mock-server round-trip.
+  - T11: `AssetDumper` + `run-assets.sh` produce the P0 store init packets and
+    `index.json` under `testdata/golden/server/assets/` (6 payloads, 8.5 MB;
+    9.2 MB total fixture). Protocol dictionaries are canonicalized before
+    serialization so repeated JVM runs are byte-identical.
+  - `GoldenDumper` now writes `registries.json` before the world-mask dumps.
+    The asset store iteration order depends on class-initialization order, so
+    the old order changed block ids after `Phase2Dumper` booted the world. The
+    reorder keeps the committed registries and all chunk goldens reproducible.
+- **Verified:**
+  - `cargo test --workspace` green, including all existing worldgen goldens.
+  - `cargo clippy --workspace --all-targets -- -D warnings` green.
+  - `cargo fmt --all -- --check` green.
+  - `cargo run -p protocol-gen -- --check` is clean.
+  - `cargo test -p hytale-net -- --ignored`, `cargo test -p client-bot --
+    --ignored`, and `cargo run -p hytale-net --example quic_spike` pass.
+  - `tools/java-dumper/run-assets.sh --check` passes: two isolated runs are
+    byte-identical and match the committed `testdata/golden/server/assets/`.
+  - `tools/java-dumper/check.sh` passes: both full runs are byte-identical and
+    match every committed `testdata/golden/*.json`, including `registries.json`,
+    `loader.json`, and `chunks.json`.
+- **Deviations:**
+  - Generated code is formatted by invoking the toolchain `rustfmt` from
+    `protocol-gen`; `--check` compares formatted output, so regeneration is
+    deterministic.
+  - Section storage has no asset-name registry yet. Block external ids use
+    `u16` storage keys (the T10a sketch said bytes; real block ids exceed 255),
+    fillers use `u16`, rotations use `u8`. Java stores block names as UTF
+    strings, so T12 must confirm or replace this choice against a Java fixture.
+  - Environment storage writes numeric runtime ids as varints instead of Java
+    environment-name strings. Structural modes (uniform/columns/dedup) and
+    packet runs match Java; name mapping is part of the asset-registry slice.
+  - `ChunkColumn::from_generated_chunk` copies effective environments per
+    block rather than reproducing Java's lazy per-component allocation; the
+    observable values are preserved.
+  - Asset-packet dictionaries are canonicalized by replacing every
+    `java.util.Map` in the generated protocol object graph with a
+    `LinkedHashMap` in deterministic key order. Values are unchanged; without
+    this, enum identity-hash iteration order made `BlockType.bin`/`Item.bin`
+    differ between JVM runs.
+  - `PrefabListAsset` cannot boot because the dumper does not boot
+    `AssetModule`; all 78 failures are recorded in `index.json`, and the one
+    dependent block type is absent exactly as in `registries.json`. 37 `Item`
+    assets with unresolved interaction references are also recorded.
+  - `run.sh` now detects the singular Eclipse "Unresolved compilation problem"
+    stub and removes the stale class tree before recompiling. This is build
+    output only; the reference sources are untouched.
+- **Follow-ups:**
+  - T12 chunk-packet goldens.
+  - T14 full protocol codegen (389 packets, registry, `ProtocolSettings`).
+  - T12 should pin the block-key width, light octree bytes, and environment
+    name mapping against Java output.

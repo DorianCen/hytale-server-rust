@@ -6,8 +6,8 @@ subdirectory, never by hand.
 
 | Directory | Producer | Status |
 |---|---|---|
-| `protocol/` | `tools/protocol-dumper` | session 1: inventory + connection IR |
-| `assets/` | `tools/asset-golden-dumper` (T11) | planned |
+| `protocol/` | `tools/protocol-dumper` + `tools/protocol-gen` | session 2: inventory, connection IR + generated connection Rust |
+| `assets/` | `tools/java-dumper/run-assets.sh` | session 2: P0 store init packets + index |
 | `chunks-pkts/` | Java chunk packet dumper (T12) | planned |
 | `storage/` | Java world fixture (T11/T12) | planned; `hytale-storage` reads it automatically if present |
 | `trace/` | `tools/packet-trace` | planned |

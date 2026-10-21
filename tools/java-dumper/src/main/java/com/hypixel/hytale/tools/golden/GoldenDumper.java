@@ -108,13 +108,17 @@ public final class GoldenDumper {
             write(output.resolve("mathutil.json"), dumpMathUtil());
             write(output.resolve("noise.json"), dumpNoise());
 
+            // Phase 3: the real block / fluid / environment registries of the
+            // base-game asset pack (see RegistryDumper for the boot description).
+            // Keep this before the world-mask dumps: the asset pipeline's
+            // store iteration order depends on class-initialization order, and
+            // the world-mask boot would otherwise change the block ids that the
+            // committed registries (and every chunk golden) were generated with.
+            writeText(output.resolve("registries.json"), RegistryDumper.dumpRegistries(repoRoot));
+
             // Phase 2: world mask (zoom) + procedural climate mask.
             writeText(output.resolve("zoom.json"), Phase2Dumper.dumpZoom(worldDir));
             writeText(output.resolve("climate.json"), Phase2Dumper.dumpClimate(worldDir));
-
-            // Phase 3: the real block / fluid / environment registries of the
-            // base-game asset pack (see RegistryDumper for the boot description).
-            writeText(output.resolve("registries.json"), RegistryDumper.dumpRegistries(repoRoot));
 
             // Phase 7d: the real world-loader chain over the world folder
             // (mask pick, file contexts, zone summary, caves, biome containers).

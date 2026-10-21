@@ -37,10 +37,33 @@ tools/java-dumper/run.sh /tmp/dump  # writes an arbitrary directory
 ```
 
 Requires JDK 25 and Maven 3.10+. The build tries `mvn -o` first and falls back to an
-online build if the local repository is incomplete.
+online build if the local repository is incomplete. A module whose class tree
+still contains an Eclipse "Unresolved compilation problem" stub (for example
+after a partially failed upstream build) is deleted and recompiled before it is
+packaged.
 
 The registry dump needs the base-game asset pack at `Assets/Assets.zip` (the script
 resolves it relative to the repository root — the pack is not part of the source tree).
+`GoldenDumper` writes `registries.json` before the world-mask dumps because the asset
+store iteration order depends on class-initialization order; moving it later changes
+block ids and invalidates the committed chunk goldens.
+
+## Asset-store dump (P0)
+
+`AssetDumper` reuses the registry boot and writes the P0 asset packets to
+`testdata/golden/server/assets/`:
+
+```sh
+tools/java-dumper/run-assets.sh                     # write the committed directory
+tools/java-dumper/run-assets.sh /tmp/assets-golden   # arbitrary output directory
+tools/java-dumper/run-assets.sh --check             # two isolated runs + diff
+```
+
+`ASSET_PACK=<path>` overrides the pack (relative to the repository root or
+absolute). See
+[`../asset-golden-dumper/README.md`](../asset-golden-dumper/README.md) and
+[`../../testdata/golden/server/assets/README.md`](../../testdata/golden/server/assets/README.md)
+for the schema, sizes and the deterministic map-order canonicalization.
 
 ## Live registry snapshot
 
@@ -86,6 +109,8 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 
 - `pom.xml` – build and dependencies.
 - `run.sh` – build + run entry point.
+- `run-assets.sh` – build + run entry point for the P0 asset-store dump
+  (wraps `run.sh` with `AssetDumper`; `--check` runs the determinism gate).
 - `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
   (math/noise dumps).
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
@@ -95,6 +120,10 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   dump (`registries.json`): the real block / fluid / environment registries of the
   base-game asset pack, produced by running the vanilla CoreServer asset pipeline
   (`AssetRegistryLoader`) over `Assets/Assets.zip`.
+- `src/main/java/com/hypixel/hytale/tools/golden/AssetDumper.java` – the P0
+  asset-store dump (`testdata/golden/server/assets/`): the real
+  `generateInitPacket` payloads (uncompressed, unframed) and the key/id index,
+  booting the same pipeline as `RegistryDumper`.
 - `src/main/java/com/hypixel/hytale/tools/golden/LoaderDumper.java` – the loader-chain
   dump (`loader.json`): the real Default-world `ChunkGeneratorJsonLoader` walk
   (zone requirements, seed chains, caves, biome containers) for the fixed seeds.

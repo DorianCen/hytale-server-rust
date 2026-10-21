@@ -46,10 +46,15 @@ build_module_jar() {
 
     # A module is (re)compiled when its class tree is missing or when it
     # contains a class that the upstream build could not resolve (the upstream
-    # build produced an "Unresolved compilation problems" stub for
-    # ZonePatternGeneratorCache, which the chunk generation needs).
-    if [ ! -d "$classes" ] || [ -z "$(find "$classes" -name '*.class' -print -quit)" ] \
-        || has_unresolved_classes "$classes"; then
+    # build produced an "Unresolved compilation problem" stub for such a
+    # class). Maven's incremental check would consider the stale stub newer
+    # than its source, so the class tree is removed first to force a rebuild.
+    if [ ! -d "$classes" ] || [ -z "$(find "$classes" -name '*.class' -print -quit)" ]; then
+        echo "Compiling $module..."
+        mvn -q -f "$SERVER_ROOT/pom.xml" -pl "$module" -am compile
+    elif has_unresolved_classes "$classes"; then
+        echo "Removing stale unresolved classes in $module..."
+        rm -rf "$classes"
         echo "Compiling $module..."
         mvn -q -f "$SERVER_ROOT/pom.xml" -pl "$module" -am compile
     fi
@@ -59,9 +64,10 @@ build_module_jar() {
 }
 
 # True when the class tree contains a class the upstream build could not
-# resolve (the Eclipse compiler emits an error stub for those).
+# resolve (the Eclipse compiler emits an error stub for those). The stub text
+# is "Unresolved compilation problem: " (singular), so match that prefix.
 has_unresolved_classes() {
-    grep -rl --include='*.class' "Unresolved compilation problems" "$1" 2>/dev/null | head -n 1 | grep -q .
+    grep -rla --include='*.class' "Unresolved compilation problem" "$1" 2>/dev/null | head -n 1 | grep -q .
 }
 
 build_module_jar Math Math

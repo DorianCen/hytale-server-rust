@@ -1,6 +1,6 @@
 # T10b — BlockSection and section serialization
 
-**Status:** todo
+**Status:** done (session 2)
 **Agent fit:** medium (one large Java class, but mostly mechanical)
 **Depends on:** T10a
 **Owns:** `crates/hytale-world/src/chunk/section/block.rs`,

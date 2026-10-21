@@ -1,6 +1,6 @@
 # T11 — Java asset-packet golden dumper
 
-**Status:** todo
+**Status:** done (session 2)
 **Agent fit:** medium (Java, one boot harness; needs the asset pack)
 **Depends on:** T08
 **Owns:** `tools/java-dumper/src/main/java/com/hypixel/hytale/tools/golden/AssetDumper.java`,

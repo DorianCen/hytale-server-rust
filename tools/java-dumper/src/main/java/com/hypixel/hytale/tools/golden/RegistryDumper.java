@@ -1,5 +1,6 @@
 package com.hypixel.hytale.tools.golden;
 
+import com.hypixel.hytale.assetstore.AssetLoadResult;
 import com.hypixel.hytale.assetstore.AssetRegistry;
 import com.hypixel.hytale.assetstore.AssetStore;
 import com.hypixel.hytale.assetstore.iterator.AssetStoreIterator;
@@ -102,7 +103,9 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -162,6 +165,13 @@ final class RegistryDumper {
     private static Path bootedRoot;
 
     /**
+     * The load results of the pack's asset stores, keyed by asset class. Only
+     * the stores that were actually loaded from a directory are recorded; the
+     * map is used by {@link AssetDumper} to report P0 decode failures.
+     */
+    private static final Map<Class<?>, AssetLoadResult<?, ?>> LOAD_RESULTS = new LinkedHashMap<>();
+
+    /**
      * Boots the asset pipeline over the pack and returns the registry dump.
      *
      * @param repoRoot the repository root (the pack is resolved relative to it)
@@ -183,11 +193,23 @@ final class RegistryDumper {
      * @param repoRoot the repository root (the pack is resolved relative to it)
      */
     static Path boot(Path repoRoot) throws IOException {
+        return boot(repoRoot, PACK_PATH);
+    }
+
+    /**
+     * Boots the asset pipeline over an arbitrary pack path.
+     *
+     * @param repoRoot    the repository root (a relative pack path is resolved
+     *                    relative to it)
+     * @param packRelPath the asset pack, relative to the repository root or
+     *                    absolute (the {@code ASSET_PACK} override)
+     */
+    static Path boot(Path repoRoot, String packRelPath) throws IOException {
         if (bootedRoot != null) {
             return bootedRoot;
         }
 
-        final Path packPath = repoRoot.resolve(PACK_PATH).normalize();
+        final Path packPath = repoRoot.resolve(packRelPath).normalize();
         if (!Files.isRegularFile(packPath)) {
             throw new IOException("asset pack not found: " + packPath
                 + " (the pack is required to dump the real registries)");
@@ -513,9 +535,18 @@ final class RegistryDumper {
 
                 final List<Path> files = collectFiles(assetsPath, assetStore.getExtension());
                 if (files.isEmpty()) continue;
-                assetStore.loadAssetsFromPaths(PACK_NAME, files);
+                final AssetLoadResult<?, ?> result = assetStore.loadAssetsFromPaths(PACK_NAME, files);
+                LOAD_RESULTS.put(assetStore.getAssetClass(), result);
             }
         }
+    }
+
+    /**
+     * The load result of the given store, or {@code null} when the store was
+     * not loaded from a directory during the boot.
+     */
+    static AssetLoadResult<?, ?> getLoadResult(Class<?> assetClass) {
+        return LOAD_RESULTS.get(assetClass);
     }
 
     /**
