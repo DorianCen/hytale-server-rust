@@ -141,6 +141,45 @@ fn a_cancelled_request_never_generates() {
 }
 
 #[test]
+fn a_registry_snapshot_path_is_loaded_by_the_workers() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    // A deliberately invalid snapshot must fail the worker load: this proves
+    // the configured path (not the repository default) is the one read, i.e.
+    // a server can hand the service its own registry dump.
+    let temp = std::env::temp_dir().join(format!(
+        "worldgen-registry-snapshot-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default()
+    ));
+    std::fs::create_dir_all(&temp).expect("create the temporary directory");
+    let snapshot = temp.join("registries.json");
+    std::fs::write(&snapshot, "{}").expect("write the broken snapshot");
+
+    let root = PathBuf::from(format!(
+        "{}/../../testdata/Default",
+        std::env::var("CARGO_MANIFEST_DIR").unwrap()
+    ));
+    let config = WorldGenConfig::new(root, "Default".to_string(), "0.0.0".to_string());
+    let result = WorldGenService::new(
+        config,
+        WorldGenOptions {
+            workers: 1,
+            registries_path: Some(snapshot),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(result, Err(WorldGenError::Load(_))));
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
 fn a_bad_world_path_is_a_load_error() {
     let config = WorldGenConfig::new(
         PathBuf::from("/definitely/not/a/world"),

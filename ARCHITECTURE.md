@@ -460,7 +460,7 @@ Verification matrix (must stay green):
 | `crates/worldgen-hytale/tests/loader_caves_golden.rs` | `loader.json` (`caves`) | Cave entry-point seed chains |
 | `crates/worldgen-hytale/tests/loader_zones.rs`, `crates/worldgen-hytale/tests/loader_caves.rs`, `crates/worldgen-hytale/tests/loader_context.rs`, `crates/worldgen-hytale/tests/prefab_files.rs`, `crates/worldgen-hytale/tests/unique_prefabs.rs` | world assets | Focused loader/store checks |
 | `crates/worldgen-hytale/tests/chunks_golden.rs` | `chunks.json` | **21 chunks / 21,504 columns bit-exact** (tint, zone, biome, environments, every block/fluid/priority voxel incl. caves/covers/prefabs) |
-| `crates/worldgen-hytale/tests/world_gen_service.rs` | — | Worker-pool output == direct output; cancellation; shutdown |
+| `crates/worldgen-hytale/tests/world_gen_service.rs` | — | Worker-pool output == direct output; cancellation; shutdown; custom registry-snapshot path |
 | `crates/worldgen-server/tests/provider.rs` | `chunks.json` parity via the direct path | Adapter output == direct output; `stillNeeded`; cancellation token; drain-on-shutdown; object safety |
 | `crates/worldgen-cli/tests/render_golden.rs` | `testdata/golden/render/*.png` | Visual regression of the fixed height / zone / biome renders (pixel-exact) |
 | `crates/worldgen-hytale/tests/generation_smoke.rs` | — | End-to-end smoke generation |

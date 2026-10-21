@@ -415,7 +415,9 @@ struct BenchArgs {
     /// The first chunk coordinate `x,z`.
     #[arg(long, value_parser = parse_chunk, default_value = "0,0")]
     start: (i32, i32),
-    /// The number of chunks (a square grid around `--start`).
+    /// The number of chunks (a square grid around `--start`). Use at least
+    /// ~32 chunks per worker: smaller grids are dominated by the per-worker
+    /// prefab/cave cache warm-up (see BENCHMARKS.md).
     #[arg(long, default_value_t = 16)]
     chunks: usize,
     /// The worker-pool size (defaults to the Java `POOL_SIZE`).
