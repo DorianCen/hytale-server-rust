@@ -197,10 +197,8 @@ fn the_default_world_chunk_priority_histogram_is_pinned() {
     // do not change it: the spawn room and the temple portal land in other
     // chunks (the spawn zone is painted far away from the origin).
     //
-    // NOTE: the Java `chunks.json` histogram of this chunk is
-    // `CAVE_COVER 187 / CAVE 15892`; the two-voxel delta is the last
-    // cave-cover `NoiseMask` edge tracked in NEXT_STEPS.md (the chunk-level
-    // parity test is `#[ignore]`d for it).
+    // These are the exact Java `chunks.json` counts for this chunk (the
+    // chunk-level parity test `tests/chunks_golden.rs` compares every voxel).
     let histogram = priority_histogram(&execution);
     assert_eq!(
         histogram,
@@ -209,8 +207,8 @@ fn the_default_world_chunk_priority_histogram_is_pinned() {
             (1, 2493),   // FILLING
             (2, 93930),  // LAYER
             (3, 511),    // COVER
-            (5, 185),    // CAVE_COVER
-            (6, 15894),  // CAVE
+            (5, 187),    // CAVE_COVER
+            (6, 15892),  // CAVE
             (7, 1312),   // CAVE_PREFAB
             (8, 8462),   // PREFAB_CAVE
             (9, 22),     // PREFAB

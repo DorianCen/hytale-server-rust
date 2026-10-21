@@ -6,17 +6,15 @@ Subtasks 1–4, 6 and 7 (incl. 7d) DONE; Phase 3 terrain/water populators DONE;
 Phase 4 caves DONE (4a–4e); Phase 5a/5b/5c DONE (the prefab package, the
 `PrefabPopulator` and the unique prefabs; the full chunk generation places real
 `PREFAB` blocks). The chunk-level verification dump landed and is deterministic
-(`testdata/golden/chunks.json`) and the Rust parity test now shows **150 / 21,504
-mismatching columns**, all in the cave stage: tint, raw tint, zone, biome,
-parent tile biome, biome-pattern index/cell, environment base mapping, terrain
-layers, covers, water and prefab blocks are **bit-exact**; the remaining voxels
-are cave-cover `NoiseMask` map-condition edge cases. The loader golden is now
-**100% bit-exact (0 noise-derived deviations)**. `cargo test --workspace` and
-`cargo clippy --workspace --all-targets -- -D warnings` are green
-(`tests/chunks_golden.rs` is `#[ignore]`d with the precise remaining diff).
-Remaining before Phase 6: fix the last cave-cover condition edges, then
-un-ignore `tests/chunks_golden.rs` and run Phase 6. This file lists the
-remaining work in dependency order, sized for ~200k-context subagent runs.
+(`testdata/golden/chunks.json`), and the Rust parity test is now **bit-exact on
+all 21 chunks / 21,504 columns**: tint, raw tint, zone, biome, parent tile
+biome, biome-pattern index/cell, environment base mapping, terrain layers,
+covers, water, caves, cave covers, cave prefabs and regular/unique prefabs all
+match the Java pipeline. The loader golden is **100% bit-exact (0 noise-derived
+deviations)**. `cargo test --workspace` (including `tests/chunks_golden.rs`,
+un-ignored) and `cargo clippy --workspace --all-targets -- -D warnings` are
+green. The remaining work is **Phase 6 — integration & polish**. This file lists
+the remaining work in dependency order, sized for ~200k-context subagent runs.
 Free-model pool (subagents):
 `opencode/minimax-m3.1-flash-free`, `opencode/longcat-2.5-preview-free`,
 `opencode/deepseek-v4.1-flash-free`, `opencode/glm-5.3-flash-free` — note
@@ -842,33 +840,47 @@ prefab parts of `worldgen/chunk/ChunkGenerator.java` (`getUniquePrefabs`,
   - The parity test should dump the chunk **(4, -5)** as well — it holds the
     spawn room of the seed 0.
 
-## Chunk-level golden parity — IN PROGRESS (150 / 21,504 columns)
+## Chunk-level golden parity — DONE (21 / 21 chunks, 21,504 / 21,504 columns)
 
 The Java dump (`testdata/golden/chunks.json`) and the Rust parity test are in
-place and deterministic. The current state after this session's fixes:
+place, deterministic, and `tests/chunks_golden.rs` is **un-ignored and green**:
 
 - **Exact**: tint (interpolated + raw), zone, biome, parent tile biome,
-  biome-pattern index/cell, border distance, the base environment mapping and
-  all terrain / layer / cover / water / prefab writes.
-- **Remaining**: 150 columns (147 block voxels + 3 environment runs), all cave
-  stage: 146 `CAVE` voxels and 1 `CAVE_COVER` voxel (per-y count). The first
-  example is seed 0, chunk (0,0), column (0,30): Java places the
-  `Plant_Roots_Cave_Small` ceiling cover at y=63, Rust leaves the cave air
-  there because the cover's `NoiseMask` **map condition** evaluates false (the
-  height and density conditions and the parent check are all true).
-- **Next step**: compare the cover map-condition noise value/threshold between
-  Java and Rust for the cover files of the affected cave node types (Copper /
-  Grasshopper/Deep / Volcanic children — the cover is a `NoiseMaskCondition`
-  loaded by `CaveNodeCoverEntryJsonLoader`). This looks like one more
-  noise-edge/threshold case, not a structural cave-tree difference: the cave
-  node graph (types, seeds, bounds, ends, prefab lists/positions) and the
-  per-node floor/ceiling/replace geometry were verified to be **identical**
-  for seed 0 chunks (0,0) and (7,3).
+  biome-pattern index/cell, border distance, the base environment mapping, all
+  terrain / layer / cover / water writes, all cave / cave-cover / cave-prefab
+  writes and all regular/unique prefab writes (blocks, rotations, fillers,
+  fluids, fluid levels, environments and priority bytes).
 
-### What was wrong in the previous session (important)
+### The last 150 columns — root cause (fixed)
 
-The earlier "mount-root blocker" diagnosis was incomplete; the real blockers
-were test/dumper bugs plus two procedural noise bugs:
+The cave-cover `NoiseMask` theory was almost right but the failing cover was
+not a threshold edge: it was a **seed-string bug for the cave types**.
+
+`CaveTypesJsonLoader.loadCaveType` (Java) reads the `Name` as a gson
+`JsonElement` and passes that element to `String.format(SEED_CAVE_TYPE_SUFFIX,
+name)` — `JsonElement.toString()` of a string primitive includes the **quotes**.
+The cave-type seed is therefore
+
+```
+<seed>.Zones.Zone-<zone>.CaveGenerator-"<CaveType>".CaveType
+```
+
+(quoted name), not `...CaveGenerator-<CaveType>.CaveType`. The entry-point
+seed golden test did not catch it because every `EntryPoints` block carries an
+explicit `Seed` override; only *derived* seeds (e.g. a cave cover `NoiseMask`
+without a `Seed` key) observe the cave-type seed. The affected cover was
+`Covers_Volcanic[3]` (`Plant_Roots_Cave_Small|Pitch=180`, `Threshold:[0,0.3]`,
+no `Seed`) of `Zone1_Tier2`'s `Grasslands_Volcanic` cave type (a Tier-2 cave
+that reaches into chunk (0,0) — `CavePopulator` iterates **all** zones): Java
+noise `0.26996212777902784` (true), Rust `0.4566459520906633` (false). With the
+quoted seed suffix both sides are bit-identical and all 150 columns closed.
+`crates/worldgen-hytale/src/loader/cave/cave_types_json_loader.rs` now uses the
+JSON representation of the name in the seed suffix.
+
+### What was wrong in the previous sessions (important)
+
+The earlier "mount-root blocker" diagnosis was incomplete; the blockers were
+test/dumper bugs plus several seed/noise bugs:
 
 1. **Dump column order**: `ChunkDumper` wrote `columnRefs[ref++]` in the
    `for x { for z }` order while the documented (and test-used) order is
@@ -898,6 +910,13 @@ were test/dumper bugs plus two procedural noise bugs:
 8. The registries dump now carries `BlockType.getOpacity()` (the
    `GeneratedBlockChunk.getHeight` test used by surface-limited caves) in
    addition to the per-rotation support probes.
+9. **Cave-type seed quotes** (the last 150 columns): `CaveTypesJsonLoader`
+   formats the raw gson `Name` element, so the seed suffix is
+   `-"<CaveType>"` — quotes included. Fixed in
+   `loader/cave/cave_types_json_loader.rs`; the Java-side diagnostics used a
+   temporary `SeedString` shadow that printed the resolved seed strings (the
+   quoted `...CaveGenerator-"Grasslands_Volcanic".CaveType...` chain matched
+   the cover's Java `FractalNoiseProperty.seedOffset` exactly).
 
 ### The dump format and commands
 
@@ -937,9 +956,7 @@ were test/dumper bugs plus two procedural noise bugs:
 - `procedural::noise::support` reduced seams still shadow the full
   `supplier`/`condition` ports — integrate them when a loader phase touches
   those files.
-- Chunk-level golden parity now depends on the FULL Java pipeline in the
-  dumper (blocks resolve!): extend `RegistryDumper`'s boot to run the actual
-  Default-world generation for fixed seeds/chunks and dump block grids —
-  the definitive Phase-3 verification (was blocked on the asset pack).
-- `ChunkGeneratorExecution::execute()` still lacks the cave/prefab stages —
-  the in-code NOT-BIT-EXACT flag comes off at Phase 4/5.
+- Chunk-level golden parity is **done**: `RegistryDumper`'s boot plus
+  `ChunkDumper`/`ChunkProbe` runs the full Java pipeline for the fixed
+  seeds/chunks; `tests/chunks_golden.rs` compares 21,504 columns bit-exactly
+  and is no longer ignored.

@@ -190,19 +190,11 @@ fn tint_column(x: i32, z: i32) -> usize {
 ///
 /// Returns the number of compared columns (21 chunks × 1024 columns).
 ///
-/// ⚠ **IGNORED — 150 / 21,504 columns remain** (see NEXT_STEPS.md
-/// "Chunk-level golden parity — IN PROGRESS"). Everything except the cave
-/// stage is bit-exact now:
-///
-/// * tint / raw tint / zone / biome / parent tile biome / biome index /
-///   biome cell / environment base mapping: **0** mismatching columns,
-/// * per-voxel terrain, layers, covers, water and prefab blocks: exact,
-/// * the remaining differences are cave-stage voxels (priority `CAVE` /
-///   `CAVE_COVER`) where a cave cover's `NoiseMask` map condition flips at
-///   the threshold (e.g. seed 0, chunk (0,0), column (0,30): the Java
-///   `Plant_Roots_Cave_Small` ceiling cover at y=63 is missing in Rust).
+/// **Bit-exact**: tint / raw tint / zone / biome / parent tile biome / biome
+/// index / biome cell / environment base mapping, every terrain, layer,
+/// cover, water, cave, cave-cover, cave-prefab and prefab voxel, the fluids
+/// and the priority bytes all match the Java pipeline.
 #[test]
-#[ignore = "150 / 21,504 columns remain: cave-cover NoiseMask map-condition edges (everything else is bit-exact) — see NEXT_STEPS.md"]
 fn the_default_world_chunk_grids_match_the_java_pipeline() {
     let path = manifest_root().join(GOLDEN);
     let dump: Value =

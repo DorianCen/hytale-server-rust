@@ -238,5 +238,6 @@ records block id + rotation + filler, fluid id + level, environment id and the
 `(z << 5) | x`). The column def also carries the tint, biome/zone ids, the raw
 parent tile biome, the zone border distance, the biome-pattern index/cell and the
 raw tint as **debug references**. The definitive Rust parity test is
-`tests/chunks_golden.rs` (currently `#[ignore]`d: only 150 / 21,504 columns still
-differ, all in cave-cover `CAVE` / `CAVE_COVER` voxels).
+`tests/chunks_golden.rs` — **bit-exact on all 21 chunks / 21,504 columns**
+(tint, zones, biomes, environments, every block/fluid/priority voxel including
+caves, cave covers and prefabs).

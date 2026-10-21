@@ -7,14 +7,6 @@
 //!
 //! # What is *not* ported (see `NEXT_STEPS.md` / `plan.md`)
 //!
-//! * **The concrete cave shapes and the prefab stages of `execute`**
-//!   (`CavePopulator` shapes, `PrefabPopulator`) — the cave stage itself runs
-//!   (Phase 4b), but the shapes that carve blocks are Phase 4c/4d and the
-//!   prefabs are Phase 5. The
-//!   [`ChunkGeneratorExecution::execute`] method therefore produces the tint
-//!   map, the environment map, the terrain, the covers, the (empty) cave
-//!   pass and the water: **the execution is NOT BIT-EXACT until the cave
-//!   shapes and the prefabs land.**
 //! * **The ECS boundary**: `chunk.setState(x, y, z, holder)` and the
 //!   `Holder<ChunkStore>` section machinery are CoreServer concepts and are
 //!   not ported (see `plan.md`) — the calls are no-ops here.
@@ -24,10 +16,13 @@
 //! * **The entity chunk** (`chunk.getEntityChunk()`) — not part of the
 //!   generation-only scope.
 //! * **The block/fluid registries**: Java reads them from the static
-//!   CoreServer asset maps. The asset packs are not part of the shared
-//!   source tree, so the Rust port carries a data-driven seam
-//!   ([`worldgen_model::registry`]) that the loader subtask fills (see
-//!   `REMAINING.md` § 6).
+//!   CoreServer asset maps. The Rust port carries a data-driven seam
+//!   ([`worldgen_model::registry`]) filled by the loader from the golden
+//!   registry dump (see `REMAINING.md` § 6).
+//!
+//! The full stage order (tint → environment → blocks → caves → prefabs →
+//! water) is ported and the generated chunk grid is **bit-exact** against the
+//! Java pipeline on all 21 golden chunks (`tests/chunks_golden.rs`).
 //!
 //! # Deviations
 //!
@@ -138,16 +133,8 @@ impl ChunkGeneratorExecution {
     /// [`ChunkGeneratorResource`] as an explicit parameter.
     ///
     /// The stage order is the Java one: tint → environment → blocks → caves
-    /// → **prefabs** → water.
-    ///
-    /// ⚠ **NOT BIT-EXACT YET**: the cave stage runs (Phase 4b — the cave
-    /// graph growth, the bucket order and the
-    /// [`CaveBlockPriorityModifier`](crate::cave::cave_block_priority_modifier::CaveBlockPriorityModifier)
-    /// are exact), but the concrete cave shapes are Phase 4c/4d, so the caves
-    /// compile and are visited without carving anything meaningful. The
-    /// prefab stage (Phase 5b) is real — the biome prefab containers are
-    /// placed with the `PREFAB` priority — but the *unique* prefabs are the
-    /// Phase-5c seam (they are not generated yet).
+    /// → prefabs → water. The generated chunk is bit-exact against the Java
+    /// pipeline on the golden chunk grid (`tests/chunks_golden.rs`).
     pub fn execute(&mut self, seed: i32, resource: &mut ChunkGeneratorResource) {
         // Generate the tint map
         self.generate_tint_mapping(seed);

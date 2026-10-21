@@ -98,10 +98,21 @@ impl CaveTypesJsonLoader {
         }
         let name = name.as_str().unwrap();
 
+        // Java quirk: `CaveTypesJsonLoader.loadCaveType` passes the raw gson
+        // `JsonElement` (not the `String`) to `String.format`, so the seed
+        // suffix contains the JSON string representation — including the
+        // quotes: `-"Grasslands_Volcanic"`. The entry-point seeds mask this
+        // (they carry an explicit `Seed` key), but every seed derived from
+        // the cave-type seed (e.g. an unseeded cover `NoiseMask`) sees it.
+        let name_repr = object
+            .get(constants::KEY_NAME)
+            .expect("the name was checked above")
+            .to_string();
+
         CaveTypeJsonLoader::new(
             self.base
                 .seed
-                .append(&constants::SEED_CAVE_TYPE_SUFFIX.replace("%s", name)),
+                .append(&constants::SEED_CAVE_TYPE_SUFFIX.replace("%s", &name_repr)),
             &self.base.data_folder,
             Some(json.clone()),
             self.cave_folder.clone(),

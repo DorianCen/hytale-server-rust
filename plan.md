@@ -69,14 +69,14 @@ hytale-server-rust/
 - [x] `HeightThresholdInterpolator` + `CoreDataCacheEntry` + `InterpolatedBiomeCountList`
 - [x] `BlockPopulator` + `LayerPopulator` (static/dynamic layers), covers, `WaterPopulator`, tint/environment mapping
 - [x] Block/fluid/environment registry subset extracted from what the Default world JSON references (golden `registries.json` from the Java dumper)
-- [x] Verification: full-chunk block dumps + heightmap PNGs vs Java — the Java `ChunkDumper`/`chunks.json` landed; the terrain, layers, covers and water are bit-exact on all 21 dumped chunks (the 150 remaining columns are cave-cover voxels, see the Phase 4 box)
+- [x] Verification: full-chunk block dumps + heightmap PNGs vs Java — the Java `ChunkDumper`/`chunks.json` landed; all 21 chunks / 21,504 columns are bit-exact (terrain, layers, covers, water, caves, cave covers, prefabs)
 
 ### Phase 4 — Caves (~4.6k lines incl. loaders)
 - [x] `CaveGenerator` recursive node-graph growth (yaw/pitch walk, `CaveBiomeMaskFlags` GENERATE/POPULATE/CONTINUE, anchors, radius inheritance), `Cave` + chunk-bucket compile (4a + 4b)
 - [x] Shapes: pipe, cylinder, ellipsoid, empty-line, prefab-as-node (structure), then the **distorted family** (extrusion/body math, interpolation curves, pitch compensation, width/floor/ceiling distortion noise) (4c + 4d)
 - [x] `CaveNodeShapeUtils` (anchors, covers, support invalidation), fillings/fluids, `CaveBlockPriorityModifier` — the block-support data gap is CLOSED: the golden `registries.json` now carries one `containsKey(DOWN/UP)` entry per Java `RotationTuple` per block (`RegistryDumper.blockSupportField`), and `BlockTypeInfo::get_support` honors the rotation index
 - [x] Cave JSON loaders with cross-zone node references (`CaveNodeTypeStorage`) — 4e done; all 28 Default zones load their `Cave/Caves.json`; entry-point seed chains bit-exact vs `loader.json`
-- [x] Verification: chunk slice PNGs + block-histogram invariants vs Java — the cave **node graph** (types, seeds, bounds, ends, prefabs), per-node floor/ceiling/replace geometry and every carve except 150 columns is bit-exact; the remaining 146 `CAVE` + 1 `CAVE_COVER` voxels are cave-cover `NoiseMask` map-condition edges (see NEXT_STEPS.md "Chunk-level golden parity — IN PROGRESS")
+- [x] Verification: chunk slice PNGs + block-histogram invariants vs Java — the cave **node graph** (types, seeds, bounds, ends, prefabs), per-node floor/ceiling/replace geometry and every carve are bit-exact on the golden chunk grid (the last cave-cover seed edge was the quoted cave-type seed suffix, see NEXT_STEPS.md)
 
 ### Phase 5 — Prefabs (~2.5k lines + format work)
 - [x] Parse `.prefab.json` (12k files); investigate `.lpf` cache format only if needed for speed (JSON is source of truth)
@@ -84,7 +84,7 @@ hytale-server-rust/
 - [x] `PrefabPopulator`: sparse 8-block biome sampling, lattice collection, weighted picks, rotation, deep-search heights, `PrefabBaseCheck` evenness, AABB invalidation by category priority
 - [x] Unique prefabs: `UniquePrefabConfiguration`, exclusion radii, zone-border exclusion, inverse domain-warp placement, spawn points (`getSpawnPoints`), `ValidationUtil`, `UniquePrefabContainer` port
 - [x] Entities: stubbed (deferred per scope)
-- [x] Verification: prefab placement coordinate lists + structure maps vs Java — the Java `ChunkDumper` landed (`testdata/golden/chunks.json`, deterministic, incl. the seed-0 unique-prefab chunks (4,-5)/(9,4)) and the Rust chunk test compares them; every `PREFAB`/`PREFAB_CAVE`/`CAVE_PREFAB` voxel is bit-exact. `tests/chunks_golden.rs` is `#[ignore]`d only for the last 150 cave-cover columns (see NEXT_STEPS.md)
+- [x] Verification: prefab placement coordinate lists + structure maps vs Java — the Java `ChunkDumper` landed (`testdata/golden/chunks.json`, deterministic, incl. the seed-0 unique-prefab chunks (4,-5)/(9,4)) and `tests/chunks_golden.rs` is bit-exact on every `PREFAB`/`PREFAB_CAVE`/`CAVE_PREFAB` voxel
 
 ### Phase 6 — Integration & polish
 - [ ] Final `trait WorldGen` (async `generate(seed, index, x, z, cancel, priority)`), worker pool, graceful shutdown, per-stage timing metrics
