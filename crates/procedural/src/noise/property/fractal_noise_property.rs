@@ -85,12 +85,7 @@ impl FractalMode {
                 for _ in 0..octaves {
                     // Java `offsetSeed++`: the FIRST octave uses the original
                     // offset seed (the increment happens after the read).
-                    sum += noise.get(
-                        seed,
-                        offset_seed,
-                        x * freq as f64,
-                        y * freq as f64,
-                    ) * amp;
+                    sum += noise.get(seed, offset_seed, x * freq as f64, y * freq as f64) * amp;
                     offset_seed = offset_seed.wrapping_add(1);
                     max_amp += amp;
                     amp *= persistence;

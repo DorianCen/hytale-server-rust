@@ -16,6 +16,8 @@ pub mod supplier;
 pub mod unique_zone_placement;
 pub mod util;
 pub mod weighted_map;
+pub mod world_gen;
 pub mod world_gen_config;
+pub mod world_gen_provider;
 pub mod zone;
 pub mod zoom;

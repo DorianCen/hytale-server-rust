@@ -54,6 +54,14 @@ resolves it relative to the repository root — the pack is not part of the sour
   dump (`registries.json`): the real block / fluid / environment registries of the
   base-game asset pack, produced by running the vanilla CoreServer asset pipeline
   (`AssetRegistryLoader`) over `Assets/Assets.zip`.
+- `src/main/java/com/hypixel/hytale/tools/golden/LoaderDumper.java` – the loader-chain
+  dump (`loader.json`): the real Default-world `ChunkGeneratorJsonLoader` walk
+  (zone requirements, seed chains, caves, biome containers) for the fixed seeds.
+- `src/main/java/com/hypixel/hytale/tools/golden/ChunkDumper.java` – the full chunk
+  dump (`chunks.json`): the real `ChunkGeneratorExecution.execute` for the fixed
+  seed/chunk grid, run-length encoded per column. `ChunkProbe.java` runs only this
+  dump for fast iteration
+  (`java -cp <cp> com.hypixel.hytale.tools.golden.ChunkProbe <outDir> <worldDir> <repoRoot>`).
 - `lib/` and `target/` – generated build output, not source.
 
 The upstream `ProceduralLibrary`/`WorldGenerator` classes reference `fastutil` and

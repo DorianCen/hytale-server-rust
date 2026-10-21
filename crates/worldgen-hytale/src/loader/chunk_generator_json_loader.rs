@@ -104,6 +104,10 @@ pub struct ChunkGeneratorJsonLoader {
     /// The root of the extracted base-game asset pack (Java
     /// `AssetUtil.getHytaleAssetsPath()`).
     pub assets_root: PathBuf,
+    /// An explicit golden registry dump (`registries.json`) — `None` uses the
+    /// repository default (Java reads the static CoreServer asset maps, which
+    /// the Rust port mirrors with the dumped registries).
+    pub registries_path: Option<PathBuf>,
 }
 
 impl ChunkGeneratorJsonLoader {
@@ -115,7 +119,21 @@ impl ChunkGeneratorJsonLoader {
             config,
             data_folder,
             assets_root: PrefabStoreRoot::default_assets_root(),
+            registries_path: None,
         }
+    }
+
+    /// Overrides the extracted asset-pack root (the prefab store /
+    /// environments / tint gradients).
+    pub fn with_assets_root(mut self, assets_root: impl Into<PathBuf>) -> Self {
+        self.assets_root = assets_root.into();
+        self
+    }
+
+    /// Overrides the golden registry dump path (`registries.json`).
+    pub fn with_registries_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.registries_path = Some(path.into());
+        self
     }
 
     /// Java `ChunkGenerator load()`.
@@ -171,7 +189,15 @@ impl ChunkGeneratorJsonLoader {
         )
         .load();
 
-        let registries = Rc::new(Registries::load());
+        let registries = Rc::new(match &self.registries_path {
+            Some(path) => Registries::load_from(path).unwrap_or_else(|error| {
+                panic!(
+                    "could not load the registries from {}: {error}",
+                    path.display()
+                )
+            }),
+            None => Registries::load(),
+        });
         // The Java `SeedStringResource` — the world-wide unique-name
         // counters (the cave node types use them for their names and
         // therefore for their seeds).

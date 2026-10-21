@@ -87,10 +87,10 @@ hytale-server-rust/
 - [x] Verification: prefab placement coordinate lists + structure maps vs Java — the Java `ChunkDumper` landed (`testdata/golden/chunks.json`, deterministic, incl. the seed-0 unique-prefab chunks (4,-5)/(9,4)) and `tests/chunks_golden.rs` is bit-exact on every `PREFAB`/`PREFAB_CAVE`/`CAVE_PREFAB` voxel
 
 ### Phase 6 — Integration & polish
-- [ ] Final `trait WorldGen` (async `generate(seed, index, x, z, cancel, priority)`), worker pool, graceful shutdown, per-stage timing metrics
-- [ ] `worldgen-cli` commands: `generate`, `render-map`, `dump-chunk`, `validate` (recursive prefab load), `bench` (criterion ports of the two JMH benchmarks)
-- [ ] `HytaleWorldGenProvider` config semantics (Name/Version/Path) for world-config compatibility
-- [ ] Architecture doc: Java class → Rust module mapping
+- [x] Final `trait WorldGen` (blocking `generate(seed, chunk coords, priority, cancel)`), dedicated worker pool (`WorldGenService`, priority queue, per-worker generator + scratch resource), graceful shutdown, per-stage timing metrics (`StageTimings` / `WorldGenStats`)
+- [x] `worldgen-cli` commands: `generate`, `render-map`, `dump-chunk`, `validate` (recursive prefab load), `bench` (timing harness; criterion ports of the two JMH benchmarks in `crates/worldgen-hytale/benches/`)
+- [x] `HytaleWorldGenProvider` config semantics (Name/Version/Path, legacy `World.json` rule, traversal guard) for world-config compatibility
+- [x] Architecture doc: Java class → Rust module mapping (`ARCHITECTURE.md`)
 
 ## Test strategy (cross-cutting)
 

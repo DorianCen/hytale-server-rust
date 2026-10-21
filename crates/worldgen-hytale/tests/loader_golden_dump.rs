@@ -276,7 +276,6 @@ fn assert_noise_derived(expected: i32, actual: i32, _known: bool, _path: &str) {
     NOISE_DEVIATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
-
 // ---------------------------------------------------------------------
 // Golden data
 // ---------------------------------------------------------------------

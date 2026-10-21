@@ -36,6 +36,8 @@
 //!   because Java reaches the reused scratch buffers through the static
 //!   `ChunkGenerator.getResource()`.
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use hytale_math::chunk_util;
 
@@ -56,6 +58,27 @@ use crate::util::block_fluid_entry::BlockFluidEntry;
 /// Java `AssetMapWithIndexes.NOT_FOUND` = `Integer.MIN_VALUE` — the value
 /// Java returns for a fluid lookup outside the world height.
 const FLUID_NOT_FOUND: i32 = i32::MIN;
+
+/// Java `WorldGenTimingsCollector` — the per-chunk stage timings (the Rust
+/// port records them per execution instead of feeding one shared collector;
+/// [`crate::world_gen::WorldGenService`] aggregates them).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StageTimings {
+    /// The tint-mapping stage.
+    pub tint_nanos: u64,
+    /// The environment-mapping stage.
+    pub environment_nanos: u64,
+    /// The `BlockPopulator` stage (terrain / layers / covers).
+    pub blocks_nanos: u64,
+    /// The `CavePopulator` stage.
+    pub caves_nanos: u64,
+    /// The `PrefabPopulator` stage.
+    pub prefabs_nanos: u64,
+    /// The `WaterPopulator` stage.
+    pub water_nanos: u64,
+    /// The whole `execute` call.
+    pub total_nanos: u64,
+}
 
 /// Java `chunk.ChunkGeneratorExecution`.
 pub struct ChunkGeneratorExecution {
@@ -79,6 +102,8 @@ pub struct ChunkGeneratorExecution {
     /// populators can reach them (the asset packs themselves are not part of
     /// the shared source tree — see `REMAINING.md` § 6).
     registry: Rc<Registries>,
+    /// The stage timings of the last [`Self::execute`] call.
+    timings: StageTimings,
 }
 
 impl ChunkGeneratorExecution {
@@ -118,6 +143,7 @@ impl ChunkGeneratorExecution {
             interpolator,
             block_priority_modifier: Rc::new(NoneModifier::NONE),
             registry,
+            timings: StageTimings::default(),
         }
     }
 
@@ -136,23 +162,67 @@ impl ChunkGeneratorExecution {
     /// → prefabs → water. The generated chunk is bit-exact against the Java
     /// pipeline on the golden chunk grid (`tests/chunks_golden.rs`).
     pub fn execute(&mut self, seed: i32, resource: &mut ChunkGeneratorResource) {
+        self.execute_cancellable(seed, resource, None);
+    }
+
+    /// Java `public void execute(int seed)` — with a cooperative cancellation
+    /// token. Returns `false` when the token was set before a stage (the
+    /// caller discards the partially generated chunk); the timings still
+    /// record the completed stages.
+    pub fn execute_cancellable(
+        &mut self,
+        seed: i32,
+        resource: &mut ChunkGeneratorResource,
+        cancel: Option<&AtomicBool>,
+    ) -> bool {
+        let started = Instant::now();
+        macro_rules! stage {
+            ($field:ident, $body:expr) => {{
+                if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                    self.timings.total_nanos = started.elapsed().as_nanos() as u64;
+                    return false;
+                }
+                let stage_start = Instant::now();
+                $body;
+                self.timings.$field = stage_start.elapsed().as_nanos() as u64;
+            }};
+        }
+
         // Generate the tint map
-        self.generate_tint_mapping(seed);
+        stage!(tint_nanos, self.generate_tint_mapping(seed));
 
         // Generate the environment map
-        self.generate_environment_mapping(seed);
+        stage!(environment_nanos, self.generate_environment_mapping(seed));
 
         // Generate filling + layers + covers
-        BlockPopulator::populate(seed, self, resource);
+        stage!(blocks_nanos, BlockPopulator::populate(seed, self, resource));
 
         // Generate caves
-        CavePopulator::populate(seed, self);
+        stage!(caves_nanos, CavePopulator::populate(seed, self));
 
         // Generate prefabs
-        PrefabPopulator::populate(seed, self, resource);
+        stage!(
+            prefabs_nanos,
+            PrefabPopulator::populate(seed, self, resource)
+        );
 
         // Generate water
-        WaterPopulator::populate(seed, self);
+        stage!(water_nanos, WaterPopulator::populate(seed, self));
+
+        self.timings.total_nanos = started.elapsed().as_nanos() as u64;
+        true
+    }
+
+    /// The stage timings of the last [`Self::execute`] call (Java
+    /// `WorldGenTimingsCollector`).
+    pub fn get_timings(&self) -> StageTimings {
+        self.timings
+    }
+
+    /// Consumes the execution and hands out the generated chunk (the Java
+    /// `ChunkGenerator.generate` result).
+    pub fn into_chunk(self) -> GeneratedChunk {
+        self.chunk
     }
 
     /* ============================================================================================================ \\

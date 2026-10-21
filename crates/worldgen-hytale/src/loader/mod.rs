@@ -32,7 +32,6 @@ use serde_json::Value;
 /// format string) or a `&'static str` (from `panic!("…")` with a literal);
 /// the Java error messages are compared verbatim in the tests, so both
 /// payloads have to be handled.
-#[cfg(test)]
 pub(crate) fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
     if let Some(message) = payload.downcast_ref::<String>() {
         return message.clone();

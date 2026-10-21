@@ -854,15 +854,17 @@ impl GoldenDump {
                             SUPPORT_ROTATION_COUNT
                         )));
                     }
-                    BlockTypeInfo::new(draw_type).with_opacity(opacity).with_support_rotations(
-                        entries
-                            .iter()
-                            .map(|entry| BlockSupport {
-                                down: entry.down,
-                                up: entry.up,
-                            })
-                            .collect(),
-                    )
+                    BlockTypeInfo::new(draw_type)
+                        .with_opacity(opacity)
+                        .with_support_rotations(
+                            entries
+                                .iter()
+                                .map(|entry| BlockSupport {
+                                    down: entry.down,
+                                    up: entry.up,
+                                })
+                                .collect(),
+                        )
                 }
                 None => BlockTypeInfo::new(draw_type).with_opacity(opacity),
             };

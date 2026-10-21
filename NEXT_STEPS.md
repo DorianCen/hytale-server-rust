@@ -13,8 +13,12 @@ covers, water, caves, cave covers, cave prefabs and regular/unique prefabs all
 match the Java pipeline. The loader golden is **100% bit-exact (0 noise-derived
 deviations)**. `cargo test --workspace` (including `tests/chunks_golden.rs`,
 un-ignored) and `cargo clippy --workspace --all-targets -- -D warnings` are
-green. The remaining work is **Phase 6 — integration & polish**. This file lists
-the remaining work in dependency order, sized for ~200k-context subagent runs.
+green. **Phase 6 (integration & polish) is DONE**: `WorldGen` /
+`WorldGenService` worker pool with cancellation and stage timings, the
+`HytaleWorldGenProvider` config semantics, the `worldgen-cli` commands,
+criterion benchmarks and `ARCHITECTURE.md` all landed. The port is feature
+complete; remaining risks are tracked at the end of this file. This file lists
+the work in dependency order, sized for ~200k-context subagent runs.
 Free-model pool (subagents):
 `opencode/minimax-m3.1-flash-free`, `opencode/longcat-2.5-preview-free`,
 `opencode/deepseek-v4.1-flash-free`, `opencode/glm-5.3-flash-free` — note
@@ -939,15 +943,38 @@ test/dumper bugs plus several seed/noise bugs:
 - The test takes ~2 min (one world load per seed; 21 chunk executions). The
   dumper writes ~14 MB; `ChunkProbe` is the fast path for dump changes.
 
-## Phase 6 — Integration & polish [last]
-- Final `trait WorldGen` (async `generate(seed, index, x, z, cancel, priority)`),
-  worker pool (replaces the private cache twin with the real concurrent
-  design), graceful shutdown, per-stage timing metrics.
-- `worldgen-cli`: `generate`, `render-map`, `dump-chunk`, `validate`, `bench`
-  (criterion ports of the two JMH benchmarks).
-- `HytaleWorldGenProvider` config semantics (Name/Version/Path); the serde
-  loaders read an asset root (defaults to `Assets/extracted/` layout).
-- Architecture doc: Java class → Rust module mapping (1:1 mapping table).
+## Phase 6 — Integration & polish [DONE]
+- **`world_gen.rs`** (`WorldGen` trait + `WorldGenService`):
+  - `WorldGenRequest { seed, chunk_x, chunk_z, priority, cancel }` and
+    `WorldGenResult { chunk, StageTimings }`; error enum
+    `Cancelled / Shutdown / Panic / Load`.
+  - fixed worker pool with a priority queue (higher priority first, FIFO within
+    a priority), cooperative cancellation checked before every stage
+    (`ChunkGeneratorExecution::execute_cancellable`), graceful shutdown that
+    drains the queue before joining, and per-stage timing aggregation
+    (`WorldGenStats`, Java `WorldGenTimingsCollector` averages with the same
+    100-chunk warm-up).
+  - deviation: each worker owns its own `ChunkGenerator` (the ported graph is
+    `Rc`-based; the Java shares one generator across thread-local resources).
+    Generated output is identical (caches are keyed by seed/coordinates).
+- **`world_gen_provider.rs`** — the `HytaleWorldGenProvider` semantics:
+  `Name`/`Version`/`Path` decoding (`from_json`), the legacy "Default + a
+  `World.json` in the folder" rule, the `<Path>/<Name>` child, a lexical
+  traversal guard (replaces `PathUtil.isInTrustedRoot`, no trusted-root
+  registry yet) and the constant `"ChunkGenerator"` loader label.
+- **`worldgen-cli`** — `generate` / `dump-chunk` (compact per-column RLE JSON),
+  `render-map` (height / zone / biome PNG), `validate` (recursive prefab / cave
+  validation, exit code 1 when invalid) and `bench` (worker-pool grid + stage
+  averages). The world folder defaults to `Assets/extracted/Server/World/Default`
+  and falls back to `testdata/Default`.
+- **Criterion benches** — `crates/worldgen-hytale/benches/prefab_weights.rs`
+  (Java `PrefabWeightsBenchmark`) and `benches/cache.rs` (Java
+  `CacheBenchmark`, moka cache vs `HashMap` baseline).
+- **`ARCHITECTURE.md`** — the Java class → Rust module mapping.
+- Tests: `tests/world_gen_service.rs` (pool vs direct bit-identical chunks,
+  cancellation, bad-world load error, shutdown) + the unit tests of
+  `world_gen` / `world_gen_provider`. Workspace green (`cargo test`,
+  `cargo clippy --workspace --all-targets -- -D warnings`).
 
 ## Cross-cutting / open risks (tracked, do not forget)
 - **Id-order caveat**: the dumped registry ids are pinned to the dumper's

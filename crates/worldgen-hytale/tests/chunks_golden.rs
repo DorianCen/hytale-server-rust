@@ -333,7 +333,8 @@ fn the_default_world_chunk_grids_match_the_java_pipeline() {
                         );
                     }
 
-                    let raw_tint_result = generator.get_zone_biome_result_at(seed, world_x, world_z);
+                    let raw_tint_result =
+                        generator.get_zone_biome_result_at(seed, world_x, world_z);
                     let rust_raw_tint = raw_tint_result
                         .get_biome()
                         .map(|biome| {
@@ -462,9 +463,8 @@ fn the_default_world_chunk_grids_match_the_java_pipeline() {
                             let run = run.as_array().expect("env run");
                             let min_y = run[0].as_i64().expect("minY");
                             let max_y = run[1].as_i64().expect("maxY");
-                            (max_y >= min_y).then(|| {
-                                vec![min_y, max_y, run[2].as_i64().expect("env")]
-                            })
+                            (max_y >= min_y)
+                                .then(|| vec![min_y, max_y, run[2].as_i64().expect("env")])
                         })
                         .collect();
                     if rust_env_runs != golden_env {
@@ -594,8 +594,14 @@ fn the_default_world_chunk_grids_match_the_java_pipeline() {
         "chunk parity: {} / {} columns differ (tint {}, raw tint {}, zone {}, biome {}, parent {}, index {}, cell {}, env {}, blocks {})",
         stats.columns, chunk_runs, stats.tint, stats.raw_tint, stats.zone, stats.biome, stats.parent, stats.index, stats.cell, stats.env, stats.blocks
     );
-    println!("first-differing-block-run priority histogram: {:?}", stats.priority);
-    println!("per-y differing positions by priority (cave=5/6, prefab=7/8/9): {:?}", stats.diff_priority);
+    println!(
+        "first-differing-block-run priority histogram: {:?}",
+        stats.priority
+    );
+    println!(
+        "per-y differing positions by priority (cave=5/6, prefab=7/8/9): {:?}",
+        stats.diff_priority
+    );
     for summary in &chunk_summaries {
         println!("{summary}");
     }
