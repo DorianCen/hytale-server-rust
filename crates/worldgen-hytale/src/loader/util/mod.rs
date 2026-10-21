@@ -7,7 +7,6 @@
 //! port defines the minimal equivalents here instead of pulling in a math
 //! dependency.
 
-pub mod float_range;
 pub mod noise_block_array_json_loader;
 pub mod path_util;
 pub mod resolved_block_array_json_loader;

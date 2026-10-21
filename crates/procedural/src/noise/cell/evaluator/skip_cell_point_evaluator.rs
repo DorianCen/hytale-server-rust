@@ -2,7 +2,7 @@
 //! Java `SkipCellPointEvaluator`.
 //!
 //! ⚠ NOTE(subagent): `it.unimi.dsi.fastutil.HashCommon.nextPowerOfTwo(int)` is
-//! provisionally in [`crate::noise::support`] as
+//! in [`crate::noise::support`] as
 //! `fastutil_next_power_of_two`.
 
 use std::rc::Rc;

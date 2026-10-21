@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `MinNoiseProperty.MIN_EPSILON` — "treat the noisemap as 0" constant.
 pub const MIN_EPSILON: f64 = 0.00001;

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use hytale_math::math_util;
 
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `DoubleUnaryOperator` as used by `CurveNoiseProperty`.
 pub type DoubleUnaryOperator = Rc<dyn Fn(f64) -> f64>;

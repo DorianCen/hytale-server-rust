@@ -38,11 +38,11 @@ use procedural::noise::property::offset_noise_property::OffsetNoiseProperty;
 use procedural::noise::property::scale_noise_property::ScaleNoiseProperty;
 use procedural::noise::property::single_noise_property::SingleNoiseProperty;
 use procedural::noise::property::sum_noise_property::{SumNoiseProperty, SumNoisePropertyEntry};
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::random::{
     AmplitudeNoiseProperty, CoordinateRandomizer, ICoordinateRandomizer,
 };
 use procedural::noise::simplex_noise::SimplexNoise;
-use procedural::noise::support::NoiseProperty;
 use serde_json::Value;
 
 use worldgen_hytale::biome::biome_pattern_generator::BiomePatternGenerator;

@@ -12,14 +12,14 @@ use crate::cave::cave_node_type::{CaveNodeChildEntry, CaveNodeType, OrientationM
 use crate::cave::cave_yaw_mode::CaveYawMode;
 use crate::loader::cave::cave_node_type_storage::CaveNodeTypeStorage;
 use crate::loader::seed_string_resource::SeedStringResource;
-use crate::loader::util::float_range::load_float_range_with_default;
 use crate::loader::util::Vector3d;
 use crate::prefab::prefab_rotation::PrefabRotation;
-use crate::supplier::IFloatRange;
 use crate::weighted_map::{IWeightedMap, WeightedMap};
 use procedural::json::double_range_json_loader::DoubleRangeJsonLoader;
+use procedural::json::float_range_json_loader::FloatRangeJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
 use procedural::noise::supplier::IDoubleRange;
+use procedural::noise::supplier::IFloatRange;
 
 /// Java `CaveNodeChildEntryJsonLoader.Constants`.
 pub mod constants {
@@ -293,13 +293,16 @@ impl<'a> CaveNodeChildEntryJsonLoader<'a> {
         if !self.base.has(constants::KEY_YAW_ADD) {
             return None;
         }
-        Some(load_float_range_with_default(
-            self.base.seed.clone(),
-            &self.base.data_folder,
-            self.base.get(constants::KEY_YAW_ADD),
-            0.0,
-            degrees_to_radians,
-        ))
+        Some(
+            FloatRangeJsonLoader::with_default1_and_function(
+                self.base.seed.clone(),
+                &self.base.data_folder,
+                self.base.get(constants::KEY_YAW_ADD),
+                0.0,
+                degrees_to_radians,
+            )
+            .load(),
+        )
     }
 
     /// Java `IFloatRange loadPitchAdd()`.
@@ -307,13 +310,16 @@ impl<'a> CaveNodeChildEntryJsonLoader<'a> {
         if !self.base.has(constants::KEY_PITCH_ADD) {
             return None;
         }
-        Some(load_float_range_with_default(
-            self.base.seed.clone(),
-            &self.base.data_folder,
-            self.base.get(constants::KEY_PITCH_ADD),
-            0.0,
-            degrees_to_radians,
-        ))
+        Some(
+            FloatRangeJsonLoader::with_default1_and_function(
+                self.base.seed.clone(),
+                &self.base.data_folder,
+                self.base.get(constants::KEY_PITCH_ADD),
+                0.0,
+                degrees_to_radians,
+            )
+            .load(),
+        )
     }
 
     /// Java `IFloatRange loadYawSet()`.
@@ -321,13 +327,16 @@ impl<'a> CaveNodeChildEntryJsonLoader<'a> {
         if !self.base.has(constants::KEY_YAW_SET) {
             return None;
         }
-        Some(load_float_range_with_default(
-            self.base.seed.clone(),
-            &self.base.data_folder,
-            self.base.get(constants::KEY_YAW_SET),
-            0.0,
-            degrees_to_radians,
-        ))
+        Some(
+            FloatRangeJsonLoader::with_default1_and_function(
+                self.base.seed.clone(),
+                &self.base.data_folder,
+                self.base.get(constants::KEY_YAW_SET),
+                0.0,
+                degrees_to_radians,
+            )
+            .load(),
+        )
     }
 
     /// Java `IFloatRange loadPitchSet()`.
@@ -335,13 +344,16 @@ impl<'a> CaveNodeChildEntryJsonLoader<'a> {
         if !self.base.has(constants::KEY_PITCH_SET) {
             return None;
         }
-        Some(load_float_range_with_default(
-            self.base.seed.clone(),
-            &self.base.data_folder,
-            self.base.get(constants::KEY_PITCH_SET),
-            0.0,
-            degrees_to_radians,
-        ))
+        Some(
+            FloatRangeJsonLoader::with_default1_and_function(
+                self.base.seed.clone(),
+                &self.base.data_folder,
+                self.base.get(constants::KEY_PITCH_SET),
+                0.0,
+                degrees_to_radians,
+            )
+            .load(),
+        )
     }
 
     /// Java `double loadChance()`.

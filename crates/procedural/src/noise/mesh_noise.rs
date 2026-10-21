@@ -1,7 +1,6 @@
 // Ported from: `.hytale-source/hytale-shared-source/HytaleServer/ProceduralLibrary/src/main/java/com/hypixel/hytale/procedurallib/logic/MeshNoise.java`
 //! Java `MeshNoise`.
 //!
-//! ⚠ NOTE(subagent): `condition.IIntCondition` is `support::IIntCondition`;
 //! `org.joml.Vector2i` is `support::Vector2i`; the 3d `get` throws
 //! `UnsupportedOperationException` in Java — ported as a panic.
 
@@ -9,9 +8,10 @@ use std::rc::Rc;
 
 use crate::noise::cell::grid_cell_distance_function::GridCellDistanceFunction;
 use crate::noise::cellular_noise::CELL_2D;
+use crate::noise::condition::IIntCondition;
 use crate::noise::function::{NoiseFunction2d, NoiseFunction3d};
 use crate::noise::general_noise::fast_floor;
-use crate::noise::support::{IIntCondition, Vector2i};
+use crate::noise::support::Vector2i;
 
 /// Java statics `MeshNoise.ADJACENT_CELLS`.
 pub const ADJACENT_CELLS: [Vector2i; 4] = [

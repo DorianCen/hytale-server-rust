@@ -466,10 +466,10 @@ impl UniquePrefabGenerator {
 mod tests {
     use super::*;
     use hytale_math::trig_math_util;
+    use procedural::noise::condition::{AlwaysTrueIntCondition, IIntCondition};
     use procedural::noise::condition::{ConstantBlockFluidCondition, DefaultCoordinateCondition};
     use procedural::noise::random::empty_randomizer;
     use procedural::noise::result_buffer::{ResultBuffer2d, ResultBuffer3d};
-    use procedural::noise::support::{AlwaysTrueIntCondition, IIntCondition};
 
     use crate::biome::biome_interpolation::BiomeInterpolation;
     use crate::biome::biome_pattern_generator::BiomePatternGenerator;

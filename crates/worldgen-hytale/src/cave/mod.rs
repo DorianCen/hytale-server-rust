@@ -85,9 +85,9 @@
 //!   buffers and the prefab paste are ported (Phase 5a): the cave loaders
 //!   resolve the prefab *names* through the prefab store and hand the
 //!   suppliers of the matching prefab files to the cave package.
-//! * [`crate::supplier`] — the float range (`IFloatRange`) and the
-//!   coordinate-hash supplier of the procedural library are not ported into
-//!   the `procedural` crate yet.
+//! * the float range (`IFloatRange`) and the coordinate-hash supplier live in
+//!   `procedural::noise::supplier` (their Java package's home) — the cave
+//!   package has no local supplier seam.
 //! * the 4e loaders close the last Phase-4 gaps (the JSON loaders, the
 //!   distortion noises, the interpolation functions, the shape factories);
 //!   the block-type support *data* of `BlockType.getSupport` is part of the

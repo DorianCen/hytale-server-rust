@@ -1,7 +1,7 @@
 // Ported from: `.hytale-source/hytale-shared-source/HytaleServer/ProceduralLibrary/src/main/java/com/hypixel/hytale/procedurallib/logic/cell/BorderDistanceFunction.java`
 //! Java `BorderDistanceFunction`.
 //!
-//! ⚠ NOTE(subagent): `condition.IDoubleCondition` is `support::IDoubleCondition`
+//! ⚠ NOTE(subagent): `condition.IDoubleCondition` is [`crate::noise::condition::IDoubleCondition`]
 //! (`procedurallib.condition` is ported separately); the Java
 //! `@Nullable IDoubleCondition` ctor parameter becomes
 //! `Option<Rc<dyn IDoubleCondition>>`. 3d / direct `evalPoint` methods
@@ -14,8 +14,8 @@ use crate::noise::cell::evaluator::density_point_evaluator::DensityPointEvaluato
 use crate::noise::cell::evaluator::jitter_point_evaluator::JitterPointEvaluator;
 use crate::noise::cell::evaluator::normal_point_evaluator::NormalPointEvaluator;
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
+use crate::noise::condition::{IDoubleCondition, IIntCondition};
 use crate::noise::result_buffer::{Bounds2d, ResultBuffer2d, ResultBuffer3d};
-use crate::noise::support::{IDoubleCondition, IIntCondition};
 
 /// Java `BorderDistanceFunction`.
 #[derive(Clone)]

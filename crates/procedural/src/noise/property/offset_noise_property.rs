@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `OffsetNoiseProperty`.
 pub struct OffsetNoiseProperty {

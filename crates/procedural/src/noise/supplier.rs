@@ -1,21 +1,31 @@
-// Ported from: `.hytale-source/.../procedurallib/supplier/{IDoubleRange, DoubleRange,
-// IDoubleCoordinateSupplier2d, IDoubleCoordinateSupplier3d, IDoubleCoordinateSupplier,
-// DoubleRangeNoiseSupplier}.java`
-//! Java `procedurallib.supplier` package — double-range value suppliers.
+// Ported from: `.hytale-source/.../procedurallib/supplier/*.java`
+//! Java `procedurallib.supplier` package — range value suppliers.
 //!
-//! ⚠ NOTE(subagent): the noise core currently binds to the reduced seams in
-//! [`crate::noise::support`]; this module is the faithful full port and the
-//! integration target for those seams. Only the members of the Java files that
-//! are used by the world generator are declared; the `DoubleSupplier`
-//! overloads collapse into the plain-`f64` methods (callers pass the produced
-//! value), and the float / coordinate-hash family is deferred until the JSON
-//! loaders need it.
+//! Only the members of the Java files that are used by the world generator
+//! are declared; the `DoubleSupplier` / `FloatSupplier` overloads stay
+//! available ([`IDoubleRange::get_value`] callers pass the produced value,
+//! the float range keeps its [`FloatSupplier`] overload).
+//!
+//! | Java class / interface                  | Rust item                            |
+//! |-----------------------------------------|--------------------------------------|
+//! | `IDoubleRange`                          | [`IDoubleRange`]                     |
+//! | `DoubleRange` (`Constant`/`Normal`/`Multiple`) | [`DoubleRange`]               |
+//! | `DoubleRangeNoiseSupplier`              | [`DoubleRangeNoiseSupplier`]         |
+//! | `IFloatRange`                           | [`IFloatRange`]                      |
+//! | `FloatRange` (`Constant` / `Normal`)    | [`FloatRange`]                       |
+//! | `FloatSupplier`                         | [`FloatSupplier`]                    |
+//! | `IDoubleCoordinateHashSupplier`         | [`IDoubleCoordinateHashSupplier`]    |
+//! | `ConstantDoubleCoordinateHashSupplier`  | [`ConstantDoubleCoordinateHashSupplier`] |
+//! | `DoubleRangeCoordinateHashSupplier`     | [`DoubleRangeCoordinateHashSupplier`]    |
+//!
+//! The float range keeps the Java precision (`f32` stays `f32`).
 
 use std::rc::Rc;
 
 use hytale_math::fast_random::FastRandom;
+use hytale_math::hash_util;
 
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 // ---------------------------------------------------------------------
 // supplier interfaces
@@ -68,6 +78,23 @@ pub trait IDoubleRange {
         z: f64,
         supplier: &dyn IDoubleCoordinateSupplier3d,
     ) -> f64;
+}
+
+/// Java `supplier.ISeedDoubleRange` — `double getValue(int seed, double value)`.
+pub trait ISeedDoubleRange {
+    /// Java `ISeedDoubleRange.getValue(int seed, double value)`.
+    fn get_value(&self, seed: i32, value: f64) -> f64;
+}
+
+/// Java `ISeedDoubleRange.DIRECT` — identity range.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DirectSeedDoubleRange;
+
+impl ISeedDoubleRange for DirectSeedDoubleRange {
+    #[inline]
+    fn get_value(&self, _seed: i32, value: f64) -> f64 {
+        value
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -292,6 +319,208 @@ impl IDoubleCoordinateSupplier for DoubleRangeNoiseSupplier {
     }
 }
 
+// ---------------------------------------------------------------------
+// float range
+// ---------------------------------------------------------------------
+
+/// Java `supplier.FloatSupplier`.
+pub trait FloatSupplier {
+    /// Java `float getAsFloat()`.
+    fn get_as_float(&self) -> f32;
+}
+
+/// Java `supplier.IFloatRange`.
+///
+/// Java's `getValue(FloatSupplier)` overload is kept as
+/// [`IFloatRange::get_value_supplier`]; the coordinate overloads take the
+/// matching `IDoubleCoordinateSupplier`.
+pub trait IFloatRange {
+    /// Java `float getValue(float v)`.
+    fn get_value(&self, v: f32) -> f32;
+
+    /// Java `float getValue(FloatSupplier supplier)`.
+    fn get_value_supplier(&self, supplier: &dyn FloatSupplier) -> f32;
+
+    /// Java `float getValue(Random random)`.
+    fn get_value_random(&self, random: &mut FastRandom) -> f32;
+
+    /// Java `float getValue(int seed, double x, double y,
+    /// IDoubleCoordinateSupplier2d supplier)`.
+    fn get_value_2d(
+        &self,
+        seed: i32,
+        x: f64,
+        y: f64,
+        supplier: &dyn IDoubleCoordinateSupplier2d,
+    ) -> f32;
+
+    /// Java `float getValue(int seed, double x, double y, double z,
+    /// IDoubleCoordinateSupplier3d supplier)`.
+    fn get_value_3d(
+        &self,
+        seed: i32,
+        x: f64,
+        y: f64,
+        z: f64,
+        supplier: &dyn IDoubleCoordinateSupplier3d,
+    ) -> f32;
+}
+
+/// Java `supplier.FloatRange` — the `Constant` / `Normal` family unified into
+/// one enum (Java uses nested classes with no other members).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FloatRange {
+    /// Java `FloatRange.Constant`.
+    Constant {
+        /// Java `protected final float result`.
+        result: f32,
+    },
+    /// Java `FloatRange.Normal`.
+    Normal {
+        /// Java `protected final float min`.
+        min: f32,
+        /// Java `protected final float range` (`max - min`).
+        range: f32,
+    },
+}
+
+impl FloatRange {
+    /// Java `FloatRange.ZERO`.
+    pub const ZERO: Self = Self::Constant { result: 0.0 };
+    /// Java `FloatRange.ONE`.
+    pub const ONE: Self = Self::Constant { result: 1.0 };
+
+    /// Java `FloatRange.Constant(float result)`.
+    pub const fn constant(result: f32) -> Self {
+        Self::Constant { result }
+    }
+
+    /// Java `FloatRange.Normal(float min, float max)`.
+    pub const fn normal(min: f32, max: f32) -> Self {
+        Self::Normal {
+            min,
+            range: max - min,
+        }
+    }
+}
+
+impl IFloatRange for FloatRange {
+    fn get_value(&self, v: f32) -> f32 {
+        match self {
+            FloatRange::Constant { result } => *result,
+            FloatRange::Normal { min, range } => min + range * v,
+        }
+    }
+
+    fn get_value_supplier(&self, supplier: &dyn FloatSupplier) -> f32 {
+        match self {
+            FloatRange::Constant { result } => *result,
+            FloatRange::Normal { min, range } => min + range * supplier.get_as_float(),
+        }
+    }
+
+    fn get_value_random(&self, random: &mut FastRandom) -> f32 {
+        match self {
+            FloatRange::Constant { result } => *result,
+            // Java: `getValue(random.nextFloat())`.
+            FloatRange::Normal { min, range } => min + range * random.next_float(),
+        }
+    }
+
+    fn get_value_2d(
+        &self,
+        seed: i32,
+        x: f64,
+        y: f64,
+        supplier: &dyn IDoubleCoordinateSupplier2d,
+    ) -> f32 {
+        match self {
+            FloatRange::Constant { result } => *result,
+            // Java: `min + range * (float) supplier.get(seed, x, y)`.
+            FloatRange::Normal { min, range } => min + range * (supplier.get(seed, x, y) as f32),
+        }
+    }
+
+    fn get_value_3d(
+        &self,
+        seed: i32,
+        x: f64,
+        y: f64,
+        z: f64,
+        supplier: &dyn IDoubleCoordinateSupplier3d,
+    ) -> f32 {
+        match self {
+            FloatRange::Constant { result } => *result,
+            // Java: `min + range * (float) supplier.get(seed, x, y, z)`.
+            FloatRange::Normal { min, range } => min + range * (supplier.get(seed, x, y, z) as f32),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// coordinate-hash suppliers
+// ---------------------------------------------------------------------
+
+/// Java `supplier.IDoubleCoordinateHashSupplier`.
+///
+/// `double get(int seed, int x, int y, long hash)`.
+pub trait IDoubleCoordinateHashSupplier {
+    /// Java `double get(int seed, int x, int y, long hash)`.
+    fn get(&self, seed: i32, x: i32, y: i32, hash: i64) -> f64;
+}
+
+/// Java `supplier.ConstantDoubleCoordinateHashSupplier`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConstantDoubleCoordinateHashSupplier {
+    /// Java `protected final double result`.
+    pub result: f64,
+}
+
+impl ConstantDoubleCoordinateHashSupplier {
+    /// Java `ConstantDoubleCoordinateHashSupplier.ZERO`.
+    pub const ZERO: Self = Self { result: 0.0 };
+    /// Java `ConstantDoubleCoordinateHashSupplier.ONE`.
+    pub const ONE: Self = Self { result: 1.0 };
+
+    /// Java `ConstantDoubleCoordinateHashSupplier(double result)`.
+    pub const fn new(result: f64) -> Self {
+        Self { result }
+    }
+
+    /// Java `double getResult()`.
+    pub fn get_result(&self) -> f64 {
+        self.result
+    }
+}
+
+impl IDoubleCoordinateHashSupplier for ConstantDoubleCoordinateHashSupplier {
+    #[inline]
+    fn get(&self, _seed: i32, _x: i32, _y: i32, _hash: i64) -> f64 {
+        self.result
+    }
+}
+
+/// Java `supplier.DoubleRangeCoordinateHashSupplier`.
+pub struct DoubleRangeCoordinateHashSupplier {
+    /// Java `protected final IDoubleRange range`.
+    pub range: Rc<dyn IDoubleRange>,
+}
+
+impl DoubleRangeCoordinateHashSupplier {
+    /// Java `DoubleRangeCoordinateHashSupplier(IDoubleRange range)`.
+    pub fn new(range: Rc<dyn IDoubleRange>) -> Self {
+        Self { range }
+    }
+}
+
+impl IDoubleCoordinateHashSupplier for DoubleRangeCoordinateHashSupplier {
+    fn get(&self, seed: i32, x: i32, y: i32, hash: i64) -> f64 {
+        // Java: `range.getValue(HashUtil.random(seed, x, y, hash))`.
+        self.range
+            .get_value(hash_util::random4(seed as i64, x as i64, y as i64, hash))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +591,79 @@ mod tests {
         // ConstantNoise(0.5) remapped by SingleNoiseProperty: 0.5*0.5+0.5 = 0.75
         // → 2 + 2*0.75 = 3.5.
         assert_eq!(range.get_value_2d(1, 3.0, 7.0, &supplier), 3.5);
+    }
+
+    // --- float range (ported from `worldgen-hytale::supplier`) ---
+
+    /// A `NoiseProperty` that always evaluates to a constant.
+    struct ConstantProperty(f64);
+
+    impl NoiseProperty for ConstantProperty {
+        fn get(&self, _seed: i32, _x: f64, _y: f64) -> f64 {
+            self.0
+        }
+        fn get_3d(&self, _seed: i32, _x: f64, _y: f64, _z: f64) -> f64 {
+            self.0
+        }
+    }
+
+    #[test]
+    fn the_constant_float_range_ignores_its_input() {
+        let range = FloatRange::constant(2.5);
+        assert_eq!(range.get_value(0.0), 2.5);
+        assert_eq!(range.get_value(-7.5), 2.5);
+        assert_eq!(range.get_value_random(&mut FastRandom::new(1)), 2.5);
+    }
+
+    #[test]
+    fn the_normal_float_range_interpolates() {
+        let range = FloatRange::normal(10.0, 20.0);
+        assert_eq!(range.get_value(0.0), 10.0);
+        assert_eq!(range.get_value(0.5), 15.0);
+        assert_eq!(range.get_value(1.0), 20.0);
+    }
+
+    #[test]
+    fn the_normal_float_range_uses_the_float_draw_of_the_random() {
+        let range = FloatRange::normal(0.0, 1.0);
+        let mut random = FastRandom::new(42);
+        let drawn = random.next_float();
+        let mut reference = FastRandom::new(42);
+        assert_eq!(range.get_value_random(&mut reference), drawn);
+        // The random source advanced by exactly one draw.
+        let mut check = FastRandom::new(42);
+        let _ = check.next_float();
+        assert_eq!(reference.next_float(), check.next_float());
+    }
+
+    #[test]
+    fn the_float_coordinate_overloads_cast_the_double_to_float() {
+        let range = FloatRange::normal(0.0, 2.0);
+        let property = ConstantProperty(0.25);
+        let supplier = NoisePropertySupplier2d(&property);
+        assert_eq!(range.get_value_2d(0, 0.0, 0.0, &supplier), 0.5);
+    }
+
+    #[test]
+    fn the_constant_hash_supplier_ignores_its_input() {
+        let supplier = ConstantDoubleCoordinateHashSupplier::new(3.5);
+        assert_eq!(supplier.get(1, 2, 3, 4), 3.5);
+        assert_eq!(
+            ConstantDoubleCoordinateHashSupplier::ZERO.get(0, 0, 0, 0),
+            0.0
+        );
+        assert_eq!(
+            ConstantDoubleCoordinateHashSupplier::ONE.get(0, 0, 0, 0),
+            1.0
+        );
+    }
+
+    #[test]
+    fn the_double_range_hash_supplier_hashes_the_coordinates() {
+        // The `Normal` range maps the hashed value to `[0, 1)`.
+        let range = Rc::new(DoubleRange::normal(0.0, 1.0));
+        let supplier = DoubleRangeCoordinateHashSupplier::new(range);
+        let expected = hytale_math::hash_util::random4(1, 2, 3, 4);
+        assert_eq!(supplier.get(1, 2, 3, 4), expected);
     }
 }

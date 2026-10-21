@@ -3,7 +3,7 @@
 This document maps the original Java world generator (`.hytale-source/hytale-shared-source/HytaleServer/{Math,ProceduralLibrary,WorldGenerator,CoreServer}`) onto the Rust workspace in `crates/`.
 
 - **Goal:** bit-exact generation — same seed + same world assets + same registry dump ⇒ identical chunk bytes.
-- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI and criterion benches. The post-port backlog (real-server registry id check, golden-regeneration gate, remaining structural seams, server adapter) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md).
+- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches and the `worldgen-server` chunk-provider adapter. The remaining post-port backlog (real-server registry id check, visual regression, release benchmarks) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md).
 - **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
 
 Paths in the tables are relative to the repository root. A row maps one Java class, or a tightly coupled class family where the Rust port merges them; grouped rows list **every** Rust file they cover.
@@ -33,7 +33,8 @@ hytale-server-rust/
 │   │   │        cave,prefab,loader,util,weighted_map}/
 │   │   ├── benches/{cache,prefab_weights}.rs
 │   │   └── tests/                 # golden, loader, chunk and service tests
-│   └── worldgen-cli/              # headless harness (`crates/worldgen-cli/src/main.rs`)
+│   ├── worldgen-cli/              # headless harness (`crates/worldgen-cli/src/main.rs`)
+│   └── worldgen-server/           # CoreServer-facing chunk-provider adapter
 ├── testdata/
 │   ├── Default/                   # Default world JSON assets
 │   └── golden/                    # Java-produced golden dumps
@@ -50,6 +51,7 @@ Brace groups in the tree are shorthand for sibling files (for example the `src/`
 | `worldgen-model` | `hytale-math` | Chunk buffer, priority grid, golden registries, block keys |
 | `worldgen-hytale` | all three | World loading, zones/biomes/climate, caves, prefabs, populators, service |
 | `worldgen-cli` | `procedural`, `worldgen-hytale`, `worldgen-model` | `generate`, `dump-chunk`, `render-map`, `validate`, `bench` |
+| `worldgen-server` | `hytale-math`, `worldgen-hytale`, `worldgen-model` | Server chunk-provider adapter over `WorldGenService` (Java `IWorldGen.generate` terms) |
 
 Layering is strictly one-way: `worldgen-hytale` never leaks into `worldgen-model`, and `procedural` has no dependency on the world generator.
 
@@ -110,7 +112,7 @@ Java root: `ProceduralLibrary/src/main/java/com/hypixel/hytale/procedurallib/**`
 
 | Java class | Rust file | Responsibility |
 |---|---|---|
-| `property/NoiseProperty.java` | `crates/procedural/src/noise/support.rs` | Object-safe `NoiseProperty` trait and formula seam. |
+| `property/NoiseProperty.java` | `crates/procedural/src/noise/property/mod.rs` | Object-safe `NoiseProperty` trait. |
 | `property/NoisePropertyType.java` | `crates/procedural/src/noise/property/noise_property_type.rs` | Enum of property kinds used by the loaders. |
 | `property/SingleNoiseProperty.java` | `crates/procedural/src/noise/property/single_noise_property.rs` | Single-source property. |
 | `property/FractalNoiseProperty.java` | `crates/procedural/src/noise/property/fractal_noise_property.rs` | Fractal octave summation. |
@@ -122,10 +124,10 @@ Java root: `ProceduralLibrary/src/main/java/com/hypixel/hytale/procedurallib/**`
 | Java class | Rust file | Responsibility |
 |---|---|---|
 | `logic/point/IPointGenerator.java`, `PointGenerator.java`, `OffsetPointGenerator.java`, `ScaledPointGenerator.java`, `DistortedPointGenerator.java` | `crates/procedural/src/noise/point/mod.rs` | Jittered-grid nearest/transition/collect point generation (3×3 cell search). |
-| `condition/IIntCondition.java`, `IDoubleCondition.java`, `IDoubleThreshold.java`, `IHeightThresholdInterpreter.java` | `crates/procedural/src/noise/support.rs` | Shared condition/threshold traits (also used by the noise core). |
+| `condition/IIntCondition.java`, `IDoubleCondition.java`, `IDoubleThreshold.java`, `IHeightThresholdInterpreter.java` | `crates/procedural/src/noise/condition.rs` | Shared condition/threshold traits and their concrete classes. |
 | `condition/ConstantIntCondition.java`, `DefaultDoubleCondition.java`, `SingleDoubleCondition.java`, `DoubleThreshold.java`, `HeightCondition.java`, `HeightThresholdCoordinateCondition.java`, `NoiseMaskCondition.java`, `ConstantBlockFluidCondition.java`, `BasicHeightThresholdInterpreter.java`, `NoiseHeightThresholdInterpreter.java` | `crates/procedural/src/noise/condition.rs` | Concrete value/coordinate/threshold/block conditions and both height-threshold interpreters. |
 | `random/ICoordinateRandomizer.java`, `CoordinateRandomizer.java`, `RotatedCoordinateRandomizer.java`, `CoordinateRotator.java`, `CoordinateOriginRotator.java` | `crates/procedural/src/noise/random.rs` | Fuzzy domain-warp and coordinate rotation primitives. |
-| `supplier/IDoubleRange.java`, `DoubleRange.java`, `DoubleRangeNoiseSupplier.java`, constant/double-range coordinate hash suppliers | `crates/procedural/src/noise/supplier.rs` | Range suppliers used by cave and container configs. |
+| `supplier/*.java` (`IDoubleRange`, `DoubleRange`, `DoubleRangeNoiseSupplier`, `IFloatRange`, `FloatRange`, `FloatSupplier`, `ISeedDoubleRange`, constant/double-range coordinate hash suppliers) | `crates/procedural/src/noise/supplier.rs` | Range and coordinate suppliers used by cave and container configs. |
 
 #### JSON loaders (procedural)
 
@@ -304,7 +306,7 @@ Java root: `WorldGenerator/src/main/java/com/hypixel/hytale/server/worldgen/**`.
 | `loader/container/*.java` (fade, tint, environment, water, cover, layer, prefab, unique prefab) | `crates/worldgen-hytale/src/loader/container/fade_container_json_loader.rs`, `crates/worldgen-hytale/src/loader/container/tint_container_json_loader.rs`, `crates/worldgen-hytale/src/loader/container/environment_container_json_loader.rs`, `crates/worldgen-hytale/src/loader/container/water_container_json_loader.rs`, `crates/worldgen-hytale/src/loader/container/cover_container_json_loader.rs`, `crates/worldgen-hytale/src/loader/container/layer_container_json_loader.rs`, `crates/worldgen-hytale/src/loader/container/prefab_container_json_loader.rs`, `crates/worldgen-hytale/src/loader/container/unique_prefab_container_json_loader.rs` | Container loaders shared by biomes and zones. |
 | `loader/zone/*.java` (`ZoneJsonLoader`, `ZoneBiomesJsonLoader`, `ZoneCustomBiomesJsonLoader`, `ZoneColorMappingJsonLoader`, `ZonePatternProviderJsonLoader`, `ZoneRequirementJsonLoader`, `UniqueZoneEntryJsonLoader`) | `crates/worldgen-hytale/src/loader/zone/zone_json_loader.rs`, `crates/worldgen-hytale/src/loader/zone/zone_biomes_json_loader.rs`, `crates/worldgen-hytale/src/loader/zone/zone_custom_biomes_json_loader.rs`, `crates/worldgen-hytale/src/loader/zone/zone_color_mapping_json_loader.rs`, `crates/worldgen-hytale/src/loader/zone/zone_pattern_provider_json_loader.rs`, `crates/worldgen-hytale/src/loader/zone/zone_requirement_json_loader.rs`, `crates/worldgen-hytale/src/loader/zone/unique_zone_entry_json_loader.rs` | Zone graphs, color maps and unique-zone entries. |
 | `loader/prefab/BlockPlacementMaskJsonLoader.java`, `PrefabPatternGeneratorJsonLoader.java`, `WeightedPrefabMapJsonLoader.java`, `unique/UniquePrefabConfigurationJsonLoader.java` | `crates/worldgen-hytale/src/loader/prefab/block_placement_mask_json_loader.rs`, `crates/worldgen-hytale/src/loader/prefab/prefab_pattern_generator_json_loader.rs`, `crates/worldgen-hytale/src/loader/prefab/weighted_prefab_map_json_loader.rs`, `crates/worldgen-hytale/src/loader/prefab/unique/unique_prefab_configuration_json_loader.rs` | Prefab placement masks, weights, patterns and unique config. |
-| `loader/util/NoiseBlockArrayJsonLoader.java`, `ResolvedBlockArrayJsonLoader.java`, `ResolvedVariantsBlockArrayLoader.java`, `Vector2dJsonLoader.java`, `Vector3dJsonLoader.java`, `ColorUtil.java`, `PathUtil` helpers | `crates/worldgen-hytale/src/loader/util/noise_block_array_json_loader.rs`, `crates/worldgen-hytale/src/loader/util/resolved_block_array_json_loader.rs`, `crates/worldgen-hytale/src/loader/util/resolved_variants_block_array_loader.rs`, `crates/worldgen-hytale/src/loader/util/vector2d_json_loader.rs`, `crates/worldgen-hytale/src/loader/util/vector3d_json_loader.rs`, `crates/worldgen-hytale/src/loader/color_util.rs`, `crates/worldgen-hytale/src/loader/util/path_util.rs`, `crates/worldgen-hytale/src/loader/util/float_range.rs` | Shared block-array, vector, color, path and float-range helpers. |
+| `loader/util/NoiseBlockArrayJsonLoader.java`, `ResolvedBlockArrayJsonLoader.java`, `ResolvedVariantsBlockArrayLoader.java`, `Vector2dJsonLoader.java`, `Vector3dJsonLoader.java`, `ColorUtil.java`, `PathUtil` helpers | `crates/worldgen-hytale/src/loader/util/noise_block_array_json_loader.rs`, `crates/worldgen-hytale/src/loader/util/resolved_block_array_json_loader.rs`, `crates/worldgen-hytale/src/loader/util/resolved_variants_block_array_loader.rs`, `crates/worldgen-hytale/src/loader/util/vector2d_json_loader.rs`, `crates/worldgen-hytale/src/loader/util/vector3d_json_loader.rs`, `crates/worldgen-hytale/src/loader/color_util.rs`, `crates/worldgen-hytale/src/loader/util/path_util.rs` | Shared block-array, vector, color and path helpers. |
 
 ### 2.4 CoreServer boundary (`crates/worldgen-model`)
 
@@ -321,13 +323,14 @@ Java root: `CoreServer/src/main/java/com/hypixel/hytale/server/core/**` plus the
 | `asset/type/environment/Environment.java` | `crates/worldgen-model/src/registry.rs` | Environment registry: name→id. |
 | CoreServer `prefab/selection/mask/BlockPattern.java` (`BlockEntry`), `BlockType/Rotation.java`, `RotationTuple.java`, `util/FillerBlockUtil.java` | `crates/worldgen-model/src/block_key.rs` | `Name\|Yaw=…\|Pitch=…\|Roll=…\|Filler=x,y,z` decoding and rotation/filler types. |
 
-### 2.5 CLI and benches (Rust-only, no 1:1 Java class)
+### 2.5 CLI, server adapter and benches (Rust-only, no 1:1 Java class)
 
 | Rust file | Responsibility |
 |---|---|
 | `crates/worldgen-cli/src/main.rs` | clap CLI: `generate`, `dump-chunk`, `render-map`, `validate`, `bench`; world resolution via the provider semantics. |
 | `crates/worldgen-hytale/benches/cache.rs` | Criterion port of the Java `CacheBenchmark` (sized/TTI cache churn). |
 | `crates/worldgen-hytale/benches/prefab_weights.rs` | Criterion port of the Java `PrefabWeightsBenchmark`. |
+| `crates/worldgen-server/src/lib.rs` | Server-facing `ChunkProvider` trait + `WorldGenChunkProvider`: maps `IWorldGen.generate(seed, index, x, z, stillNeeded, priority)` onto `WorldGenRequest` and shutdown onto the service. |
 
 ---
 
@@ -408,6 +411,10 @@ Stage durations are recorded in `StageTimings` (per execution) and aggregated by
 ### 3.5 Concurrency model
 
 ```
+server ──ChunkRequest{seed,index,x,z,priority,stillNeeded,cancel}──► WorldGenChunkProvider
+                                                          │  outside generatable area? → OutsideGeneratableArea
+                                                          │  stillNeeded? → NotNeeded (no submit)
+                                                          ▼
 caller ──WorldGenRequest{seed,x,z,priority,cancel}──► WorldGenService
                                                         │  BinaryHeap<Job>
                                                         │  (priority desc, FIFO within)
@@ -420,8 +427,8 @@ caller ──WorldGenRequest{seed,x,z,priority,cancel}──► WorldGenService
 ```
 
 - Default worker count = `max(2, ceil(cores × 0.75))` (Java `ChunkGenerator.POOL_SIZE`).
-- Each worker loads its own generator + registry once at startup; a load failure aborts the pool.
-- `shutdown()` drains queued jobs, joins workers, and is idempotent; `Drop` calls it.
+- Each worker loads its own generator once at startup; the generator carries the single registry snapshot (`ChunkGenerator::get_registries`) that every execution reuses. A load failure aborts the pool.
+- `shutdown()` drains queued jobs, joins workers, and is idempotent; `Drop` calls it. The server adapter (`worldgen-server`) exposes the same shutdown through `ChunkProvider`.
 - The direct path (`generate_chunk`) shares the exact same execution code; tests use it, while the CLI goes through the service.
 
 ---
@@ -454,6 +461,7 @@ Verification matrix (must stay green):
 | `crates/worldgen-hytale/tests/loader_zones.rs`, `crates/worldgen-hytale/tests/loader_caves.rs`, `crates/worldgen-hytale/tests/loader_context.rs`, `crates/worldgen-hytale/tests/prefab_files.rs`, `crates/worldgen-hytale/tests/unique_prefabs.rs` | world assets | Focused loader/store checks |
 | `crates/worldgen-hytale/tests/chunks_golden.rs` | `chunks.json` | **21 chunks / 21,504 columns bit-exact** (tint, zone, biome, environments, every block/fluid/priority voxel incl. caves/covers/prefabs) |
 | `crates/worldgen-hytale/tests/world_gen_service.rs` | — | Worker-pool output == direct output; cancellation; shutdown |
+| `crates/worldgen-server/tests/provider.rs` | `chunks.json` parity via the direct path | Adapter output == direct output; `stillNeeded`; cancellation token; drain-on-shutdown; object safety |
 | `crates/worldgen-hytale/tests/generation_smoke.rs` | — | End-to-end smoke generation |
 
 Run everything with:
@@ -484,7 +492,7 @@ These are intentional and are repeated in module-level `//!` notes where relevan
 | Timings | `WorldGenTimingsCollector` averages after `WARMUP=100`, reports `-Infinity` before | `WorldGenStats` reports `0.0` before warm-up, then averages measured chunks | Reporting difference only; stage boundaries identical. |
 | Cache utility | `TimeoutCache`, `SizedTimeoutCache`, `ConcurrentSizedTimeoutCache` with destroyers/computeKey | `moka` sized + time-to-idle wrappers with explicit `cleanup()` | Semantic contract preserved; explicit cleanup instead of background threads. |
 | Provider path safety | CoreServer trusted-root registry (`PathUtil.isInTrustedRoot`) | Lexical `..` guard + `starts_with` containment | No trusted-root registry exists in the port; same rejection of traversal. |
-| Procedural seams | Full `procedurallib.condition`/`supplier`/`property` object graph | Reduced traits in `procedural::noise::support`; full supplier port in `crates/procedural/src/noise/supplier.rs`; float-range/supplier seam in `worldgen-hytale::supplier` | Avoids a dependency cycle; behavior transcribed exactly, integration of the seams remains open. |
+| Procedural seams | Full `procedurallib.condition`/`supplier`/`property` object graph | Traits live in their package modules (`noise::condition`, `noise::supplier`, `noise::property`); `noise::support` keeps only the `Vector2i` stand-in, `PointConsumer` and the fastutil helper | The former reduced seams and the `worldgen-hytale::supplier` duplicate are retired; behavior transcribed exactly. |
 | Cave shapes | `TetrahedronCaveNodeShape` exists in Java | Not ported (not reachable from `CaveNodeShapeEnum`) | Dead code in the Java enum. |
 | Loader mask registry | Global `BlockPlacementMaskRegistry` pools value-equal masks | Fresh value-equal masks; no global pool | Pooling is unobservable; less shared mutable state. |
 | Prefab store | Searches every asset pack; caches expire | Single configured root; unbounded in-memory maps | World-generator scope; finite prefab set. |
@@ -497,7 +505,8 @@ These are intentional and are repeated in module-level `//!` notes where relevan
 All golden files are produced by the Java dumper; never edit them by hand.
 
 ```sh
-tools/java-dumper/run.sh
+tools/java-dumper/run.sh          # regenerate testdata/golden/
+tools/java-dumper/check.sh        # run twice + diff the committed copies
 ```
 
 What the script does:
@@ -528,7 +537,7 @@ Determinism notes:
 
 - The asset pipeline decodes in parallel and stores results in a `ConcurrentHashMap`; forcing one fork-join worker makes iteration/load order — and therefore block/fluid/environment ids — reproducible.
 - All floats are written as Java hex-float strings (`Double.toHexString` / `Float.toHexString`); the Rust comparisons use exact bit parsing, not decimal.
-- Re-running the script twice must produce byte-identical files. If ids or chunk dumps change, the parity tests will fail loudly.
+- Re-running the script twice must produce byte-identical files; `tools/java-dumper/check.sh` enforces this (two isolated runs plus a diff against `testdata/golden/`). If ids or chunk dumps change, the parity tests will fail loudly.
 
 After regenerating, run `cargo test --workspace` (and the clippy command above). The chunk test is the final gate: it compares all 21 golden chunks column-by-column, including every voxel's block, rotation, filler, fluid, environment and priority.
 
@@ -547,4 +556,5 @@ After regenerating, run `cargo test --workspace` (and the clippy command above).
 | Understand write arbitration | `crates/worldgen-model/src/block_priority.rs` |
 | See what blocks/fluids exist | `crates/worldgen-model/src/registry.rs`, `testdata/golden/registries.json` |
 | Run a headless generation | `crates/worldgen-cli/src/main.rs` |
+| Integrate generation into a server | `crates/worldgen-server/src/lib.rs` |
 | Add a golden check | `testdata/golden/README.md`, then the matching suite under `crates/worldgen-hytale/tests/` |

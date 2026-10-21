@@ -21,7 +21,7 @@ use crate::json::JsonLoaderBase;
 use crate::noise::cell::cell_distance_function::CellDistanceFunction;
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
 use crate::noise::cell_noise::{CellMode, CellNoise};
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// `Rc<dyn NoiseFunction>` — the Java `NoiseFunction` loader result type
 /// (re-exported from [`crate::json::noise_function_json_loader`]).

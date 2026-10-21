@@ -517,7 +517,7 @@ mod tests {
             None,
             crate::util::condition::BlockMaskCondition::new(),
             None,
-            Rc::new(procedural::noise::support::AlwaysTrueIntCondition),
+            Rc::new(procedural::noise::condition::AlwaysTrueIntCondition),
             Rc::new(procedural::noise::condition::DefaultCoordinateCondition::True),
             Rc::new(procedural::noise::condition::ConstantBlockFluidCondition::True),
             crate::loader::util::Vector2d::new(0.0, 0.0),

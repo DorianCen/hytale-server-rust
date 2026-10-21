@@ -2,18 +2,19 @@
 //! Java `DensityPointEvaluator`.
 //!
 //! ⚠ NOTE(subagent): `condition.IIntCondition` / `condition.IDoubleCondition`
-//! live in [`crate::noise::support`] until the `condition/` package port
+//! live in [`crate::noise::condition`]
 //! lands. The Java ctor overload taking a `@Nullable IDoubleCondition` becomes
 //! [`DensityPointEvaluator::with_double_condition`]; `null` maps to `None`
-//! and Java's `seed -> true` lambda maps to `support::AlwaysTrueIntCondition`.
+//! and Java's `seed -> true` lambda maps to
+//! [`crate::noise::condition::AlwaysTrueIntCondition`].
 
 use std::rc::Rc;
 
 use hytale_math::hash_util;
 
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
+use crate::noise::condition::{AlwaysTrueIntCondition, IDoubleCondition, IIntCondition};
 use crate::noise::result_buffer::{ResultBuffer2d, ResultBuffer3d};
-use crate::noise::support::{AlwaysTrueIntCondition, IDoubleCondition, IIntCondition};
 
 /// Java `DensityPointEvaluator` — `protected final PointEvaluator pointEvaluator`.
 #[derive(Clone)]

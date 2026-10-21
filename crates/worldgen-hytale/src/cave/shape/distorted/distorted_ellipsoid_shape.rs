@@ -513,7 +513,7 @@ mod tests {
 
     struct FixedNoise(f64);
 
-    impl procedural::noise::support::NoiseProperty for FixedNoise {
+    impl procedural::noise::property::NoiseProperty for FixedNoise {
         fn get(&self, _seed: i32, _x: f64, _y: f64) -> f64 {
             self.0
         }

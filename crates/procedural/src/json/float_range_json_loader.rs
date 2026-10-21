@@ -1,22 +1,18 @@
 // Ported from: `.hytale-source/.../procedurallib/json/FloatRangeJsonLoader.java`
 //! Java `FloatRangeJsonLoader`.
 //!
-//! ⚠ SEAM: the result type `procedurallib.supplier.FloatRange` /
-//! `IFloatRange` has **no Rust port yet** (the `hytale_math::range::FloatRange`
-//! is a different Java class — `com.hypixel.hytale.math.range.FloatRange`).
-//! `load()` therefore panics with a documented seam message; the loader
-//! surface (constructor defaults, the `.DoubleRange` seed-suffix quirk, the
-//! error strings and the `Min`/`Max` keyword forms) is otherwise transcribed
-//! 1:1, and the numeric parsing is exercised through [`Self::load_constant`]
-//! / [`Self::load_min_max`] so a future `supplier::FloatRange` port can be
-//! wired in without re-deriving the logic.
+//! The Java return type `IFloatRange` is an object graph shared through the
+//! world configuration, so the Rust `load()` returns an `Rc<dyn IFloatRange>`
+//! (the same ownership the cave loaders use).
 
 use std::path::Path;
+use std::rc::Rc;
 
 use serde_json::Value;
 
 use crate::json::seed_string::SeedString;
 use crate::json::JsonLoaderBase;
+use crate::noise::supplier::{FloatRange, IFloatRange};
 
 /// Java `FloatRangeJsonLoader.FloatToFloatFunction`.
 pub type FloatToFloatFunction = fn(f32) -> f32;
@@ -43,17 +39,6 @@ pub struct FloatRangeJsonLoader {
     pub default2: f32,
     /// Java `@Nonnull protected final FloatToFloatFunction function`.
     pub function: FloatToFloatFunction,
-}
-
-/// The parsed range forms of Java `FloatRange.Constant` / `.Normal` — the
-/// `supplier.FloatRange` port does not exist yet, so the loader exposes its
-/// resolution as these plain values (see the module-level SEAM note).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ParsedFloatRange {
-    /// Java `FloatRange.Constant(float result)`.
-    Constant(f32),
-    /// Java `FloatRange.Normal(float min, float max)`.
-    Normal(f32, f32),
 }
 
 impl FloatRangeJsonLoader {
@@ -124,28 +109,16 @@ impl FloatRangeJsonLoader {
     }
 
     /// Java `IFloatRange load()`.
-    ///
-    /// ⚠ SEAM: `procedurallib.supplier.FloatRange` / `IFloatRange` are not
-    /// ported yet — this panics with a documented message instead of
-    /// returning an invented type.
-    pub fn load(&self) -> ! {
-        panic!(
-            "FloatRangeJsonLoader: `procedurallib.supplier.FloatRange` / `IFloatRange` are not ported yet (documented seam); use load_constant/load_min_max for the parsed forms"
-        );
-    }
-
-    /// The `load()` resolution logic, up to the (not yet ported) supplier
-    /// construction. Deterministic and seam-free.
-    pub fn load_parsed(&self) -> ParsedFloatRange {
+    pub fn load(&self) -> Rc<dyn IFloatRange> {
         // Java: `json == null || json.isJsonNull()`.
         if matches!(&self.base.json, None | Some(Value::Null)) {
             if self.default1 == self.default2 {
-                return ParsedFloatRange::Constant((self.function)(self.default1));
+                return Rc::new(FloatRange::constant((self.function)(self.default1)));
             } else {
-                return ParsedFloatRange::Normal(
+                return Rc::new(FloatRange::normal(
                     (self.function)(self.default1),
                     (self.function)(self.default2),
-                );
+                ));
             }
         }
 
@@ -164,12 +137,14 @@ impl FloatRangeJsonLoader {
                 );
             }
             if array.len() == 1 {
-                ParsedFloatRange::Constant((self.function)(Self::get_as_float(&array[0])))
+                Rc::new(FloatRange::constant((self.function)(Self::get_as_float(
+                    &array[0],
+                ))))
             } else {
-                ParsedFloatRange::Normal(
+                Rc::new(FloatRange::normal(
                     (self.function)(Self::get_as_float(&array[0])),
                     (self.function)(Self::get_as_float(&array[1])),
-                )
+                ))
             }
         } else if json.is_object() {
             if !self.base.has(constants::KEY_MIN) {
@@ -180,31 +155,14 @@ impl FloatRangeJsonLoader {
             }
             let min = Self::get_as_float(&self.base.get(constants::KEY_MIN).unwrap());
             let max = Self::get_as_float(&self.base.get(constants::KEY_MAX).unwrap());
-            ParsedFloatRange::Normal((self.function)(min), (self.function)(max))
+            Rc::new(FloatRange::normal(
+                (self.function)(min),
+                (self.function)(max),
+            ))
         } else {
-            ParsedFloatRange::Constant((self.function)(Self::get_as_float(json)))
-        }
-    }
-
-    /// The `Constant` form of `load()` — the seam-free half of the Java
-    /// return value.
-    pub fn load_constant(&self) -> f32 {
-        match self.load_parsed() {
-            ParsedFloatRange::Constant(result) => result,
-            ParsedFloatRange::Normal(min, max) => {
-                panic!("FloatRange is not a Constant: Normal({min}, {max})")
-            }
-        }
-    }
-
-    /// The `Normal` form of `load()` — the seam-free half of the Java return
-    /// value.
-    pub fn load_min_max(&self) -> (f32, f32) {
-        match self.load_parsed() {
-            ParsedFloatRange::Normal(min, max) => (min, max),
-            ParsedFloatRange::Constant(result) => {
-                panic!("FloatRange is not a Normal: Constant({result})")
-            }
+            Rc::new(FloatRange::constant((self.function)(Self::get_as_float(
+                json,
+            ))))
         }
     }
 
@@ -228,36 +186,34 @@ mod tests {
 
     #[test]
     fn array_forms_resolve() {
-        assert_eq!(
-            loader(serde_json::json!([2.5])).load_parsed(),
-            ParsedFloatRange::Constant(2.5)
-        );
-        assert_eq!(
-            loader(serde_json::json!([2.5, 4.5])).load_parsed(),
-            ParsedFloatRange::Normal(2.5, 4.5)
-        );
+        let range = loader(serde_json::json!([2.5])).load();
+        assert_eq!(range.get_value(123.0), 2.5);
+
+        let range = loader(serde_json::json!([2.5, 4.5])).load();
+        assert_eq!(range.get_value(0.0), 2.5);
+        assert_eq!(range.get_value(1.0), 4.5);
+
         // f32 precision: the value is parsed through (float) getAsDouble().
-        let (min, max) = loader(serde_json::json!([0.1, 0.3])).load_min_max();
-        assert_eq!(min, 0.1f32);
-        assert_eq!(max, 0.3f32);
+        let range = loader(serde_json::json!([0.1, 0.3])).load();
+        assert_eq!(range.get_value(0.0), 0.1f32);
+        assert_eq!(range.get_value(1.0), 0.3f32);
     }
 
     #[test]
     fn object_and_constant_forms_resolve() {
-        let (min, max) = loader(serde_json::json!({ "Min": 1.5, "Max": 3.5 })).load_min_max();
-        assert_eq!((min, max), (1.5, 3.5));
+        let range = loader(serde_json::json!({ "Min": 1.5, "Max": 3.5 })).load();
+        assert_eq!(range.get_value(0.0), 1.5);
+        assert_eq!(range.get_value(1.0), 3.5);
 
-        assert_eq!(loader(serde_json::json!(2.25)).load_constant(), 2.25);
+        let range = loader(serde_json::json!(2.25)).load();
+        assert_eq!(range.get_value(-1.0), 2.25);
     }
 
     #[test]
     fn null_json_uses_the_defaults() {
         let equal_defaults =
             FloatRangeJsonLoader::new(SeedString::new("test"), std::path::Path::new("."), None);
-        assert_eq!(
-            equal_defaults.load_parsed(),
-            ParsedFloatRange::Constant(0.0)
-        );
+        assert_eq!(equal_defaults.load().get_value(0.5), 0.0);
 
         let split_defaults = FloatRangeJsonLoader::with_default1_and_default2(
             SeedString::new("test"),
@@ -266,10 +222,9 @@ mod tests {
             1.0,
             2.0,
         );
-        assert_eq!(
-            split_defaults.load_parsed(),
-            ParsedFloatRange::Normal(1.0, 2.0)
-        );
+        let range = split_defaults.load();
+        assert_eq!(range.get_value(0.0), 1.0);
+        assert_eq!(range.get_value(1.0), 2.0);
     }
 
     #[test]
@@ -280,30 +235,24 @@ mod tests {
             Some(serde_json::json!([3.0])),
             |d| d * 2.0,
         );
-        assert_eq!(l.load_constant(), 6.0);
+        assert_eq!(l.load().get_value(0.0), 6.0);
     }
 
     #[test]
     #[should_panic(expected = "Range array contains 3 values. Only 1 or 2 entries are allowed.")]
     fn bad_array_size_panics_verbatim() {
-        loader(serde_json::json!([1.0, 2.0, 3.0])).load_parsed();
+        loader(serde_json::json!([1.0, 2.0, 3.0])).load();
     }
 
     #[test]
     #[should_panic(expected = "Minimum value of range is not defined. Keyword: Min")]
     fn missing_min_panics_verbatim() {
-        loader(serde_json::json!({ "Max": 1.0 })).load_parsed();
+        loader(serde_json::json!({ "Max": 1.0 })).load();
     }
 
     #[test]
     #[should_panic(expected = "Maximum value of range is not defined. Keyword: Max")]
     fn missing_max_panics_verbatim() {
-        loader(serde_json::json!({ "Min": 1.0 })).load_parsed();
-    }
-
-    #[test]
-    #[should_panic(expected = "not ported yet")]
-    fn load_is_a_documented_seam() {
-        loader(serde_json::json!([1.0])).load();
+        loader(serde_json::json!({ "Min": 1.0 })).load();
     }
 }

@@ -206,8 +206,8 @@ pub(crate) fn cave_type_with_height_factor(name: &str, factor: f32) -> Rc<CaveTy
     Rc::new(CaveType::new(
         name.to_string(),
         cave_node_type(0),
-        Rc::new(crate::supplier::FloatRange::constant(0.0)),
-        Rc::new(crate::supplier::FloatRange::constant(0.0)),
+        Rc::new(procedural::noise::supplier::FloatRange::constant(0.0)),
+        Rc::new(procedural::noise::supplier::FloatRange::constant(0.0)),
         Rc::new(procedural::noise::supplier::DoubleRange::constant(1.0)),
         Rc::new(
             crate::chunk::chunk_generator::test_stubs::StubInterpreter::new(factor, 0.0, 0, 63),

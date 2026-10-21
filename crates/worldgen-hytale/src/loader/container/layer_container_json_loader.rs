@@ -19,10 +19,10 @@ use procedural::json::noise_mask_condition_json_loader::NoiseMaskConditionJsonLo
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
 use procedural::noise::condition::ICoordinateCondition;
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::supplier::{
     DoubleRange, DoubleRangeNoiseSupplier, IDoubleCoordinateSupplier, IDoubleRange,
 };
-use procedural::noise::support::NoiseProperty;
 
 /// Java `WorldGenConstants.ENVIRONMENT_NOT_SET`.
 pub const ENVIRONMENT_NOT_SET: i32 = i32::MIN;

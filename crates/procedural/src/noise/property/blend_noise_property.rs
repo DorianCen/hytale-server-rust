@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use hytale_math::math_util;
 
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `BlendNoiseProperty`.
 pub struct BlendNoiseProperty {

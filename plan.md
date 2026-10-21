@@ -34,7 +34,8 @@ hytale-server-rust/
 │   ├── procedural/         # port of ProceduralLibrary (noise, points, conditions, NoiseProperty)
 │   ├── worldgen-model/     # chunk data model, block priority grid, registries (block/fluid/env)
 │   ├── worldgen-hytale/    # THE port: zones, biomes, climate, caves, prefabs, populators, loaders
-│   └── worldgen-cli/       # headless harness: generate chunks → PNG/JSON dumps, benchmarks
+│   ├── worldgen-cli/       # headless harness: generate chunks → PNG/JSON dumps, benchmarks
+│   └── worldgen-server/    # CoreServer-facing chunk-provider adapter
 └── testdata/               # extracted Java assets + golden reference dumps
 ```
 
@@ -87,7 +88,8 @@ hytale-server-rust/
 - [x] Verification: prefab placement coordinate lists + structure maps vs Java — the Java `ChunkDumper` landed (`testdata/golden/chunks.json`, deterministic, incl. the seed-0 unique-prefab chunks (4,-5)/(9,4)) and `tests/chunks_golden.rs` is bit-exact on every `PREFAB`/`PREFAB_CAVE`/`CAVE_PREFAB` voxel
 
 ### Phase 6 — Integration & polish
-- [x] Final `trait WorldGen` (blocking `generate(seed, chunk coords, priority, cancel)`), dedicated worker pool (`WorldGenService`, priority queue, per-worker generator + scratch resource), graceful shutdown, per-stage timing metrics (`StageTimings` / `WorldGenStats`)
+- [x] Final `trait WorldGen` (blocking `generate(seed, chunk coords, priority, cancel)`), dedicated worker pool (`WorldGenService`, priority queue, per-worker generator + scratch resource, shared registry snapshot), graceful shutdown, per-stage timing metrics (`StageTimings` / `WorldGenStats`)
+- [x] Server chunk-provider adapter (`worldgen-server`: `ChunkProvider` / `WorldGenChunkProvider`, `stillNeeded`, float priority, cancellation token)
 - [x] `worldgen-cli` commands: `generate`, `render-map`, `dump-chunk`, `validate` (recursive prefab load), `bench` (timing harness; criterion ports of the two JMH benchmarks in `crates/worldgen-hytale/benches/`)
 - [x] `HytaleWorldGenProvider` config semantics (Name/Version/Path, legacy `World.json` rule, traversal guard) for world-config compatibility
 - [x] Architecture doc: Java class → Rust module mapping (`ARCHITECTURE.md`)
@@ -95,10 +97,13 @@ hytale-server-rust/
 ### Post-port backlog (outside the parity claim)
 Ordered list lives in [`NEXT_STEPS.md`](NEXT_STEPS.md):
 1. Verify the dumped registry ids against a real vanilla-server load.
-2. Add a golden-regeneration determinism gate (`tools/java-dumper/run.sh` twice).
-3. Retire the remaining structural seams (`supplier.rs` move, duplicate registry load per worker).
-4. Server adapter around `WorldGenService`; visual-regression PNGs; release-mode benchmarks.
-5. Deferred by design (see `REMAINING.md`): modifier/event plugins, entities/components/ECS, world-map UI, `.lpf`.
+2. Visual-regression PNGs; release-mode benchmarks.
+3. Deferred by design (see `REMAINING.md`): modifier/event plugins, entities/components/ECS, world-map UI, `.lpf`.
+
+Closed after the port: the golden-regeneration determinism gate
+(`tools/java-dumper/check.sh`), the procedural/supplier seams and the
+duplicate per-worker registry load, and the server chunk-provider adapter
+(`crates/worldgen-server`).
 
 ## Test strategy (cross-cutting)
 

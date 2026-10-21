@@ -8,8 +8,14 @@ the original Hytale Java world-generation code so the Rust port can be checked
 Regenerate everything with:
 
 ```sh
-tools/java-dumper/run.sh
+tools/java-dumper/run.sh       # regenerate this directory
+tools/java-dumper/check.sh     # run twice in isolation + diff the committed files
 ```
+
+`check.sh` is the determinism gate: it runs the dumper twice into temporary
+directories and fails if the two runs differ or if the committed files are
+stale. It needs the same prerequisites as `run.sh` (JDK 25, Maven, the Java
+source tree and, for the registry/chunk dumps, the asset pack).
 
 The dumper compiles the already-compiled upstream classes (read-only, under
 `.hytale-source/`) into `tools/java-dumper/lib/`, compiles itself with Maven, and

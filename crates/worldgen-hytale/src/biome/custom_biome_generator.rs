@@ -3,8 +3,9 @@
 //! where a `CustomBiome` overrides the parent tile biome.
 use std::rc::Rc;
 
-use procedural::noise::support::IDoubleThreshold;
-use procedural::noise::support::{IIntCondition, NoiseProperty};
+use procedural::noise::condition::IDoubleThreshold;
+use procedural::noise::condition::IIntCondition;
+use procedural::noise::property::NoiseProperty;
 
 use crate::biome::biome::Biome;
 use crate::zone::zone_generator_result::ZoneGeneratorResult;

@@ -6,6 +6,7 @@ members = [
     "crates/worldgen-model",
     "crates/worldgen-hytale",
     "crates/worldgen-cli",
+    "crates/worldgen-server",
 ]
 
 [workspace.package]

@@ -39,7 +39,7 @@ use procedural::json::height_threshold_interpreter_json_loader::HeightThresholdI
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
 use procedural::noise::condition::IHeightThresholdInterpreter;
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 /// Java `BiomeJsonLoader.Constants`.
 pub mod constants {

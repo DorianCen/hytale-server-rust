@@ -994,3 +994,69 @@ test/dumper bugs plus several seed/noise bugs:
   `ChunkDumper`/`ChunkProbe` runs the full Java pipeline for the fixed
   seeds/chunks; `tests/chunks_golden.rs` compares 21,504 columns bit-exactly
   and is no longer ignored.
+
+---
+
+## Post-port session — golden gate, procedural seams, server adapter
+
+Status: the three open backlog items that did not need a live vanilla server
+are DONE. The registry-id check (the only remaining high-value open item) is
+unchanged and still needs a real-server dump; see `NEXT_STEPS.md` §1.
+
+### Golden-regeneration determinism gate
+
+- **`tools/java-dumper/run.sh`** now takes an optional output directory and
+  passes the world folder (`testdata/Default`) and the repository root to
+  `GoldenDumper` explicitly, so the dumper no longer depends on the output
+  directory's parent layout.
+- **`tools/java-dumper/check.sh`** runs the dumper twice into isolated temp
+  directories, fails on any diff, and then compares every `*.json` against
+  `testdata/golden/` (the directory's `README.md` is ignored) to catch
+  stale/hand-edited golden files.
+- Verified end-to-end on 2026-10-21: both runs byte-identical and the fresh
+  dump matches the committed files (all nine JSONs).
+- Docs: `ARCHITECTURE.md` §6, `testdata/golden/README.md`,
+  `tools/java-dumper/README.md`.
+
+### Procedural seams retired
+
+- `worldgen-hytale::supplier` (float range `IFloatRange`/`FloatRange`/
+  `FloatSupplier`, coordinate-hash suppliers) moved to
+  `procedural::noise::supplier` — the Java `procedurallib.supplier` package
+  home. The `worldgen-hytale` module and the `loader/util/float_range.rs`
+  adapter are gone; the cave loaders call `FloatRangeJsonLoader::load()`
+  directly.
+- `FloatRangeJsonLoader::load()` is implemented (it used to be a documented
+  seam that panicked); `ParsedFloatRange` and the `load_constant` /
+  `load_min_max` halves were removed with it.
+- The reduced `noise::support` traits moved to their package modules:
+  `IIntCondition` / `IDoubleCondition` / `IDoubleThreshold` +
+  `AlwaysTrueIntCondition` → `noise::condition`; `IDoubleRange` /
+  `ISeedDoubleRange` / `DirectSeedDoubleRange` → `noise::supplier`;
+  `NoiseProperty` → `noise::property`; the formula trait is now
+  `noise::property::Formula` (Java `NoiseFormulaProperty.NoiseFormula.Formula`).
+  `noise::support` keeps only the `Vector2i` stand-in, `PointConsumer` and the
+  fastutil `nextPowerOfTwo` helper. The `DoubleRange` bridge impl in
+  `double_range_json_loader.rs` is removed.
+- Duplicate registry load: `ChunkGenerator::new_with_registries` stores the
+  loader's `Rc<Registries>` and `get_registries()` exposes it; the worker pool
+  reuses that handle instead of reading the 6,135-block dump a second time per
+  worker.
+
+### Server adapter
+
+- New crate **`crates/worldgen-server`**: object-safe `ChunkProvider` trait and
+  `WorldGenChunkProvider` over `WorldGenService`.
+- `ChunkRequest` mirrors `IWorldGen.generate(seed, index, x, z, stillNeeded,
+  priority)`: `index` is the packed chunk index, `still_needed` is polled once
+  before submission (Java semantics), `priority` is the server's f32 mapped to
+  the queue's `i32` with fixed-point ordering, and `cancel` is the cooperative
+  stage-cancellation token.
+- `shutdown()` drains queued work, joins the workers and is idempotent.
+- The service now carries the loaded world's generatable chunk-coordinate
+  bounds (reported by a worker at load time); the adapter rejects
+  out-of-bounds requests with `ChunkProviderError::OutsideGeneratableArea`,
+  matching Java's `isChunkOutsideGeneratableArea` → `NO_CHUNK` short-circuit.
+- Tests: `crates/worldgen-server/tests/provider.rs` (adapter output == direct
+  output, `stillNeeded`, cancellation token, drain-on-shutdown, object safety,
+  wrapping an existing service) plus unit tests for the index/priority mapping.

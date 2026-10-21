@@ -3,8 +3,8 @@
 
 use std::rc::Rc;
 
+use crate::noise::property::NoiseProperty;
 use crate::noise::random::{CoordinateRotator, ICoordinateRandomizer};
-use crate::noise::support::NoiseProperty;
 
 /// Java `RotateNoiseProperty` — rotates the sample coordinates before sampling.
 pub struct RotateNoiseProperty {

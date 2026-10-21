@@ -12,7 +12,6 @@ pub mod climate;
 pub mod container;
 pub mod loader;
 pub mod prefab;
-pub mod supplier;
 pub mod unique_zone_placement;
 pub mod util;
 pub mod weighted_map;

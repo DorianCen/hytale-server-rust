@@ -11,14 +11,14 @@ use hytale_math::math_util;
 use procedural::json::seed_string::java_string_hash_code;
 use procedural::noise::condition::{ICoordinateCondition, IHeightThresholdInterpreter};
 use procedural::noise::point::IPointGenerator;
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::supplier::IDoubleRange;
-use procedural::noise::support::NoiseProperty;
 
 use crate::cave::cave_node_type::CaveNodeType;
-use crate::supplier::IFloatRange;
 use crate::util::block_fluid_entry::BlockFluidEntry;
 use crate::util::condition::flag::Int2FlagsCondition;
 use crate::util::condition::BlockMaskCondition;
+use procedural::noise::supplier::IFloatRange;
 
 /// Java `class CaveType`.
 #[derive(Clone)]
@@ -430,10 +430,10 @@ mod tests {
     use super::*;
     use crate::cave::test_stubs::{cave_node_type, FixedPointGenerator};
     use crate::chunk::chunk_generator::test_stubs::StubInterpreter;
-    use crate::supplier::FloatRange;
     use crate::util::condition::flag::ConstantInt2Flags;
     use procedural::noise::condition::DefaultCoordinateCondition;
     use procedural::noise::supplier::DoubleRange;
+    use procedural::noise::supplier::FloatRange;
 
     /// A cave type with the given ranges and masks.
     fn cave_type(

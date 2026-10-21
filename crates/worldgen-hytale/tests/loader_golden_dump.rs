@@ -51,7 +51,7 @@ use hytale_math::fast_random::FastRandom;
 use procedural::json::point_generator_json_loader::PointGeneratorJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
 use procedural::noise::condition::IHeightThresholdInterpreter;
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 use serde_json::Value;
 use worldgen_model::registry::Registries;
 

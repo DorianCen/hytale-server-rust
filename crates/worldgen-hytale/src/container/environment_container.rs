@@ -10,7 +10,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use procedural::noise::condition::{DefaultCoordinateCondition, ICoordinateCondition};
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 use crate::util::list_pool::ListPool;
 use crate::weighted_map::IWeightedMap;

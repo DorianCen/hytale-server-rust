@@ -593,7 +593,7 @@ impl CaveGeneratorImpl {
     pub fn is_matching_biome(
         seed: i32,
         chunk_generator: &ChunkGenerator,
-        condition: &dyn procedural::noise::support::IIntCondition,
+        condition: &dyn procedural::noise::condition::IIntCondition,
         x: i32,
         z: i32,
     ) -> bool {
@@ -687,7 +687,6 @@ mod tests {
     use crate::container::layer_container::LayerContainer;
     use crate::container::tint_container::{DefaultTintContainerEntry, TintContainer};
     use crate::container::water_container::WaterContainer;
-    use crate::supplier::FloatRange;
     use crate::util::block_fluid_entry::BlockFluidEntry;
     use crate::util::bounds::WorldBounds;
     use crate::util::condition::flag::{ConstantInt2Flags, Int2FlagsCondition};
@@ -700,6 +699,7 @@ mod tests {
     use crate::zoom::fuzzy_zoom::FuzzyZoom;
     use crate::zoom::pixel_provider::PixelProvider;
     use procedural::noise::random::empty_randomizer;
+    use procedural::noise::supplier::FloatRange;
     use worldgen_model::chunk::GeneratedChunk;
 
     /// A shape whose bounds start at the origin and whose end is `origin +

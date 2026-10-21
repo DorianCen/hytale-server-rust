@@ -16,7 +16,7 @@ use crate::noise::cell::cell_distance_function::CellDistanceFunction;
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
 use crate::noise::cell::measurement_mode::MeasurementMode;
 use crate::noise::condition::DoubleThresholdCondition;
-use crate::noise::support::IDoubleCondition;
+use crate::noise::condition::IDoubleCondition;
 
 /// Java `CellBorderDistanceFunctionJsonLoader`.
 pub struct CellBorderDistanceFunctionJsonLoader {

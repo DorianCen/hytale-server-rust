@@ -12,19 +12,6 @@ use crate::noise::supplier::DoubleRange;
 /// Java `DoubleRangeJsonLoader.DoubleToDoubleFunction`.
 pub type DoubleToDoubleFunction = fn(f64) -> f64;
 
-/// Bridge: the noise core consumers ([`crate::noise::branch_noise::BranchNoise`],
-/// [`crate::noise::cell::evaluator::distance_point_evaluator::DistancePointEvaluator`])
-/// take the reduced `support::IDoubleRange` seam (only `getValue(double)` —
-/// the only overload they call), while this loader produces the real
-/// [`DoubleRange`]. Implementing the seam trait for the real range keeps the
-/// loaded object usable at both call sites (integration note: this impl moves
-/// into `supplier.rs` when the `support` seams are retired).
-impl crate::noise::support::IDoubleRange for DoubleRange {
-    fn get_value(&self, v: f64) -> f64 {
-        crate::noise::supplier::IDoubleRange::get_value(self, v)
-    }
-}
-
 /// Java `DoubleRangeJsonLoader`.
 pub struct DoubleRangeJsonLoader {
     /// Java `extends JsonLoader<K, IDoubleRange>`.

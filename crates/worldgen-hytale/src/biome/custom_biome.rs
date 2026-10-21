@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use procedural::noise::condition::IHeightThresholdInterpreter;
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 use crate::biome::biome::Biome;
 use crate::biome::biome_interpolation::BiomeInterpolation;

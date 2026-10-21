@@ -27,8 +27,8 @@
 
 use std::rc::Rc;
 
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::property::SingleNoiseProperty;
-use procedural::noise::support::NoiseProperty;
 use procedural::noise::ConstantNoise;
 
 /// Java `class ShapeDistortion`.

@@ -9,10 +9,10 @@ use serde_json::Value;
 use crate::json::double_threshold_json_loader::DoubleThresholdJsonLoader;
 use crate::json::seed_string::SeedString;
 use crate::json::JsonLoaderBase;
+use crate::noise::condition::IDoubleCondition;
 use crate::noise::condition::{
     DefaultDoubleCondition, DoubleThresholdCondition, SingleDoubleCondition,
 };
-use crate::noise::support::IDoubleCondition;
 
 /// Java `DoubleConditionJsonLoader.Constants`.
 mod constants {

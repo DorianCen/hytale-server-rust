@@ -32,7 +32,8 @@ into jars as well.
 ## Run
 
 ```sh
-tools/java-dumper/run.sh
+tools/java-dumper/run.sh            # writes testdata/golden/
+tools/java-dumper/run.sh /tmp/dump  # writes an arbitrary directory
 ```
 
 Requires JDK 25 and Maven 3.10+. The build tries `mvn -o` first and falls back to an
@@ -40,6 +41,17 @@ online build if the local repository is incomplete.
 
 The registry dump needs the base-game asset pack at `Assets/Assets.zip` (the script
 resolves it relative to the repository root — the pack is not part of the source tree).
+
+## Determinism check
+
+```sh
+tools/java-dumper/check.sh
+```
+
+Runs `run.sh` twice into isolated temporary directories, fails on any diff,
+and then diffs the fresh output against the committed `testdata/golden/` so a
+stale or hand-edited golden file is caught. This is the gate referenced in
+`NEXT_STEPS.md` and `ARCHITECTURE.md` §6.
 
 ## Layout
 

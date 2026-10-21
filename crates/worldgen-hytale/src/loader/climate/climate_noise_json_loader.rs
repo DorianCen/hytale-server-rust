@@ -12,7 +12,7 @@ use crate::loader::climate::climate_point_json_loader::{KEY_INTENSITY, KEY_TEMPE
 use crate::loader::climate::continent_thresholds_json_loader::ContinentThresholdsJsonLoader;
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 /// Java `ClimateNoiseJsonLoader.Constants.KEY_NOISE`.
 pub const KEY_NOISE: &str = "Noise";

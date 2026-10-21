@@ -246,7 +246,7 @@ mod tests {
             unimplemented!("not exercised by these tests")
         }
 
-        fn get_heightmap_noise(&self) -> Rc<dyn procedural::noise::support::NoiseProperty> {
+        fn get_heightmap_noise(&self) -> Rc<dyn procedural::noise::property::NoiseProperty> {
             unimplemented!("not exercised by these tests")
         }
 

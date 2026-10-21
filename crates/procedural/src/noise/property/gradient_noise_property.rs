@@ -6,7 +6,7 @@ use std::rc::Rc;
 use hytale_math::math_util;
 use hytale_math::trig_math_util;
 
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `GradientNoiseProperty.GradientMode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

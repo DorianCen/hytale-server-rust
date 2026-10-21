@@ -962,6 +962,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "worldgen-server"
+version = "0.1.0"
+dependencies = [
+ "hytale-math",
+ "procedural",
+ "worldgen-hytale",
+ "worldgen-model",
+]
+
+[[package]]
 name = "zerocopy"
 version = "0.8.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"

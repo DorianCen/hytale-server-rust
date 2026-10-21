@@ -216,15 +216,16 @@ impl ChunkGeneratorJsonLoader {
             self.seed.clone(),
             &override_data_folder,
             loading_context,
-            registries,
+            Rc::clone(&registries),
             resource,
         )
         .load();
         zone_pattern_loader.set_zones(zones);
 
-        crate::chunk::chunk_generator::ChunkGenerator::new(
+        crate::chunk::chunk_generator::ChunkGenerator::new_with_registries(
             zone_pattern_loader.load(),
             Some(override_data_folder),
+            Some(registries),
         )
     }
 

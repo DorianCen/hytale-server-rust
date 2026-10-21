@@ -16,7 +16,8 @@ use procedural::json::double_threshold_json_loader::DoubleThresholdJsonLoader;
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
 use procedural::noise::condition::ConstantIntCondition;
-use procedural::noise::support::{IDoubleThreshold, IIntCondition, NoiseProperty};
+use procedural::noise::condition::{IDoubleThreshold, IIntCondition};
+use procedural::noise::property::NoiseProperty;
 
 /// Java `CustomBiomeGeneratorJsonLoader.Constants`.
 pub mod constants {

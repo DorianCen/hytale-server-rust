@@ -15,7 +15,6 @@ use worldgen_hytale::world_gen::{
 };
 use worldgen_hytale::world_gen_config::WorldGenConfig;
 use worldgen_model::chunk::GeneratedChunk;
-use worldgen_model::registry::Registries;
 
 fn assets_available() -> bool {
     PathBuf::from(format!(
@@ -64,7 +63,13 @@ fn the_worker_pool_matches_the_direct_generation() {
     }
 
     let generator = default_world();
-    let registry = Rc::new(Registries::load());
+    // The loader keeps the registry snapshot on the generator; the direct
+    // path and the workers must reuse the same handle (no second dump load).
+    let registry = Rc::clone(
+        generator
+            .get_registries()
+            .expect("the loader stores its registry snapshot"),
+    );
 
     let root = PathBuf::from(format!(
         "{}/../../testdata/Default",

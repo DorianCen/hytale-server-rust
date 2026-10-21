@@ -17,7 +17,7 @@ use crate::loader::biome::biome_mask_json_loader::{BiomeMaskJsonLoader, LoadedBi
 use crate::loader::context::zone_file_context::ZoneFileContext;
 use crate::util::condition::flag::{CompositeInt2Flags, FlagCondition, FlagOperator};
 use procedural::json::{JsonLoaderBase, SeedString};
-use procedural::noise::support::IIntCondition;
+use procedural::noise::condition::IIntCondition;
 
 /// Java `CaveBiomeMaskJsonLoader.Constants`.
 pub mod constants {

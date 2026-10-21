@@ -20,7 +20,7 @@ use crate::loader::context::biome_file_context::{BiomeFileContext, BiomeType};
 use crate::loader::context::file_context::Registry;
 use crate::loader::context::zone_file_context::ZoneFileContext;
 use procedural::json::{JsonLoaderBase, SeedString};
-use procedural::noise::support::IIntCondition;
+use procedural::noise::condition::IIntCondition;
 
 /// Java `BiomeMaskJsonLoader.Constants`.
 pub mod constants {

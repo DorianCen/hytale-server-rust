@@ -12,8 +12,8 @@
 use std::rc::Rc;
 
 use hytale_math::math_util;
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::supplier::{IDoubleRange, NoisePropertySupplier2d};
-use procedural::noise::support::NoiseProperty;
 
 use crate::util::block_fluid_entry::BlockFluidEntry;
 

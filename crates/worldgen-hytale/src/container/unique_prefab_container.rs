@@ -446,7 +446,7 @@ mod tests {
             None,
             BlockMaskCondition::new(),
             Some(vec![PrefabRotation::Rotation270]),
-            Rc::new(procedural::noise::support::AlwaysTrueIntCondition),
+            Rc::new(procedural::noise::condition::AlwaysTrueIntCondition),
             Rc::new(procedural::noise::condition::DefaultCoordinateCondition::True),
             Rc::new(procedural::noise::condition::ConstantBlockFluidCondition::True),
             anchor,

@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::json::seed_string::SeedString;
 use crate::json::JsonLoaderBase;
 use crate::noise::property::gradient_noise_property::{GradientMode, GradientNoiseProperty};
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `GradientNoisePropertyJsonLoader`.
 pub struct GradientNoisePropertyJsonLoader {

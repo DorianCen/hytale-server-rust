@@ -15,10 +15,10 @@ use crate::json::JsonLoaderBase;
 use crate::noise::cell::cell_type::CellType;
 use crate::noise::cell::evaluator::density_point_evaluator::DensityPointEvaluator;
 use crate::noise::condition::DoubleThresholdCondition;
+use crate::noise::condition::{IDoubleCondition, IIntCondition};
 use crate::noise::function::NoiseFunction;
 use crate::noise::hex_mesh_noise::HexMeshNoise;
 use crate::noise::mesh_noise::MeshNoise;
-use crate::noise::support::{IDoubleCondition, IIntCondition};
 
 /// Java `MeshNoiseJsonLoader.Constants`.
 mod constants {

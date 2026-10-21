@@ -19,6 +19,7 @@ use procedural::noise::cell::grid_cell_distance_function::GridCellDistanceFuncti
 use procedural::noise::cell::grid_cell_distance_function::GridCellPointFunction;
 use procedural::noise::cell::jitter::CellJitter;
 use procedural::noise::cell_noise::{CellMode, CellNoise};
+use procedural::noise::condition::AlwaysTrueIntCondition;
 use procedural::noise::constant_noise::ConstantNoise;
 use procedural::noise::distance_noise::{Distance2Mode, DistanceNoise};
 use procedural::noise::function::{NoiseFunction2d, NoiseFunction3d};
@@ -28,8 +29,9 @@ use procedural::noise::mesh_noise::MeshNoise;
 use procedural::noise::old_simplex_noise::OldSimplexNoise;
 use procedural::noise::perlin_noise::PerlinNoise;
 use procedural::noise::point_noise::PointNoise;
+use procedural::noise::property::Formula;
 use procedural::noise::simplex_noise::SimplexNoise;
-use procedural::noise::support::{AlwaysTrueIntCondition, IDoubleRange, NoiseFormula};
+use procedural::noise::supplier::IDoubleRange;
 use procedural::noise::value_noise::ValueNoise;
 
 // ---------------------------------------------------------------------
@@ -92,11 +94,33 @@ impl IDoubleRange for ConstantDoubleRange {
     fn get_value(&self, _v: f64) -> f64 {
         self.0
     }
+    fn get_value_random(&self, _random: &mut hytale_math::fast_random::FastRandom) -> f64 {
+        self.0
+    }
+    fn get_value_2d(
+        &self,
+        _seed: i32,
+        _x: f64,
+        _y: f64,
+        _supplier: &dyn procedural::noise::supplier::IDoubleCoordinateSupplier2d,
+    ) -> f64 {
+        self.0
+    }
+    fn get_value_3d(
+        &self,
+        _seed: i32,
+        _x: f64,
+        _y: f64,
+        _z: f64,
+        _supplier: &dyn procedural::noise::supplier::IDoubleCoordinateSupplier3d,
+    ) -> f64 {
+        self.0
+    }
 }
 
 /// Java `property.NoiseFormulaProperty.NoiseFormula.SQRT`.
 struct SqrtFormula;
-impl NoiseFormula for SqrtFormula {
+impl Formula for SqrtFormula {
     fn eval(&self, noise: f64) -> f64 {
         f64::sqrt(noise)
     }

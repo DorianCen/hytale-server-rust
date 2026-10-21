@@ -12,7 +12,7 @@ use crate::json::JsonLoaderBase;
 use crate::noise::property::curve_noise_property::{
     power_curve, CurveNoiseProperty, DoubleUnaryOperator,
 };
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `CurveNoisePropertyJsonLoader`.
 pub struct CurveNoisePropertyJsonLoader {

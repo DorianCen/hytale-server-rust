@@ -18,8 +18,8 @@ use std::rc::Rc;
 
 use hytale_math::hash_util;
 use hytale_math::math_util;
+use procedural::noise::condition::IIntCondition;
 use procedural::noise::condition::{IBlockFluidCondition, ICoordinateCondition};
-use procedural::noise::support::IIntCondition;
 
 use crate::util::resolved_block_array::ResolvedBlockArray;
 

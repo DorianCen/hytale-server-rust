@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::noise::function::{NoiseFunction, NoiseFunction2d, NoiseFunction3d};
 use crate::noise::general_noise::limit;
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `FractalNoiseProperty.FractalFunction` — the per-mode octaves loop.
 /// Ported as an enum with methods (Java used anonymous classes).

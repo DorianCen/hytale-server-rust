@@ -9,8 +9,8 @@ use serde_json::Value;
 use procedural::json::double_range_json_loader::DoubleRangeJsonLoader;
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::supplier::{DoubleRange, IDoubleRange};
-use procedural::noise::support::NoiseProperty;
 use worldgen_model::block_key::BlockEntry;
 use worldgen_model::registry::Registries;
 

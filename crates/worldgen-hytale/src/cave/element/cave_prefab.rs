@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use hytale_math::math_util;
-use procedural::noise::support::IIntCondition;
+use procedural::noise::condition::IIntCondition;
 
 use crate::cave::element::cave_element::CaveElement;
 use crate::cave::prefab::cave_prefab_supplier::CavePrefabSupplier;

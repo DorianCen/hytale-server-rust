@@ -2,8 +2,10 @@
 
 **Status:** the port is feature complete and bit-exact against the current
 golden data (`tests/chunks_golden.rs`: 21 chunks / 21,504 columns, every
-block / fluid / environment / priority byte). Nothing below is required for
-that claim — the list is ordered by how much it strengthens or extends it.
+block / fluid / environment / priority byte). The golden-regeneration gate
+(`tools/java-dumper/check.sh`), the procedural seams and the server adapter
+(`crates/worldgen-server`) have landed; nothing below is required for the
+parity claim — the list is ordered by how much it strengthens or extends it.
 
 **Context for the next session:**
 - Completed work, root causes and per-phase notes: [`PORTING_HISTORY.md`](PORTING_HISTORY.md)
@@ -19,7 +21,8 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 # Optional, needs the 3.7 GB asset pack (Assets/Assets.zip + Assets/extracted):
-tools/java-dumper/run.sh
+tools/java-dumper/run.sh          # regenerate testdata/golden/
+tools/java-dumper/check.sh        # two isolated runs + diff against the committed dump
 ```
 
 ---
@@ -38,53 +41,21 @@ tools/java-dumper/run.sh
 - **Done when:** the id-order caveat can be removed from `REMAINING.md` §6 and
   the `registries.json` `meta` block.
 
-## 2. Golden-regeneration determinism gate
-
-- **Why:** the golden files are only trustworthy if the dumper produces
-  byte-identical output after a Java/asset change.
-- **How:** add a CI step (or a `tools/java-dumper/check.sh`) that runs
-  `tools/java-dumper/run.sh` twice and fails on a diff. `ChunkProbe` was last
-  verified md5-identical (`c6690b19…` for `chunks.json`).
-- **Done when:** one documented command regenerates + verifies every golden
-  file, and the files are regenerated from the same asset-pack revision.
-
-## 3. Remove the remaining structural seams
-
-- Move `crates/worldgen-hytale/src/supplier.rs` (`IFloatRange`, coordinate-hash
-  suppliers) into `procedural::noise::supplier`, and retire the reduced
-  `procedural::noise::support` seams where the full ports exist.
-- Stop loading the registry dump twice per worker: expose the loader's
-  `Rc<Registries>` on `ChunkGenerator` (accessor or loader return value) and
-  pass it into `WorldGenService`'s executions.
-- **Done when:** no duplicated per-worker registry load, the seam notes in
-  `supplier.rs` / `support.rs` are gone, workspace green.
-
-## 4. Server/adapter integration (unfinished)
-
-- **Why:** `WorldGen` / `WorldGenService` is the documented boundary
-  (`REMAINING.md` §3), but nothing outside the CLI consumes it yet.
-- **How:** implement a thin server chunk-provider adapter around
-  `WorldGenService`; map the server's chunk priorities onto
-  `WorldGenRequest::priority` and its cancellation onto the
-  `Arc<AtomicBool>` token.
-- **Done when:** a server can request chunks without touching worldgen
-  internals, and shutdown drains in-flight work.
-
-## 5. Visual-regression artefacts (optional)
+## 2. Visual-regression artefacts (optional)
 
 - `worldgen-cli render-map` already renders height / zone / biome PNGs. Add a
   small golden-image test (fixed seed + region, pixel diff) for mask / biome /
   cave-slice views. This is a usability nicety — numeric parity is already
   proven bit-exactly.
 
-## 6. Performance baseline (optional)
+## 3. Performance baseline (optional)
 
 - Record release-mode numbers (`worldgen-cli bench`, `cargo bench` for
   `prefab_weights` and `cache`) on the reference machine; tune the worker count
   and note the per-worker world-load cost. Always benchmark `--release` —
   debug builds are ~20× slower on prefab-heavy chunks.
 
-## 7. Deferred by design — do not implement unless scope changes
+## 4. Deferred by design — do not implement unless scope changes
 
 - Modifier/event plugin system, prefab entities + block components/ECS
   serialization, CoreServer plugin lifecycle, world-map UI, `.lpf` binary

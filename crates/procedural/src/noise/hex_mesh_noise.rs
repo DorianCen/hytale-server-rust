@@ -1,16 +1,16 @@
 // Ported from: `.hytale-source/hytale-shared-source/HytaleServer/ProceduralLibrary/src/main/java/com/hypixel/hytale/procedurallib/logic/HexMeshNoise.java`
 //! Java `HexMeshNoise`.
 //!
-//! ⚠ NOTE(subagent): `condition.IIntCondition` is `support::IIntCondition`.
+//! `condition.IIntCondition` is [`crate::noise::condition::IIntCondition`].
 //! The Java 3d `get` throws `UnsupportedOperationException("3d not supported")`
 //! — ported as a panic.
 
 use std::rc::Rc;
 
 use crate::noise::cell::hex_cell_distance_function::{HexCellDistanceFunction, HEX_CELL_2D, SCALE};
+use crate::noise::condition::IIntCondition;
 use crate::noise::function::{NoiseFunction2d, NoiseFunction3d};
 use crate::noise::math_util;
-use crate::noise::support::IIntCondition;
 
 /// Java `HexMeshNoise`.
 #[derive(Clone)]

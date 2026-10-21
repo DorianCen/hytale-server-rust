@@ -3,8 +3,8 @@
 
 use procedural::noise::cell::cell_distance_function::CellDistanceFunction;
 use procedural::noise::cell::evaluator::point_evaluator::PointEvaluator;
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::result_buffer::ResultBuffer2d;
-use procedural::noise::support::NoiseProperty;
 use std::rc::Rc;
 
 use hytale_math::math_util;

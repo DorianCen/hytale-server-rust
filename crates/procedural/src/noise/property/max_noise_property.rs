@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `MaxNoiseProperty.MAX_EPSILON` — "treat the noisemap as 1" constant.
 pub const MAX_EPSILON: f64 = 0.999999;

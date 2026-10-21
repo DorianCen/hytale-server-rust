@@ -13,20 +13,20 @@ use crate::cave::cave_prefab_placement::CavePrefabPlacement;
 use crate::cave::prefab::cave_prefab_container::CavePrefabConfig;
 use crate::loader::context::zone_file_context::ZoneFileContext;
 use crate::loader::prefab::block_placement_mask_json_loader::BlockPlacementMaskJsonLoader;
-use crate::supplier::{
-    ConstantDoubleCoordinateHashSupplier, DoubleRangeCoordinateHashSupplier,
-    IDoubleCoordinateHashSupplier,
-};
 use crate::util::condition::BlockMaskCondition;
 use procedural::json::double_range_json_loader::DoubleRangeJsonLoader;
 use procedural::json::height_threshold_interpreter_json_loader::HeightThresholdInterpreterJsonLoader;
 use procedural::json::noise_mask_condition_json_loader::NoiseMaskConditionJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
+use procedural::noise::condition::IIntCondition;
 use procedural::noise::condition::{
     DefaultCoordinateCondition, DefaultCoordinateRndCondition, HeightCondition,
     ICoordinateCondition, ICoordinateRndCondition,
 };
-use procedural::noise::support::IIntCondition;
+use procedural::noise::supplier::{
+    ConstantDoubleCoordinateHashSupplier, DoubleRangeCoordinateHashSupplier,
+    IDoubleCoordinateHashSupplier,
+};
 
 /// Java `CavePrefabConfigJsonLoader.Constants`.
 pub mod constants {

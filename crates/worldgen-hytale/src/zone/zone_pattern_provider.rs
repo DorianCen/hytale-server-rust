@@ -186,7 +186,7 @@ mod tests {
             Rc::new(
                 procedural::noise::condition::BasicHeightThresholdInterpreter::new(&[0], &[0.5], 1),
             );
-        let noise: Rc<dyn procedural::noise::support::NoiseProperty> = default_zero();
+        let noise: Rc<dyn procedural::noise::property::NoiseProperty> = default_zero();
         let cover: Rc<CoverContainer> = Rc::new(CoverContainer::new(Vec::new()));
         let layer: Rc<LayerContainer> = Rc::new(LayerContainer::new(0, 0, Vec::new(), Vec::new()));
         let tint: Rc<TintContainer> = Rc::new(TintContainer::new(

@@ -1,11 +1,10 @@
 // Ported from: `.hytale-source/hytale-shared-source/HytaleServer/ProceduralLibrary/src/main/java/com/hypixel/hytale/procedurallib/logic/BranchNoise.java`
 //! Java `BranchNoise`.
 //!
-//! ⚠ NOTE(subagent): `supplier.IDoubleRange` / `condition.IIntCondition` live
-//! in [`crate::noise::support`] until those packages are ported;
-//! `property.NoiseFormulaProperty.NoiseFormula.Formula` is
-//! `support::NoiseFormula`; `DistanceNoise.Distance2Function` is the trait
-//! re-exported from [`crate::noise::distance_noise`]. The Java static scratch
+//! `DistanceNoise.Distance2Function` is the trait re-exported from
+//! [`crate::noise::distance_noise`]; the supplier, condition and formula
+//! interfaces live in [`crate::noise::supplier`], [`crate::noise::condition`]
+//! and [`crate::noise::property`]. The Java static scratch
 //! buffer (`ResultBuffer.buffer2d`) is shared between the parent and line
 //! phases *within one `get` call* — the Rust port models this with a single
 //! per-call buffer passed through both phases (call order matters: the parent
@@ -16,11 +15,13 @@ use std::rc::Rc;
 
 use crate::noise::cell::cell_distance_function::CellDistanceFunction;
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
+use crate::noise::condition::IIntCondition;
 use crate::noise::distance_noise::Distance2Function;
 use crate::noise::function::{NoiseFunction2d, NoiseFunction3d};
 use crate::noise::math_util;
+use crate::noise::property::Formula;
 use crate::noise::result_buffer::ResultBuffer2d;
-use crate::noise::support::{IDoubleRange, IIntCondition, NoiseFormula};
+use crate::noise::supplier::IDoubleRange;
 
 /// Java `BranchNoise implements NoiseFunction`.
 pub struct BranchNoise {
@@ -39,7 +40,7 @@ pub struct BranchNoise {
     /// Java `protected final DistanceNoise.Distance2Function distance2Function`.
     pub distance2_function: Rc<dyn Distance2Function>,
     /// Java `protected final NoiseFormulaProperty.NoiseFormula.Formula noiseFormula`.
-    pub noise_formula: Rc<dyn NoiseFormula>,
+    pub noise_formula: Rc<dyn Formula>,
 
     /// Java `protected final CellDistanceFunction lineFunction`.
     pub line_function: Rc<dyn CellDistanceFunction>,
@@ -71,7 +72,7 @@ impl BranchNoise {
         parent_fade: Rc<dyn IDoubleRange>,
         parent_density: Rc<dyn IIntCondition>,
         distance2_function: Rc<dyn Distance2Function>,
-        noise_formula: Rc<dyn NoiseFormula>,
+        noise_formula: Rc<dyn Formula>,
         line_function: Rc<dyn CellDistanceFunction>,
         line_evaluator: Rc<dyn PointEvaluator>,
         line_scale: f64,

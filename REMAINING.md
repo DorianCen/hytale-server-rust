@@ -42,7 +42,11 @@ is explicitly **deferred** and not ported:
 ## 3. CoreServer / ECS integration
 - `Holder<ChunkStore>`, chunk entity model, network serialization, and the
   `HytaleWorldGenProvider` plugin lifecycle are not ported.
-- The boundary is the minimal `trait WorldGen` returning `GeneratedChunk`.
+- The generation boundary is `trait WorldGen` returning `GeneratedChunk`;
+  `crates/worldgen-server` adds the server-facing `ChunkProvider` adapter
+  (Java `IWorldGen.generate(seed, index, x, z, stillNeeded, priority)` →
+  `WorldGenRequest`, `shutdown()` → the service drain). It still hands back
+  the port's own `GeneratedChunk`, not a `Holder<ChunkStore>`.
 
 ## 4. World map UI
 - Source: `com.hypixel.hytale.server.worldgen.map` (live map rendering) — not ported.

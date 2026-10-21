@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use crate::noise::general_noise::limit;
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `SumNoiseProperty.Entry`.
 pub struct SumNoisePropertyEntry {

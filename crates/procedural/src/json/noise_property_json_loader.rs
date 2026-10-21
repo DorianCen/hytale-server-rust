@@ -23,12 +23,12 @@ use crate::noise::property::fractal_noise_property::{FractalMode, FractalNoisePr
 use crate::noise::property::noise_formula_property::{NoiseFormula, NoiseFormulaProperty};
 use crate::noise::property::noise_property_type::NoisePropertyType;
 use crate::noise::property::single_noise_property::SingleNoiseProperty;
+use crate::noise::property::NoiseProperty;
 use crate::noise::property::{
     DistortedNoiseProperty, InvertNoiseProperty, MaxNoiseProperty, MinNoiseProperty,
     MultiplyNoiseProperty, NormalizeNoiseProperty, OffsetNoiseProperty, RotateNoiseProperty,
     ScaleNoiseProperty, SumNoiseProperty, SumNoisePropertyEntry,
 };
-use crate::noise::support::NoiseProperty;
 
 /// Java `NoisePropertyJsonLoader`.
 pub struct NoisePropertyJsonLoader {

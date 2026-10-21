@@ -12,7 +12,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 SERVER_ROOT="$ROOT/.hytale-source/hytale-shared-source/HytaleServer"
 LIB_DIR="$SCRIPT_DIR/lib"
-OUT_DIR="$ROOT/testdata/golden"
+# Optional first argument: the output directory (default: testdata/golden).
+# The world directory and the repository root are passed explicitly so an
+# arbitrary output directory (e.g. a determinism-check temp dir) works.
+OUT_DIR="${1:-$ROOT/testdata/golden}"
+WORLD_DIR="$ROOT/testdata/Default"
 
 if [ ! -d "$SERVER_ROOT" ]; then
     echo "error: Java source root not found: $SERVER_ROOT" >&2
@@ -139,7 +143,7 @@ echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
 # join pool makes that order deterministic (the tasks then run in submission
 # order), which is what makes the dumped registry ids reproducible.
 java -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 \
-     -cp "$CP" com.hypixel.hytale.tools.golden.GoldenDumper "$OUT_DIR"
+     -cp "$CP" com.hypixel.hytale.tools.golden.GoldenDumper "$OUT_DIR" "$WORLD_DIR" "$ROOT"
 
 echo "Done. Golden files:"
 ls -lh "$OUT_DIR"/*.json

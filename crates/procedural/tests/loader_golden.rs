@@ -24,7 +24,8 @@ use std::rc::Rc;
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::seed_string::SeedString;
 use procedural::json::JsonLoaderBase;
-use procedural::noise::support::{IDoubleRange, NoiseProperty};
+use procedural::noise::property::NoiseProperty;
+use procedural::noise::supplier::IDoubleRange;
 use serde_json::Value;
 
 fn parse_java_hex_double(s: &str) -> f64 {

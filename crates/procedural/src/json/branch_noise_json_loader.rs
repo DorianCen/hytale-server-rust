@@ -35,9 +35,11 @@ use crate::noise::cell::hex_cell_distance_function::{
 };
 use crate::noise::cell::jitter::CellJitter;
 use crate::noise::condition::ConstantIntCondition;
+use crate::noise::condition::IIntCondition;
 use crate::noise::distance_noise::Distance2Function;
+use crate::noise::property::Formula;
 use crate::noise::supplier::DoubleRange;
-use crate::noise::support::{IDoubleRange, IIntCondition, NoiseFormula};
+use crate::noise::supplier::IDoubleRange;
 
 /// Java `BranchNoiseJsonLoader.Constant`.
 ///
@@ -206,7 +208,7 @@ impl BranchNoiseJsonLoader {
     }
 
     /// Java `NoiseFormulaProperty.NoiseFormula.Formula loadParentFormula()`.
-    pub fn load_parent_formula(&self) -> Rc<dyn NoiseFormula> {
+    pub fn load_parent_formula(&self) -> Rc<dyn Formula> {
         let formula = self.load_enum(
             constants::KEY_PARENT_FORMULA,
             NoisePropertyJsonLoader::noise_formula_value_of,

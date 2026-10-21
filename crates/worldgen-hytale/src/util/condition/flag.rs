@@ -11,7 +11,7 @@
 
 use std::rc::Rc;
 
-use procedural::noise::support::IIntCondition;
+use procedural::noise::condition::IIntCondition;
 
 /// Java `interface Int2FlagsCondition extends IntUnaryOperator` — an
 /// int condition that returns one or more boolean values encoded as an int.

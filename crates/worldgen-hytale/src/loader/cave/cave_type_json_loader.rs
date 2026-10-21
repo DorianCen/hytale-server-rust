@@ -19,9 +19,9 @@ use crate::loader::cave::fluid_level_json_loader::FluidLevelJsonLoader;
 use crate::loader::context::zone_file_context::ZoneFileContext;
 use crate::loader::prefab::block_placement_mask_json_loader::BlockPlacementMaskJsonLoader;
 use crate::loader::seed_string_resource::SeedStringResource;
-use crate::loader::util::float_range::{load_float_range, load_float_range_with_default};
 use crate::util::condition::BlockMaskCondition;
 use procedural::json::double_range_json_loader::DoubleRangeJsonLoader;
+use procedural::json::float_range_json_loader::FloatRangeJsonLoader;
 use procedural::json::height_threshold_interpreter_json_loader::HeightThresholdInterpreterJsonLoader;
 use procedural::json::noise_mask_condition_json_loader::NoiseMaskConditionJsonLoader;
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
@@ -31,8 +31,8 @@ use procedural::noise::condition::{
     DefaultCoordinateCondition, HeightThresholdCoordinateCondition, ICoordinateCondition,
 };
 use procedural::noise::point::IPointGenerator;
-use procedural::noise::supplier::IDoubleRange;
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
+use procedural::noise::supplier::{IDoubleRange, IFloatRange};
 
 /// Java `CaveTypeJsonLoader.Constants`.
 pub mod constants {
@@ -155,8 +155,8 @@ impl CaveTypeJsonLoader {
     }
 
     /// Java `IFloatRange loadYaw()`.
-    fn load_yaw(&self) -> Rc<dyn crate::supplier::IFloatRange> {
-        load_float_range(
+    fn load_yaw(&self) -> Rc<dyn IFloatRange> {
+        FloatRangeJsonLoader::with_defaults(
             self.base.seed.clone(),
             &self.base.data_folder,
             self.base.get(constants::KEY_YAW),
@@ -164,17 +164,19 @@ impl CaveTypeJsonLoader {
             180.0,
             degrees_to_radians,
         )
+        .load()
     }
 
     /// Java `IFloatRange loadPitch()`.
-    fn load_pitch(&self) -> Rc<dyn crate::supplier::IFloatRange> {
-        load_float_range_with_default(
+    fn load_pitch(&self) -> Rc<dyn IFloatRange> {
+        FloatRangeJsonLoader::with_default1_and_function(
             self.base.seed.clone(),
             &self.base.data_folder,
             self.base.get(constants::KEY_PITCH),
             -15.0,
             degrees_to_radians,
         )
+        .load()
     }
 
     /// Java `IDoubleRange loadDepth()`.

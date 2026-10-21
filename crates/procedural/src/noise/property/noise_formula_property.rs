@@ -3,11 +3,16 @@
 
 use std::rc::Rc;
 
-use crate::noise::support::{NoiseFormula as FormulaTrait, NoiseProperty};
+use crate::noise::property::NoiseProperty;
 
-/// Java `NoiseFormulaProperty.NoiseFormula.Formula` — implemented by the
-/// [`NoiseFormula`] enum below (the trait lives in `support.rs`).
-impl FormulaTrait for NoiseFormula {
+/// Java `NoiseFormulaProperty.NoiseFormula.Formula` — `double eval(double
+/// noise)`; implemented by the [`NoiseFormula`] enum below.
+pub trait Formula {
+    /// Java `Formula.eval(double noise)`.
+    fn eval(&self, noise: f64) -> f64;
+}
+
+impl Formula for NoiseFormula {
     fn eval(&self, noise: f64) -> f64 {
         match self {
             NoiseFormula::Normal => noise,
@@ -78,12 +83,12 @@ pub struct NoiseFormulaProperty {
     /// Java `protected final NoiseProperty property`.
     pub property: Rc<dyn NoiseProperty>,
     /// Java `protected final NoiseFormula.Formula formula`.
-    pub formula: Rc<dyn FormulaTrait>,
+    pub formula: Rc<dyn Formula>,
 }
 
 impl NoiseFormulaProperty {
     /// Java `NoiseFormulaProperty(NoiseProperty, NoiseFormula.Formula)`.
-    pub fn new(property: Rc<dyn NoiseProperty>, formula: Rc<dyn FormulaTrait>) -> Self {
+    pub fn new(property: Rc<dyn NoiseProperty>, formula: Rc<dyn Formula>) -> Self {
         Self { property, formula }
     }
 

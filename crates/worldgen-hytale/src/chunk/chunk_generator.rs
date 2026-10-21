@@ -72,6 +72,7 @@ use crate::zone::zone_generator_result::ZoneGeneratorResult;
 use crate::zone::zone_pattern_generator::ZonePatternGenerator;
 use crate::zone::zone_pattern_generator_cache::ZonePatternGeneratorCache;
 use crate::zone::zone_pattern_provider::ZonePatternProvider;
+use worldgen_model::registry::Registries;
 
 /// Java `ChunkGenerator.TINT_INTERPOLATION_RADIUS`.
 ///
@@ -139,6 +140,11 @@ pub struct ChunkGenerator {
     min_chunk_coord: i32,
     /// Java `private final int maxChunkCoord`.
     max_chunk_coord: i32,
+    /// The registry snapshot the generator was loaded with (the Java
+    /// generator reads the static CoreServer asset maps; the Rust port keeps
+    /// the golden dump alongside the loaded generator so the service can
+    /// reuse it instead of loading it a second time).
+    registries: Option<Rc<Registries>>,
     /// The origin of the cache's idle clock.
     created: Instant,
 }
@@ -169,6 +175,16 @@ impl ChunkGenerator {
     pub fn new(
         zone_pattern_provider: ZonePatternProvider,
         data_folder: Option<PathBuf>,
+    ) -> Rc<Self> {
+        Self::new_with_registries(zone_pattern_provider, data_folder, None)
+    }
+
+    /// [`ChunkGenerator::new`] with the registry snapshot the generator was
+    /// loaded with (see [`ChunkGenerator::get_registries`]).
+    pub fn new_with_registries(
+        zone_pattern_provider: ZonePatternProvider,
+        data_folder: Option<PathBuf>,
+        registries: Option<Rc<Registries>>,
     ) -> Rc<Self> {
         // Determine the number of chunks that large-scale features such as
         // caves may extend out from a given generating chunk and restrict the
@@ -211,6 +227,7 @@ impl ChunkGenerator {
                 cave_generator_cache,
                 unique_prefab_cache,
                 data_folder,
+                registries,
                 min_chunk_coord,
                 max_chunk_coord,
                 created: Instant::now(),
@@ -223,6 +240,16 @@ impl ChunkGenerator {
     ||                                               GETTERS / SETTERS                                               ||
     ||                                                                                                               ||
     \\ ============================================================================================================ */
+
+    /// The registry snapshot the generator was loaded with.
+    ///
+    /// Java reads the static `BlockType.getAssetMap()` / `Fluid.getAssetMap()`
+    /// / `Environment.getAssetMap()` instances; the Rust port loads the golden
+    /// dump once during `ChunkGeneratorJsonLoader::load` and keeps it here so
+    /// every execution of this generator shares the same snapshot.
+    pub fn get_registries(&self) -> Option<&Rc<Registries>> {
+        self.registries.as_ref()
+    }
 
     /// Java `Path getDataFolder()`.
     pub fn get_data_folder(&self) -> Option<&PathBuf> {
@@ -1062,7 +1089,7 @@ pub(crate) mod test_stubs {
     use std::rc::Rc;
 
     use procedural::noise::condition::IHeightThresholdInterpreter;
-    use procedural::noise::support::NoiseProperty;
+    use procedural::noise::property::NoiseProperty;
 
     use crate::biome::biome::Biome;
     use crate::biome::biome_interpolation::BiomeInterpolation;
@@ -1918,7 +1945,7 @@ mod tests {
             Some(vec![
                 crate::prefab::prefab_rotation::PrefabRotation::Rotation270,
             ]),
-            Rc::new(procedural::noise::support::AlwaysTrueIntCondition),
+            Rc::new(procedural::noise::condition::AlwaysTrueIntCondition),
             Rc::new(procedural::noise::condition::DefaultCoordinateCondition::True),
             Rc::new(procedural::noise::condition::ConstantBlockFluidCondition::True),
             anchor,

@@ -10,10 +10,10 @@
 use std::rc::Rc;
 
 use hytale_math::fast_random::FastRandom;
+use procedural::noise::condition::IIntCondition;
 use procedural::noise::condition::{
     IBlockFluidCondition, ICoordinateCondition, ICoordinateRndCondition,
 };
-use procedural::noise::support::IIntCondition;
 
 use crate::biome::biome::Biome;
 use crate::loader::util::{Vector2d, Vector3d};
@@ -234,10 +234,10 @@ impl UniquePrefabConfiguration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use procedural::noise::condition::AlwaysTrueIntCondition;
     use procedural::noise::condition::{
         ConstantBlockFluidCondition, DefaultCoordinateCondition, DefaultCoordinateRndCondition,
     };
-    use procedural::noise::support::AlwaysTrueIntCondition;
 
     /// A configuration with the defaults of the Java loader.
     fn configuration() -> UniquePrefabConfiguration {

@@ -9,7 +9,7 @@ use hytale_math::trig_math_util;
 
 // Java `procedurallib.property.NoiseProperty` (the interface) lives in
 // `support.rs` in the Rust port.
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `random.ICoordinateRandomizer`.
 pub trait ICoordinateRandomizer {

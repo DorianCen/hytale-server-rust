@@ -34,7 +34,8 @@ use crate::noise::cell::jitter::CellJitter;
 use crate::noise::cell::measurement_mode::MeasurementMode;
 use crate::noise::cell::point_distance_function::PointDistanceFunction;
 use crate::noise::condition::DoubleThresholdCondition;
-use crate::noise::support::{IDoubleCondition, IDoubleRange};
+use crate::noise::condition::IDoubleCondition;
+use crate::noise::supplier::IDoubleRange;
 
 /// Java `PointEvaluatorJsonLoader`.
 pub struct PointEvaluatorJsonLoader {

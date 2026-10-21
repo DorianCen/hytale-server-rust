@@ -11,7 +11,7 @@ use crate::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use crate::json::seed_string::SeedString;
 use crate::json::JsonLoaderBase;
 use crate::noise::condition::{IHeightThresholdInterpreter, NoiseHeightThresholdInterpreter};
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `NoiseHeightThresholdInterpreterJsonLoader.Constants`.
 mod constants {

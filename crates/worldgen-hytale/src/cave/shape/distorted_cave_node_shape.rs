@@ -727,8 +727,8 @@ fn get_middle_radius(
 mod tests {
     use super::*;
 
+    use procedural::noise::property::NoiseProperty;
     use procedural::noise::supplier::DoubleRange;
-    use procedural::noise::support::NoiseProperty;
 
     use crate::cave::shape::distorted::distorted_cylinder_shape::DistortedCylinderShape;
     use crate::cave::shape::distorted::distorted_shape::DEFAULT_INTERPOLATION;

@@ -418,6 +418,11 @@ pub struct WorldGenService {
     stats: Arc<Stats>,
     handles: Mutex<Vec<JoinHandle<()>>>,
     workers: usize,
+    /// The lowest chunk coordinate the loaded world can generate (Java
+    /// `ChunkGenerator.minChunkCoord`).
+    min_chunk_coord: i32,
+    /// The highest chunk coordinate the loaded world can generate.
+    max_chunk_coord: i32,
     shutting_down: AtomicBool,
     /// Serializes `submit` against `shutdown` (a request pushed after the
     /// workers drained the queue would otherwise hang forever).
@@ -430,7 +435,7 @@ impl WorldGenService {
         assert!(options.workers > 0, "the worker count must be positive");
         let queue = Arc::new(JobQueue::new());
         let stats = Arc::new(Stats::default());
-        let (ready_tx, ready_rx) = mpsc::channel::<Result<(), WorldGenError>>();
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<(i32, i32), WorldGenError>>();
         let mut handles = Vec::with_capacity(options.workers);
 
         for _ in 0..options.workers {
@@ -448,11 +453,15 @@ impl WorldGenService {
         drop(ready_tx);
 
         // Wait for every worker to load its generator (propagate the first
-        // load failure and stop the pool).
+        // load failure and stop the pool). Every worker loads the same world,
+        // so the first reported generatable-area bounds are used.
         let mut first_error: Option<WorldGenError> = None;
+        let mut bounds: Option<(i32, i32)> = None;
         for _ in 0..options.workers {
             match ready_rx.recv() {
-                Ok(Ok(())) => {}
+                Ok(Ok(loaded)) => {
+                    bounds.get_or_insert(loaded);
+                }
                 Ok(Err(error)) => {
                     first_error.get_or_insert(error);
                 }
@@ -470,6 +479,10 @@ impl WorldGenService {
             }
             return Err(error);
         }
+        let (min_chunk_coord, max_chunk_coord) = bounds.unwrap_or((
+            hytale_math::chunk_util::MIN_CHUNK_COORD,
+            hytale_math::chunk_util::MAX_CHUNK_COORD,
+        ));
 
         Ok(Self {
             queue,
@@ -477,6 +490,8 @@ impl WorldGenService {
             stats,
             handles: Mutex::new(handles),
             workers: options.workers,
+            min_chunk_coord,
+            max_chunk_coord,
             shutting_down: AtomicBool::new(false),
             submit_lock: Mutex::new(()),
         })
@@ -485,6 +500,20 @@ impl WorldGenService {
     /// The configured worker count.
     pub fn workers(&self) -> usize {
         self.workers
+    }
+
+    /// Java `ChunkGenerator.isChunkOutsideGeneratableArea(int x, int z)` for
+    /// the loaded world (the same bounds every worker loaded).
+    pub fn is_chunk_outside_generatable_area(&self, x: i32, z: i32) -> bool {
+        x < self.min_chunk_coord
+            || x > self.max_chunk_coord
+            || z < self.min_chunk_coord
+            || z > self.max_chunk_coord
+    }
+
+    /// The generatable chunk-coordinate range `(min, max)`.
+    pub fn generatable_chunk_bounds(&self) -> (i32, i32) {
+        (self.min_chunk_coord, self.max_chunk_coord)
     }
 
     /// The aggregated timings.
@@ -554,7 +583,7 @@ fn worker_main(
     stats: Arc<Stats>,
     config: WorldGenConfig,
     options: WorldGenOptions,
-    ready: Sender<Result<(), WorldGenError>>,
+    ready: Sender<Result<(i32, i32), WorldGenError>>,
 ) {
     let load = || -> Result<(Rc<ChunkGenerator>, Rc<Registries>), WorldGenError> {
         let mut loader = ChunkGeneratorJsonLoader::new(
@@ -568,15 +597,21 @@ fn worker_main(
             loader = loader.with_registries_path(registries_path);
         }
         let generator = loader.load();
-        // The generator does not retain its registry snapshot (the Java
-        // generator reads the static asset maps); the worker loads the same
-        // dump once more for the execution.
-        let registry = match &options.registries_path {
-            Some(path) => Registries::load_from(path)
-                .map_err(|error| WorldGenError::Load(error.to_string()))?,
-            None => Registries::load(),
+        // The loader keeps the registry snapshot on the generator (the Java
+        // generator reads the static asset maps); reuse that handle instead of
+        // loading the dump a second time per worker. Generators built without
+        // the loader (unit tests) have no snapshot, so fall back to a load.
+        let registry = match generator.get_registries() {
+            Some(registry) => Rc::clone(registry),
+            None => match &options.registries_path {
+                Some(path) => Rc::new(
+                    Registries::load_from(path)
+                        .map_err(|error| WorldGenError::Load(error.to_string()))?,
+                ),
+                None => Rc::new(Registries::load()),
+            },
         };
-        Ok((generator, Rc::new(registry)))
+        Ok((generator, registry))
     };
     let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(load));
     let (generator, registry) = match loaded {
@@ -591,7 +626,13 @@ fn worker_main(
             return;
         }
     };
-    if ready.send(Ok(())).is_err() {
+    if ready
+        .send(Ok((
+            generator.get_min_chunk_coord(),
+            generator.get_max_chunk_coord(),
+        )))
+        .is_err()
+    {
         return;
     }
 

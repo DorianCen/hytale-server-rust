@@ -6,7 +6,7 @@
 //! [`DistancePointEvaluator::with_double_range`] /
 //! [`DistancePointEvaluator::get_distance_modifier`]; `null` maps to
 //! `Option<...>::None`, `ISeedDoubleRange.DIRECT` maps to
-//! `support::DirectSeedDoubleRange`.
+//! [`crate::noise::supplier::DirectSeedDoubleRange`].
 
 use std::rc::Rc;
 
@@ -15,7 +15,7 @@ use hytale_math::hash_util;
 use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
 use crate::noise::cell::point_distance_function::PointDistanceFunction;
 use crate::noise::result_buffer::{ResultBuffer2d, ResultBuffer3d};
-use crate::noise::support::{DirectSeedDoubleRange, IDoubleRange, ISeedDoubleRange};
+use crate::noise::supplier::{DirectSeedDoubleRange, IDoubleRange, ISeedDoubleRange};
 
 /// Java `DistancePointEvaluator` — `protected final PointDistanceFunction distanceFunction`.
 #[derive(Clone)]

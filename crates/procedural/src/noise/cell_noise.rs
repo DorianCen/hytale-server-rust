@@ -17,8 +17,8 @@ use crate::noise::cell::evaluator::point_evaluator::PointEvaluator;
 use crate::noise::function::{NoiseFunction2d, NoiseFunction3d};
 use crate::noise::general_noise::limit;
 use crate::noise::math_util;
+use crate::noise::property::NoiseProperty;
 use crate::noise::result_buffer::{ResultBuffer2d, ResultBuffer3d};
-use crate::noise::support::NoiseProperty;
 use crate::noise::trig_math_util;
 
 /// Java `CellNoise.CellFunction` interface.

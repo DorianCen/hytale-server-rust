@@ -10,7 +10,7 @@ use crate::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use crate::json::seed_string::SeedString;
 use crate::json::JsonLoaderBase;
 use crate::noise::property::blend_noise_property::BlendNoiseProperty;
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `BlendNoisePropertyJsonLoader`.
 pub struct BlendNoisePropertyJsonLoader {

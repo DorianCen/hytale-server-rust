@@ -11,7 +11,7 @@ use std::rc::Rc;
 use procedural::noise::constant_noise::ConstantNoise;
 use procedural::noise::function::NoiseFunction;
 use procedural::noise::property::single_noise_property::SingleNoiseProperty;
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 /// Java `ConstantNoiseProperty.DEFAULT_ZERO` =
 /// `new SingleNoiseProperty(0, new ConstantNoise(0))`.

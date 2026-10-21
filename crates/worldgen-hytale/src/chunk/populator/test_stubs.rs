@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use procedural::noise::point::IPointGenerator;
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::result_buffer::{ResultBuffer2d, ResultBuffer3d};
-use procedural::noise::support::NoiseProperty;
 
 use crate::biome::biome_interpolation::BiomeInterpolation;
 use crate::biome::biome_pattern_generator::BiomePatternGenerator;

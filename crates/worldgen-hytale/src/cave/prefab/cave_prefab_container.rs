@@ -12,17 +12,17 @@
 use std::rc::Rc;
 
 use hytale_math::fast_random::FastRandom;
+use procedural::noise::condition::IIntCondition;
 use procedural::noise::condition::{ICoordinateCondition, ICoordinateRndCondition};
 use procedural::noise::supplier::IDoubleRange;
-use procedural::noise::support::IIntCondition;
 
 use crate::biome::biome::Biome;
 use crate::cave::cave_prefab_placement::CavePrefabPlacement;
 use crate::cave::element::cave_node::CaveNode;
 use crate::cave::prefab::cave_prefab_supplier::{CavePrefabKey, CavePrefabSupplier};
-use crate::supplier::IDoubleCoordinateHashSupplier;
 use crate::util::condition::BlockMaskCondition;
 use crate::weighted_map::IWeightedMap;
+use procedural::noise::supplier::IDoubleCoordinateHashSupplier;
 
 /// Java `class CavePrefabContainer`.
 pub struct CavePrefabContainer {
@@ -216,12 +216,12 @@ mod tests {
     use crate::cave::cave_prefab_placement::CavePrefabPlacement;
     use crate::cave::test_stubs::{cave_node_type, StubPrefabSupplier, StubShape};
     use crate::prefab::prefab_rotation::PrefabRotation;
-    use crate::supplier::ConstantDoubleCoordinateHashSupplier;
     use crate::util::bounds::WorldBounds;
     use crate::weighted_map::WeightedMap;
+    use procedural::noise::condition::AlwaysTrueIntCondition;
     use procedural::noise::condition::{DefaultCoordinateCondition, DefaultCoordinateRndCondition};
+    use procedural::noise::supplier::ConstantDoubleCoordinateHashSupplier;
     use procedural::noise::supplier::DoubleRange;
-    use procedural::noise::support::AlwaysTrueIntCondition;
 
     /// A config with the given iterations and placement.
     fn config(iterations: f64, placement: CavePrefabPlacement) -> CavePrefabConfig {

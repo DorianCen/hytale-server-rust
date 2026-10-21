@@ -171,7 +171,7 @@ mod tests {
     use crate::cave::test_stubs::{cave_node_type, StubPrefabSupplier, StubShape};
     use crate::prefab::prefab_rotation::PrefabRotation;
     use crate::util::condition::BlockMaskCondition;
-    use procedural::noise::support::AlwaysTrueIntCondition;
+    use procedural::noise::condition::AlwaysTrueIntCondition;
 
     /// A node with the given bounds, floor and ceiling.
     fn node(bounds: WorldBounds, floor: f64, ceiling: f64) -> Rc<CaveNode> {

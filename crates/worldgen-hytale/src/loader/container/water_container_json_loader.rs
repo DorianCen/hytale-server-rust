@@ -18,10 +18,10 @@ use procedural::json::noise_mask_condition_json_loader::NoiseMaskConditionJsonLo
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
 use procedural::noise::condition::{DefaultCoordinateCondition, ICoordinateCondition};
+use procedural::noise::property::NoiseProperty;
 use procedural::noise::supplier::{
     DoubleRange, DoubleRangeNoiseSupplier, IDoubleCoordinateSupplier,
 };
-use procedural::noise::support::NoiseProperty;
 
 /// Java `WaterContainerJsonLoader.Constants`.
 pub mod constants {

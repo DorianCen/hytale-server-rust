@@ -1,91 +1,23 @@
-// Support interfaces used by the noise core but defined in other Java packages
-// that are being ported separately.
+// Support utilities used by the noise core but defined in other Java packages.
 //!
-//! ⚠ NOTE(subagent): these mirror the following Java interfaces:
-//! - `procedurallib.condition.IIntCondition` / `IDoubleCondition`
-//! - `procedurallib.supplier.IDoubleRange` / `ISeedDoubleRange`
-//! - `procedurallib.property.NoiseProperty` (+ `NoiseFormulaProperty.NoiseFormula.Formula`)
-//! - `procedurallib.logic.point.PointConsumer`
-//! - `it.unimi.dsi.fastutil.HashCommon.nextPowerOfTwo(int)` helper
-//! - a minimal `org.joml.Vector2i`
+//! The trait definitions that used to live here have moved to the module of
+//! their Java package:
 //!
-//! They are kept here under the `noise` module namespace (no conflicting
-//! symbols with a future `procedural::condition` / `procedural::supplier` /
-//! `procedural::property` port). Integration task: wire the real modules into
-//! these seams. Only the members used by the noise code are declared (Java's
-//! other default methods of these interfaces are not needed by the noise core).
-
-/// Java `condition.IIntCondition` — `boolean eval(int value)`.
-pub trait IIntCondition {
-    /// Java `IIntCondition.eval(int value)`.
-    fn eval(&self, value: i32) -> bool;
-}
-
-/// Java `condition.IDoubleCondition` — `boolean eval(double value)`.
-pub trait IDoubleCondition {
-    /// Java `IDoubleCondition.eval(double value)`.
-    fn eval(&self, value: f64) -> bool;
-}
-
-/// Java `condition.IDoubleThreshold`.
-pub trait IDoubleThreshold {
-    /// Java `IDoubleThreshold.eval(double d)`.
-    fn eval(&self, d: f64) -> bool;
-    /// Java `IDoubleThreshold.eval(double d, double factor)`.
-    fn eval_factor(&self, d: f64, factor: f64) -> bool;
-}
-
-/// Java `supplier.IDoubleRange` — only the `double getValue(double)` overload
-/// is used by the noise core.
-pub trait IDoubleRange {
-    /// Java `IDoubleRange.getValue(double v)`.
-    fn get_value(&self, v: f64) -> f64;
-}
-
-/// Java `supplier.ISeedDoubleRange` — `double getValue(int seed, double value)`.
-pub trait ISeedDoubleRange {
-    /// Java `ISeedDoubleRange.getValue(int seed, double value)`.
-    fn get_value(&self, seed: i32, value: f64) -> f64;
-}
-
-/// Java `supplier.ISeedDoubleRange.DIRECT` — identity range.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DirectSeedDoubleRange;
-
-impl ISeedDoubleRange for DirectSeedDoubleRange {
-    #[inline]
-    fn get_value(&self, _seed: i32, value: f64) -> f64 {
-        value
-    }
-}
-
-/// Java int-condition accepting any value (used where Java writes `seed -> true`).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct AlwaysTrueIntCondition;
-
-impl IIntCondition for AlwaysTrueIntCondition {
-    #[inline]
-    fn eval(&self, _value: i32) -> bool {
-        true
-    }
-}
-
-/// Java `property.NoiseProperty` — noise sampled under an owned seed.
-/// Java defines `get(int seed, double x, double y)` and a 3d overload.
-pub trait NoiseProperty {
-    /// Java `NoiseProperty.get(int seed, double x, double y)`.
-    fn get(&self, seed: i32, x: f64, y: f64) -> f64;
-    /// Java `NoiseProperty.get(int seed, double x, double y, double z)`.
-    fn get_3d(&self, seed: i32, x: f64, y: f64, z: f64) -> f64;
-}
-
-/// Java `NoiseFormulaProperty.NoiseFormula.Formula` — `double eval(double noise)`.
-pub trait NoiseFormula {
-    /// Java `NoiseFormula.Formula.eval(double noise)`.
-    fn eval(&self, noise: f64) -> f64;
-}
+//! - `condition.IIntCondition` / `IDoubleCondition` / `IDoubleThreshold` →
+//!   [`crate::noise::condition`]
+//! - `supplier.*` (double/float ranges, coordinate suppliers) →
+//!   [`crate::noise::supplier`]
+//! - `property.NoiseProperty` / `NoiseFormulaProperty.NoiseFormula.Formula` →
+//!   [`crate::noise::property`]
+//!
+//! What remains are the small helpers the noise core needs but that have no
+//! Rust port of their Java type: the generic `PointConsumer` (replaced by
+//! closures), a minimal `org.joml.Vector2i`, and a `fastutil` helper.
 
 /// Java `logic.point.PointConsumer<T>` — `void accept(double x, double y, T t)`.
+///
+/// The Rust call sites use `&mut dyn FnMut(f64, f64)` instead (the Java
+/// generic pair `(T ctx, PointConsumer<T>)` becomes one closure).
 pub trait PointConsumer<T> {
     /// Java `PointConsumer.accept(double x, double y, T t)`.
     fn accept(&self, x: f64, y: f64, ctx: &mut T);

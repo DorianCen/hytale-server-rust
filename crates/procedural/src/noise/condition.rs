@@ -3,8 +3,8 @@
 //! Java `procedurallib.condition` package — value/coordinate/height-threshold
 //! conditions.
 //!
-//! The `IIntCondition` / `IDoubleCondition` traits live in
-//! [`crate::noise::support`]; this package provides the concrete classes.
+//! This package declares the `IIntCondition` / `IDoubleCondition` /
+//! `IDoubleThreshold` traits and provides the concrete classes.
 
 use std::rc::Rc;
 
@@ -12,7 +12,43 @@ use hytale_math::fast_random::FastRandom;
 use hytale_math::hash_util;
 
 use crate::noise::general_noise::fast_floor;
-use crate::noise::support::{IDoubleCondition, IDoubleThreshold, IIntCondition, NoiseProperty};
+use crate::noise::property::NoiseProperty;
+
+// ---------------------------------------------------------------------
+// condition interfaces
+// ---------------------------------------------------------------------
+
+/// Java `condition.IIntCondition` — `boolean eval(int value)`.
+pub trait IIntCondition {
+    /// Java `IIntCondition.eval(int value)`.
+    fn eval(&self, value: i32) -> bool;
+}
+
+/// Java `condition.IDoubleCondition` — `boolean eval(double value)`.
+pub trait IDoubleCondition {
+    /// Java `IDoubleCondition.eval(double value)`.
+    fn eval(&self, value: f64) -> bool;
+}
+
+/// Java `condition.IDoubleThreshold`.
+pub trait IDoubleThreshold {
+    /// Java `IDoubleThreshold.eval(double d)`.
+    fn eval(&self, d: f64) -> bool;
+    /// Java `IDoubleThreshold.eval(double d, double factor)`.
+    fn eval_factor(&self, d: f64, factor: f64) -> bool;
+}
+
+/// Java int-condition accepting any value (used where Java writes `seed ->
+/// true`).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct AlwaysTrueIntCondition;
+
+impl IIntCondition for AlwaysTrueIntCondition {
+    #[inline]
+    fn eval(&self, _value: i32) -> bool {
+        true
+    }
+}
 
 // ---------------------------------------------------------------------
 // int conditions

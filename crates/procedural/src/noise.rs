@@ -25,11 +25,14 @@
 //! | `logic/BranchNoise`                       | [`branch_noise`]                              |
 //! | `logic/cell/**`                           | [`cell`]                                      |
 //!
-//! Out-of-package support interfaces that the noise code depends on
-//! (`condition.IIntCondition` etc.) are provisionally defined in [`support`]
-//! because the `condition/`, `supplier/` and `property/` packages are ported
-//! separately; small `MathUtil`/`TrigMathUtil` helpers used here are
-//! provisionally local in [`math_util`] / [`trig_math_util`].
+//! The interfaces of the sibling Java packages live in their package modules:
+//! [`condition`] (`IIntCondition` / `IDoubleCondition` / `IDoubleThreshold`),
+//! [`supplier`] (double/float ranges and coordinate suppliers) and
+//! [`property`] (`NoiseProperty`, `Formula`). [`support`] keeps only the
+//! helpers with no Rust port of their Java type (the `Vector2i` stand-in, the
+//! generic `PointConsumer` and a fastutil helper); small
+//! `MathUtil`/`TrigMathUtil` helpers used here are local in [`math_util`] /
+//! [`trig_math_util`].
 
 pub mod branch_noise;
 pub mod cell;

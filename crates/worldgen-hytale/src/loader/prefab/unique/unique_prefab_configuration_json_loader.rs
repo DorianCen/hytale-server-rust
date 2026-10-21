@@ -209,7 +209,7 @@ impl UniquePrefabConfigurationJsonLoader {
     }
 
     /// Java `@Nullable IIntCondition loadBiomeMask()`.
-    fn load_biome_mask(&self) -> Rc<dyn procedural::noise::support::IIntCondition> {
+    fn load_biome_mask(&self) -> Rc<dyn procedural::noise::condition::IIntCondition> {
         if !self.base.has(constants::KEY_BIOME_MASK) {
             // Java: `ConstantIntCondition.DEFAULT_TRUE`.
             return Rc::new(procedural::noise::condition::ConstantIntCondition::DEFAULT_TRUE);

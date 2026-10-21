@@ -17,7 +17,7 @@ use procedural::json::noise_mask_condition_json_loader::NoiseMaskConditionJsonLo
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
 use procedural::noise::condition::ICoordinateCondition;
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 /// Java `TintContainerJsonLoader.Constants`.
 pub mod constants {

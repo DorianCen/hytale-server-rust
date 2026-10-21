@@ -9,7 +9,7 @@
 use std::rc::Rc;
 
 use procedural::noise::condition::IHeightThresholdInterpreter;
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 use crate::container::{
     CoverContainer, EnvironmentContainer, FadeContainer, LayerContainer, PrefabContainer,

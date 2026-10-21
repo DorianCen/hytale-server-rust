@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::cave::shape::shape_distortion::ShapeDistortion;
 use procedural::json::noise_property_json_loader::NoisePropertyJsonLoader;
 use procedural::json::{JsonLoaderBase, SeedString};
-use procedural::noise::support::NoiseProperty;
+use procedural::noise::property::NoiseProperty;
 
 /// Java `ShapeDistortionJsonLoader.Constants`.
 pub mod constants {

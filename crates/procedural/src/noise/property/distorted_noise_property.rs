@@ -3,8 +3,8 @@
 
 use std::rc::Rc;
 
+use crate::noise::property::NoiseProperty;
 use crate::noise::random::ICoordinateRandomizer;
-use crate::noise::support::NoiseProperty;
 
 /// Java `DistortedNoiseProperty` — warps the sample coordinates through an
 /// `ICoordinateRandomizer` before sampling.

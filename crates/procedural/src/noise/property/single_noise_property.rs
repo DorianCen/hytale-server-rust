@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::noise::function::{NoiseFunction, NoiseFunction2d, NoiseFunction3d};
 use crate::noise::general_noise::limit;
-use crate::noise::support::NoiseProperty;
+use crate::noise::property::NoiseProperty;
 
 /// Java `SingleNoiseProperty` — samples a `NoiseFunction` on `seed + seedOffset`,
 /// remapped from `[-1,1]` to `[0,1]`.
