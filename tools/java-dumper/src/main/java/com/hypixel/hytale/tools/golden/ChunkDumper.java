@@ -130,6 +130,18 @@ final class ChunkDumper {
      */
     private static final String EXTRACTED_DIR = "Assets/extracted";
 
+    /**
+     * The loader seed label. The vanilla provider
+     * ({@code HytaleWorldGenProvider.getGenerator}) always constructs
+     * {@code new SeedString<>("ChunkGenerator", ...)}, so that is the default
+     * (and the parity target). Set
+     * {@code -Dhytale.dumper.loaderSeed=<label>} to dump another convention
+     * (e.g. the per-seed {@code Integer.toString(seed)} used by the earlier
+     * Phase-2/loader dumps).
+     */
+    private static final String LOADER_SEED =
+        System.getProperty("hytale.dumper.loaderSeed", "ChunkGenerator");
+
     /** Set {@code -Dhytale.dumper.tint=true} to print the tint entries of one probe column. */
     private static final boolean DEBUG_TINT = Boolean.getBoolean("hytale.dumper.tint");
 
@@ -216,7 +228,7 @@ final class ChunkDumper {
         boolean firstChunk = true;
         for (int worldSeed : WORLD_SEEDS) {
             final SeedString<SeedStringResource> seed = new SeedString<>(
-                Integer.toString(worldSeed), new SeedStringResource(PrefabStoreRoot.DEFAULT, config));
+                LOADER_SEED, new SeedStringResource(PrefabStoreRoot.DEFAULT, config));
 
             final ChunkGenerator generator;
             try (final var ignored = FileIO.openFileIOSystem(new AssetFileSystem(config))) {
@@ -618,9 +630,9 @@ final class ChunkDumper {
             + "testdata/Default copy; the AssetFileSystem relativizes every path against the stub pack root)");
         w.name("worldPath").value(worldPath.toString());
         w.name("packRoot").value(assetRoot.toString());
-        w.name("load").value("the FULL ChunkGeneratorJsonLoader.load() PER SEED with SeedString(Integer.toString(seed)) "
-            + "+ SeedStringResource(PrefabStoreRoot.DEFAULT, config) — the golden seed-label convention of "
-            + "Phase2Dumper/LoaderDumper (the vanilla provider would use the constant \"ChunkGenerator\" label); "
+        w.name("load").value("the FULL ChunkGeneratorJsonLoader.load() PER SEED with SeedString(\""
+            + LOADER_SEED + "\") + SeedStringResource(PrefabStoreRoot.DEFAULT, config) — the "
+            + "vanilla HytaleWorldGenProvider seed label (override with -Dhytale.dumper.loaderSeed); "
             + "the load includes the prefab store (World.json PrefabStore) "
             + "and EventHandler.acquire(worldPath)");
         w.name("generate").value("new ChunkGeneratorExecution(seed, generator, generatedChunk).execute(seed) on "

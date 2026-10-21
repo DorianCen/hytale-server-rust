@@ -70,9 +70,10 @@ fn manifest_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// The loaded Default world for one seed — the same chain the Java dumper
-/// runs per seed (`SeedString(Integer.toString(seed))`).
-fn default_world(seed: i32) -> Rc<ChunkGenerator> {
+/// The loaded Default world — the same chain the Java dumper and the vanilla
+/// `HytaleWorldGenProvider` use (`SeedString("ChunkGenerator")`; the loader is
+/// seed-independent, the world seed is passed to the execution).
+fn default_world(_seed: i32) -> Rc<ChunkGenerator> {
     let root = manifest_root().join("../../testdata/Default");
     let config = worldgen_hytale::world_gen_config::WorldGenConfig::new(
         root,
@@ -81,7 +82,7 @@ fn default_world(seed: i32) -> Rc<ChunkGenerator> {
     );
     let loader =
         worldgen_hytale::loader::chunk_generator_json_loader::ChunkGeneratorJsonLoader::new(
-            procedural::json::SeedString::new(&seed.to_string()),
+            procedural::json::SeedString::new("ChunkGenerator"),
             config,
         );
     loader.load()

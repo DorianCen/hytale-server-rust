@@ -25,6 +25,11 @@ PARALLELISM="${DUMPER_PARALLELISM:-1}"
 # com.hypixel.hytale.tools.golden.RegistrySnapshot to exercise the live-server
 # snapshot writer standalone.
 MAIN_CLASS="${DUMPER_MAIN:-com.hypixel.hytale.tools.golden.GoldenDumper}"
+# Optional loader seed-label override for the chunk dump (see ChunkDumper).
+LOADER_SEED_OPT=""
+if [ -n "${DUMPER_LOADER_SEED:-}" ]; then
+    LOADER_SEED_OPT="-Dhytale.dumper.loaderSeed=${DUMPER_LOADER_SEED}"
+fi
 
 if [ ! -d "$SERVER_ROOT" ]; then
     echo "error: Java source root not found: $SERVER_ROOT" >&2
@@ -150,7 +155,7 @@ echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
 # which the parallel decodes finish. A single worker thread of the common fork
 # join pool makes that order deterministic (the tasks then run in submission
 # order), which is what makes the dumped registry ids reproducible.
-java -Djava.util.concurrent.ForkJoinPool.common.parallelism="$PARALLELISM" \
+java -Djava.util.concurrent.ForkJoinPool.common.parallelism="$PARALLELISM" $LOADER_SEED_OPT \
      -cp "$CP" "$MAIN_CLASS" "$OUT_DIR" "$WORLD_DIR" "$ROOT"
 
 echo "Done. Golden files:"

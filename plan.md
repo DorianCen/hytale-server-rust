@@ -95,16 +95,17 @@ hytale-server-rust/
 - [x] Architecture doc: Java class → Rust module mapping (`ARCHITECTURE.md`)
 
 ### Post-port backlog (outside the parity claim)
-Ordered list lives in [`NEXT_STEPS.md`](NEXT_STEPS.md):
-1. Wire the live-server registry snapshot exporter into a real server boot (exporter + validator landed; see `LIVE_SNAPSHOT.md`).
-2. Deferred by design (see `REMAINING.md`): modifier/event plugins, entities/components/ECS, world-map UI, `.lpf`.
+There is no open post-port work; see [`NEXT_STEPS.md`](NEXT_STEPS.md). Deferred
+by design (see `REMAINING.md`): modifier/event plugins,
+entities/components/ECS, world-map UI, `.lpf`.
 
 Closed after the port: the golden-regeneration determinism gate
 (`tools/java-dumper/check.sh`), the procedural/supplier seams and the
 duplicate per-worker registry load, the server chunk-provider adapter
 (`crates/worldgen-server`), the render goldens
-(`crates/worldgen-cli/tests/render_golden.rs`) and the release-mode baseline
-([`BENCHMARKS.md`](BENCHMARKS.md)).
+(`crates/worldgen-cli/tests/render_golden.rs`), the release-mode baseline
+([`BENCHMARKS.md`](BENCHMARKS.md)) and the live-server registry snapshot
+(`LIVE_SNAPSHOT.md`, `tools/live-snapshot-plugin`).
 
 ## Test strategy (cross-cutting)
 

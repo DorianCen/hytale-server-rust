@@ -1,0 +1,8 @@
+{
+  "Group": "Worldgen",
+  "Name": "RegistrySnapshot",
+  "Version": "1.0.0",
+  "Description": "Writes the live block/fluid/environment registries for the Rust world generator.",
+  "Main": "com.hypixel.hytale.plugins.registrysnapshot.RegistrySnapshotPlugin",
+  "ServerVersion": "*"
+}

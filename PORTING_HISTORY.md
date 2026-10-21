@@ -1124,3 +1124,38 @@ unchanged and still needs a real-server dump; see `NEXT_STEPS.md` §1.
   single-threaded-server shortcut and the limits.
 - Tests: `crates/worldgen-cli/tests/registries_cli.rs` (self-compare, pure id
   shifts accepted, missing block rejected).
+
+### Real-server boot: live registry snapshot + loader-label correction (2026-10-21)
+
+- The launcher's real server (`.../release/package/game/latest/Server/HytaleServer.jar`)
+  was booted headlessly (`--bare --auth-mode offline --disable-sentry`) with the
+  new `tools/live-snapshot-plugin`. Its `start()` runs after
+  `AssetRegistryLoader.loadAssets`; the plugin wrote a live snapshot of the
+  static CoreServer maps (6,138 blocks / 19 fluids / 135 environments).
+- Snapshot vs canonical dump: the live boot has the three blocks the golden
+  dump lacked (`ExamplePrefabPlacementBlock_Tree`, `PortalKey_The_Deepworks`,
+  `PortalKey_Goblin_Breach`), no name/metadata differences, and 6,130 block
+  id shifts from the parallel decode order. `worldgen-cli registries
+  --compare` reports this cleanly (`REMAINING.md` §6).
+- **Critical loader-label finding.** `HytaleWorldGenProvider.getGenerator`
+  constructs `new SeedString<>("ChunkGenerator", ...)`, but the chunk dumper
+  used `SeedString(Integer.toString(seed))` (a Phase-2/loader-dump convention,
+  acknowledged in its meta). The first live-snapshot chunk comparison failed
+  on tint/terrain because of that label, not because of the registry.
+  `ChunkDumper` now defaults to `"ChunkGenerator"` (override:
+  `-Dhytale.dumper.loaderSeed` / `DUMPER_LOADER_SEED`), `chunks.json` was
+  regenerated, and `tests/chunks_golden.rs` + `generation_smoke.rs` use the
+  provider label. The full 21-chunk parity test passes on the new dump.
+- The dumper's shadowed `BsonPrefabBufferDeserializer` (entities/components
+  skipped) had been deleted in `688aff9`; it was restored because the
+  `"ChunkGenerator"` label loads a prefab whose vanilla entity decode fails in
+  the dumper's stub boot. The golden output is unchanged by the shadow class
+  (only the entity/component fields are skipped, as `REMAINING.md` §2 says).
+- **End-to-end validation.** Generating the seven seed-0 reference chunks with
+  `worldgen-cli generate --registries <live snapshot>` and comparing by name
+  against the Java golden dump gave **0 mismatches over 2,293,760 voxels**
+  (block/fluid names, rotation, filler, fluid level) and 0 tint mismatches.
+  The live snapshot path is therefore verified; see `LIVE_SNAPSHOT.md` and
+  `tools/live-snapshot-plugin/README.md`.
+- Gates: `tools/java-dumper/check.sh` (two runs, byte-identical, matches the
+  committed dump), `cargo test --workspace`, clippy and fmt.

@@ -124,12 +124,14 @@ is explicitly **deferred** and not ported:
   generation time, so a production server integration must hand the port its
   **own** registry snapshot (the same `registries.json` schema, via
   `with_registries_path` / `WorldGenOptions::registries_path`). The exporter
-  is implemented (`RegistrySnapshot` in `tools/java-dumper`, plus the
-  `worldgen-cli registries --compare` validator); only the call from a real
-  server boot is still outstanding (no server runtime in this workspace).
-  See [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md); the caveat stays open in
-  `NEXT_STEPS.md` §1. Names, structure and the generation logic are
-  unaffected.
+  is implemented (`RegistrySnapshot` in `tools/java-dumper` and the
+  `tools/live-snapshot-plugin` server plugin) and was verified against a real
+  server boot: 6,138 live blocks vs the golden 6,135 (the three missing
+  prefab/portal blocks), no name/metadata differences, and 0 differing voxels
+  over 2,293,760 voxels when generating the reference chunks with the live
+  snapshot. See [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md). There is no single
+  canonical order to verify against — that is the point of the caveat.
+  Names, structure and the generation logic are unaffected.
 - **Known gap:** the prefab list assets (`Server/PrefabList`) cannot be
   decoded without the prefab store, so the single block type that references
   such a list (`ExamplePrefabPlacementBlock_Tree`) is missing from the dump.

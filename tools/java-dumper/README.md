@@ -75,7 +75,9 @@ stale or hand-edited golden file is caught. This is the gate referenced in
 `NEXT_STEPS.md` and `ARCHITECTURE.md` §6.
 
 The canonical dump runs the asset pipeline with `common.parallelism=1`
-(`DUMPER_PARALLELISM=1`, the default). `run.sh` accepts
+(`DUMPER_PARALLELISM=1`, the default). The chunk dump uses the vanilla
+provider label `SeedString("ChunkGenerator")`; `DUMPER_LOADER_SEED=<label>`
+overrides it (e.g. to reproduce the earlier per-seed convention). `run.sh` accepts
 `DUMPER_PARALLELISM=<n>` for the registry-order investigation: with parallel
 decode, a few sibling block ids (and `Lava`/`Tar`) swap between runs — see
 the `meta` block of `registries.json` and `REMAINING.md` §6.

@@ -246,7 +246,8 @@ samples are now **0** deviations).
 
 ### `chunks.json`
 Whole generated chunks of the Default world through the **real** Java pipeline
-(`ChunkGeneratorExecution.execute`): seeds `0 / 1 / 42` × chunks
+(`ChunkGeneratorExecution.execute`) with the vanilla provider's loader label
+`SeedString("ChunkGenerator")`: seeds `0 / 1 / 42` × chunks
 `(0,0), (4,-5), (9,4), (7,3), (-12,-25), (16,-8), (30,15)`. Per voxel the dump
 records block id + rotation + filler, fluid id + level, environment id and the
 `BlockPriorityChunk` priority byte, compactly run-length encoded per column

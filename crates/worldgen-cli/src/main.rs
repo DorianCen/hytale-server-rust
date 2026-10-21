@@ -590,10 +590,7 @@ fn compare_registries(left: &Registries, right: &Registries, right_path: &Path) 
             None => {
                 extra += 1;
                 if extra <= 10 {
-                    println!(
-                        "only in {}: block '{name}' (id {left_index})",
-                        right_path.display()
-                    );
+                    println!("only in the first snapshot: block '{name}' (id {left_index})");
                 }
             }
             Some((right_index, right_info)) => {
@@ -604,8 +601,7 @@ fn compare_registries(left: &Registries, right: &Registries, right_path: &Path) 
                     metadata += 1;
                     if metadata <= 10 {
                         println!(
-                            "block metadata differs: '{name}' ({}: {left_info:?}, {}: {right_info:?})",
-                            right_path.display(),
+                            "block metadata differs: '{name}' (first: {left_info:?}, {}: {right_info:?})",
                             right_path.display()
                         );
                     }

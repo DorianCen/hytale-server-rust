@@ -52,7 +52,7 @@ fn manifest_root() -> PathBuf {
 fn default_world() -> Rc<ChunkGenerator> {
     let root = manifest_root();
     let config = WorldGenConfig::new(root, "Default".to_string(), "0.0.0".to_string());
-    let loader = ChunkGeneratorJsonLoader::new(SeedString::new("0"), config);
+    let loader = ChunkGeneratorJsonLoader::new(SeedString::new("ChunkGenerator"), config);
     loader.load()
 }
 
@@ -203,15 +203,15 @@ fn the_default_world_chunk_priority_histogram_is_pinned() {
     assert_eq!(
         histogram,
         vec![
-            (0, 204871), // NONE
-            (1, 2493),   // FILLING
-            (2, 93930),  // LAYER
-            (3, 511),    // COVER
-            (5, 187),    // CAVE_COVER
-            (6, 15892),  // CAVE
-            (7, 1312),   // CAVE_PREFAB
-            (8, 8462),   // PREFAB_CAVE
-            (9, 22),     // PREFAB
+            (0, 208688), // NONE
+            (1, 152),    // FILLING
+            (2, 88375),  // LAYER
+            (3, 121),    // COVER
+            (5, 540),    // CAVE_COVER
+            (6, 15025),  // CAVE
+            (7, 1026),   // CAVE_PREFAB
+            (8, 12754),  // PREFAB_CAVE
+            (9, 999),    // PREFAB
         ],
         "the priority histogram of the Default world chunk (0, 0) changed"
     );

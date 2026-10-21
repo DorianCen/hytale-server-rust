@@ -3,7 +3,7 @@
 This document maps the original Java world generator (`.hytale-source/hytale-shared-source/HytaleServer/{Math,ProceduralLibrary,WorldGenerator,CoreServer}`) onto the Rust workspace in `crates/`.
 
 - **Goal:** bit-exact generation — same seed + same world assets + same registry dump ⇒ identical chunk bytes.
-- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches and the `worldgen-server` chunk-provider adapter. The remaining post-port backlog (a live-server registry snapshot) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md); release-mode numbers are in [`BENCHMARKS.md`](BENCHMARKS.md).
+- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches, the `worldgen-server` chunk-provider adapter and the live-server registry snapshot. There is no open post-port work ([`NEXT_STEPS.md`](NEXT_STEPS.md)); release-mode numbers are in [`BENCHMARKS.md`](BENCHMARKS.md).
 - **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`BENCHMARKS.md`](BENCHMARKS.md) (release-mode baseline), [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md) (live-server registry snapshot), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
 
 Paths in the tables are relative to the repository root. A row maps one Java class, or a tightly coupled class family where the Rust port merges them; grouped rows list **every** Rust file they cover.
@@ -39,6 +39,7 @@ hytale-server-rust/
 │   ├── Default/                   # Default world JSON assets
 │   └── golden/                    # Java-produced golden dumps
 ├── tools/java-dumper/             # Java golden-data producer (`run.sh`)
+├── tools/live-snapshot-plugin/    # Hytale server plugin exporting the live registries
 └── Assets/extracted/              # optional unpacked asset pack (prefabs)
 ```
 
@@ -332,6 +333,7 @@ Java root: `CoreServer/src/main/java/com/hypixel/hytale/server/core/**` plus the
 | `crates/worldgen-hytale/benches/prefab_weights.rs` | Criterion port of the Java `PrefabWeightsBenchmark`. |
 | `crates/worldgen-server/src/lib.rs` | Server-facing `ChunkProvider` trait + `WorldGenChunkProvider`: maps `IWorldGen.generate(seed, index, x, z, stillNeeded, priority)` onto `WorldGenRequest` and shutdown onto the service. |
 | `tools/java-dumper/.../RegistrySnapshot.java` | Writes the live CoreServer block/fluid/environment maps in the `registries.json` schema for a running server (see `LIVE_SNAPSHOT.md`). |
+| `tools/live-snapshot-plugin/` | Hytale server plugin calling the same exporter from `JavaPlugin.start()` after the asset load; captures the server's own ids (verified end-to-end, `LIVE_SNAPSHOT.md`). |
 
 ---
 
@@ -436,7 +438,7 @@ caller ──WorldGenRequest{seed,x,z,priority,cancel}──► WorldGenService
 
 ## 4. Determinism and bit-exactness contract
 
-**Contract:** for a fixed world asset tree, fixed `"ChunkGenerator"` seed label, fixed seed and fixed golden registry dump, `generate_chunk` returns byte-identical `GeneratedChunk` data to the Java pipeline. Concurrency affects *scheduling*, never *content*.
+**Contract:** for a fixed world asset tree, the vanilla `"ChunkGenerator"` seed label, a fixed seed and a fixed registry snapshot, `generate_chunk` returns byte-identical `GeneratedChunk` data to the Java pipeline. The golden chunk dump uses exactly that label (the earlier per-seed convention was removed in the 2026-10-21 live-server session); concurrency affects *scheduling*, never *content*.
 
 Rules that must hold:
 
@@ -460,7 +462,7 @@ Verification matrix (must stay green):
 | `crates/worldgen-hytale/tests/loader_golden_dump.rs` | `loader.json` | Zones, biomes, containers, caves, seed offsets |
 | `crates/worldgen-hytale/tests/loader_caves_golden.rs` | `loader.json` (`caves`) | Cave entry-point seed chains |
 | `crates/worldgen-hytale/tests/loader_zones.rs`, `crates/worldgen-hytale/tests/loader_caves.rs`, `crates/worldgen-hytale/tests/loader_context.rs`, `crates/worldgen-hytale/tests/prefab_files.rs`, `crates/worldgen-hytale/tests/unique_prefabs.rs` | world assets | Focused loader/store checks |
-| `crates/worldgen-hytale/tests/chunks_golden.rs` | `chunks.json` | **21 chunks / 21,504 columns bit-exact** (tint, zone, biome, environments, every block/fluid/priority voxel incl. caves/covers/prefabs) |
+| `crates/worldgen-hytale/tests/chunks_golden.rs` | `chunks.json` | **21 chunks / 21,504 columns bit-exact** under the vanilla `SeedString("ChunkGenerator")` label (tint, zone, biome, environments, every block/fluid/priority voxel incl. caves/covers/prefabs) |
 | `crates/worldgen-hytale/tests/world_gen_service.rs` | — | Worker-pool output == direct output; cancellation; shutdown; custom registry-snapshot path |
 | `crates/worldgen-server/tests/provider.rs` | `chunks.json` parity via the direct path | Adapter output == direct output; `stillNeeded`; cancellation token; drain-on-shutdown; object safety |
 | `crates/worldgen-cli/tests/render_golden.rs` | `testdata/golden/render/*.png` | Visual regression of the fixed height / zone / biome renders (pixel-exact) |
@@ -486,7 +488,7 @@ These are intentional and are repeated in module-level `//!` notes where relevan
 | Core-data cache | `ChunkGeneratorCache` shared across threads | Private cache twin inside `ChunkGenerator` | The ported `moka` cache closures are `Send + Sync`, incompatible with the `Rc` graph; same value semantics. |
 | Chunk representation | `GeneratedChunk` → 10 lazy `GeneratedChunkSection`s with palettes | Flat `Vec` block/rotation/filler/tint/environment/fluid arrays laid out y-major, then z, then x | Same observable values, no ECS `Holder<ChunkStore>`/palette machinery. |
 | ECS / entities | `GeneratedEntityChunk`, entity components, `BlockPhysics.setSupportValue`, `BiomeDataSystem` | Not ported; entity chunk and physics are no-ops | Generation-only scope (`plan.md`, `REMAINING.md`). Prefab entities/components are parsed and skipped. |
-| Registries | Live CoreServer asset pipeline (`BlockType.getAssetMap()`, `Fluid.getAssetMap()`) | `Registries` loaded from `testdata/golden/registries.json` (`Registries::load/from_golden`) | The base-game pack is not in the source tree. Ids are pinned to the dumper's canonical single-threaded load order; diff against a real-server dump when available. |
+| Registries | Live CoreServer asset pipeline (`BlockType.getAssetMap()`, `Fluid.getAssetMap()`) | `Registries` loaded from a `registries.json` snapshot (`Registries::load/from_golden`); the committed dump is the canonical test reference | The base-game pack is not in the source tree. Ids are scheduling-dependent in the vanilla parallel decode, so a server passes its own snapshot via `WorldGenOptions::registries_path`; verified against a live server boot (`LIVE_SNAPSHOT.md`). |
 | Serialization | gson + Hytale `Codec` framework | `serde_json` + hand-written validation/defaults | The 77 Java loader classes become plain Rust loaders; explicit defaults preserve Java behavior. |
 | Modifier plugin | `WorldGenModifier`, events, content ops | Not ported | Deferred scope (`REMAINING.md`). |
 | World map | `map/GeneratorChunkWorldMap.java` | Not ported; `render-map` samples `get_height`/`get_zone_biome_result_at` directly | Visualisation only, no generation impact. |
@@ -561,6 +563,7 @@ After regenerating, run `cargo test --workspace` (and the clippy command above).
 | Debug prefab placement | `crates/worldgen-hytale/src/chunk/populator/prefab_populator.rs`, `crates/worldgen-hytale/src/prefab/prefab_paste_util.rs` |
 | Understand write arbitration | `crates/worldgen-model/src/block_priority.rs` |
 | See what blocks/fluids exist | `crates/worldgen-model/src/registry.rs`, `testdata/golden/registries.json` |
+| Capture a live server's registries | `tools/live-snapshot-plugin/README.md`, `LIVE_SNAPSHOT.md` |
 | Run a headless generation | `crates/worldgen-cli/src/main.rs` |
 | See release-mode performance | `BENCHMARKS.md`, `crates/worldgen-hytale/benches/` |
 | Integrate generation into a server | `crates/worldgen-server/src/lib.rs`, `LIVE_SNAPSHOT.md` |

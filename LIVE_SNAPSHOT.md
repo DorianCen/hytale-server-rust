@@ -9,9 +9,36 @@ order (measured: sibling block ids such as `2591 ↔ 2592`, and `Lava`/`Tar`
 `13 ↔ 14`; see `REMAINING.md` §6).
 
 A server that wants the generated ids to match **its own** asset maps must
-hand the port a snapshot taken from the running server.
+hand the port a snapshot taken from the running server. This was verified
+against a real 2026-10-21 server boot: the snapshot is structurally identical
+to the golden dump (the live server adds three prefab-list/portal-key blocks
+and shifts sibling ids) and generated **0 differing voxels over 2,293,760
+voxels** (block/fluid names, rotations, fillers, levels and tint) against the
+Java golden chunks.
 
-## 1. Java server: write the snapshot at boot
+## 1. Capture the snapshot
+
+### 1a. Ready-made plugin (recommended)
+
+[`tools/live-snapshot-plugin`](tools/live-snapshot-plugin/README.md) is a
+minimal server plugin that dumps in `start()` (after the asset load,
+including mods):
+
+```sh
+tools/live-snapshot-plugin/build.sh
+mkdir -p run/mods && cp tools/live-snapshot-plugin/target/RegistrySnapshotPlugin.jar run/mods/
+cd run
+java -Dworldgen.snapshot.output=/tmp/worldgen-registries.json \
+     -Dworldgen.snapshot.shutdown=true \
+     -jar /path/to/HytaleServer.jar --assets /path/to/Assets.zip \
+     --bare --auth-mode offline --disable-sentry
+```
+
+`--bare --auth-mode offline` is enough for a headless capture (the core
+`PermissionsModule` logs an unrelated `mod_error` in bare mode after the
+plugin manager starts; the snapshot is already written).
+
+### 1b. From your own server code
 
 `tools/java-dumper` contains `RegistrySnapshot`, a small exporter that reads
 the already-loaded static CoreServer maps (it does not boot anything):
@@ -41,8 +68,9 @@ source tree. It only uses public CoreServer APIs (`BlockType`, `Fluid`,
 `Environment`) plus that writer.
 
 A live snapshot also **closes the known golden gap**: the server has the
-prefab-list store loaded, so `ExamplePrefabPlacementBlock_Tree` is present
-(6,136 blocks instead of 6,135 for the vanilla pack).
+prefab-list and portal stores loaded, so the vanilla boot contains
+`ExamplePrefabPlacementBlock_Tree` plus the two `PortalKey_*` blocks
+(6,138 blocks instead of the golden 6,135).
 
 ### Standalone (no server) exercise
 
@@ -94,12 +122,15 @@ worldgen-cli registries \
   --compare testdata/golden/registries.json
 ```
 
-Output (example run; the swap count varies with scheduling):
+Output of the real-server capture (the swap count varies with scheduling):
 
 ```text
-run/worldgen-registries.json: 6135 blocks, 19 fluids, 135 environments
+/tmp/worldgen-registries.json: 6138 blocks, 19 fluids, 135 environments
 testdata/golden/registries.json: 6135 blocks, 19 fluids, 135 environments
-blocks: 12 id swaps, 0 metadata differences, 0 only in the first snapshot, 0 only in testdata/golden/registries.json
+only in the first snapshot: block 'PortalKey_Goblin_Breach' (id 482)
+only in the first snapshot: block 'ExamplePrefabPlacementBlock_Tree' (id 313)
+only in the first snapshot: block 'PortalKey_The_Deepworks' (id 942)
+blocks: 6130 id swaps, 0 metadata differences, 3 only in the first file, 0 only in testdata/golden/registries.json
 fluids: 0 id swaps, 0 max-level differences, 0 only in the first snapshot, 0 only in testdata/golden/registries.json
 environments: 0 id swaps, 0 only in the first snapshot, 0 only in testdata/golden/registries.json
 structurally identical (names and block/fluid metadata match)
@@ -114,7 +145,23 @@ A different name set, a different `drawType`/`opacity`/`support`, or a
 different `maxFluidLevel` is structural and exits non-zero — that means the
 snapshot came from a different pack/code, not just a different scheduling.
 
-## 4. Shortcut: single-threaded vanilla server
+## 4. End-to-end verification (real server, 2026-10-21)
+
+- Live server: the plugin captured 6,138 blocks / 19 fluids / 135
+  environments; name sets and every observable block/fluid metadata field are
+  identical to the golden dump (three extra prefab/portal blocks; 6,130 block
+  ids shifted by scheduling).
+- Rust generation: `worldgen-cli generate --registries <live snapshot>` for
+  the seven seed-0 reference chunks, then name-translated comparison against
+  `testdata/golden/chunks.json`: **0 mismatches over 2,293,760 voxels**
+  (block name, rotation, filler, fluid name, fluid level) and **0 tint
+  mismatches**.
+- The golden chunk dump itself was corrected in the same session: it now uses
+  the vanilla provider's `SeedString("ChunkGenerator")` label instead of the
+  earlier per-seed `Integer.toString(seed)` convention. `tests/chunks_golden.rs`
+  and `generation_smoke.rs` were updated and pass on all 21 chunks.
+
+## 5. Shortcut: single-threaded vanilla server
 
 If the server is vanilla (no mods) and you want to keep using the committed
 dump, start it with
@@ -128,12 +175,12 @@ comparison is structurally identical (and the ids match the dump), the
 committed snapshot is authoritative for that setup. Mods that add block types
 always require their own snapshot.
 
-## 5. What this does not solve
+## 6. What this does not solve
 
 - It does not port the asset pipeline to Rust; it assumes an existing live
   asset boot (Java today, a future Rust server's own pipeline later).
 - It does not make the *golden* chunk ids match a parallel server; it makes
   the port use the server's ids. The parity tests keep using the canonical
-  single-threaded dump.
+  single-threaded dump (and are now verified under the server's loader label).
 - It does not add the prefab entities/components that are deferred in
   `REMAINING.md`; the snapshot only covers the registries.
