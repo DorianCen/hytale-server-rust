@@ -92,6 +92,14 @@ hytale-server-rust/
 - [x] `HytaleWorldGenProvider` config semantics (Name/Version/Path, legacy `World.json` rule, traversal guard) for world-config compatibility
 - [x] Architecture doc: Java class → Rust module mapping (`ARCHITECTURE.md`)
 
+### Post-port backlog (outside the parity claim)
+Ordered list lives in [`NEXT_STEPS.md`](NEXT_STEPS.md#what-comes-next-post-port-backlog-priority-order):
+1. Verify the dumped registry ids against a real vanilla-server load.
+2. Add a golden-regeneration determinism gate (`tools/java-dumper/run.sh` twice).
+3. Retire the remaining structural seams (`supplier.rs` move, duplicate registry load per worker).
+4. Server adapter around `WorldGenService`; visual-regression PNGs; release-mode benchmarks.
+5. Deferred by design (see `REMAINING.md`): modifier/event plugins, entities/components/ECS, world-map UI, `.lpf`.
+
 ## Test strategy (cross-cutting)
 
 - **Golden parity harness** (Phase 1 onward): Java side dumps JSON/bytes for fixed inputs; Rust asserts equality — the backbone of bit-exact verification.

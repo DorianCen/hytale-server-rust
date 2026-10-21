@@ -1,6 +1,6 @@
-# Next steps — continuation roadmap (updated 2026-10-21)
+# Next steps — continuation roadmap & post-port backlog (updated 2026-10-21)
 
-Status (2026-10-21, end of the chunk-parity session): Phase 0 + Phase 1
+Status (2026-10-21, end of the Phase 6 session): Phase 0 + Phase 1
 complete and golden-verified. Phase 2 zoom/climate golden-verified (Subtask 6).
 Subtasks 1–4, 6 and 7 (incl. 7d) DONE; Phase 3 terrain/water populators DONE;
 Phase 4 caves DONE (4a–4e); Phase 5a/5b/5c DONE (the prefab package, the
@@ -17,8 +17,8 @@ green. **Phase 6 (integration & polish) is DONE**: `WorldGen` /
 `WorldGenService` worker pool with cancellation and stage timings, the
 `HytaleWorldGenProvider` config semantics, the `worldgen-cli` commands,
 criterion benchmarks and `ARCHITECTURE.md` all landed. The port is feature
-complete; remaining risks are tracked at the end of this file. This file lists
-the work in dependency order, sized for ~200k-context subagent runs.
+complete; the **post-port backlog** is the last section of this file. The
+earlier sections remain the implementation history and the regression contract.
 Free-model pool (subagents):
 `opencode/minimax-m3.1-flash-free`, `opencode/longcat-2.5-preview-free`,
 `opencode/deepseek-v4.1-flash-free`, `opencode/glm-5.3-flash-free` — note
@@ -987,3 +987,80 @@ test/dumper bugs plus several seed/noise bugs:
   `ChunkDumper`/`ChunkProbe` runs the full Java pipeline for the fixed
   seeds/chunks; `tests/chunks_golden.rs` compares 21,504 columns bit-exactly
   and is no longer ignored.
+
+## What comes next (post-port backlog, priority order)
+
+The port is feature complete and bit-exact against the current golden data.
+Nothing below is required for that claim; the list is ordered by how much it
+strengthens or extends it.
+
+### 1. Verify the registry ids against a real server (highest value)
+- **Why**: the block / fluid / environment ids are pinned to the dumper's
+  single-threaded asset-load order. Every chunk is bit-exact *through that id
+  mapping*; a different real-server load order would shift the numeric ids
+  (the names and generated structure would stay correct).
+- **How**: boot a vanilla server with the same `Assets/Assets.zip`, dump
+  `BlockType` / `Fluid` / `Environment` `getAssetMap()` ids (the
+  `RegistryDumper` logic) and diff against `testdata/golden/registries.json`.
+  If the order differs, regenerate the dump from the real server and re-run
+  `tests/chunks_golden.rs`.
+- **Exit criterion**: the id-order caveat in `REMAINING.md` §6 and the
+  `registries.json` `meta` block can be removed.
+
+### 2. Golden-regeneration gate
+- **Why**: the golden files are only trustworthy if the dumper still produces
+  byte-identical output after a Java/asset change.
+- **How**: `tools/java-dumper/run.sh` (all nine dumps) plus a CI step that
+  runs it twice and fails on a diff (the current session verified
+  `ChunkProbe` md5-identical: `c6690b19…`).
+- **Exit criterion**: a documented one-command regen + determinism check, and
+  the golden files regenerated from the same asset pack revision.
+
+### 3. Clean up the remaining structural seams
+- Move `crates/worldgen-hytale/src/supplier.rs` (`IFloatRange`, the
+  coordinate-hash suppliers) into `procedural::noise::supplier` and retire the
+  reduced `procedural::noise::support` seams where the full ports exist.
+- Thread the generator's actual `Rc<Registries>` back into
+  `WorldGenService` workers instead of loading the dump a second time (add a
+  `ChunkGenerator::registries()` accessor or return it from the loader).
+- **Exit criterion**: no duplicated registry load per worker; the seam notes
+  in `supplier.rs` / `support.rs` are gone; workspace green.
+
+### 4. Server/adapter integration
+- **Why**: `WorldGen` is the documented boundary (`REMAINING.md` §3), but no
+  real server adapter consumes it yet.
+- **How**: implement a thin adapter around `WorldGenService` (or
+  `ChunkGeneratorWorldGen`) for the target server's chunk provider; map its
+  chunk priorities onto `WorldGenRequest::priority` and its cancellation onto
+  the `Arc<AtomicBool>` token.
+- **Exit criterion**: a server can request chunks without touching the
+  worldgen internals; graceful shutdown drains in-flight work.
+
+### 5. Visual-regression artefacts (optional)
+- `worldgen-cli render-map` already produces height / zone / biome PNGs;
+  add a small golden-image test (fixed seed, fixed region, pixel diff) for
+  the mask / biome / cave-slice views. The numeric chain is already covered
+  bit-exactly, so this is a usability/regression nicety, not parity evidence.
+
+### 6. Performance baseline (optional)
+- Record release-mode `worldgen-cli bench` and `cargo bench` numbers
+  (`prefab_weights`, `cache`) on the reference machine; tune the worker count
+  and note the per-worker world-load cost. Debug builds are ~20× slower for
+  the prefab-heavy chunks — always benchmark with `--release`.
+
+### 7. Deferred scope (do not implement unless the scope changes)
+- Modifier/event plugin system, prefab entities + block components/ECS
+  serialization, CoreServer plugin lifecycle, world-map UI, `.lpf` binary
+  format — all documented in `REMAINING.md`. These are intentional exclusions,
+  not gaps in the port.
+
+### Regression contract (must stay green)
+```sh
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+# Java side (optional, needs the asset pack):
+tools/java-dumper/run.sh
+```
+`tests/chunks_golden.rs` is the definitive parity gate (21 chunks /
+21,504 columns, every block / fluid / environment / priority byte).
