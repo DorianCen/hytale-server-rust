@@ -14,7 +14,9 @@ tools/java-dumper/check.sh     # run twice in isolation + diff the committed fil
 
 `check.sh` is the determinism gate: it runs the dumper twice into temporary
 directories and fails if the two runs differ or if the committed files are
-stale. It needs the same prerequisites as `run.sh` (JDK 25, Maven, the Java
+stale. It runs with the canonical single-threaded decode; `run.sh` accepts
+`DUMPER_PARALLELISM=<n>` to reproduce the scheduling-dependent registry ids
+(see the `registries.json` caveat below). It needs the same prerequisites as `run.sh` (JDK 25, Maven, the Java
 source tree and, for the registry/chunk dumps, the asset pack).
 
 The dumper compiles the already-compiled upstream classes (read-only, under
@@ -222,8 +224,15 @@ pipeline with a single worker thread of the common fork join pool, because the
 vanilla pipeline collects the parallel decode results in a `ConcurrentHashMap` whose
 iteration order would otherwise depend on the thread scheduling.
 
-The ids are pinned to the load order this dumper observed; they are only identical
-to a real server's ids when the real server loads the same pack in the same order.
+The ids are pinned to the canonical **single-threaded** load order of this
+dumper. They are not a real server's ids: the vanilla pipeline decodes in
+parallel and commits parent-waiting assets in a scheduling-dependent order, so
+a real server's numeric ids can differ between boots (measured: a few swapped
+sibling block ids such as 2591 ↔ 2592, and `Lava`/`Tar` 13 ↔ 14, when the
+dumper runs with `DUMPER_PARALLELISM=16`). The name → id set is stable. A
+production server integration must feed the port the server's own snapshot
+(same schema); the golden ids are the canonical reference for the parity
+tests.
 
 ### `loader.json`
 The real Default-world loader chain (`ChunkGeneratorJsonLoader` →
@@ -247,3 +256,10 @@ raw tint as **debug references**. The definitive Rust parity test is
 `tests/chunks_golden.rs` — **bit-exact on all 21 chunks / 21,504 columns**
 (tint, zones, biomes, environments, every block/fluid/priority voxel including
 caves, cave covers and prefabs).
+
+### `render/` (Rust-produced visual goldens)
+The `height.png`, `zone.png` and `biome.png` images in `render/` are produced
+by `worldgen-cli render-map` (fixed seed/centre/size/scale), **not** by the
+Java dumper. `crates/worldgen-cli/tests/render_golden.rs` regenerates them and
+compares every pixel, protecting the renderer against accidental changes.
+See [`render/README.md`](render/README.md) for the command.

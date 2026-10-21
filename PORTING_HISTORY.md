@@ -1060,3 +1060,32 @@ unchanged and still needs a real-server dump; see `NEXT_STEPS.md` §1.
 - Tests: `crates/worldgen-server/tests/provider.rs` (adapter output == direct
   output, `stillNeeded`, cancellation token, drain-on-shutdown, object safety,
   wrapping an existing service) plus unit tests for the index/priority mapping.
+
+### Visual-regression goldens (post-port session, same day)
+
+- `crates/worldgen-cli/tests/render_golden.rs` runs the real CLI
+  (`render-map --seed 0 --center 0,0 --size 64 --scale 16`) for the `height`,
+  `zone` and `biome` modes and compares every decoded pixel with
+  `testdata/golden/render/{height,zone,biome}.png`. Regeneration command is in
+  `testdata/golden/render/README.md`; the test skips without the asset pack.
+- These are Rust-produced regression artefacts, not Java parity data (the
+  numeric chain is already covered bit-exactly).
+
+### Registry id order: measured finding
+
+- `run.sh` now honours `DUMPER_PARALLELISM` (default `1`). Re-running the whole
+  dump with `DUMPER_PARALLELISM=16` twice produced **different** registries:
+  a handful of swapped sibling block ids (e.g. 2591 ↔ 2592) and, in one run,
+  `Lava`/`Tar` 13 ↔ 14. `loader.json`/`chunks.json` differed only through
+  those ids; `climate.json`, `zoom.json`, `noise.json` and the math dumps were
+  identical.
+- Root cause: `AssetStore.decodeAssets` decodes in parallel and the
+  second (parent-waiting) pass commits assets into the insertion-ordered
+  `loadedAssets` table in scheduling order; `BlockTypeAssetMap.putAll0` then
+  hands out ids in that order.
+- Consequence: there is no canonical real-server id order to verify against.
+  The single-threaded dump is the parity reference; production integrations
+  must pass their own snapshot (`WorldGenOptions::registries_path`). The
+  `registries.json` `meta` block, `REMAINING.md` §6 and `NEXT_STEPS.md` §1
+  were updated with the finding; the golden dump was regenerated (only the
+  meta text changed).

@@ -3,9 +3,10 @@
 **Status:** the port is feature complete and bit-exact against the current
 golden data (`tests/chunks_golden.rs`: 21 chunks / 21,504 columns, every
 block / fluid / environment / priority byte). The golden-regeneration gate
-(`tools/java-dumper/check.sh`), the procedural seams and the server adapter
-(`crates/worldgen-server`) have landed; nothing below is required for the
-parity claim — the list is ordered by how much it strengthens or extends it.
+(`tools/java-dumper/check.sh`), the procedural seams, the server adapter
+(`crates/worldgen-server`) and the render goldens have landed; nothing below
+is required for the parity claim — the list is ordered by how much it
+strengthens or extends it.
 
 **Context for the next session:**
 - Completed work, root causes and per-phase notes: [`PORTING_HISTORY.md`](PORTING_HISTORY.md)
@@ -27,35 +28,36 @@ tools/java-dumper/check.sh        # two isolated runs + diff against the committ
 
 ---
 
-## 1. Verify the registry ids against a real server (highest value, unfinished)
+## 1. Feed a live server registry snapshot (highest value, unfinished)
 
-- **Why:** the block / fluid / environment ids in
-  `testdata/golden/registries.json` are pinned to the dumper's single-threaded
-  asset-load order. Chunks are bit-exact *through that id mapping*; a different
-  real-server load order would shift the numeric ids (names/structure would stay
-  correct).
-- **How:** boot a vanilla server with the same `Assets/Assets.zip`, dump
-  `BlockType` / `Fluid` / `Environment` `getAssetMap()` ids (reuse the
-  `RegistryDumper` logic), and diff against the committed dump. If the order
-  differs, regenerate from the real server and re-run `tests/chunks_golden.rs`.
-- **Done when:** the id-order caveat can be removed from `REMAINING.md` §6 and
-  the `registries.json` `meta` block.
+- **Finding (2026-10-21):** the registry ids are *not* stable in the vanilla
+  pipeline. With `DUMPER_PARALLELISM=16`, two dumps of the same pack differed
+  in a few swapped sibling block ids (e.g. 2591 ↔ 2592) and `Lava`/`Tar`
+  (13 ↔ 14); the chunk/loader dumps differed only through those ids. The
+  canonical single-threaded dump (`registries.json`) remains the reference
+  for the parity tests, but no "real-server order" can be reproduced.
+- **Why it matters:** the Java generator resolves names through the live
+  `BlockType` / `Fluid` / `Environment` maps at generation time. A server
+  must therefore generate chunks against *its own* snapshot, not the dump.
+- **How:** at server boot, write the live maps in the `registries.json`
+  schema (the dumper's `RegistryDumper` writer is the reference) and pass the
+  file through `WorldGenOptions::registries_path` (CLI `--registries`); the
+  loader already threads it into `ChunkGenerator::get_registries()`. A
+  real-server dump also lets us diff the expected sibling swaps and confirm
+  that names/structure are identical.
+- **Done when:** the `worldgen-server` adapter documentation describes the
+  snapshot handoff and a real server boot has been generated against its own
+  maps (chunk ids consistent with that boot). No attempt should be made to
+  find one universal id order — the `meta` block documents why.
 
-## 2. Visual-regression artefacts (optional)
-
-- `worldgen-cli render-map` already renders height / zone / biome PNGs. Add a
-  small golden-image test (fixed seed + region, pixel diff) for mask / biome /
-  cave-slice views. This is a usability nicety — numeric parity is already
-  proven bit-exactly.
-
-## 3. Performance baseline (optional)
+## 2. Performance baseline (optional)
 
 - Record release-mode numbers (`worldgen-cli bench`, `cargo bench` for
   `prefab_weights` and `cache`) on the reference machine; tune the worker count
   and note the per-worker world-load cost. Always benchmark `--release` —
   debug builds are ~20× slower on prefab-heavy chunks.
 
-## 4. Deferred by design — do not implement unless scope changes
+## 3. Deferred by design — do not implement unless scope changes
 
 - Modifier/event plugin system, prefab entities + block components/ECS
   serialization, CoreServer plugin lifecycle, world-map UI, `.lpf` binary

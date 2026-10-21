@@ -3,7 +3,7 @@
 This document maps the original Java world generator (`.hytale-source/hytale-shared-source/HytaleServer/{Math,ProceduralLibrary,WorldGenerator,CoreServer}`) onto the Rust workspace in `crates/`.
 
 - **Goal:** bit-exact generation — same seed + same world assets + same registry dump ⇒ identical chunk bytes.
-- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches and the `worldgen-server` chunk-provider adapter. The remaining post-port backlog (real-server registry id check, visual regression, release benchmarks) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md).
+- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches and the `worldgen-server` chunk-provider adapter. The remaining post-port backlog (a live-server registry snapshot, release benchmarks) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md).
 - **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
 
 Paths in the tables are relative to the repository root. A row maps one Java class, or a tightly coupled class family where the Rust port merges them; grouped rows list **every** Rust file they cover.
@@ -462,6 +462,7 @@ Verification matrix (must stay green):
 | `crates/worldgen-hytale/tests/chunks_golden.rs` | `chunks.json` | **21 chunks / 21,504 columns bit-exact** (tint, zone, biome, environments, every block/fluid/priority voxel incl. caves/covers/prefabs) |
 | `crates/worldgen-hytale/tests/world_gen_service.rs` | — | Worker-pool output == direct output; cancellation; shutdown |
 | `crates/worldgen-server/tests/provider.rs` | `chunks.json` parity via the direct path | Adapter output == direct output; `stillNeeded`; cancellation token; drain-on-shutdown; object safety |
+| `crates/worldgen-cli/tests/render_golden.rs` | `testdata/golden/render/*.png` | Visual regression of the fixed height / zone / biome renders (pixel-exact) |
 | `crates/worldgen-hytale/tests/generation_smoke.rs` | — | End-to-end smoke generation |
 
 Run everything with:
@@ -502,7 +503,10 @@ These are intentional and are repeated in module-level `//!` notes where relevan
 
 ## 6. Regenerating golden data
 
-All golden files are produced by the Java dumper; never edit them by hand.
+All golden JSON files are produced by the Java dumper; never edit them by hand.
+The `testdata/golden/render/*.png` images are the exception: they are produced
+by `worldgen-cli render-map` and guard the renderer (see
+`crates/worldgen-cli/tests/render_golden.rs`).
 
 ```sh
 tools/java-dumper/run.sh          # regenerate testdata/golden/

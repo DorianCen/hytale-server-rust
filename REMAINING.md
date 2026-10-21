@@ -112,12 +112,21 @@ is explicitly **deferred** and not ported:
   (`Registries::load()` or an explicit `with_registries_path(...)`); the
   `Registries::empty()` fallback remains only for unit tests that construct a
   `ChunkGeneratorExecution` directly.
-- **The remaining open question is the load order.** The dump pins the ids to
-  the order this dumper observed (the zip entry order of the pack, with a
-  single-threaded decode — see the `meta` block of the dump). They are only
-  identical to a real server's ids when the real server loads the same pack in
-  the same order; a real-server dump has to be compared before the ids are
-  treated as authoritative.
+- **The load order is schedule-dependent in the vanilla pipeline.** The dump
+  pins the ids to the zip entry order of the pack with a single-threaded
+  decode (see the `meta` block). That order is canonical for the golden
+  tests, but it is **not** a real server's order: with the default parallel
+  decode the point at which a parent-waiting asset is committed depends on
+  the scheduling. Measured with `DUMPER_PARALLELISM=16`, two runs differed in
+  a few swapped sibling block ids (e.g. 2591 ↔ 2592) and `Lava`/`Tar`
+  (13 ↔ 14); the name → id *set* is stable, only sibling assignments swap.
+  The Java world generator resolves names through the live asset maps at
+  generation time, so a production server integration must hand the port its
+  **own** registry snapshot (the same `registries.json` schema, via
+  `with_registries_path` / `WorldGenOptions::registries_path`). A real-server
+  snapshot has not been collected yet (no server runtime in this workspace);
+  the caveat therefore stays open in `NEXT_STEPS.md` §1. Names, structure and
+  the generation logic are unaffected.
 - **Known gap:** the prefab list assets (`Server/PrefabList`) cannot be
   decoded without the prefab store, so the single block type that references
   such a list (`ExamplePrefabPlacementBlock_Tree`) is missing from the dump.

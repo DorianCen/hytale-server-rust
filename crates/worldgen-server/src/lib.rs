@@ -21,6 +21,17 @@
 //! the server to keep a `Box<dyn ChunkProvider>` (or an `Arc`) and swap the
 //! implementation in tests.
 //!
+//! # Registries
+//!
+//! The port resolves block / fluid / environment *names* through a registry
+//! snapshot (`WorldGenOptions::registries_path`, the `registries.json`
+//! schema). The committed dump is the canonical reference for the parity
+//! tests, but it is **not** a live server's id order: the vanilla asset
+//! pipeline decodes in parallel and assigns a few sibling ids in a
+//! schedule-dependent order (see `REMAINING.md` §6). A server integration
+//! should therefore hand the loader a snapshot of its own `BlockType` /
+//! `Fluid` / `Environment` maps at boot and pass that file here.
+//!
 //! # Cancellation
 //!
 //! Java evaluates `stillNeeded.test(index)` once at the start of the

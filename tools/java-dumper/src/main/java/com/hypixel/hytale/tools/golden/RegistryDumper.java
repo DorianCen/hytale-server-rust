@@ -658,19 +658,25 @@ final class RegistryDumper {
         w.name("loadOrder").value("the pack is mounted as a zip FileSystem "
             + "(java.nio.file.FileSystems.newFileSystem) exactly like the vanilla server; the asset files "
             + "of every store are collected with Files.walkFileTree (the vanilla mechanism) and loaded in "
-            + "that order, so the ids follow the zip entry order of the pack. The dumper runs with a single "
-            + "worker thread of the common fork join pool "
-            + "(-Djava.util.concurrent.ForkJoinPool.common.parallelism=1), because the vanilla pipeline "
-            + "decodes the assets in parallel and collects the results in a ConcurrentHashMap whose "
-            + "iteration order would otherwise depend on the thread scheduling");
+            + "that order, so the candidates follow the zip entry order of the pack. The dumper pins the "
+            + "common fork join pool to a single worker "
+            + "(-Djava.util.concurrent.ForkJoinPool.common.parallelism=1) to make the dump reproducible: "
+            + "the vanilla pipeline decodes in parallel and the point at which a parent-waiting asset is "
+            + "committed depends on the decode scheduling. Measured with parallelism=16: two dumps "
+            + "differed in a few swapped sibling block ids (e.g. 2591 <-> 2592) and Lava/Tar 13 <-> 14, "
+            + "while the chunk and loader dumps differed only through those ids.");
         w.name("idOrder").value("ids are handed out by BlockTypeAssetMap.putAll0 / "
             + "IndexedLookupTableAssetMap.putAll0 in asset-load order: the four pre-loaded block types "
             + "(Empty, Unknown, Debug_Cube, Debug_Model) come first (ids 0-3), then the standalone "
             + "block assets of Server/Item/Block/Blocks and finally the block types embedded in the "
             + "Server/Item/Items item assets");
-        w.name("idOrderCaveat").value("the ids are pinned to the load order observed by this dumper. "
-            + "They are only identical to a real server's ids when the real server loads the same pack "
-            + "in the same order; compare against a real-server dump before relying on the ids.");
+        w.name("idOrderCaveat").value("the ids are pinned to the canonical single-threaded load order "
+            + "of this dumper. A real server decodes assets in parallel by default, so its numeric ids "
+            + "are schedule-dependent and NOT reproducible from this dump (the set of ids and every name "
+            + "are stable; only a few sibling ids swap). The world generator resolves ids through the "
+            + "live BlockType/Fluid/Environment maps at generation time, so a server integration must "
+            + "feed the port that server's own snapshot (same JSON schema) when numeric ids have to "
+            + "match exactly; names, structure and the generation logic are unaffected.");
         w.name("commonAssets").value("the pack's CommonAssetsIndex.hashes is read into the static "
             + "CommonAssetRegistry so that the CommonAssetValidator accepts the texture / model "
             + "references of the item assets");

@@ -17,6 +17,10 @@ LIB_DIR="$SCRIPT_DIR/lib"
 # arbitrary output directory (e.g. a determinism-check temp dir) works.
 OUT_DIR="${1:-$ROOT/testdata/golden}"
 WORLD_DIR="$ROOT/testdata/Default"
+# The asset pipeline's common fork-join parallelism. The default of 1 is the
+# canonical golden-dump setting; override it (e.g. DUMPER_PARALLELISM=16) to
+# verify that the dumped ids do not depend on the decode scheduling.
+PARALLELISM="${DUMPER_PARALLELISM:-1}"
 
 if [ ! -d "$SERVER_ROOT" ]; then
     echo "error: Java source root not found: $SERVER_ROOT" >&2
@@ -142,7 +146,7 @@ echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
 # which the parallel decodes finish. A single worker thread of the common fork
 # join pool makes that order deterministic (the tasks then run in submission
 # order), which is what makes the dumped registry ids reproducible.
-java -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 \
+java -Djava.util.concurrent.ForkJoinPool.common.parallelism="$PARALLELISM" \
      -cp "$CP" com.hypixel.hytale.tools.golden.GoldenDumper "$OUT_DIR" "$WORLD_DIR" "$ROOT"
 
 echo "Done. Golden files:"
