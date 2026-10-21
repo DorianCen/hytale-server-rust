@@ -27,13 +27,24 @@ build_module_jar() {
     local classes="$SERVER_ROOT/$module/target/classes"
     local jar="$LIB_DIR/hytale-$name.jar"
 
-    if [ ! -d "$classes" ] || [ -z "$(find "$classes" -name '*.class' -print -quit)" ]; then
+    # A module is (re)compiled when its class tree is missing or when it
+    # contains a class that the upstream build could not resolve (the upstream
+    # build produced an "Unresolved compilation problems" stub for
+    # ZonePatternGeneratorCache, which the chunk generation needs).
+    if [ ! -d "$classes" ] || [ -z "$(find "$classes" -name '*.class' -print -quit)" ] \
+        || has_unresolved_classes "$classes"; then
         echo "Compiling $module..."
         mvn -q -f "$SERVER_ROOT/pom.xml" -pl "$module" -am compile
     fi
 
     echo "Packaging $module classes -> ${jar#"$ROOT/"}"
     jar --create --file "$jar" -C "$classes" .
+}
+
+# True when the class tree contains a class the upstream build could not
+# resolve (the Eclipse compiler emits an error stub for those).
+has_unresolved_classes() {
+    grep -rl --include='*.class' "Unresolved compilation problems" "$1" 2>/dev/null | head -n 1 | grep -q .
 }
 
 build_module_jar Math Math

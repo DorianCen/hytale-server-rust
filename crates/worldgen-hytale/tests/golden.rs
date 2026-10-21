@@ -310,6 +310,13 @@ fn stub_zone() -> Rc<Zone> {
         id: 1,
         name: "zone-1".to_string(),
         discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+        cave_generator: None,
+        unique_prefab_container: Rc::new(
+            worldgen_hytale::container::unique_prefab_container::UniquePrefabContainer::new(
+                0,
+                Vec::new(),
+            ),
+        ),
         biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
             Rc::new(PointGenerator::new(
                 0,

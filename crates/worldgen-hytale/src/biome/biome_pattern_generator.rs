@@ -97,6 +97,20 @@ impl BiomePatternGenerator {
         hash_util::random3(seed as i64, buf.ix as i64, buf.iy as i64)
     }
 
+    /// Debug accessor: the nearest biome-grid cell used by
+    /// [`Self::get_biome_index`] (Java has no such getter).
+    pub fn get_biome_cell(&self, seed: i32, x: i32, z: i32) -> (i32, i32) {
+        let buf = self.point_generator.nearest_2d(seed, x as f64, z as f64);
+        (buf.ix, buf.iy)
+    }
+
+    /// Debug accessor: `(ix, iy, distance, x, y)` of the nearest biome-grid
+    /// point (Java has no such getter).
+    pub fn get_biome_point_debug(&self, seed: i32, x: i32, z: i32) -> (i32, i32, f64, f64, f64) {
+        let buf = self.point_generator.nearest_2d(seed, x as f64, z as f64);
+        (buf.ix, buf.iy, buf.distance, buf.x, buf.y)
+    }
+
     /// Java `@Nullable TileBiome getBiomeDirect(int seed, int x, int z)`.
     ///
     /// Java: `tileBiomes.get(HashUtil.random(seed, Double.doubleToLongBits(x),

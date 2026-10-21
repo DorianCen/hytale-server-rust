@@ -41,6 +41,16 @@ pub trait IPointGenerator {
     );
     /// Java `getInterval()`.
     fn get_interval(&self) -> f64;
+    /// The Java `seedOffset` of the point generator — the seed the generator
+    /// derives its points from (`PointGeneratorJsonLoader.loadSeed()`).
+    ///
+    /// Java does not expose it (the `IPointGenerator` interface has no such
+    /// getter); the Rust port exposes it so that the *loader* seed chain can
+    /// be compared against the Java golden dump. The decorators delegate to
+    /// the generator they wrap.
+    fn get_seed_offset(&self) -> i32 {
+        0
+    }
 }
 
 /// Java `PointGenerator`.
@@ -218,6 +228,10 @@ impl IPointGenerator for PointGenerator {
         1.0
     }
 
+    fn get_seed_offset(&self) -> i32 {
+        self.seed_offset
+    }
+
     fn collect(
         &self,
         seed: i32,
@@ -289,6 +303,10 @@ impl IPointGenerator for OffsetPointGenerator {
 
     fn get_interval(&self) -> f64 {
         self.generator.get_interval()
+    }
+
+    fn get_seed_offset(&self) -> i32 {
+        self.generator.get_seed_offset()
     }
 
     fn collect(
@@ -383,6 +401,10 @@ impl IPointGenerator for ScaledPointGenerator {
         self.point_generator.get_interval() / self.scale
     }
 
+    fn get_seed_offset(&self) -> i32 {
+        self.point_generator.get_seed_offset()
+    }
+
     fn collect(
         &self,
         seed: i32,
@@ -462,6 +484,10 @@ impl IPointGenerator for DistortedPointGenerator {
 
     fn get_interval(&self) -> f64 {
         self.point_generator.get_interval()
+    }
+
+    fn get_seed_offset(&self) -> i32 {
+        self.point_generator.get_seed_offset()
     }
 
     fn collect(

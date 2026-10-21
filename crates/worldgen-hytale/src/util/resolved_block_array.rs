@@ -62,6 +62,27 @@ impl ResolvedBlockArray {
         self.entry_set
             .contains(&math_util::pack_long(block, fluid_id))
     }
+
+    /// The Java `hashCode()` of the array — `31 * entrySet.hashCode() +
+    /// Arrays.hashCode(entries)`.
+    ///
+    /// `LongSet.hashCode()` is the sum of the element hash codes and
+    /// `Long.hashCode(v)` is `(int) (v ^ (v >>> 32))`.
+    pub fn hash_value(&self) -> i32 {
+        let mut set_hash: i32 = 0;
+        for value in &self.entry_set {
+            set_hash = set_hash.wrapping_add((value ^ ((*value as u64 >> 32) as i64)) as i32);
+        }
+
+        let mut array_hash: i32 = 1;
+        for entry in &self.entries {
+            array_hash = 31i32
+                .wrapping_mul(array_hash)
+                .wrapping_add(entry.hash_value());
+        }
+
+        31i32.wrapping_mul(set_hash).wrapping_add(array_hash)
+    }
 }
 
 impl Default for ResolvedBlockArray {

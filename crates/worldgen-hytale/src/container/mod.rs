@@ -16,9 +16,9 @@
 //!
 //! ## Not ported
 //!
-//! * Java `UniquePrefabContainer` — depends on the `ChunkGenerator` skeleton
-//!   and on the `prefab.unique.*` package; both arrive with the prefab
-//!   package (Phase 5, see `plan.md`).
+//! * Java `UniquePrefabContainer` — only a minimal placeholder is provided
+//!   ([`unique_prefab_container`]); the generator / prefab machinery arrives
+//!   with the prefab package (Phase 5, see `plan.md`).
 //!
 //! ## The `IWeightedMap.get` overload collapse
 //!
@@ -36,6 +36,7 @@ pub mod fade_container;
 pub mod layer_container;
 pub mod prefab_container;
 pub mod tint_container;
+pub mod unique_prefab_container;
 pub mod water_container;
 
 pub use cover_container::{CoverContainer, CoverContainerEntry, CoverContainerEntryPart};
@@ -47,6 +48,7 @@ pub use layer_container::{
     DynamicLayer, DynamicLayerEntry, Layer, LayerContainer, LayerEntry, StaticLayer,
     StaticLayerEntry,
 };
-pub use prefab_container::{PrefabContainer, PrefabContainerEntry, PrefabSupplier};
+pub use prefab_container::{PrefabContainer, PrefabContainerEntry};
 pub use tint_container::{DefaultTintContainerEntry, TintContainer, TintContainerEntry};
+pub use unique_prefab_container::{UniquePrefabContainer, UniquePrefabGenerator};
 pub use water_container::{Entry as WaterContainerEntry, WaterContainer};

@@ -11,24 +11,21 @@
 //! | `ZoneBiomeResult`             | [`zone_biome_result`]                        |
 //! | `MaskProvider`                | [`mask_provider`]                            |
 //! | `BlockPopulator`              | [`populator::block_populator`]               |
+//! | `CavePopulator`               | [`populator::cave_populator`]                |
+//! | `PrefabPopulator`             | [`populator::prefab_populator`]              |
 //! | `WaterPopulator`              | [`populator::water_populator`]               |
 //!
 //! # Deferred to the later chunk-core slices
 //!
-//! * `ValidationUtil` — Phase 5 (it validates the caves and the unique
-//!   prefabs).
-//! * The cave and prefab populators (`CavePopulator`,
-//!   `PrefabPopulator`) — Phase 4 / Phase 5. Until they land,
-//!   `ChunkGeneratorExecution::execute` produces the tint map, the
-//!   environment map, the terrain, the covers and the water, but **not** the
-//!   caves and the prefabs — it is **not bit-exact**.
 //! * The worker pool and the `CompletableFuture` generation API of
 //!   `ChunkGenerator` — Phase 6 (`trait WorldGen`).
-//! * The caves (`CaveGeneratorCache`, `generateCave`) — Phase 4.
-//! * The prefabs (`PrefabLoadingCache`, `UniquePrefabCache`,
-//!   `getUniquePrefabs`, `getSpawnPoints`) — Phase 5.
+//! * The caves (`CaveGeneratorCache`, `getCave`, `generateCave`) — the cache,
+//!   the accessors and the growth (`CaveGenerator`) are ported (Phase 4a/4b);
+//!   the concrete cave *shapes* are Phase 4c.
 //! * The world map (`getGenerator`) and the benchmark/timings collectors —
 //!   Phase 6.
+//!
+//! `ValidationUtil` — the world validation — is ported (Phase 5c).
 
 use std::sync::LazyLock;
 
@@ -64,6 +61,7 @@ pub mod chunk_generator_resource;
 pub mod height_threshold_interpolator;
 pub mod mask_provider;
 pub mod populator;
+pub mod validation_util;
 pub mod zone_biome_result;
 
 pub use chunk_generator::{generate_interpolated_threshold, ChunkGenerator};
@@ -71,4 +69,5 @@ pub use chunk_generator_execution::ChunkGeneratorExecution;
 pub use chunk_generator_resource::ChunkGeneratorResource;
 pub use height_threshold_interpolator::HeightThresholdInterpolator;
 pub use mask_provider::MaskProvider;
+pub use validation_util::ValidationUtil;
 pub use zone_biome_result::ZoneBiomeResult;

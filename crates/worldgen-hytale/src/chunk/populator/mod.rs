@@ -6,26 +6,35 @@
 //! |-------------------|----------------------------------------------|-------|
 //! | `BlockPopulator`  | [`block_populator`]                          | 3 ✅  |
 //! | `WaterPopulator`  | [`water_populator`]                          | 3 ✅  |
-//! | `CavePopulator`   | —                                            | 4 ⏳  |
-//! | `PrefabPopulator` | —                                            | 5 ⏳  |
+//! | `CavePopulator`   | [`cave_populator`]                           | 4b ✅ |
+//! | `PrefabPopulator` | [`prefab_populator`]                         | 5b ✅ |
 //!
 //! # Deferred to the later phases
 //!
-//! * **`CavePopulator`** (Phase 4) — the cave stage carves into the terrain
-//!   that [`block_populator`] produced and writes with the
-//!   `CAVE_COVER` / `CAVE` priorities.
-//! * **`PrefabPopulator`** (Phase 5) — the prefab stage pastes the prefab
-//!   structures with the `CAVE_PREFAB` / `PREFAB_CAVE` / `PREFAB` priorities.
+//! * **The cave shapes** (Phase 4c/4d) — [`cave_populator`] runs the real
+//!   cave stage (the cave graph is grown and compiled, the nodes are visited
+//!   in bucket order and the [`CaveBlockPriorityModifier`] is installed), but
+//!   the shape `populateChunk` implementations are still the 4a seam, so no
+//!   blocks are carved yet.
+//! * **The unique prefabs** (Phase 5c) — [`prefab_populator`] places the
+//!   *biome* prefabs (the regular prefab categories) and carries the
+//!   placement path of the unique prefabs, but the unique prefab *entries*
+//!   are not generated yet (the `Zone.uniquePrefabContainer` is not loaded),
+//!   so no unique prefab is placed and the exclusion radius of the regular
+//!   prefabs never triggers.
 //!
-//! Both stages are wired into [`crate::chunk::ChunkGeneratorExecution::execute`]
-//! as documented `TODO` markers, so the stage order of the Java
-//! `ChunkGeneratorExecution.execute` (tint → environment → blocks → caves →
-//! prefabs → water) is already visible in the Rust port.
+//! The stage order of the Java `ChunkGeneratorExecution.execute` (tint →
+//! environment → blocks → caves → prefabs → water) is visible in
+//! [`crate::chunk::ChunkGeneratorExecution::execute`].
 
 pub mod block_populator;
+pub mod cave_populator;
+pub mod prefab_populator;
 pub mod water_populator;
 
 pub use block_populator::BlockPopulator;
+pub use cave_populator::CavePopulator;
+pub use prefab_populator::PrefabPopulator;
 pub use water_populator::WaterPopulator;
 
 #[cfg(test)]

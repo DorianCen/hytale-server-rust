@@ -13,12 +13,15 @@ tools/java-dumper/run.sh
 
 The dumper compiles the already-compiled upstream classes (read-only, under
 `.hytale-source/`) into `tools/java-dumper/lib/`, compiles itself with Maven, and
-writes all seven JSON files into this directory. Output is deterministic: running the
+writes all nine JSON files into this directory. Output is deterministic: running the
 script twice produces byte-identical files.
 
-The Phase-2 dumps (`zoom.json`, `climate.json`) read the Default world assets from
-`testdata/Default` (the dumper takes the world directory as an optional second
-argument; it defaults to `<output-directory>/../Default`).
+The world-side dumps (`zoom.json`, `climate.json`, `loader.json`, `chunks.json`)
+read the Default world assets from `testdata/Default` (the dumper takes the world
+directory as an optional second argument; it defaults to
+`<output-directory>/../Default`). The chunk dump boots the world from the
+**unpacked** asset tree (`Assets/extracted/Server/World/Default`, byte-identical
+to `testdata/Default`) so the directory walk order matches the Rust port.
 
 ## Floating-point encoding
 
@@ -195,10 +198,13 @@ the vanilla server) and dumps:
 
 - `meta` — the boot description, the load-order strategy, the id-order caveat and
   the known gaps.
-- `blocks.count` / `blocks.assets[]` — `{ name, index, drawType, drawTypeId, unknown }`
-  per registered block type, plus `preLoadOrder` and the `emptyId` / `unknownId` /
-  `debugCubeId` / `debugModelId` constants (the four hard-coded block types are
-  ids 0…3).
+- `blocks.count` / `blocks.assets[]` — `{ name, index, drawType, drawTypeId,
+  opacity, unknown, support? }` per registered block type, plus `preLoadOrder`
+  and the `emptyId` / `unknownId` / `debugCubeId` / `debugModelId` constants (the
+  four hard-coded block types are ids 0…3). `opacity` is the Java
+  `BlockType.getOpacity()` (the surface-limited cave height uses it); `support`
+  is the per-`RotationTuple` `containsKey(DOWN/UP)` map (absent for the Java
+  `null` support map).
 - `fluids.count` / `fluids.assets[]` — `{ name, index, maxFluidLevel }` per fluid.
 - `environments.count` / `environments.assets[]` — `{ name, index }` per environment
   (the world generator resolves the environment names through
@@ -212,3 +218,25 @@ iteration order would otherwise depend on the thread scheduling.
 
 The ids are pinned to the load order this dumper observed; they are only identical
 to a real server's ids when the real server loads the same pack in the same order.
+
+### `loader.json`
+The real Default-world loader chain (`ChunkGeneratorJsonLoader` →
+`ZonePatternProviderJsonLoader` → `FileContextLoader` → `ZoneJsonLoader` →
+`BiomePatternGeneratorJsonLoader` → biome/container/cave loaders) for the world
+seeds `0 / 1 / 42 / 1234567`, including the file-context ids, the seed chains,
+the biome containers and the cave entry-point seed offsets. The Rust
+`tests/loader_golden_dump.rs` compares every value bit-exactly (the noise-derived
+samples are now **0** deviations).
+
+### `chunks.json`
+Whole generated chunks of the Default world through the **real** Java pipeline
+(`ChunkGeneratorExecution.execute`): seeds `0 / 1 / 42` × chunks
+`(0,0), (4,-5), (9,4), (7,3), (-12,-25), (16,-8), (30,15)`. Per voxel the dump
+records block id + rotation + filler, fluid id + level, environment id and the
+`BlockPriorityChunk` priority byte, compactly run-length encoded per column
+(`columnDefs`; `cols[i]` indexes them in `ChunkUtil.indexColumn` order =
+`(z << 5) | x`). The column def also carries the tint, biome/zone ids, the raw
+parent tile biome, the zone border distance, the biome-pattern index/cell and the
+raw tint as **debug references**. The definitive Rust parity test is
+`tests/chunks_golden.rs` (currently `#[ignore]`d: only 150 / 21,504 columns still
+differ, all in cave-cover `CAVE` / `CAVE_COVER` voxels).

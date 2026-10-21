@@ -57,34 +57,34 @@ hytale-server-rust/
 ### Phase 2 — World layout: mask → zones → biomes (~2.9k lines)
 - [x] `PixelProvider`, `ExactZoom`, `FuzzyZoom`, `PixelDistanceProvider` (8×8 cell spatial index for border distance)
 - [x] Climate core: `ClimateType` tree + flag bits (IS_OCEAN/IS_SHORE/IS_ISLAND), `ClimateGraph` (512×512 hierarchical weighted-voronoi), `DistanceTransform` (Dijkstra), `ClimateNoise` (jittered-grid quantized sampling), `ClimateSearch`, `DirectGrid`, `IntMap`/`DoubleMap`
-- [ ] `MaskProvider`, `ClimateMaskProvider`, `UniqueClimateGenerator` (blocked on: `ChunkGenerator` skeleton + full `Zone`)
-- [ ] `Zone`, `ZonePatternProvider`/`Generator`, `ZoneColorMapping`, unique-zone candidate scan/painting (partial: `zone.rs` has `UniqueEntry`/`UniqueCandidate`/`Unique` value types)
-- [ ] `Biome`, `TileBiome`, `CustomBiome(Generator)`, `BiomePatternGenerator` (weighted voronoi + `sizeModifier` warp), `BiomeInterpolation` (blocked on: `worldgen/container/*` + `IWeightedMap` + `HeightThresholdInterpolator`)
-- [ ] serde loaders: `World.json`, mask/climate/biome/zone JSON
-- [ ] Verification: PNG mask/zone/biome renders pixel-diffed vs Java
+- [x] `MaskProvider`, `ClimateMaskProvider`, `UniqueClimateGenerator` (ported with Subtask 5 + the 7-climate loaders)
+- [x] `Zone`, `ZonePatternProvider`/`Generator`, `ZoneColorMapping`, unique-zone candidate scan/painting (zone.rs + loader chain; cross-checked in 7d)
+- [x] `Biome`, `TileBiome`, `CustomBiome(Generator)`, `BiomePatternGenerator` (weighted voronoi + `sizeModifier` warp), `BiomeInterpolation`
+- [x] serde loaders: `World.json`, mask/climate/biome/zone JSON (Subtask 7 complete, golden-verified via `loader.json` + `climate.json` + `registries.json`)
+- [ ] Verification: PNG mask/zone/biome renders pixel-diffed vs Java (superseded by bit-exact JSON golden dumps for the numeric chain; PNG render remains a `worldgen-cli` nicety)
 
 ### Phase 3 — Chunk core: terrain (~2.6k lines)
-- [ ] `BlockPriorityChunk`, priority enum + flags, `setBlock/setFluid` arbitration
-- [ ] `ChunkGenerator` skeleton: bounds clamping (`getLargestFeatureChunkExtents`), worker pool, caches, `getZoneBiomeResultAt`, `generateHeight`
-- [ ] `HeightThresholdInterpolator` + `CoreDataCacheEntry` + `InterpolatedBiomeCountList`
-- [ ] `BlockPopulator` + `LayerPopulator` (static/dynamic layers), covers, `WaterPopulator`, tint/environment mapping
-- [ ] Block/fluid/environment registry subset extracted from what the Default world JSON references
-- [ ] Verification: full-chunk block dumps + heightmap PNGs vs Java
+- [x] `BlockPriorityChunk`, priority enum + flags, `setBlock/setFluid` arbitration
+- [x] `ChunkGenerator` skeleton: bounds clamping (`getLargestFeatureChunkExtents`), worker pool (own chunk model: private cache twins, real pool lands in Phase 6), caches, `getZoneBiomeResultAt`, `generateHeight`
+- [x] `HeightThresholdInterpolator` + `CoreDataCacheEntry` + `InterpolatedBiomeCountList`
+- [x] `BlockPopulator` + `LayerPopulator` (static/dynamic layers), covers, `WaterPopulator`, tint/environment mapping
+- [x] Block/fluid/environment registry subset extracted from what the Default world JSON references (golden `registries.json` from the Java dumper)
+- [x] Verification: full-chunk block dumps + heightmap PNGs vs Java — the Java `ChunkDumper`/`chunks.json` landed; the terrain, layers, covers and water are bit-exact on all 21 dumped chunks (the 150 remaining columns are cave-cover voxels, see the Phase 4 box)
 
 ### Phase 4 — Caves (~4.6k lines incl. loaders)
-- [ ] `CaveGenerator` recursive node-graph growth (yaw/pitch walk, `CaveBiomeMaskFlags` GENERATE/POPULATE/CONTINUE, anchors, radius inheritance), `Cave` + chunk-bucket compile
-- [ ] Shapes: pipe, cylinder, ellipsoid, empty-line, prefab-as-node, then the **distorted family** (extrusion/body math, interpolation curves, pitch compensation, width/floor/ceiling distortion noise)
-- [ ] `CaveNodeShapeUtils` (anchors, covers, support invalidation), fillings/fluids, `CaveBlockPriorityModifier`
-- [ ] Cave JSON loaders with cross-zone node references (`CaveNodeTypeStorage`)
-- [ ] Verification: chunk slice PNGs + block-histogram invariants vs Java
+- [x] `CaveGenerator` recursive node-graph growth (yaw/pitch walk, `CaveBiomeMaskFlags` GENERATE/POPULATE/CONTINUE, anchors, radius inheritance), `Cave` + chunk-bucket compile (4a + 4b)
+- [x] Shapes: pipe, cylinder, ellipsoid, empty-line, prefab-as-node (structure), then the **distorted family** (extrusion/body math, interpolation curves, pitch compensation, width/floor/ceiling distortion noise) (4c + 4d)
+- [x] `CaveNodeShapeUtils` (anchors, covers, support invalidation), fillings/fluids, `CaveBlockPriorityModifier` — the block-support data gap is CLOSED: the golden `registries.json` now carries one `containsKey(DOWN/UP)` entry per Java `RotationTuple` per block (`RegistryDumper.blockSupportField`), and `BlockTypeInfo::get_support` honors the rotation index
+- [x] Cave JSON loaders with cross-zone node references (`CaveNodeTypeStorage`) — 4e done; all 28 Default zones load their `Cave/Caves.json`; entry-point seed chains bit-exact vs `loader.json`
+- [x] Verification: chunk slice PNGs + block-histogram invariants vs Java — the cave **node graph** (types, seeds, bounds, ends, prefabs), per-node floor/ceiling/replace geometry and every carve except 150 columns is bit-exact; the remaining 146 `CAVE` + 1 `CAVE_COVER` voxels are cave-cover `NoiseMask` map-condition edges (see NEXT_STEPS.md "Chunk-level golden parity — IN PROGRESS")
 
 ### Phase 5 — Prefabs (~2.5k lines + format work)
-- [ ] Parse `.prefab.json` (12k files); investigate `.lpf` cache format only if needed for speed (JSON is source of truth)
-- [ ] `PrefabPasteUtil` + reusable paste buffer: block-mask gating, per-column heightmap fitting, environments, recursive child composition (depth ≤ 10) with seed composition
-- [ ] `PrefabPopulator`: sparse 8-block biome sampling, lattice collection, weighted picks, rotation, deep-search heights, `PrefabBaseCheck` evenness, AABB invalidation by category priority
-- [ ] Unique prefabs: `UniquePrefabConfiguration`, exclusion radii, zone-border exclusion, inverse domain-warp placement, spawn points
-- [ ] Entities: stubbed (deferred per scope)
-- [ ] Verification: prefab placement coordinate lists + structure maps vs Java
+- [x] Parse `.prefab.json` (12k files); investigate `.lpf` cache format only if needed for speed (JSON is source of truth)
+- [x] `PrefabPasteUtil` + reusable paste buffer: block-mask gating, per-column heightmap fitting, environments, recursive child composition (depth ≤ 10) with seed composition
+- [x] `PrefabPopulator`: sparse 8-block biome sampling, lattice collection, weighted picks, rotation, deep-search heights, `PrefabBaseCheck` evenness, AABB invalidation by category priority
+- [x] Unique prefabs: `UniquePrefabConfiguration`, exclusion radii, zone-border exclusion, inverse domain-warp placement, spawn points (`getSpawnPoints`), `ValidationUtil`, `UniquePrefabContainer` port
+- [x] Entities: stubbed (deferred per scope)
+- [x] Verification: prefab placement coordinate lists + structure maps vs Java — the Java `ChunkDumper` landed (`testdata/golden/chunks.json`, deterministic, incl. the seed-0 unique-prefab chunks (4,-5)/(9,4)) and the Rust chunk test compares them; every `PREFAB`/`PREFAB_CAVE`/`CAVE_PREFAB` voxel is bit-exact. `tests/chunks_golden.rs` is `#[ignore]`d only for the last 150 cave-cover columns (see NEXT_STEPS.md)
 
 ### Phase 6 — Integration & polish
 - [ ] Final `trait WorldGen` (async `generate(seed, index, x, z, cancel, priority)`), worker pool, graceful shutdown, per-stage timing metrics

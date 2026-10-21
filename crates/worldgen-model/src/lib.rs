@@ -44,10 +44,12 @@
 
 #![deny(clippy::all)]
 
+pub mod block_key;
 pub mod block_priority;
 pub mod chunk;
 pub mod registry;
 
+pub use block_key::{decode_block_key, BlockEntry, FillerBlockUtil, Rotation, RotationTuple};
 pub use block_priority::{BlockPriorityChunk, BlockPriorityModifier, NoneModifier};
 pub use chunk::GeneratedChunk;
 pub use registry::{

@@ -27,7 +27,9 @@ import com.hypixel.hytale.protocol.BenchType;
 import com.hypixel.hytale.server.core.asset.HytaleAssetStore;
 import com.hypixel.hytale.server.core.asset.type.blocktick.config.RandomTickProcedure;
 import com.hypixel.hytale.server.core.asset.type.blocktick.config.TickProcedure;
+import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockFace;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
+import com.hypixel.hytale.server.core.asset.type.blocktype.config.RotationTuple;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.bench.Bench;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.bench.CraftingBench;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.bench.DiagramCraftingBench;
@@ -152,11 +154,39 @@ final class RegistryDumper {
     // ------------------------------------------------------------------
 
     /**
+     * The zip-root {@link Path} of the mounted asset pack, cached after the
+     * first boot. The zip {@link FileSystem} is intentionally left open: the
+     * golden dumps only run inside a single JVM invocation and closing it would
+     * unregister the zip file-system provider singleton.
+     */
+    private static Path bootedRoot;
+
+    /**
      * Boots the asset pipeline over the pack and returns the registry dump.
      *
      * @param repoRoot the repository root (the pack is resolved relative to it)
      */
     static String dumpRegistries(Path repoRoot) throws IOException {
+        final Path root = boot(repoRoot);
+        return writeDump(root);
+    }
+
+    /**
+     * Boots the asset pipeline over the pack and returns the zip-root
+     * {@link Path} of the mounted asset pack.
+     *
+     * <p>The boot is idempotent at the process level: the second call returns
+     * the cached root without touching the (static, global) asset-pipeline
+     * state again, so installing the stubs, registering the stores and
+     * mounting the zip {@link FileSystem} exactly once is guaranteed.
+     *
+     * @param repoRoot the repository root (the pack is resolved relative to it)
+     */
+    static Path boot(Path repoRoot) throws IOException {
+        if (bootedRoot != null) {
+            return bootedRoot;
+        }
+
         final Path packPath = repoRoot.resolve(PACK_PATH).normalize();
         if (!Files.isRegularFile(packPath)) {
             throw new IOException("asset pack not found: " + packPath
@@ -182,15 +212,19 @@ final class RegistryDumper {
         registerCodecVariants();
 
         // --- mount the pack ---------------------------------------------
-        try (FileSystem fs = FileSystems.newFileSystem(packPath, (ClassLoader) null)) {
-            final Path root = fs.getPath("").toAbsolutePath().normalize();
-            loadCommonAssets(root);
+        // The FileSystem stays open for the lifetime of the process (see
+        // bootedRoot): the dumps are produced while it is mounted and the zip
+        // file-system provider is a singleton, so closing and remounting is
+        // not possible anyway.
+        final FileSystem fs = FileSystems.newFileSystem(packPath, (ClassLoader) null);
+        final Path root = fs.getPath("").toAbsolutePath().normalize();
+        loadCommonAssets(root);
 
-            final Path serverDir = root.resolve("Server");
-            loadAssetStores(serverDir);
+        final Path serverDir = root.resolve("Server");
+        loadAssetStores(serverDir);
 
-            return writeDump(root);
-        }
+        bootedRoot = root;
+        return root;
     }
 
     // ------------------------------------------------------------------
@@ -536,7 +570,12 @@ final class RegistryDumper {
             blocks.append(",\"index\":").append(index);
             blocks.append(",\"drawType\":").append(Phase2Dumper.JsonWriter.quoteString(blockType.getDrawType().name()));
             blocks.append(",\"drawTypeId\":").append(blockType.getDrawType().getValue());
+            blocks.append(",\"opacity\":").append(Phase2Dumper.JsonWriter.quoteString(blockType.getOpacity().name()));
             blocks.append(",\"unknown\":").append(blockType.isUnknown());
+            final String supportField = blockSupportField(blockType);
+            if (supportField != null) {
+                blocks.append(",\"support\":").append(supportField);
+            }
             blocks.append('}');
             blockCount++;
         }
@@ -641,6 +680,17 @@ final class RegistryDumper {
             + "embedded in the Server/Item/Items item assets; Item.CODEC registers them as child assets "
             + "of the BlockType store via ContainedAssetCodec (mode INHERIT_ID_AND_PARENT), so the block "
             + "id equals the item key and the parent chain is inherited from the item's \"Parent\"");
+        w.name("supportField").value("each block that HAS a support map (the \"Support\" asset field "
+            + "of the BlockType codec - the MergedEnumMapCodec(BlockFace, MergedBlockFaces) decode) "
+            + "carries a \"support\" array with RotationTuple.VALUES.length entries, one per rotation "
+            + "index 0..len-1 (index 0 = RotationTuple.NONE_INDEX): {\"down\":bool,\"up\":bool} records "
+            + "blockType.getSupport(rotationIndex).containsKey(BlockFace.DOWN/UP) - exactly the two "
+            + "probes CaveNodeShapeUtils.isCover/invalidateCover consume when deciding whether a cave "
+            + "cover requires a supporting block below/above. Blocks without a support map (the Java "
+            + "null) carry no \"support\" field at all.");
+        w.name("opacityField").value("every block carries \"opacity\": the Java "
+            + "BlockType.getOpacity() enum name (Solid / Semitransparent / Cutout / Transparent) - the "
+            + "GeneratedBlockChunk.getHeight surface test used by surface-limited cave shapes.");
         w.name("deterministic").value("no timestamps are written; the dump is byte-identical across "
             + "runs");
         w.name("knownGaps").value("the prefab list assets (Server/PrefabList) cannot be decoded because "
@@ -650,6 +700,41 @@ final class RegistryDumper {
             + "and weather stores) also report load failures for the same reason - they do not influence "
             + "the block, fluid and environment ids.");
         w.name("packRoot").value(root.toString());
+    }
+
+    // ------------------------------------------------------------------
+    // Block support data (the CaveNodeShapeUtils cover-support probes)
+    // ------------------------------------------------------------------
+
+    /**
+     * The support data {@code CaveNodeShapeUtils.isCover} consumes: for every
+     * {@link RotationTuple} index, whether the rotated support map contains
+     * the DOWN and UP faces
+     * ({@code blockType.getSupport(rotationIndex).containsKey(BlockFace.DOWN/UP)}).
+     *
+     * <p>Returns {@code null} when the block has no support map at all (the
+     * Java {@code null} — the vast majority of the blocks); such blocks carry
+     * no {@code "support"} field in the dump.
+     */
+    private static String blockSupportField(BlockType blockType) {
+        if (blockType.getSupport(RotationTuple.NONE_INDEX) == null) {
+            return null;
+        }
+        final StringBuilder sb = new StringBuilder("[");
+        for (int rotationIndex = 0; rotationIndex < RotationTuple.VALUES.length; rotationIndex++) {
+            final var supports = blockType.getSupport(rotationIndex);
+            if (rotationIndex > 0) {
+                sb.append(',');
+            }
+            if (supports == null) {
+                sb.append("null");
+            } else {
+                sb.append("{\"down\":").append(supports.containsKey(BlockFace.DOWN))
+                    .append(",\"up\":").append(supports.containsKey(BlockFace.UP))
+                    .append('}');
+            }
+        }
+        return sb.append(']').toString();
     }
 
     // ------------------------------------------------------------------

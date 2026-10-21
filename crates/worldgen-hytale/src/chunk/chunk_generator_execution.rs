@@ -7,12 +7,14 @@
 //!
 //! # What is *not* ported (see `NEXT_STEPS.md` / `plan.md`)
 //!
-//! * **The cave and prefab stages of `execute`** (`CavePopulator`,
-//!   `PrefabPopulator`) — they arrive with Phase 4 / Phase 5. The
+//! * **The concrete cave shapes and the prefab stages of `execute`**
+//!   (`CavePopulator` shapes, `PrefabPopulator`) — the cave stage itself runs
+//!   (Phase 4b), but the shapes that carve blocks are Phase 4c/4d and the
+//!   prefabs are Phase 5. The
 //!   [`ChunkGeneratorExecution::execute`] method therefore produces the tint
-//!   map, the environment map, the terrain, the covers and the water:
-//!   **the execution is NOT BIT-EXACT until the caves and the prefabs
-//!   land.**
+//!   map, the environment map, the terrain, the covers, the (empty) cave
+//!   pass and the water: **the execution is NOT BIT-EXACT until the cave
+//!   shapes and the prefabs land.**
 //! * **The ECS boundary**: `chunk.setState(x, y, z, holder)` and the
 //!   `Holder<ChunkStore>` section machinery are CoreServer concepts and are
 //!   not ported (see `plan.md`) — the calls are no-ops here.
@@ -52,7 +54,7 @@ use crate::cache::core_data_cache_entry::CoreDataCacheEntry;
 use crate::chunk::chunk_generator::{ChunkGenerator, TINT_INTERPOLATION_RADIUS};
 use crate::chunk::chunk_generator_resource::ChunkGeneratorResource;
 use crate::chunk::height_threshold_interpolator::HeightThresholdInterpolator;
-use crate::chunk::populator::{BlockPopulator, WaterPopulator};
+use crate::chunk::populator::{BlockPopulator, CavePopulator, PrefabPopulator, WaterPopulator};
 use crate::chunk::zone_biome_result::ZoneBiomeResult;
 use crate::util::block_fluid_entry::BlockFluidEntry;
 
@@ -135,9 +137,17 @@ impl ChunkGeneratorExecution {
     /// the static `ChunkGenerator.getResource()`; the Rust port takes the
     /// [`ChunkGeneratorResource`] as an explicit parameter.
     ///
-    /// ⚠ **NOT BIT-EXACT YET**: the cave and prefab stages are missing
-    /// (Phase 4 / Phase 5), so the chunk is missing the caves and the
-    /// prefabs. The terrain, the covers and the water are bit-exact.
+    /// The stage order is the Java one: tint → environment → blocks → caves
+    /// → **prefabs** → water.
+    ///
+    /// ⚠ **NOT BIT-EXACT YET**: the cave stage runs (Phase 4b — the cave
+    /// graph growth, the bucket order and the
+    /// [`CaveBlockPriorityModifier`](crate::cave::cave_block_priority_modifier::CaveBlockPriorityModifier)
+    /// are exact), but the concrete cave shapes are Phase 4c/4d, so the caves
+    /// compile and are visited without carving anything meaningful. The
+    /// prefab stage (Phase 5b) is real — the biome prefab containers are
+    /// placed with the `PREFAB` priority — but the *unique* prefabs are the
+    /// Phase-5c seam (they are not generated yet).
     pub fn execute(&mut self, seed: i32, resource: &mut ChunkGeneratorResource) {
         // Generate the tint map
         self.generate_tint_mapping(seed);
@@ -149,10 +159,10 @@ impl ChunkGeneratorExecution {
         BlockPopulator::populate(seed, self, resource);
 
         // Generate caves
-        // TODO(Phase 4): CavePopulator::populate(seed, self);
+        CavePopulator::populate(seed, self);
 
         // Generate prefabs
-        // TODO(Phase 5): PrefabPopulator::populate(seed, self);
+        PrefabPopulator::populate(seed, self, resource);
 
         // Generate water
         WaterPopulator::populate(seed, self);
@@ -792,6 +802,13 @@ mod tests {
             id: 3,
             name: "zone-3".to_string(),
             discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
             biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
                 Rc::new(FixedPointGenerator),
                 tile_biomes,

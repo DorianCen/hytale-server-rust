@@ -8,6 +8,7 @@ use hytale_math::hash_util;
 use procedural::noise::point::IPointGenerator;
 
 use crate::chunk::mask_provider::MaskProvider;
+use crate::climate::climate_noise::Buffer;
 use crate::zone::unique::Unique;
 use crate::zone::zone::Zone;
 use crate::zone::zone_color_mapping::ZoneColorMapping;
@@ -83,7 +84,18 @@ impl ZonePatternGenerator {
     ) -> &'a mut ZoneGeneratorResult {
         let rx = self.mask_provider.get_x(seed, x, z);
         let rz = self.mask_provider.get_y(seed, x, z);
-        let mask = self.mask_provider.get(seed, rx, rz) & 0xFFFFFF;
+        // Java `maskProvider.get(seed, rx, rz)`: the climate variant reads the
+        // scratch `ClimateNoise.Buffer` from the per-chunk resource, so the
+        // Rust port carries it through `get_climate`/`distance_climate`.
+        let mut climate_buffer = Buffer::default();
+        let mask = match &self.mask_provider {
+            MaskProvider::Image(_) => self.mask_provider.get(seed, rx, rz) & 0xFFFFFF,
+            MaskProvider::Climate(_) => {
+                self.mask_provider
+                    .get_climate(seed, rx, rz, &mut climate_buffer)
+                    & 0xFFFFFF
+            }
+        };
         let zone_arr = self
             .zone_color_mapping
             .get(mask)
@@ -91,7 +103,12 @@ impl ZonePatternGenerator {
         if zone_arr.len() == 1 {
             let mut distance = f64::INFINITY;
             if self.mask_provider.in_bounds(rx, rz) {
-                distance = self.mask_provider.distance(rx, rz);
+                distance = match &self.mask_provider {
+                    MaskProvider::Image(_) => self.mask_provider.distance(rx, rz),
+                    MaskProvider::Climate(_) => {
+                        self.mask_provider.distance_climate(&climate_buffer)
+                    }
+                };
             }
 
             result.set_zone(Some(Rc::clone(&zone_arr[0])));
@@ -167,6 +184,13 @@ mod tests {
             id,
             name: format!("zone-{id}"),
             discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
             biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
                 point_generator,
                 tile_biomes,

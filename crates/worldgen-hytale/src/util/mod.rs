@@ -37,6 +37,7 @@ pub mod log_util;
 pub mod noise_block_array;
 pub mod object_pool;
 pub mod resolved_block_array;
+pub mod transform;
 
 pub use array_utli::{shuffle_array, shuffle_array_i32};
 pub use block_array::BlockArray;
@@ -59,3 +60,4 @@ pub use log_util::LOGGER_NAME;
 pub use noise_block_array::NoiseBlockArray;
 pub use object_pool::ObjectPool;
 pub use resolved_block_array::ResolvedBlockArray;
+pub use transform::{Rotation3f, Transform, NO_HEIGHT};

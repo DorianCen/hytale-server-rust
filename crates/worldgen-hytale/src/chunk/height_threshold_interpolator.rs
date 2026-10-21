@@ -441,6 +441,13 @@ mod tests {
             id: 3,
             name: "zone-3".to_string(),
             discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
             biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
                 Rc::new(FixedPointGenerator),
                 tile_biomes,

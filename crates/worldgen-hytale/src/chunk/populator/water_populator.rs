@@ -104,7 +104,7 @@ fn submerge_block(
     // Check if the block needs to be submerged.
     // Java: `BlockType.getAssetMap().getAsset(currentBlockId)` — an unknown
     // block id yields `null` and the water is skipped.
-    let block_type = execution.registry().blocks.get(current_block_id).copied();
+    let block_type = execution.registry().blocks.get(current_block_id).cloned();
     let Some(block_type) = block_type else {
         return;
     };

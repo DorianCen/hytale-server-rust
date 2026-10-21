@@ -83,6 +83,7 @@ impl Range {
 }
 
 /// Java `ClimateSearch.Rule`.
+#[derive(Clone, Debug)]
 pub struct Rule {
     /// Java `public final Range continent`.
     pub continent: Range,

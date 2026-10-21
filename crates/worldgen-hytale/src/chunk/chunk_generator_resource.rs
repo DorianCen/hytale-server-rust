@@ -14,7 +14,6 @@
 //! | `prefabs` (timeout cache), `getPrefab` | the prefab package is Phase 5          |
 //! | `cacheCaveCoordinateKey`          | the cave package is Phase 4                |
 //! | `prefabBuffer`                    | the prefab package is Phase 5              |
-//! | `prefabPopulator`, `prefabCollector` | the prefab package is Phase 5            |
 //! | `bounds2d`, `resultBuffer2d`, `resultBuffer3d` | the procedural result buffers are not used by the chunk core |
 //! | `cacheVector2d`                   | the joml vector is only a scratch key for the Java caches; the Rust caches build their keys directly |
 //!
@@ -26,12 +25,23 @@
 //!   generator for the (deferred) prefab accessor.
 //! * **`coverArray` is a `Vec<i32>`** — the Java `IntList` is a growable int
 //!   list; the Rust port uses the natural equivalent.
+//! * **The prefab *buffer* cache lives in the prefab store** — the Java
+//!   `prefabs` timeout cache maps a supplier to its buffer; the Rust
+//!   [`crate::prefab::prefab_store::PrefabStore`] caches the buffers by their
+//!   path (the supplier's `equals` is the path too), so the per-thread cache
+//!   is redundant.
+//! * **The prefab paste buffer is not part of the resource** — the Rust
+//!   [`crate::prefab::prefab_paste_util::PrefabPasteBuffer`] borrows the
+//!   execution mutably, so it cannot live in the (unborrowed) resource; the
+//!   populator allocates one per paste (the buffer is fully re-seeded, so the
+//!   reuse is not observable).
 use std::rc::Rc;
 
 use hytale_math::fast_random::FastRandom;
 use worldgen_model::block_priority::BlockPriorityChunk;
 
 use crate::cache::coordinate_cache::CoordinateKey;
+use crate::chunk::populator::prefab_populator::PrefabPopulator;
 use crate::chunk::zone_biome_result::ZoneBiomeResult;
 use crate::climate::climate_noise::Buffer as ClimateBuffer;
 use crate::zone::zone_generator_result::ZoneGeneratorResult;
@@ -54,6 +64,9 @@ pub struct ChunkGeneratorResource {
     pub zone_biome_result: ZoneBiomeResult,
     /// Java `public final ClimateNoise.Buffer climateBuffer`.
     pub climate_buffer: ClimateBuffer,
+    /// Java `public final PrefabPopulator prefabPopulator` — the stateful
+    /// populator of the prefab stage (Phase 5b).
+    pub prefab_populator: PrefabPopulator,
 }
 
 impl ChunkGeneratorResource {
@@ -71,6 +84,7 @@ impl ChunkGeneratorResource {
                 result
             },
             climate_buffer: ClimateBuffer::default(),
+            prefab_populator: PrefabPopulator::new(),
         }
     }
 

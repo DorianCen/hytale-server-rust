@@ -9,11 +9,12 @@
 //! | `CoordinateCache`             | [`coordinate_cache`]              |
 //! | `ExtendedCoordinateCache`     | [`extended_coordinate_cache`]     |
 //! | `ChunkGeneratorCache`         | [`chunk_generator_cache`]         |
+//! | `UniquePrefabCache`           | [`unique_prefab_cache`]           |
 //!
 //! # Skipped in this slice (documented per `NEXT_STEPS.md`)
 //!
-//! * `CaveGeneratorCache` — Phase 4 (cave package).
-//! * `UniquePrefabCache` — Phase 5 (prefab package).
+//! * `CaveGeneratorCache` — Phase 4 (cave package, see
+//!   [`crate::cave::cave_generator_cache`]).
 //!
 //! # The `Send`/`Sync` deviation (important)
 //!
@@ -57,9 +58,11 @@ pub mod coordinate_cache;
 pub mod core_data_cache_entry;
 pub mod extended_coordinate_cache;
 pub mod interpolated_biome_count_list;
+pub mod unique_prefab_cache;
 
 pub use chunk_generator_cache::ChunkGeneratorCache;
 pub use coordinate_cache::{CoordinateCache, CoordinateKey};
 pub use core_data_cache_entry::CoreDataCacheEntry;
 pub use extended_coordinate_cache::{ExtendedCoordinateCache, ExtendedCoordinateKey};
 pub use interpolated_biome_count_list::{BiomeCountResult, InterpolatedBiomeCountList};
+pub use unique_prefab_cache::UniquePrefabCache;

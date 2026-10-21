@@ -9,9 +9,9 @@
 //! | `ZonePatternProvider`        | [`zone_pattern_provider`]        |
 //! | `ZonePatternGeneratorCache`  | [`zone_pattern_generator_cache`] |
 //!
-//! The partial `Zone` record (id/name/discoveryConfig/
-//! biomePatternGenerator) is completed by Phase 4 (`caveGenerator`) and
-//! Phase 5 (`uniquePrefabContainer`).
+//! The partial `Zone` record (id/name/discoveryConfig/caveGenerator/
+//! biomePatternGenerator) is completed by Phase 5
+//! (`uniquePrefabContainer`).
 
 pub mod discovery_config;
 pub mod unique;

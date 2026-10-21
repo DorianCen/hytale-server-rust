@@ -70,6 +70,13 @@ mod tests {
             id,
             name: format!("zone-{id}"),
             discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
             biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
                 point_generator,
                 tile_biomes,

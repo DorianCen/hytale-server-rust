@@ -1,25 +1,21 @@
 // Ported from: `.hytale-source/hytale-shared-source/HytaleServer/WorldGenerator/src/main/java/com/hypixel/hytale/server/worldgen/container/PrefabContainer.java`
 //! Java `com.hypixel.hytale.server.worldgen.container.PrefabContainer` — the
-//! prefab catalogue of a zone.
+//! prefab catalogue of a biome.
 //!
-//! ## Phase 5 seams
+//! # Phase 5
 //!
-//! Two Java members are *not* ported yet because they belong to the prefab
-//! package (Phase 5):
-//!
-//! * Java `PrefabContainerEntry.getPrefabPatternGenerator()` returns the
-//!   `PrefabPatternGenerator` object. Only its `getMaxSize()` is consumed
-//!   here, so the entry stores the plain
-//!   [`PrefabContainerEntry::pattern_generator_max_size`] instead of the
-//!   generator itself.
-//! * Java `PrefabContainerEntry.getExtents()` lazily walks the prefab
-//!   suppliers and computes the maximum X/Z extent of the contained prefabs.
-//!   It needs the real prefab buffers (`PrefabSupplier.get()` /
-//!   `getBounds()`), which arrive with the prefab package (Phase 5).
+//! The prefab package landed: the entries carry the real
+//! [`PrefabPatternGenerator`](crate::prefab::prefab_pattern_generator::PrefabPatternGenerator)
+//! and the real prefab suppliers (the Java `WorldGenPrefabSupplier`).
 
-use std::hash::{Hash, Hasher};
+use std::cell::Cell;
 use std::rc::Rc;
 
+use hytale_math::math_util;
+
+use crate::prefab::prefab_pattern_generator::PrefabPatternGenerator;
+use crate::prefab::prefab_supplier::WorldGenPrefabSupplier;
+use crate::util::bounds::IChunkBounds;
 use crate::util::list_pool::ListPool;
 use crate::weighted_map::IWeightedMap;
 
@@ -34,98 +30,37 @@ thread_local! {
         Box::leak(Box::new(ListPool::new(10)));
 }
 
-/// Java `com.hypixel.hytale.server.worldgen.loader.WorldGenPrefabSupplier` —
-/// the Phase-5 seam for a prefab source.
-///
-/// Java's class is a concrete loader-backed supplier (it resolves the
-/// prefab buffer and its bounds). The Rust port declares the seam as an
-/// (currently empty) trait: the container only ever holds the *keys* of the
-/// weighted map, the prefab data itself is produced by the prefab package
-/// (Phase 5).
-pub trait PrefabSupplier {
-    // Phase 5 adds the Java members:
-    //   IPrefabBuffer get();
-    //   IChunkBounds getBounds(IPrefabBuffer buffer);
-}
-
-/// The weighted-map key wrapper around a [`PrefabSupplier`].
-///
-/// Deviation: Rust forbids a trait as a generic type argument (E0782), so
-/// the Java type `IWeightedMap<WorldGenPrefabSupplier>` becomes
-/// `IWeightedMap<PrefabSupplierKey>` with this concrete wrapper.
-///
-/// Deviation: Java's `WorldGenPrefabSupplier.equals`/`hashCode` compare the
-/// prefab *path*. The Rust wrapper compares the supplier *identity*; the
-/// path-based comparison is added in Phase 5, when the seam carries the
-/// path.
-#[derive(Clone)]
-pub struct PrefabSupplierKey {
-    supplier: Rc<dyn PrefabSupplier>,
-}
-
-impl PrefabSupplierKey {
-    /// Wraps a prefab supplier into a weighted-map key.
-    pub fn new(supplier: Rc<dyn PrefabSupplier>) -> Self {
-        Self { supplier }
-    }
-
-    /// The wrapped supplier.
-    pub fn get_supplier(&self) -> &Rc<dyn PrefabSupplier> {
-        &self.supplier
-    }
-}
-
-impl PartialEq for PrefabSupplierKey {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.supplier, &other.supplier)
-    }
-}
-
-impl Eq for PrefabSupplierKey {}
-
-impl Hash for PrefabSupplierKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (Rc::as_ptr(&self.supplier) as *const () as usize).hash(state);
-    }
-}
-
-impl std::fmt::Debug for PrefabSupplierKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("PrefabSupplierKey")
-    }
-}
-
 /// Java `static class PrefabContainer.PrefabContainerEntry`.
 pub struct PrefabContainerEntry {
     /// Java `protected final IWeightedMap<WorldGenPrefabSupplier> prefabs`.
-    prefabs: Rc<dyn IWeightedMap<PrefabSupplierKey>>,
-    /// Java `PrefabPatternGenerator.getMaxSize()` — the maximum size of the
-    /// prefabs placed by this entry.
-    ///
-    /// Deviation: the Java `PrefabPatternGenerator` belongs to the prefab
-    /// package (Phase 5); only its `getMaxSize()` is consumed here.
-    pub pattern_generator_max_size: i32,
+    prefabs: Rc<dyn IWeightedMap<WorldGenPrefabSupplier>>,
+    /// Java `protected final PrefabPatternGenerator prefabPatternGenerator`.
+    prefab_pattern_generator: Rc<PrefabPatternGenerator>,
     /// Java `protected final int environmentId`.
     environment_id: i32,
+    /// Java `protected int extend = -1` — the lazily computed extents of the
+    /// prefabs of the entry (`-1` = "not computed yet").
+    extend: Cell<i32>,
 }
 
 impl PrefabContainerEntry {
     /// Java `PrefabContainerEntry(IWeightedMap<WorldGenPrefabSupplier> prefabs,
     /// PrefabPatternGenerator prefabPatternGenerator, int environmentId)`.
     pub fn new(
-        prefabs: Rc<dyn IWeightedMap<PrefabSupplierKey>>,
-        pattern_generator_max_size: i32,
+        prefabs: Rc<dyn IWeightedMap<WorldGenPrefabSupplier>>,
+        prefab_pattern_generator: Rc<PrefabPatternGenerator>,
         environment_id: i32,
     ) -> Self {
         Self {
             prefabs,
-            pattern_generator_max_size,
+            prefab_pattern_generator,
             environment_id,
+            extend: Cell::new(-1),
         }
     }
 
     /// Java `IWeightedMap<WorldGenPrefabSupplier> getPrefabs()`.
-    pub fn get_prefabs(&self) -> &Rc<dyn IWeightedMap<PrefabSupplierKey>> {
+    pub fn get_prefabs(&self) -> &Rc<dyn IWeightedMap<WorldGenPrefabSupplier>> {
         &self.prefabs
     }
 
@@ -135,32 +70,75 @@ impl PrefabContainerEntry {
     }
 
     /// Java `PrefabPatternGenerator getPrefabPatternGenerator()`.
+    pub fn get_prefab_pattern_generator(&self) -> &Rc<PrefabPatternGenerator> {
+        &self.prefab_pattern_generator
+    }
+
+    /// Java `PrefabPatternGenerator.getMaxSize()`.
+    pub fn get_pattern_generator_max_size(&self) -> i32 {
+        self.prefab_pattern_generator.get_max_size()
+    }
+
+    /// Java `int getExtents()` — the maximum extent of the prefabs of the
+    /// entry.
     ///
-    /// Deviation: the Java `PrefabPatternGenerator` belongs to the prefab
-    /// package (Phase 5). Only `getMaxSize()` is consumed by this
-    /// container, so the Rust port exposes the plain size instead.
-    pub const fn get_pattern_generator_max_size(&self) -> i32 {
-        self.pattern_generator_max_size
+    /// ```java
+    /// public int getExtents() {
+    ///     if (extend == -1) {
+    ///         int max = 0;
+    ///         for (var supplier : prefabs.internalKeys()) {
+    ///             var bounds = supplier.getBounds(supplier.get());
+    ///             int lengthX = bounds.getHighBoundX() - bounds.getLowBoundX();
+    ///             int lengthZ = bounds.getHighBoundZ() - bounds.getLowBoundZ();
+    ///             max = MathUtil.maxValue(max, lengthX, lengthZ);
+    ///         }
+    ///         extend = max;
+    ///     }
+    ///     return extend;
+    /// }
+    /// ```
+    ///
+    /// Deviation: the Java caches the value in the `extend` field; the Rust
+    /// port caches it in a `Cell` (the entry is shared through an `Rc`).
+    pub fn get_extents(&self) -> i32 {
+        let cached = self.extend.get();
+        if cached != -1 {
+            return cached;
+        }
+        let mut max = 0;
+        for supplier in self.prefabs.internal_keys() {
+            let bounds = supplier.get_bounds();
+            let length_x = bounds.get_high_bound_x() - bounds.get_low_bound_x();
+            let length_z = bounds.get_high_bound_z() - bounds.get_low_bound_z();
+            max = math_util::max_value3_i32(max, length_x, length_z);
+        }
+        self.extend.set(max);
+        max
     }
 }
 
 /// Java `class PrefabContainer`.
 pub struct PrefabContainer {
     /// Java `private final PrefabContainerEntry[] entries`.
-    entries: Vec<PrefabContainerEntry>,
+    ///
+    /// Deviation: the Java array holds *references* to the entries; the Rust
+    /// port holds `Rc`s, so that the entries stay alive when a candidate
+    /// refers to them (the Java `PrefabPopulator.Candidate` keeps the entry
+    /// alive the same way).
+    entries: Vec<Rc<PrefabContainerEntry>>,
     /// Java `private final int maxSize`.
     max_size: i32,
 }
 
 impl PrefabContainer {
     /// Java `PrefabContainer(PrefabContainerEntry[] entries)`.
-    pub fn new(entries: Vec<PrefabContainerEntry>) -> Self {
+    pub fn new(entries: Vec<Rc<PrefabContainerEntry>>) -> Self {
         let max_size = Self::compute_max_size(&entries);
         Self { entries, max_size }
     }
 
     /// Java `PrefabContainerEntry[] getEntries()`.
-    pub fn get_entries(&self) -> &[PrefabContainerEntry] {
+    pub fn get_entries(&self) -> &[Rc<PrefabContainerEntry>] {
         &self.entries
     }
 
@@ -170,7 +148,7 @@ impl PrefabContainer {
     }
 
     /// Java `private static int getMaxSize(PrefabContainerEntry[] entries)`.
-    fn compute_max_size(entries: &[PrefabContainerEntry]) -> i32 {
+    fn compute_max_size(entries: &[Rc<PrefabContainerEntry>]) -> i32 {
         let mut max = 0;
         for entry in entries {
             max = max.max(entry.get_pattern_generator_max_size());
@@ -184,21 +162,51 @@ mod tests {
     use super::*;
     use crate::weighted_map::WeightedMap;
 
-    /// Test stub: a prefab supplier without any behaviour (Phase 5 fills it).
-    struct StubSupplier;
+    /// A prefab pattern generator with the given maximum size.
+    fn pattern_generator(max_size: i32) -> Rc<PrefabPatternGenerator> {
+        Rc::new(PrefabPatternGenerator::new(
+            0,
+            crate::prefab::prefab_category::PrefabCategory::none(),
+            None,
+            Rc::new(procedural::noise::condition::DefaultCoordinateRndCondition::True),
+            None,
+            crate::util::condition::BlockMaskCondition::new(),
+            Rc::new(procedural::noise::condition::DefaultCoordinateCondition::True),
+            Rc::new(procedural::noise::condition::ConstantBlockFluidCondition::True),
+            None,
+            Rc::new(crate::util::function::ConstantCoordinateDoubleSupplier::DEFAULT_ZERO),
+            false,
+            false,
+            false,
+            false,
+            max_size,
+            0,
+            Vec::new(),
+        ))
+    }
 
-    impl PrefabSupplier for StubSupplier {}
-
-    fn prefab_map(weights: &[f64]) -> Rc<dyn IWeightedMap<PrefabSupplierKey>> {
-        let mut builder = WeightedMap::<PrefabSupplierKey>::builder();
-        for weight in weights {
-            builder.put(PrefabSupplierKey::new(Rc::new(StubSupplier)), *weight);
-        }
+    fn prefab_map() -> Rc<dyn IWeightedMap<WorldGenPrefabSupplier>> {
+        let mut builder = WeightedMap::<WorldGenPrefabSupplier>::builder();
+        builder.put(
+            WorldGenPrefabSupplier::new(
+                Rc::new(crate::prefab::prefab_store::PrefabStore::new(
+                    std::path::PathBuf::from("/tmp"),
+                    Rc::new(worldgen_model::registry::Registries::empty()),
+                )),
+                "key",
+                std::path::PathBuf::from("/tmp/Foo.prefab.json"),
+            ),
+            1.0,
+        );
         Rc::new(builder.build())
     }
 
-    fn entry(max_size: i32, environment_id: i32) -> PrefabContainerEntry {
-        PrefabContainerEntry::new(prefab_map(&[1.0]), max_size, environment_id)
+    fn entry(max_size: i32, environment_id: i32) -> Rc<PrefabContainerEntry> {
+        Rc::new(PrefabContainerEntry::new(
+            prefab_map(),
+            pattern_generator(max_size),
+            environment_id,
+        ))
     }
 
     #[test]
@@ -230,19 +238,13 @@ mod tests {
     }
 
     #[test]
-    fn the_prefab_keys_are_compared_by_identity() {
-        let supplier: Rc<dyn PrefabSupplier> = Rc::new(StubSupplier);
-        let first = PrefabSupplierKey::new(supplier.clone());
-        let second = PrefabSupplierKey::new(supplier);
-        let other = PrefabSupplierKey::new(Rc::new(StubSupplier));
-        assert_eq!(first, second);
-        assert_ne!(first, other);
-    }
-
-    #[test]
     fn the_entry_pool_yields_a_usable_list() {
         let mut resource = ENTRY_POOL.with(|pool| pool.acquire());
-        resource.push(entry(1, 0));
+        resource.push(PrefabContainerEntry::new(
+            prefab_map(),
+            pattern_generator(1),
+            0,
+        ));
         assert_eq!(resource.len(), 1);
     }
 }

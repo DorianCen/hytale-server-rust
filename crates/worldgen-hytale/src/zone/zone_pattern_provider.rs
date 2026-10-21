@@ -128,11 +128,10 @@ mod tests {
     };
     use crate::container::fade_container::FadeContainer;
     use crate::container::layer_container::LayerContainer;
-    use crate::container::prefab_container::{
-        PrefabContainer, PrefabContainerEntry, PrefabSupplier, PrefabSupplierKey,
-    };
+    use crate::container::prefab_container::{PrefabContainer, PrefabContainerEntry};
     use crate::container::tint_container::{DefaultTintContainerEntry, TintContainer};
     use crate::container::water_container::WaterContainer;
+    use crate::prefab::prefab_supplier::WorldGenPrefabSupplier;
     use crate::util::constant_noise_property::default_zero;
     use crate::weighted_map::{IWeightedMap, WeightedMap};
     use crate::zone::discovery_config::ZoneDiscoveryConfig;
@@ -143,13 +142,46 @@ mod tests {
 
     /// A zone biome with a prefab container of the given max size.
     fn biome_with_prefab_size(id: i32, max_size: i32) -> Rc<TileBiome> {
-        let supplier: Rc<dyn PrefabSupplier> = Rc::new(StubSupplier);
-        let prefabs: Rc<dyn IWeightedMap<PrefabSupplierKey>> = {
-            let mut builder = WeightedMap::<PrefabSupplierKey>::builder();
-            builder.put(PrefabSupplierKey::new(supplier), 1.0);
+        let prefabs: Rc<dyn IWeightedMap<WorldGenPrefabSupplier>> = {
+            let mut builder = WeightedMap::<WorldGenPrefabSupplier>::builder();
+            builder.put(
+                WorldGenPrefabSupplier::new(
+                    Rc::new(crate::prefab::prefab_store::PrefabStore::new(
+                        std::path::PathBuf::from("/tmp"),
+                        Rc::new(worldgen_model::registry::Registries::empty()),
+                    )),
+                    "key",
+                    std::path::PathBuf::from("/tmp/Foo.prefab.json"),
+                ),
+                1.0,
+            );
             Rc::new(builder.build())
         };
-        let container = PrefabContainer::new(vec![PrefabContainerEntry::new(prefabs, max_size, 0)]);
+        let container = PrefabContainer::new(vec![Rc::new(PrefabContainerEntry::new(
+            prefabs,
+            Rc::new(
+                crate::prefab::prefab_pattern_generator::PrefabPatternGenerator::new(
+                    0,
+                    crate::prefab::prefab_category::PrefabCategory::none(),
+                    None,
+                    Rc::new(procedural::noise::condition::DefaultCoordinateRndCondition::True),
+                    None,
+                    crate::util::condition::BlockMaskCondition::new(),
+                    Rc::new(procedural::noise::condition::DefaultCoordinateCondition::True),
+                    Rc::new(procedural::noise::condition::ConstantBlockFluidCondition::True),
+                    None,
+                    Rc::new(crate::util::function::ConstantCoordinateDoubleSupplier::DEFAULT_ZERO),
+                    false,
+                    false,
+                    false,
+                    false,
+                    max_size,
+                    0,
+                    Vec::new(),
+                ),
+            ),
+            0,
+        ))]);
         let interpreter: Rc<dyn procedural::noise::condition::IHeightThresholdInterpreter> =
             Rc::new(
                 procedural::noise::condition::BasicHeightThresholdInterpreter::new(&[0], &[0.5], 1),
@@ -191,9 +223,6 @@ mod tests {
         Rc::new(WeightedMap::<i32>::builder().build())
     }
 
-    struct StubSupplier;
-    impl PrefabSupplier for StubSupplier {}
-
     fn fixed_point_generator() -> Rc<dyn IPointGenerator> {
         Rc::new(FixedPointGenerator { ix: 0, iy: 0 })
     }
@@ -214,6 +243,13 @@ mod tests {
             id,
             name: format!("zone-{id}"),
             discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
             biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
                 fixed_point_generator(),
                 tile_biomes,

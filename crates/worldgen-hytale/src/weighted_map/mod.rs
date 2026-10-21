@@ -108,6 +108,7 @@ pub trait IWeightedMap<T> {
 /// When `keys.len() <= 1` the map is a *singleton* (Java's nested
 /// `SingletonWeightedMap`): `get` returns the sole key without consulting
 /// `value`, and `for_each_entry` yields weight `1.0`.
+#[derive(Clone, Debug)]
 pub struct WeightedMap<T> {
     keys: Vec<T>,
     values: Vec<f64>,
@@ -142,6 +143,13 @@ impl<T: Clone + Eq + Hash> WeightedMap<T> {
     /// Java `WeightedMap.builder(T[])` → a fresh [`Builder`].
     pub fn builder() -> Builder<T> {
         Builder::new()
+    }
+}
+
+impl<T: Clone + Eq + Hash> PartialEq for WeightedMap<T> {
+    /// Java: the weighted map compares its keys and its weights.
+    fn eq(&self, other: &Self) -> bool {
+        self.keys == other.keys && self.values == other.values
     }
 }
 

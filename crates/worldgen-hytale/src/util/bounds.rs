@@ -11,11 +11,13 @@
 //!
 //! ⚠ **Not ported**: the four `PrefabRotation` aware default methods
 //! (`getLowBoundX(PrefabRotation)`, `getLowBoundZ(PrefabRotation)`,
-//! `getHighBoundX(PrefabRotation)`, `getHighBoundZ(PrefabRotation)`) —
-//! `PrefabRotation` is a CoreServer type that arrives in Phase 5.
+//! `getHighBoundX(PrefabRotation)`, `getHighBoundZ(PrefabRotation)`) are
+//! ported as `get_low_bound_x_rotated` & co. (the prefab package, Phase 5a).
 
 use hytale_math::chunk_util;
 use hytale_math::fast_random::FastRandom;
+
+use crate::prefab::prefab_rotation::PrefabRotation;
 
 /// Java `interface IChunkBounds`.
 pub trait IChunkBounds {
@@ -96,6 +98,37 @@ pub trait IChunkBounds {
     fn is_valid(&self) -> bool {
         self.get_high_bound_x() > self.get_low_bound_x()
             && self.get_high_bound_z() > self.get_low_bound_z()
+    }
+
+    /// Java `default int getLowBoundX(@Nonnull PrefabRotation rotation)`.
+    ///
+    /// The rotated bounds of the box: the corners are rotated and the
+    /// smallest / largest of them is reported.
+    fn get_low_bound_x_rotated(&self, rotation: PrefabRotation) -> i32 {
+        rotation
+            .get_x(self.get_low_bound_x(), self.get_low_bound_z())
+            .min(rotation.get_x(self.get_high_bound_x(), self.get_high_bound_z()))
+    }
+
+    /// Java `default int getLowBoundZ(@Nonnull PrefabRotation rotation)`.
+    fn get_low_bound_z_rotated(&self, rotation: PrefabRotation) -> i32 {
+        rotation
+            .get_z(self.get_low_bound_x(), self.get_low_bound_z())
+            .min(rotation.get_z(self.get_high_bound_x(), self.get_high_bound_z()))
+    }
+
+    /// Java `default int getHighBoundX(@Nonnull PrefabRotation rotation)`.
+    fn get_high_bound_x_rotated(&self, rotation: PrefabRotation) -> i32 {
+        rotation
+            .get_x(self.get_low_bound_x(), self.get_low_bound_z())
+            .max(rotation.get_x(self.get_high_bound_x(), self.get_high_bound_z()))
+    }
+
+    /// Java `default int getHighBoundZ(@Nonnull PrefabRotation rotation)`.
+    fn get_high_bound_z_rotated(&self, rotation: PrefabRotation) -> i32 {
+        rotation
+            .get_z(self.get_low_bound_x(), self.get_low_bound_z())
+            .max(rotation.get_z(self.get_high_bound_x(), self.get_high_bound_z()))
     }
 
     /// Java: the `bounds instanceof IWorldBounds` check performed by

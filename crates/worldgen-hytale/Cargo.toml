@@ -10,6 +10,8 @@ procedural = { path = "../procedural" }
 worldgen-model = { path = "../worldgen-model" }
 log = { workspace = true }
 moka = { workspace = true }
+png = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -230,6 +230,26 @@ impl IntConditionBuilder {
         };
         Rc::new(HashSetIntCondition::new(set))
     }
+
+    /// The `HashSetIntCondition` set this builder would produce, or `None`
+    /// when the builder is empty (Java `buildOrDefault` returns the default
+    /// then). Exposed so loaders that need the id set (the biome-mask
+    /// `instanceof HashSetIntCondition` check) can read it without a
+    /// downcast.
+    pub fn build_hash_set(&self) -> Option<HashSet<i32>> {
+        if self.first == self.null_value {
+            return None;
+        }
+        let set = match &self.set {
+            Some(set) => set.clone(),
+            None => {
+                let mut set = HashSet::new();
+                set.insert(self.first);
+                set
+            }
+        };
+        Some(set)
+    }
 }
 
 /// Java `class BlockMaskCondition`.
@@ -286,6 +306,22 @@ impl BlockMaskCondition {
             .unwrap_or(&self.default_mask);
         mask.should_replace(current_block, current_fluid)
     }
+
+    /// The Java `hashCode()` of the condition — `31 * defaultMask.hashCode() +
+    /// specificMasks.hashCode()`.
+    ///
+    /// The fastutil map hash is the sum of `key.hashCode() ^ value.hashCode()`
+    /// over its entries, which is order independent.
+    pub fn hash_value(&self) -> i32 {
+        let mut specific: i32 = 0;
+        for (key, mask) in &self.specific_masks {
+            let key_hash = (*key ^ ((*key as u64 >> 32) as i64)) as i32;
+            specific = specific.wrapping_add(key_hash ^ mask.hash_value());
+        }
+        31i32
+            .wrapping_mul(self.default_mask.hash_value())
+            .wrapping_add(specific)
+    }
 }
 
 impl Default for BlockMaskCondition {
@@ -335,6 +371,15 @@ impl Mask {
         }
         // Java: return matchEmpty && (current == 0 || fluid == 0);
         self.match_empty && (current == 0 || fluid == 0)
+    }
+
+    /// The Java `hashCode()` of the mask — `Arrays.hashCode(entries)`.
+    pub fn hash_value(&self) -> i32 {
+        let mut result: i32 = 1;
+        for entry in &self.entries {
+            result = 31i32.wrapping_mul(result).wrapping_add(entry.hash_value());
+        }
+        result
     }
 }
 
@@ -397,6 +442,16 @@ impl MaskEntry {
     /// Java `boolean shouldReplace()`.
     pub fn should_replace(&self) -> bool {
         self.replace
+    }
+
+    /// The Java `hashCode()` of the entry — `31 * (31 * blocks.hashCode() +
+    /// (any ? 1 : 0)) + (replace ? 1 : 0)`.
+    pub fn hash_value(&self) -> i32 {
+        let mut result = self.blocks.hash_value();
+        result = 31i32.wrapping_mul(result).wrapping_add(i32::from(self.any));
+        31i32
+            .wrapping_mul(result)
+            .wrapping_add(i32::from(self.replace))
     }
 }
 

@@ -701,15 +701,33 @@ final class Phase2Dumper {
         private final StringBuilder out = new StringBuilder(1 << 20);
         private final Deque<Boolean> hasMembers = new ArrayDeque<>();
         private int depth;
+        /** True when the next value closes a name() member position. */
+        private boolean expectValue;
 
         JsonWriter() {
             hasMembers.push(Boolean.FALSE);
         }
 
         JsonWriter beginObject() {
+            openChild();
             out.append('{');
             depth++;
             hasMembers.push(Boolean.FALSE);
+            return this;
+        }
+
+        JsonWriter beginArray() {
+            openChild();
+            out.append('[');
+            depth++;
+            hasMembers.push(Boolean.FALSE);
+            return this;
+        }
+
+        JsonWriter endArray() {
+            depth--;
+            hasMembers.pop();
+            out.append('\n').append("  ".repeat(depth)).append(']');
             return this;
         }
 
@@ -729,43 +747,68 @@ final class Phase2Dumper {
             out.append('\n').append("  ".repeat(depth));
             quote(name);
             out.append(": ");
+            expectValue = true;
             return this;
         }
 
+        /** Emits the element/member separator for a standalone value. */
+        private void openChild() {
+            if (expectValue) {
+                expectValue = false;
+                return;
+            }
+            final boolean has = hasMembers.pop();
+            if (has) {
+                out.append(',');
+            }
+            hasMembers.push(Boolean.TRUE);
+        }
+
         JsonWriter value(String value) {
+            expectValue = false;
+            if (value == null) {
+                out.append("null");
+                return this;
+            }
             quote(value);
             return this;
         }
 
         JsonWriter value(int value) {
+            expectValue = false;
             out.append(value);
             return this;
         }
 
         JsonWriter value(long value) {
+            expectValue = false;
             out.append(value);
             return this;
         }
 
         JsonWriter value(boolean value) {
+            expectValue = false;
             out.append(value);
             return this;
         }
 
         /** Floating-point values are written as Java hex strings. */
         JsonWriter value(double value) {
+            expectValue = false;
             quote(Double.toHexString(value));
             return this;
         }
 
         /** Writes a pre-formatted array (compact, single line). */
         JsonWriter rawArray(String content) {
+            openChild();
             out.append('[').append(content).append(']');
             return this;
         }
 
         /** Writes a pre-formatted object (compact, single line). */
         JsonWriter rawObject(String content) {
+            openChild();
             out.append(content);
             return this;
         }

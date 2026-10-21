@@ -41,6 +41,14 @@ impl BlockFluidEntry {
             fluid_id,
         }
     }
+
+    /// The Java `hashCode()` of the record — the component hashes combined
+    /// with the `31 *` recurrence (`Integer.hashCode(i) == i`).
+    pub const fn hash_value(&self) -> i32 {
+        let result = self.block_id;
+        let result = 31i32.wrapping_mul(result).wrapping_add(self.rotation);
+        31i32.wrapping_mul(result).wrapping_add(self.fluid_id)
+    }
 }
 
 impl Default for BlockFluidEntry {

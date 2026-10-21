@@ -11,10 +11,33 @@ is explicitly **deferred** and not ported:
   (`"!Rock_Bedrock"` style mask entries, tint ops, fluid ops) is replaced by the direct
   Rust populators; a pluggable modifier trait is kept at the
   `BlockPriorityChunk` boundary so this can be re-added later.
+- The cave loaders dispatch the Java `ModifyEvents.CaveTypes` and
+  `ModifyEvents.CaveCovers` events; the Rust port skips the dispatch (the
+  cave configuration of the JSON file is loaded unchanged).
 
 ## 2. Entity serialization from prefabs
 - Prefab `.prefab.json` entity lists and `PrefabPasteUtil` entity spawning are stubbed.
 - Only blocks/fluids/environments from prefabs are pasted.
+- The same deferral is mirrored on the golden-dumper side:
+  `tools/java-dumper` carries a **shadowed copy** of the CoreServer
+  `BsonPrefabBufferDeserializer`
+  (`tools/java-dumper/src/main/java/com/hypixel/hytale/server/core/prefab/
+  selection/buffer/BsonPrefabBufferDeserializer.java`, loaded because the
+  dumper's `target/classes` precedes the module jars on its classpath)
+  whose two patches skip the entity decode AND the block "components"
+  state decode — the vanilla decode of both fails on the entity component
+  codecs of the builtin plugins (the Camera plugin's `CameraShake` …),
+  which the dumper boot does not load. The chunk-level golden dump
+  (`testdata/golden/chunks.json`) therefore covers exactly the Rust parity
+  target: blocks, fluids, environments, tint, priorities — no entities, no
+  components, no BlockPhysics support values.
+- The prefab **components** (the ECS state of a prefab block) are stubbed as
+  well: the `.prefab.json` reader counts them (`PrefabJsonStats`) but does
+  not deserialize them.
+- The **prefab store** (the resolution of a prefab *name* into a prefab
+  buffer) is ported (Phase 5a): `prefab::prefab_store::PrefabStore` resolves
+  the names (the dotted names and the `".*"` wildcards) into the prefab
+  files and loads the `.prefab.json` files into a `PrefabBuffer`.
 
 ## 3. CoreServer / ECS integration
 - `Holder<ChunkStore>`, chunk entity model, network serialization, and the
@@ -28,6 +51,9 @@ is explicitly **deferred** and not ported:
 ## 5. `.lpf` prefab cache format
 - JSON (`.prefab.json`) is the source of truth. The binary `.lpf` cache format is only
   investigated if profiling shows prefab parsing is a bottleneck.
+- The base-game asset pack ships no `.lpf` file, so nothing is lost by the
+  current port (the `PrefabStore` still resolves the `.lpf` sibling first,
+  exactly like the Java `PrefabBufferUtil.loadBuffer`).
 
 ## 6. BlockType definition assets — FOUND (the registries are now golden data)
 - The 3.7 GB base-game asset pack **has been provided** and is extracted under
@@ -63,9 +89,11 @@ is explicitly **deferred** and not ported:
   (`AssetRegistryLoader`) over `Assets/Assets.zip` (mounted as a zip
   `FileSystem`, exactly like the vanilla server) and dumps
   `testdata/golden/registries.json`:
-  - `blocks` — 6,135 block types: `{ name, index, drawType, drawTypeId, unknown }`
-    plus the `preLoadOrder` and the `emptyId`/`unknownId`/`debugCubeId`/
-    `debugModelId` constants,
+  - `blocks` — 6,135 block types: `{ name, index, drawType, drawTypeId,
+    opacity, unknown }` plus the per-`RotationTuple` `support` map
+    (`containsKey(DOWN/UP)`, absent for the Java `null` support map) and the
+    `preLoadOrder` / `emptyId` / `unknownId` / `debugCubeId` / `debugModelId`
+    constants,
   - `fluids` — 19 fluids: `{ name, index, maxFluidLevel }`,
   - `environments` — 135 environments: `{ name, index }` (the world generator
     resolves the environment names of the biome environment containers and of

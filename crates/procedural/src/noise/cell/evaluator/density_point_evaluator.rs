@@ -71,14 +71,18 @@ impl DensityCondition {
     /// Java static `randomDensityCondition(int seed)`.
     #[inline]
     fn random_density_condition(seed: i32) -> f64 {
-        hash_util::random2(seed as i64, 0x9afc_33ae)
+        hash_util::random2(seed as i64, DENSITY_RANDOM_SEED)
     }
 }
+
+/// Java `0x9afc_33ae` — an **int** literal (negative, `-1693957202`) that
+/// widens to `long` in `HashUtil.random(int, int)`.
+const DENSITY_RANDOM_SEED: i64 = 0x9afc_33ae_u32 as i32 as i64;
 
 /// Java static `randomDensityCondition(int seed)` (public form).
 #[inline]
 pub fn random_density_condition(seed: i32) -> f64 {
-    hash_util::random2(seed as i64, 0x9afc_33ae)
+    hash_util::random2(seed as i64, DENSITY_RANDOM_SEED)
 }
 
 impl PointEvaluator for DensityPointEvaluator {

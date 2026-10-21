@@ -13,12 +13,12 @@
 //! | `ClimateNoise`      | [`climate_noise`]         |
 //! | `ClimateSearch`     | [`climate_search`]        |
 //!
-//! ⚠ TODO(phase2): `ClimateMaskProvider` (needs `ChunkGenerator`/`MaskProvider`
-//! from the chunk package) and `UniqueClimateGenerator` (needs the full
-//! `Zone` class) are ported with those packages.
+//! `ClimateMaskProvider` / `UniqueClimateGenerator` ported with the loader
+//! slice (Subtask 5).
 
 pub mod climate_color;
 pub mod climate_graph;
+pub mod climate_mask_provider;
 pub mod climate_noise;
 pub mod climate_point;
 pub mod climate_search;
@@ -26,6 +26,7 @@ pub mod climate_type;
 pub mod direct_grid;
 pub mod distance_transform;
 pub mod maps;
+pub mod unique_climate_generator;
 
 pub use climate_color::ClimateColor;
 pub use climate_graph::{ClimateGraph, FadeMode};

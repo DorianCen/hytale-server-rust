@@ -12,11 +12,12 @@
 //! | `executor`, `ChunkThreadPoolExecutor`  | the Rust worker pool is Phase 6                     |
 //! | `timings`, `WorldGenTimingsCollector`   | the per-stage metrics are Phase 6 — the Java timing calls are **no-ops** here |
 //! | `benchmark`, `ChunkWorldgenBenchmark`   | the JMH benchmark ports are Phase 6                |
-//! | `caveGeneratorCache`, `getCave`, `generateCave` | the cave package is Phase 4                |
-//! | `prefabLoadingCache`, `uniquePrefabCache`, `getUniquePrefabs`, `generateUniquePrefabs` | the prefab package is Phase 5 |
-//! | `getSpawnPoints`                       | needs the unique prefabs (Phase 5)                |
+//! | `caveGeneratorCache`, `getCave`, `generateCave` | the cache, the accessors and the cave *growth* (`CaveGenerator`) are ported (Phase 4a/4b); the concrete cave *shapes* are Phase 4c |
+//! | `prefabLoadingCache`                 | the prefab *buffers* are cached by the [`crate::prefab::prefab_store::PrefabStore`] (the Java cache is keyed by the supplier, whose `equals` is the path — the same key) |
+//! | `uniquePrefabCache`, `getUniquePrefabs` | the cache, the accessor and the entries are ported (Phase 5b/5c) |
+//! | `generateUniquePrefabs`              | ported (Phase 5c) — see [`generate_unique_prefabs`] |
+//! | `getSpawnPoints`                     | ported (Phase 5c) — see [`get_spawn_points`]      |
 //! | `getGenerator` (world map)             | the world map is Phase 6                          |
-//! | `validate`, `ValidationUtil`           | the validation needs the caves/prefabs (Phase 4/5) |
 //! | `toMetricResults`                      | the metric registry is Phase 6                    |
 //!
 //! # Deviations
@@ -33,9 +34,10 @@
 //!   [`CoordinateKey`] / [`CoreDataCacheEntry`] types.
 //! * **The zone pattern provider is owned by the per-seed cache.** The
 //!   ported [`ZonePatternGeneratorCache`] takes the (move-only)
-//!   [`ZonePatternProvider`] by value, so the Java `getZonePatternProvider()`
-//!   getter is deferred (its only consumers — `ValidationUtil` and the world
-//!   map — are deferred as well).
+//!   [`ZonePatternProvider`] by value; the Java `getZonePatternProvider()`
+//!   getter is served through [`ZonePatternGeneratorCache::provider`] (its
+//!   consumers are `CavePopulator`, and later `ValidationUtil` and the
+//!   world map).
 //! * **`getCoreData` is not nullable here.** The Java method is annotated
 //!   `@Nullable`, but the cache always computes a value on a miss, so the
 //!   Rust port returns an `Rc<CoreDataCacheEntry>` unconditionally.
@@ -52,13 +54,21 @@ use std::sync::RwLock;
 use std::time::Instant;
 
 use hytale_math::chunk_util;
+use hytale_math::fast_random::FastRandom;
 use hytale_math::math_util;
 use procedural::noise::condition::IHeightThresholdInterpreter;
 
 use crate::cache::coordinate_cache::CoordinateKey;
 use crate::cache::core_data_cache_entry::CoreDataCacheEntry;
 use crate::cache::interpolated_biome_count_list::InterpolatedBiomeCountList;
+use crate::cache::unique_prefab_cache::UniquePrefabCache;
+use crate::cave::cave::Cave;
+use crate::cave::cave_generator_cache::CaveGeneratorCache;
+use crate::cave::cave_type::CaveType;
 use crate::chunk::zone_biome_result::ZoneBiomeResult;
+use crate::container::unique_prefab_container::UniquePrefabEntry;
+use crate::loader::util::Vector3d;
+use crate::util::transform::{Rotation3f, Transform, NO_HEIGHT};
 use crate::zone::zone_generator_result::ZoneGeneratorResult;
 use crate::zone::zone_pattern_generator::ZonePatternGenerator;
 use crate::zone::zone_pattern_generator_cache::ZonePatternGeneratorCache;
@@ -81,6 +91,22 @@ const GENERATOR_CACHE_MAX_SIZE: usize = 50_000;
 /// core-data cache in seconds.
 const GENERATOR_CACHE_EXPIRE_AFTER_SECONDS: u64 = 20;
 
+/// Java `new CaveGeneratorCache(..., 5_000, 30)` — the maximum number of
+/// cached caves.
+const CAVE_GENERATOR_CACHE_MAX_SIZE: u64 = 5_000;
+
+/// Java `new CaveGeneratorCache(..., 5_000, 30)` — the idle timeout of the
+/// cave cache in seconds.
+const CAVE_GENERATOR_CACHE_EXPIRE_AFTER_SECONDS: u64 = 30;
+
+/// Java `new UniquePrefabCache(..., 50, 5 * 60)` — the maximum number of
+/// cached unique-prefab lists.
+const UNIQUE_PREFAB_CACHE_MAX_SIZE: usize = 50;
+
+/// Java `new UniquePrefabCache(..., 50, 5 * 60)` — the idle timeout of the
+/// unique-prefab cache in seconds.
+const UNIQUE_PREFAB_CACHE_EXPIRE_AFTER_SECONDS: u64 = 5 * 60;
+
 /// One live cache record: the shared entry plus its idle deadline (millis
 /// since the cache was created).
 struct CacheRecord {
@@ -102,6 +128,12 @@ pub struct ChunkGenerator {
     /// Java `private final ChunkGeneratorCache generatorCache` — the
     /// per-column core-data cache (see the module docs for the deviation).
     generator_cache: RwLock<CacheMap>,
+    /// Java `private final CaveGeneratorCache caveGeneratorCache` — the
+    /// cache of the generated caves.
+    cave_generator_cache: CaveGeneratorCache,
+    /// Java `private final UniquePrefabCache uniquePrefabCache` — the cache
+    /// of the unique prefab entries (per seed).
+    unique_prefab_cache: UniquePrefabCache,
     /// Java `private final Path dataFolder`.
     data_folder: Option<PathBuf>,
     /// Java `private final int minChunkCoord`.
@@ -113,8 +145,28 @@ pub struct ChunkGenerator {
 }
 
 impl ChunkGenerator {
+    /// Read-only access to the loaded `ZonePatternProvider` (inside the
+    /// generator cache); the Java field is private and unused externally —
+    /// this accessor exists for the loader tests.
+    pub fn zone_pattern_provider(&self) -> &ZonePatternProvider {
+        self.zone_pattern_generator_cache.provider()
+    }
+
+    /// Java `@Nonnull ZonePatternProvider getZonePatternProvider()` — used by
+    /// the [`crate::chunk::populator::CavePopulator`] stage (and, later, by
+    /// `ValidationUtil` / the world map).
+    pub fn get_zone_pattern_provider(&self) -> &ZonePatternProvider {
+        self.zone_pattern_provider()
+    }
+
     /// Java `ChunkGenerator(ZonePatternProvider zonePatternProvider, Path
     /// dataFolder)`.
+    ///
+    /// Deviation: the Java constructor hands `this::generateCave` to the
+    /// cave cache, which creates a reference cycle between the generator and
+    /// its cache (the Java GC collects it, a Rust `Rc` would leak). The Rust
+    /// port therefore builds the cache with a closure that holds a
+    /// [`Weak`](std::rc::Weak) reference to the generator.
     pub fn new(
         zone_pattern_provider: ZonePatternProvider,
         data_folder: Option<PathBuf>,
@@ -128,13 +180,42 @@ impl ChunkGenerator {
         let min_chunk_coord = chunk_util::MIN_CHUNK_COORD + extents;
         let max_chunk_coord = chunk_util::MAX_CHUNK_COORD - extents;
 
-        Rc::new(Self {
-            zone_pattern_generator_cache: ZonePatternGeneratorCache::new(zone_pattern_provider),
-            generator_cache: RwLock::new(HashMap::new()),
-            data_folder,
-            min_chunk_coord,
-            max_chunk_coord,
-            created: Instant::now(),
+        Rc::new_cyclic(|weak: &std::rc::Weak<Self>| {
+            // The cache holds a *weak* reference to the generator, so the
+            // generator and its cache do not form a reference cycle.
+            let weak = weak.clone();
+            let cave_weak = weak.clone();
+            // Java: `new CaveGeneratorCache(this::generateCave, 5_000, 30)`.
+            let cave_generator_cache = CaveGeneratorCache::new(
+                Rc::new(move |cave_type: &CaveType, seed: i32, x: i32, z: i32| {
+                    let generator = cave_weak.upgrade()?;
+                    generator.generate_cave(cave_type, seed, x, z)
+                }),
+                CAVE_GENERATOR_CACHE_MAX_SIZE,
+                CAVE_GENERATOR_CACHE_EXPIRE_AFTER_SECONDS,
+            );
+
+            // Java: `new UniquePrefabCache(this::generateUniquePrefabs, 50, 5 * 60)`.
+            let unique_weak = weak.clone();
+            let unique_prefab_cache = UniquePrefabCache::new(
+                Rc::new(move |seed: i32| match unique_weak.upgrade() {
+                    Some(generator) => generator.generate_unique_prefabs(seed),
+                    None => Vec::new(),
+                }),
+                UNIQUE_PREFAB_CACHE_MAX_SIZE,
+                UNIQUE_PREFAB_CACHE_EXPIRE_AFTER_SECONDS,
+            );
+
+            Self {
+                zone_pattern_generator_cache: ZonePatternGeneratorCache::new(zone_pattern_provider),
+                generator_cache: RwLock::new(HashMap::new()),
+                cave_generator_cache,
+                unique_prefab_cache,
+                data_folder,
+                min_chunk_coord,
+                max_chunk_coord,
+                created: Instant::now(),
+            }
         })
     }
 
@@ -190,6 +271,27 @@ impl ChunkGenerator {
     /// Java `@Nonnull ZonePatternGenerator getZonePatternGenerator(int seed)`.
     pub fn get_zone_pattern_generator(&self, seed: i32) -> Rc<ZonePatternGenerator> {
         self.zone_pattern_generator_cache.get(seed)
+    }
+
+    /// Java `@Nullable Cave getCave(CaveType caveType, int seed, int x, int
+    /// z)` — the cached cave of the position.
+    ///
+    /// Deviation: the Java method returns the `Cave` object; the Rust port
+    /// hands out a shared handle to it (the cave is immutable once it is
+    /// compiled).
+    pub fn get_cave(&self, cave_type: &CaveType, seed: i32, x: i32, z: i32) -> Option<Rc<Cave>> {
+        self.cave_generator_cache.get(cave_type, seed, x, z)
+    }
+
+    /// Java `@Nullable UniquePrefabContainer.UniquePrefabEntry[]
+    /// getUniquePrefabs(int seed)` — the cached unique prefab entries of the
+    /// seed.
+    ///
+    /// Deviation: the Java method is `@Nullable` (the cache may fail); the
+    /// Rust port returns an empty list instead of `None` (the Java
+    /// `PrefabPopulator` replaces a `null` with an empty array anyway).
+    pub fn get_unique_prefabs(&self, seed: i32) -> Vec<UniquePrefabEntry> {
+        self.unique_prefab_cache.get(seed)
     }
 
     /// Java `ZoneBiomeResult getZoneBiomeResultAt(int seed, int x, int z)`.
@@ -499,6 +601,167 @@ impl ChunkGenerator {
         n
     }
 
+    /// Java `@Nonnull Cave generateCave(CaveType caveType, int seed, int x,
+    /// int z)`.
+    ///
+    /// Generates a cave at a certain X, Z coordinate. Usually only called by
+    /// the [`CaveGeneratorCache`].
+    ///
+    /// Returns `None` when the zone of the position has no cave generator
+    /// (the Java method returns `null`).
+    pub fn generate_cave(&self, cave_type: &CaveType, seed: i32, x: i32, z: i32) -> Option<Cave> {
+        let zone_biome_result = self.get_zone_biome_result_at(seed, x, z);
+        let zone = zone_biome_result
+            .get_zone_result()
+            .and_then(|zone_result| zone_result.get_zone())
+            .expect("generateCave: the zone result has no zone (Java: NPE)")
+            .clone();
+        let Some(cave_generator) = &zone.cave_generator else {
+            return None;
+        };
+        let height = self.get_height(seed, x, z);
+        Some(cave_generator.generate(seed, self, cave_type, x, height, z))
+    }
+
+    /// Java `@Nonnull UniquePrefabContainer.UniquePrefabEntry[]
+    /// generateUniquePrefabs(int seed)`.
+    ///
+    /// ```java
+    /// final var zonePatternGenerator = getZonePatternGenerator(seed);
+    /// final var entries = new ArrayList<UniquePrefabContainer.UniquePrefabEntry>();
+    /// final var visited = new BitSet(zonePatternGenerator.getZones().length);
+    ///
+    /// for (var uniqueZone : zonePatternGenerator.getUniqueZones()) {
+    ///     final var position = uniqueZone.getPosition();
+    ///     final var zoneEntries = uniqueZone.zone().uniquePrefabContainer().generate(seed, position, this);
+    ///     entries.addAll(Arrays.asList(zoneEntries));
+    ///     visited.set(uniqueZone.zone().id());
+    /// }
+    ///
+    /// for (var zone : zonePatternGenerator.getZones()) {
+    ///     if (visited.get(zone.id())) continue;
+    ///     final var zoneEntries = zone.uniquePrefabContainer().generate(seed, (Vector2i) null, this);
+    ///     entries.addAll(Arrays.asList(zoneEntries));
+    /// }
+    ///
+    /// return entries.toArray(UniquePrefabContainer.UniquePrefabEntry[]::new);
+    /// ```
+    ///
+    /// The *unique zones* (the spawn and the temple) place their prefabs at
+    /// the center of the zone (the inverse domain warp); the zones that are
+    /// not unique zones place theirs around their anchor (the random search).
+    ///
+    /// ⚠ Deviation: the Java `BitSet` grows when a zone id exceeds the
+    /// number of zones; the Rust port uses a `Vec<bool>` that is only read
+    /// for the ids of the zones themselves (the ids are unique and smaller
+    /// than the zone count).
+    pub fn generate_unique_prefabs(&self, seed: i32) -> Vec<UniquePrefabEntry> {
+        let zone_pattern_generator = self.get_zone_pattern_generator(seed);
+        let mut entries: Vec<UniquePrefabEntry> = Vec::new();
+        let mut visited = vec![false; zone_pattern_generator.get_zones().len()];
+
+        for unique_zone in zone_pattern_generator.get_unique_zones() {
+            let position = unique_zone.get_position();
+            let zone_entries =
+                unique_zone
+                    .zone
+                    .unique_prefab_container
+                    .generate(seed, Some(position), self);
+            entries.extend(zone_entries);
+
+            let id = unique_zone.zone.id;
+            if id >= 0 {
+                let index = id as usize;
+                if index >= visited.len() {
+                    visited.resize(index + 1, false);
+                }
+                visited[index] = true;
+            }
+        }
+
+        for zone in zone_pattern_generator.get_zones() {
+            if visited.get(zone.id as usize).copied().unwrap_or(false) {
+                continue;
+            }
+            let zone_entries = zone.unique_prefab_container.generate(seed, None, self);
+            entries.extend(zone_entries);
+        }
+
+        entries
+    }
+
+    /// Java `@Override public Transform[] getSpawnPoints(int seed)`.
+    ///
+    /// ```java
+    /// final var list = new ArrayList<Transform>();
+    /// for (UniquePrefabContainer.UniquePrefabEntry entry : getUniquePrefabs(seed)) {
+    ///     if (entry.isSpawnLocation()) {
+    ///         final Vector3i position = entry.getPosition();
+    ///         final Vector3d spawnPosition = new Vector3d(entry.getSpawnOffset());
+    ///         final Rotation3f spawnRotation = new Rotation3f();
+    ///         entry.getRotation().rotate(spawnPosition);
+    ///         spawnRotation.addYaw(-entry.getRotation().getYaw());
+    ///         list.add(new Transform(
+    ///             spawnPosition.add(position.x, position.y, position.z).add(0.5, 0.0, 0.5),
+    ///             spawnRotation
+    ///         ));
+    ///     }
+    /// }
+    ///
+    /// if (list.isEmpty()) { // Fallback
+    ///     list.add(new Transform(ChunkUtil.SIZE / 2.0 + 0.5, HeightmapColumn.NO_HEIGHT, ChunkUtil.SIZE / 2.0 + 0.5));
+    /// }
+    ///
+    /// var array = list.toArray(Transform[]::new);
+    /// var random = ChunkGenerator.getResource().random;
+    /// random.setSeed(seed * 0x5912_2134L); // magic value to shuffle spawns per seed
+    /// ArrayUtli.shuffleArray(array, random);
+    /// return array;
+    /// ```
+    ///
+    /// ⚠ Deviation: the Java reads the random out of the thread-local
+    /// resource; the Rust port uses a local [`FastRandom`] with the same seed
+    /// (the stream is the same, the shuffle is the same).
+    pub fn get_spawn_points(&self, seed: i32) -> Vec<Transform> {
+        let mut list: Vec<Transform> = Vec::new();
+        for entry in self.get_unique_prefabs(seed) {
+            if !entry.is_spawn_location() {
+                continue;
+            }
+            let position = entry.get_position();
+
+            let mut spawn_position = entry.get_spawn_offset();
+            let mut spawn_rotation = Rotation3f::new();
+            let rotation = entry.get_rotation();
+            rotation.rotate(&mut spawn_position);
+            spawn_rotation.add_yaw(-rotation.get_yaw());
+
+            list.push(Transform::new(
+                Vector3d::new(
+                    spawn_position.x + f64::from(position.0) + 0.5,
+                    spawn_position.y + f64::from(position.1),
+                    spawn_position.z + f64::from(position.2) + 0.5,
+                ),
+                spawn_rotation,
+            ));
+        }
+
+        if list.is_empty() {
+            // Fallback
+            list.push(Transform::from_position(
+                f64::from(chunk_util::SIZE) / 2.0 + 0.5,
+                f64::from(NO_HEIGHT),
+                f64::from(chunk_util::SIZE) / 2.0 + 0.5,
+            ));
+        }
+
+        // Java: `random.setSeed(seed * 0x5912_2134L)` — the multiplication is a
+        // *long* multiplication (the int seed is widened first).
+        let mut random = FastRandom::new((seed as i64).wrapping_mul(0x5912_2134));
+        crate::util::array_utli::shuffle_array(&mut list, &mut random);
+        list
+    }
+
     /// Java `int generateHeight(int seed, int x, int z)`.
     pub fn generate_height(&self, seed: i32, x: i32, z: i32) -> i32 {
         let entry = self.get_core_data(seed, x, z);
@@ -716,9 +979,9 @@ pub fn generate_interpolated_threshold(
 /// return ChunkUtil.chunkCoordinate(MathUtil.ceil(max)) + padding;
 /// ```
 ///
-/// Deviation: the cave generator is not ported yet (Phase 4), so the cave
-/// part of the fold is missing — the extents are computed from the prefab
-/// containers only. The formula itself is unchanged.
+/// Deviation: the cave generator of a zone is a seam (Phase 4b) — the fold
+/// uses the cave types it exposes, so the extents are correct as soon as the
+/// zones carry their cave generator. The formula itself is unchanged.
 fn get_largest_feature_chunk_extents(
     zone_pattern_provider: &ZonePatternProvider,
     padding: i32,
@@ -726,8 +989,12 @@ fn get_largest_feature_chunk_extents(
     let mut max = 0.0f64;
 
     for zone in zone_pattern_provider.get_zones() {
-        // Caves are likely to be the largest feature — deferred with the
-        // cave package (Phase 4).
+        // Caves are likely to be the largest feature.
+        if let Some(cave_generator) = &zone.cave_generator {
+            for cave_type in cave_generator.get_cave_types() {
+                max = max.max(cave_type.get_maximum_size());
+            }
+        }
 
         // Prefabs may be larger in custom worlds that have limited-to-no caves
         for biome in zone.biome_pattern_generator.get_biomes() {
@@ -955,6 +1222,153 @@ pub(crate) mod test_stubs {
             0
         }
     }
+
+    /// A chunk generator over a single zone (id 3) with a single tile biome
+    /// (id 7) — the test double the chunk-core tests build on.
+    pub(crate) fn stub_generator() -> Rc<super::ChunkGenerator> {
+        use procedural::noise::random::empty_randomizer;
+        use procedural::noise::result_buffer::{ResultBuffer2d, ResultBuffer3d};
+
+        use crate::biome::biome_pattern_generator::BiomePatternGenerator;
+        use crate::biome::tile_biome::TileBiome;
+        use crate::chunk::mask_provider::MaskProvider;
+        use crate::chunk::ChunkGenerator;
+        use crate::container::environment_container::DefaultEnvironmentContainerEntry;
+        use crate::container::layer_container::LayerContainer;
+        use crate::container::tint_container::{DefaultTintContainerEntry, TintContainer};
+        use crate::container::water_container::WaterContainer;
+        use crate::weighted_map::{IWeightedMap, WeightedMap};
+        use crate::zone::discovery_config::ZoneDiscoveryConfig;
+        use crate::zone::zone::Zone;
+        use crate::zone::zone_color_mapping::ZoneColorMapping;
+        use crate::zone::zone_pattern_provider::ZonePatternProvider;
+        use crate::zoom::fuzzy_zoom::FuzzyZoom;
+        use crate::zoom::pixel_provider::PixelProvider;
+
+        /// Java `PointGenerator.nearest2D` with a fixed cell result.
+        struct FixedPointGenerator;
+
+        impl procedural::noise::point::IPointGenerator for FixedPointGenerator {
+            fn nearest_2d(&self, _seed: i32, _x: f64, _y: f64) -> ResultBuffer2d {
+                ResultBuffer2d::new()
+            }
+
+            fn nearest_3d(&self, _s: i32, _x: f64, _y: f64, _z: f64) -> ResultBuffer3d {
+                unimplemented!("not exercised by these tests")
+            }
+
+            fn transition_2d(&self, _s: i32, _x: f64, _y: f64) -> ResultBuffer2d {
+                unimplemented!("not exercised by these tests")
+            }
+
+            fn transition_3d(&self, _s: i32, _x: f64, _y: f64, _z: f64) -> ResultBuffer3d {
+                unimplemented!("not exercised by these tests")
+            }
+
+            fn collect(
+                &self,
+                _seed: i32,
+                _min_x: f64,
+                _min_y: f64,
+                _max_x: f64,
+                _max_y: f64,
+                _consumer: &mut dyn FnMut(f64, f64),
+            ) {
+                unimplemented!("not exercised by these tests")
+            }
+
+            fn get_interval(&self) -> f64 {
+                unimplemented!("not exercised by these tests")
+            }
+        }
+
+        let interpolation = Rc::new(BiomeInterpolation::create(
+            crate::chunk::MAX_RADIUS,
+            std::collections::HashMap::new(),
+        ));
+        let interpreter: Rc<dyn IHeightThresholdInterpreter> =
+            Rc::new(StubInterpreter::new(0.75, 0.0, 0, 63));
+
+        let mut tint_builder = WeightedMap::<i32>::builder();
+        tint_builder.put(0x112233, 1.0);
+        let tint: Rc<dyn IWeightedMap<i32>> = Rc::new(tint_builder.build());
+        let tint = Rc::new(TintContainer::new(
+            DefaultTintContainerEntry::new(tint, Rc::new(ConstantNoise(0.0))),
+            Vec::new(),
+        ));
+
+        let mut environment_builder = WeightedMap::<i32>::builder();
+        environment_builder.put(5, 1.0);
+        let environment: Rc<dyn IWeightedMap<i32>> = Rc::new(environment_builder.build());
+        let environment = Rc::new(EnvironmentContainer::new(
+            DefaultEnvironmentContainerEntry::new(environment, Rc::new(ConstantNoise(0.0))),
+            Vec::new(),
+        ));
+
+        let biome = Rc::new(TileBiome::new(
+            7,
+            "biome-7".to_string(),
+            interpolation,
+            interpreter,
+            Rc::new(CoverContainer::new(Vec::new())),
+            Rc::new(LayerContainer::new(0, 0, Vec::new(), Vec::new())),
+            None,
+            tint,
+            environment,
+            Rc::new(WaterContainer::new(Vec::new())),
+            Rc::new(FadeContainer::new(
+                0.0,
+                1.0,
+                0.0,
+                1.0,
+                FadeContainer::NO_FADE_HEIGHTMAP,
+            )),
+            Rc::new(ConstantNoise(0.5)),
+            1.0,
+            1.0,
+            0,
+        ));
+
+        let mut biome_builder = WeightedMap::<Rc<TileBiome>>::builder();
+        biome_builder.put(biome, 1.0);
+        let tile_biomes: Rc<dyn IWeightedMap<Rc<TileBiome>>> = Rc::new(biome_builder.build());
+
+        let zone = Rc::new(Zone {
+            id: 3,
+            name: "zone-3".to_string(),
+            discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
+            biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
+                Rc::new(FixedPointGenerator),
+                tile_biomes,
+                Vec::new(),
+            )),
+        });
+
+        let mut mapping = ZoneColorMapping::new();
+        mapping.add(0x00FF00, Rc::clone(&zone));
+        let provider = ZonePatternProvider::new(
+            Rc::new(FixedPointGenerator),
+            vec![zone],
+            Vec::new(),
+            MaskProvider::new(FuzzyZoom::new(
+                empty_randomizer(),
+                PixelProvider::from_pixels(4, 4, vec![0x00FF00; 16]),
+                1.0,
+                1.0,
+                0,
+                0,
+            )),
+            mapping,
+        );
+        ChunkGenerator::new(provider, None)
+    }
 }
 
 #[cfg(test)]
@@ -974,6 +1388,7 @@ mod tests {
     use crate::container::layer_container::LayerContainer;
     use crate::container::tint_container::{DefaultTintContainerEntry, TintContainer};
     use crate::container::water_container::WaterContainer;
+    use crate::loader::util::Vector2d;
     use crate::weighted_map::{IWeightedMap, WeightedMap};
     use crate::zone::discovery_config::ZoneDiscoveryConfig;
     use crate::zone::zone::Zone;
@@ -1093,6 +1508,13 @@ mod tests {
             id: zone_id,
             name: format!("zone-{zone_id}"),
             discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
             biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
                 fixed_point_generator(),
                 tile_biomes,
@@ -1148,6 +1570,72 @@ mod tests {
             mapping,
         );
         ChunkGenerator::new(provider, None)
+    }
+
+    /// A generator over a single zone that carries a cave generator.
+    fn generator_with_caves(
+        threshold: f32,
+        height_noise: f64,
+        cave_types: Vec<Rc<crate::cave::cave_type::CaveType>>,
+    ) -> Rc<ChunkGenerator> {
+        let biome = tile_biome(7, threshold, height_noise, 0x112233, 5);
+        let mut mapping = ZoneColorMapping::new();
+        let zone = Rc::new(Zone {
+            id: 3,
+            name: "zone-3".to_string(),
+            discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: Some(Rc::new(crate::cave::test_stubs::StubCaveGenerator::new(
+                cave_types,
+            ))),
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    Vec::new(),
+                ),
+            ),
+            biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
+                fixed_point_generator(),
+                {
+                    let mut builder = WeightedMap::<Rc<TileBiome>>::builder();
+                    builder.put(biome, 1.0);
+                    let map: Rc<dyn IWeightedMap<Rc<TileBiome>>> = Rc::new(builder.build());
+                    map
+                },
+                Vec::new(),
+            )),
+        });
+        mapping.add(0x00FF00, Rc::clone(&zone));
+        let provider = ZonePatternProvider::new(
+            fixed_point_generator(),
+            vec![zone],
+            Vec::new(),
+            solid_mask(4, 4, 0x00FF00),
+            mapping,
+        );
+        ChunkGenerator::new(provider, None)
+    }
+
+    #[test]
+    fn a_zone_without_caves_has_no_cave() {
+        let generator = generator(0.75, 0.5);
+        let cave_type = crate::cave::test_stubs::cave_type("cave");
+        assert!(generator.generate_cave(&cave_type, 42, 0, 0).is_none());
+        assert!(generator.get_cave(&cave_type, 42, 0, 0).is_none());
+    }
+
+    #[test]
+    fn the_cave_cache_hands_out_the_cave_of_the_zone() {
+        let cave_type = crate::cave::test_stubs::cave_type("cave");
+        let generator = generator_with_caves(0.75, 0.5, vec![Rc::clone(&cave_type)]);
+        let cave = generator
+            .get_cave(&cave_type, 42, 0, 0)
+            .expect("the zone has a cave generator");
+        assert_eq!(cave.get_cave_type().get_name(), "cave");
+        // The cave is cached: the second lookup returns the same cave.
+        let again = generator
+            .get_cave(&cave_type, 42, 0, 0)
+            .expect("the cached cave");
+        assert!(Rc::ptr_eq(&cave, &again));
     }
 
     #[test]
@@ -1388,5 +1876,173 @@ mod tests {
         );
         assert!(generator.is_chunk_outside_generatable_area(chunk_util::MIN_CHUNK_COORD, 0));
         assert!(!generator.is_chunk_outside_generatable_area(0, 0));
+    }
+
+    /* ============================================================================================================ */
+    /*                                             the unique prefabs                                                */
+    /* ============================================================================================================ */
+
+    /// A unique prefab generator with the given configuration.
+    fn unique_prefab_generator(
+        configuration: crate::prefab::unique::unique_prefab_configuration::UniquePrefabConfiguration,
+    ) -> crate::container::unique_prefab_container::UniquePrefabGenerator {
+        let loader = crate::loader::test_prefab_store::test_prefab_loader();
+        let mut suppliers = loader.get("A");
+        assert_eq!(suppliers.len(), 1);
+        let mut builder = crate::weighted_map::WeightedMap::<
+            crate::prefab::prefab_supplier::WorldGenPrefabSupplier,
+        >::builder();
+        builder.put(suppliers.remove(0), 1.0);
+        let prefabs: Rc<
+            dyn crate::weighted_map::IWeightedMap<
+                crate::prefab::prefab_supplier::WorldGenPrefabSupplier,
+            >,
+        > = Rc::new(builder.build());
+        crate::container::unique_prefab_container::UniquePrefabGenerator::new(
+            "Spawn".to_string(),
+            crate::prefab::prefab_category::PrefabCategory::unique(),
+            prefabs,
+            configuration,
+            3,
+        )
+    }
+
+    /// A unique prefab configuration with the given anchor and spawn flag.
+    fn unique_configuration(
+        anchor: crate::loader::util::Vector2d,
+        max_distance: f64,
+        spawn_location: bool,
+    ) -> crate::prefab::unique::unique_prefab_configuration::UniquePrefabConfiguration {
+        crate::prefab::unique::unique_prefab_configuration::UniquePrefabConfiguration::new(
+            None,
+            crate::util::condition::BlockMaskCondition::new(),
+            Some(vec![
+                crate::prefab::prefab_rotation::PrefabRotation::Rotation270,
+            ]),
+            Rc::new(procedural::noise::support::AlwaysTrueIntCondition),
+            Rc::new(procedural::noise::condition::DefaultCoordinateCondition::True),
+            Rc::new(procedural::noise::condition::ConstantBlockFluidCondition::True),
+            anchor,
+            Vector3d::new(0.0, 3.0, 16.0),
+            max_distance,
+            false,
+            false,
+            false,
+            worldgen_model::chunk::ENVIRONMENT_NOT_SET,
+            5000,
+            50.0,
+            spawn_location,
+            25.0,
+            false,
+        )
+    }
+
+    /// A generator whose zone carries a unique prefab container.
+    fn generator_with_unique_prefabs(
+        configuration: crate::prefab::unique::unique_prefab_configuration::UniquePrefabConfiguration,
+    ) -> Rc<ChunkGenerator> {
+        let biome = tile_biome(7, 0.75, 0.5, 0x112233, 5);
+        let mut builder = WeightedMap::<Rc<TileBiome>>::builder();
+        builder.put(biome, 1.0);
+        let tile_biomes: Rc<dyn IWeightedMap<Rc<TileBiome>>> = Rc::new(builder.build());
+        let zone = Rc::new(Zone {
+            id: 3,
+            name: "zone-3".to_string(),
+            discovery_config: Rc::new(ZoneDiscoveryConfig::default()),
+            cave_generator: None,
+            unique_prefab_container: Rc::new(
+                crate::container::unique_prefab_container::UniquePrefabContainer::new(
+                    0,
+                    vec![unique_prefab_generator(configuration)],
+                ),
+            ),
+            biome_pattern_generator: Rc::new(BiomePatternGenerator::new(
+                fixed_point_generator(),
+                tile_biomes,
+                Vec::new(),
+            )),
+        });
+        let mut mapping = ZoneColorMapping::new();
+        mapping.add(0x00FF00, Rc::clone(&zone));
+        let provider = ZonePatternProvider::new(
+            fixed_point_generator(),
+            vec![zone],
+            Vec::new(),
+            solid_mask(4, 4, 0x00FF00),
+            mapping,
+        );
+        ChunkGenerator::new(provider, None)
+    }
+
+    #[test]
+    fn the_unique_prefabs_of_a_zone_are_generated() {
+        let generator =
+            generator_with_unique_prefabs(unique_configuration(Vector2d::new(0.0, 0.0), 0.0, true));
+        let entries = generator.generate_unique_prefabs(7);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].get_name(), "Spawn");
+        assert!(entries[0].is_spawn_location());
+        // The anchor is (0, 0) and the max distance is 0 → the candidate is
+        // the anchor itself.
+        assert_eq!(entries[0].get_position().0, 0);
+        assert_eq!(entries[0].get_position().2, 0);
+    }
+
+    #[test]
+    fn the_unique_prefabs_are_cached_per_seed() {
+        let generator = generator_with_unique_prefabs(unique_configuration(
+            Vector2d::new(0.0, 0.0),
+            100.0,
+            true,
+        ));
+        let first = generator.get_unique_prefabs(7);
+        let second = generator.get_unique_prefabs(7);
+        assert_eq!(first.len(), second.len());
+        assert_eq!(first[0].get_position(), second[0].get_position());
+    }
+
+    #[test]
+    fn the_spawn_point_is_the_position_plus_the_rotated_offset() {
+        let generator =
+            generator_with_unique_prefabs(unique_configuration(Vector2d::new(0.0, 0.0), 0.0, true));
+        let spawn_points = generator.get_spawn_points(7);
+        assert_eq!(spawn_points.len(), 1);
+        let position = *spawn_points[0].get_position();
+        // The spawn offset (0, 3, 16) rotated by ROTATION_270 is (-16, 3, 0);
+        // the position of the entry is (0, height, 0) and the Java adds
+        // (0.5, 0.0, 0.5).
+        assert_eq!(position.x, -16.0 + 0.5);
+        assert_eq!(position.y, 3.0 + f64::from(generator.get_height(7, 0, 0)));
+        assert_eq!(position.z, 0.5);
+        // The yaw is the negated rotation yaw.
+        assert_eq!(
+            spawn_points[0].get_rotation().yaw(),
+            -crate::prefab::prefab_rotation::PrefabRotation::Rotation270.get_yaw()
+        );
+    }
+
+    #[test]
+    fn a_world_without_a_spawn_falls_back_to_the_chunk_center() {
+        let generator = generator(0.75, 0.5);
+        let spawn_points = generator.get_spawn_points(7);
+        assert_eq!(spawn_points.len(), 1);
+        let position = *spawn_points[0].get_position();
+        assert_eq!(position.x, f64::from(chunk_util::SIZE) / 2.0 + 0.5);
+        assert_eq!(position.y, f64::from(crate::util::transform::NO_HEIGHT));
+        assert_eq!(position.z, f64::from(chunk_util::SIZE) / 2.0 + 0.5);
+    }
+
+    #[test]
+    fn the_spawn_points_are_shuffled_per_seed() {
+        let generator =
+            generator_with_unique_prefabs(unique_configuration(Vector2d::new(0.0, 0.0), 0.0, true));
+        let first = generator.get_spawn_points(7);
+        let second = generator.get_spawn_points(7);
+        assert_eq!(first.len(), second.len());
+        assert_eq!(
+            *first[0].get_position(),
+            *second[0].get_position(),
+            "the shuffle is deterministic for the same seed"
+        );
     }
 }

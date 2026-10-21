@@ -1,6 +1,8 @@
 /target
 Cargo.lock.bak
 *.profraw
+# Generated prefab (.lpf) cache written by the Java dumper's PrefabStore.
+.cache/
 .hytale-source/
 # Game asset pack (3.7 GB zip + extracted tree) — not part of the source tree.
 Assets/

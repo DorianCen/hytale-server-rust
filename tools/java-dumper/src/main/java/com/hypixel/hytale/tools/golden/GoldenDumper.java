@@ -115,6 +115,14 @@ public final class GoldenDumper {
             // Phase 3: the real block / fluid / environment registries of the
             // base-game asset pack (see RegistryDumper for the boot description).
             writeText(output.resolve("registries.json"), RegistryDumper.dumpRegistries(repoRoot));
+
+            // Phase 7d: the real world-loader chain over the world folder
+            // (mask pick, file contexts, zone summary, caves, biome containers).
+            writeText(output.resolve("loader.json"), LoaderDumper.dumpLoader(worldDir, repoRoot));
+
+            // Phase 8: the real per-chunk world generation (the vanilla
+            // ChunkGenerator over the real Default world).
+            writeText(output.resolve("chunks.json"), ChunkDumper.dumpChunks(worldDir, repoRoot));
         } catch (Throwable t) {
             // The CoreServer boot replaces System.err with a logger stream, so
             // the failure is reported on the original stderr.

@@ -8,13 +8,11 @@
 //! this type is produced the position is always resolved, so the Rust port
 //! stores it directly).
 //!
-//! ⚠ TODO(phase2): the full `Zone` record (caveGenerator /
-//! uniquePrefabContainer arrive with Phase 4/5). Once a `Zone` owns its
-//! `UniquePrefabContainer` holding `UniqueEntry` values, the `Rc<Zone>`
-//! inside [`UniqueEntry`] creates a reference cycle (`Zone` → container →
-//! entry → `Zone`); Java's GC collects it, Rust `Rc` does not — Phase 5 must
-//! break the cycle (e.g. `Weak<Zone>` on the entry, or entries storing the
-//! zone id).
+//! ⚠ The `Rc<Zone>` inside [`UniqueEntry`] does **not** create a reference
+//! cycle: the zone owns its *unique prefab container* (the generators of the
+//! zone), not its unique *entries* — the entries are built per seed by
+//! [`crate::container::unique_prefab_container::UniquePrefabContainer::generate`]
+//! and are not stored in the zone.
 
 use std::rc::Rc;
 
