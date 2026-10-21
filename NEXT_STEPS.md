@@ -4,9 +4,9 @@
 golden data (`tests/chunks_golden.rs`: 21 chunks / 21,504 columns, every
 block / fluid / environment / priority byte). The golden-regeneration gate
 (`tools/java-dumper/check.sh`), the procedural seams, the server adapter
-(`crates/worldgen-server`) and the render goldens have landed; nothing below
-is required for the parity claim — the list is ordered by how much it
-strengthens or extends it.
+(`crates/worldgen-server`), the render goldens and the release-mode
+benchmark baseline (`BENCHMARKS.md`) have landed; nothing below is required
+for the parity claim.
 
 **Context for the next session:**
 - Completed work, root causes and per-phase notes: [`PORTING_HISTORY.md`](PORTING_HISTORY.md)
@@ -50,14 +50,7 @@ tools/java-dumper/check.sh        # two isolated runs + diff against the committ
   maps (chunk ids consistent with that boot). No attempt should be made to
   find one universal id order — the `meta` block documents why.
 
-## 2. Performance baseline (optional)
-
-- Record release-mode numbers (`worldgen-cli bench`, `cargo bench` for
-  `prefab_weights` and `cache`) on the reference machine; tune the worker count
-  and note the per-worker world-load cost. Always benchmark `--release` —
-  debug builds are ~20× slower on prefab-heavy chunks.
-
-## 3. Deferred by design — do not implement unless scope changes
+## 2. Deferred by design — do not implement unless scope changes
 
 - Modifier/event plugin system, prefab entities + block components/ECS
   serialization, CoreServer plugin lifecycle, world-map UI, `.lpf` binary

@@ -97,13 +97,14 @@ hytale-server-rust/
 ### Post-port backlog (outside the parity claim)
 Ordered list lives in [`NEXT_STEPS.md`](NEXT_STEPS.md):
 1. Feed a live server registry snapshot (the vanilla decode order is schedule-dependent; see `NEXT_STEPS.md`).
-2. Release-mode benchmarks (the visual-regression PNG goldens have landed).
-3. Deferred by design (see `REMAINING.md`): modifier/event plugins, entities/components/ECS, world-map UI, `.lpf`.
+2. Deferred by design (see `REMAINING.md`): modifier/event plugins, entities/components/ECS, world-map UI, `.lpf`.
 
 Closed after the port: the golden-regeneration determinism gate
 (`tools/java-dumper/check.sh`), the procedural/supplier seams and the
-duplicate per-worker registry load, and the server chunk-provider adapter
-(`crates/worldgen-server`).
+duplicate per-worker registry load, the server chunk-provider adapter
+(`crates/worldgen-server`), the render goldens
+(`crates/worldgen-cli/tests/render_golden.rs`) and the release-mode baseline
+([`BENCHMARKS.md`](BENCHMARKS.md)).
 
 ## Test strategy (cross-cutting)
 

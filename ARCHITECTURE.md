@@ -3,8 +3,8 @@
 This document maps the original Java world generator (`.hytale-source/hytale-shared-source/HytaleServer/{Math,ProceduralLibrary,WorldGenerator,CoreServer}`) onto the Rust workspace in `crates/`.
 
 - **Goal:** bit-exact generation — same seed + same world assets + same registry dump ⇒ identical chunk bytes.
-- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches and the `worldgen-server` chunk-provider adapter. The remaining post-port backlog (a live-server registry snapshot, release benchmarks) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md).
-- **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
+- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI, criterion benches and the `worldgen-server` chunk-provider adapter. The remaining post-port backlog (a live-server registry snapshot) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md); release-mode numbers are in [`BENCHMARKS.md`](BENCHMARKS.md).
+- **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`BENCHMARKS.md`](BENCHMARKS.md) (release-mode baseline), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
 
 Paths in the tables are relative to the repository root. A row maps one Java class, or a tightly coupled class family where the Rust port merges them; grouped rows list **every** Rust file they cover.
 
@@ -560,5 +560,6 @@ After regenerating, run `cargo test --workspace` (and the clippy command above).
 | Understand write arbitration | `crates/worldgen-model/src/block_priority.rs` |
 | See what blocks/fluids exist | `crates/worldgen-model/src/registry.rs`, `testdata/golden/registries.json` |
 | Run a headless generation | `crates/worldgen-cli/src/main.rs` |
+| See release-mode performance | `BENCHMARKS.md`, `crates/worldgen-hytale/benches/` |
 | Integrate generation into a server | `crates/worldgen-server/src/lib.rs` |
 | Add a golden check | `testdata/golden/README.md`, then the matching suite under `crates/worldgen-hytale/tests/` |

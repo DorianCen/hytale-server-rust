@@ -1089,3 +1089,15 @@ unchanged and still needs a real-server dump; see `NEXT_STEPS.md` §1.
   `registries.json` `meta` block, `REMAINING.md` §6 and `NEXT_STEPS.md` §1
   were updated with the finding; the golden dump was regenerated (only the
   meta text changed).
+
+### Performance baseline (post-port session, same day)
+
+- `BENCHMARKS.md` records release-mode `worldgen-cli bench` runs (16 / 144 /
+  576 chunks, 1 vs 12 workers) and the criterion benches on the development
+  machine (Ryzen 7 9800X3D, 16 threads, 60 GiB).
+- Main finding: the per-worker cold caches dominate small workloads — 16
+  chunks on 12 workers (18.0 s) is slower than one worker (2.0 s); at 576
+  chunks the pool reaches 8.4 chunks/s (0.109 s average, prefabs 0.040 s +
+  caves 0.057 s). Benchmark at ≥ 32 chunks per worker.
+- Criterion: weighted prefab lookup 10.8–13.5 ns; moka sized/TTI cache hit
+  91.7 ns vs 6.3 ns raw `HashMap`.
