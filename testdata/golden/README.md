@@ -233,7 +233,7 @@ dumper runs with `DUMPER_PARALLELISM=16`). The name → id set is stable. A
 production server integration must feed the port the server's own snapshot
 (same schema); the golden ids are the canonical reference for the parity
 tests. The exporter and the validation workflow are in
-[`LIVE_SNAPSHOT.md`](../../LIVE_SNAPSHOT.md).
+[`LIVE_SNAPSHOT.md`](../../done/LIVE_SNAPSHOT.md).
 
 ### `loader.json`
 The real Default-world loader chain (`ChunkGeneratorJsonLoader` →
@@ -265,3 +265,9 @@ by `worldgen-cli render-map` (fixed seed/centre/size/scale), **not** by the
 Java dumper. `crates/worldgen-cli/tests/render_golden.rs` regenerates them and
 compares every pixel, protecting the renderer against accidental changes.
 See [`render/README.md`](render/README.md) for the command.
+
+### `server/` (CoreServer rewrite fixtures — planned)
+New fixtures for the server rewrite live under `server/` and are documented in
+[`GOLDEN_DATA.md`](../../GOLDEN_DATA.md): `protocol/`, `assets/`, `chunks-pkts/`,
+`storage/`, and `trace/`. They are produced by separate Java tools under
+`tools/` and do not change the worldgen fixtures above.

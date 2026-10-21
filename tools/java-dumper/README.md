@@ -60,7 +60,7 @@ DUMPER_MAIN=com.hypixel.hytale.tools.golden.RegistrySnapshot \
   tools/java-dumper/run.sh /tmp/live-registries
 ```
 
-See [`../../LIVE_SNAPSHOT.md`](../../LIVE_SNAPSHOT.md) for the full
+See [`../../done/LIVE_SNAPSHOT.md`](../../done/LIVE_SNAPSHOT.md) for the full
 integration and validation workflow (`worldgen-cli registries --compare`).
 
 ## Determinism check

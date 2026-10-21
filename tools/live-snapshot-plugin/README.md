@@ -8,7 +8,7 @@ generator. It dumps in `start()`, after the server has loaded its assets
 Use it when the Rust generator must use the server's own numeric ids. The
 canonical golden dump is single-threaded and a real server decodes assets in
 parallel, so a few sibling ids (and `Lava`/`Tar`) are assigned in
-scheduling-dependent order. See [`../../LIVE_SNAPSHOT.md`](../../LIVE_SNAPSHOT.md).
+scheduling-dependent order. See [`../../done/LIVE_SNAPSHOT.md`](../../done/LIVE_SNAPSHOT.md).
 
 ## Build
 
