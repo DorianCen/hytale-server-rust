@@ -102,6 +102,42 @@ pub enum ProtocolError {
         /// Allowed maximum.
         max: usize,
     },
+    /// An enum field carried a value with no declared variant.
+    #[error("invalid {type_name} enum value {value}")]
+    InvalidEnum {
+        /// Enum type name.
+        type_name: &'static str,
+        /// Wire value.
+        value: i64,
+    },
+    /// A variable offset slot disagreed with the canonical field-order position.
+    #[error("{field} offset slot is {found}, expected {expected}")]
+    NonCanonicalOffset {
+        /// Field name.
+        field: &'static str,
+        /// Stored slot.
+        found: i32,
+        /// Position reached by the field-order walk.
+        expected: i32,
+    },
+    /// A map contained the same key twice.
+    #[error("{field} contains duplicate key {key:?}")]
+    DuplicateMapKey {
+        /// Field name.
+        field: &'static str,
+        /// Repeated key.
+        key: String,
+    },
+    /// A generated fixed-block write exceeded the fixed block.
+    #[error("fixed block write at {offset} for {length} bytes exceeds {size}")]
+    FixedBlockOverflow {
+        /// Destination offset.
+        offset: usize,
+        /// Bytes to write.
+        length: usize,
+        /// Fixed block size.
+        size: usize,
+    },
 }
 
 /// Result alias for the wire layer.
@@ -186,6 +222,18 @@ impl<'a> Reader<'a> {
         self.remaining() == 0
     }
 
+    /// Move to an absolute byte offset inside the input.
+    pub fn seek(&mut self, position: usize) -> Result<()> {
+        if position > self.data.len() {
+            return Err(ProtocolError::UnexpectedEof {
+                needed: position,
+                remaining: self.data.len(),
+            });
+        }
+        self.position = position;
+        Ok(())
+    }
+
     /// Advance without reading.
     fn skip(&mut self, count: usize) -> Result<()> {
         if self.remaining() < count {
@@ -238,6 +286,30 @@ impl<'a> Reader<'a> {
         let mut bytes = [0u8; 2];
         bytes.copy_from_slice(self.read_slice(2)?);
         Ok(u16::from_be_bytes(bytes))
+    }
+
+    /// Read a big-endian `u64` (storage container fields).
+    pub fn read_u64_be(&mut self) -> Result<u64> {
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(self.read_slice(8)?);
+        Ok(u64::from_be_bytes(bytes))
+    }
+
+    /// Read a big-endian `i16`.
+    pub fn read_i16_be(&mut self) -> Result<i16> {
+        Ok(self.read_u16_be()? as i16)
+    }
+
+    /// Read a big-endian `i32`.
+    pub fn read_i32_be(&mut self) -> Result<i32> {
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(self.read_slice(4)?);
+        Ok(i32::from_be_bytes(bytes))
+    }
+
+    /// Read a big-endian `i64`.
+    pub fn read_i64_be(&mut self) -> Result<i64> {
+        Ok(self.read_u64_be()? as i64)
     }
 
     /// Read a little-endian `u32`.
@@ -465,6 +537,26 @@ impl Writer {
     /// Write a big-endian `u16` (storage container fields).
     pub fn write_u16_be(&mut self, value: u16) {
         self.bytes.extend_from_slice(&value.to_be_bytes());
+    }
+
+    /// Write a big-endian `u64` (storage container fields).
+    pub fn write_u64_be(&mut self, value: u64) {
+        self.bytes.extend_from_slice(&value.to_be_bytes());
+    }
+
+    /// Write a big-endian `i16`.
+    pub fn write_i16_be(&mut self, value: i16) {
+        self.write_u16_be(value as u16);
+    }
+
+    /// Write a big-endian `i32`.
+    pub fn write_i32_be(&mut self, value: i32) {
+        self.bytes.extend_from_slice(&value.to_be_bytes());
+    }
+
+    /// Write a big-endian `i64`.
+    pub fn write_i64_be(&mut self, value: i64) {
+        self.write_u64_be(value as u64);
     }
 
     /// Write a little-endian `u32`.

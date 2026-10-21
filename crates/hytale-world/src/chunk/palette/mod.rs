@@ -210,7 +210,7 @@ impl KeyCodec for ShortKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Blocks {
     Empty,
     Half(Vec<u8>),
@@ -219,7 +219,7 @@ enum Blocks {
 }
 
 /// One section palette.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Palette {
     kind: PaletteType,
     internal_to_external: Vec<Option<i32>>,

@@ -7,3 +7,8 @@ license.workspace = true
 [dependencies]
 hytale-core = { path = "../hytale-core" }
 hytale-protocol = { path = "../hytale-protocol" }
+quinn = { workspace = true }
+rcgen = { workspace = true }
+rustls = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }

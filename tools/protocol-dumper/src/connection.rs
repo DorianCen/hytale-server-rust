@@ -15,10 +15,53 @@ use crate::{DumperError, Result};
 pub struct ConnectionIr {
     /// Generation metadata.
     pub meta: Meta,
-    /// Enums declared in the connection package.
+    /// Enums declared in the connection package or referenced by a packet.
     pub enums: Vec<EnumIr>,
+    /// Nested structs/unions needed by the packets, sorted by name.
+    pub structs: Vec<StructIr>,
     /// Packets, sorted by packet id.
     pub packets: Vec<PacketIr>,
+}
+
+/// One nested struct or union referenced by a connection packet.
+#[derive(Debug, Serialize)]
+pub struct StructIr {
+    /// Struct name.
+    pub name: String,
+    /// Java package.
+    pub package: String,
+    /// `NULLABLE_BIT_FIELD_SIZE`.
+    pub nullable_bit_field_size: i64,
+    /// `FIXED_BLOCK_SIZE`.
+    pub fixed_block_size: i64,
+    /// `VARIABLE_FIELD_COUNT`.
+    pub variable_field_count: i64,
+    /// `VARIABLE_BLOCK_START`.
+    pub variable_block_start: i64,
+    /// `MAX_SIZE`.
+    pub max_size: i64,
+    /// Fields in wire order.
+    pub fields: Vec<FieldIr>,
+    /// Union metadata for an abstract polymorphic type.
+    pub union: Option<UnionIr>,
+}
+
+/// A polymorphic union and its type-id-tagged subtypes.
+#[derive(Debug, Serialize)]
+pub struct UnionIr {
+    /// Abstract Java type name.
+    pub name: String,
+    /// Subtypes in type-id order.
+    pub subtypes: Vec<UnionSubtype>,
+}
+
+/// One union subtype.
+#[derive(Debug, Serialize)]
+pub struct UnionSubtype {
+    /// Varint type id written before the subtype body.
+    pub type_id: i64,
+    /// Concrete struct name.
+    pub name: String,
 }
 
 /// IR metadata.
@@ -117,6 +160,8 @@ pub struct FieldIr {
     pub string: Option<StringInfo>,
     /// Array element type and bounds, when the field is an array.
     pub array: Option<ArrayInfo>,
+    /// Map key/value types and bounds, when the field is a map.
+    pub map: Option<MapInfo>,
     /// Enum type, when the field is an enum.
     pub enum_type: Option<String>,
     /// Nested struct type, when the field is a struct.
@@ -142,6 +187,17 @@ pub struct ArrayInfo {
     /// Declared element type.
     pub element_type: String,
     /// Maximum element count.
+    pub max_length: Option<i64>,
+}
+
+/// Map wire metadata.
+#[derive(Debug, Serialize)]
+pub struct MapInfo {
+    /// Declared key type (always `String` in the generated protocol).
+    pub key_type: String,
+    /// Declared value type.
+    pub value_type: String,
+    /// Maximum entry count.
     pub max_length: Option<i64>,
 }
 
@@ -208,6 +264,9 @@ pub fn build(source: &Path) -> Result<ConnectionIr> {
 
     validate(&sources, &packets)?;
 
+    let structs = discover_structs(source, &packets, &mut enums)?;
+    enums.sort_by(|a, b| a.name.cmp(&b.name));
+
     Ok(ConnectionIr {
         meta: Meta {
             source: display_path(source),
@@ -218,8 +277,337 @@ pub fn build(source: &Path) -> Result<ConnectionIr> {
             },
         },
         enums,
+        structs,
         packets,
     })
+}
+
+/// Resolve the struct/union/enum types reachable from the packets.
+///
+/// The packet IR only names nested types; the generator needs their field-level
+/// layout. Starting at the packet fields and walking the references keeps the
+/// output bounded to the connection closure instead of the whole protocol.
+fn discover_structs(
+    source: &Path,
+    packets: &[PacketIr],
+    enums: &mut Vec<EnumIr>,
+) -> Result<Vec<StructIr>> {
+    let root = source
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or(source)
+        .to_path_buf();
+    let mut files = Vec::new();
+    walk(&root, &mut files)?;
+    files.sort();
+    let index: BTreeMap<String, PathBuf> = files
+        .iter()
+        .filter_map(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|stem| (stem.to_string(), path.clone()))
+        })
+        .collect();
+
+    let enum_names: Vec<String> = enums.iter().map(|value| value.name.clone()).collect();
+    let mut pending: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for packet in packets {
+        collect_references(&packet.fields, &mut pending);
+    }
+
+    let mut structs = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(name) = pending.pop_first() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        if enum_names.iter().any(|existing| existing == &name) {
+            continue;
+        }
+        let Some(path) = index.get(&name) else {
+            return Err(DumperError::Parse {
+                path: root.clone(),
+                line: 0,
+                message: format!("referenced type {name} has no generated source file"),
+            });
+        };
+        let java = JavaSource::read(path)?;
+        if java.text.contains("public enum ") {
+            enums.push(parse_enum(&java)?);
+            continue;
+        }
+        let parsed = if java.text.contains("public abstract class ") {
+            parse_union(&java, &index, &mut pending)?
+        } else {
+            parse_struct(&java, &enum_names)?
+        };
+        collect_references(&parsed.fields, &mut pending);
+        structs.push(parsed);
+    }
+
+    structs.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(structs)
+}
+
+fn collect_references(fields: &[FieldIr], pending: &mut std::collections::BTreeSet<String>) {
+    for field in fields {
+        if let Some(nested) = &field.nested_type {
+            if is_user_type(nested) {
+                pending.insert(nested.clone());
+            }
+        }
+        if let Some(array) = &field.array {
+            if is_user_type(&array.element_type) {
+                pending.insert(array.element_type.clone());
+            }
+        }
+        if let Some(map) = &field.map {
+            if is_user_type(&map.value_type) {
+                pending.insert(map.value_type.clone());
+            }
+        }
+    }
+}
+
+fn is_user_type(name: &str) -> bool {
+    !matches!(
+        name,
+        "byte"
+            | "short"
+            | "int"
+            | "long"
+            | "float"
+            | "double"
+            | "boolean"
+            | "Boolean"
+            | "String"
+            | "UUID"
+    ) && !name.ends_with("[]")
+        && !name.starts_with("Map<")
+        && !name.starts_with("java.util.Map<")
+}
+
+fn parse_struct(java: &JavaSource, enum_names: &[String]) -> Result<StructIr> {
+    let package = package_name(&java.text)
+        .ok_or_else(|| parse_error(java, 1, "missing package declaration"))?
+        .to_string();
+    let name = java
+        .path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let required_int = |constant: &str| -> Result<i64> {
+        int_const(&java.text, constant)
+            .ok_or_else(|| parse_error(java, 1, format!("missing {constant} constant")))
+    };
+    let fixed_block_size = required_int("FIXED_BLOCK_SIZE")?;
+    let raw_fields = parse_fields(java)?;
+    let nullable_bits = parse_nullable_bits(java, &raw_fields)?;
+    let serialize = method_body(&java.text, "public int serialize(")
+        .ok_or_else(|| parse_error(java, 1, "missing serialize() method"))?;
+    let wire = parse_wire(java, serialize, &raw_fields)?;
+    let fields = build_fields(
+        java,
+        raw_fields,
+        &nullable_bits,
+        &wire,
+        enum_names,
+        fixed_block_size,
+    )?;
+
+    Ok(StructIr {
+        name,
+        package,
+        nullable_bit_field_size: required_int("NULLABLE_BIT_FIELD_SIZE")?,
+        fixed_block_size,
+        variable_field_count: required_int("VARIABLE_FIELD_COUNT")?,
+        variable_block_start: required_int("VARIABLE_BLOCK_START")?,
+        max_size: required_int("MAX_SIZE")?,
+        fields,
+        union: None,
+    })
+}
+
+fn parse_union(
+    java: &JavaSource,
+    index: &BTreeMap<String, PathBuf>,
+    pending: &mut std::collections::BTreeSet<String>,
+) -> Result<StructIr> {
+    let package = package_name(&java.text)
+        .ok_or_else(|| parse_error(java, 1, "missing package declaration"))?
+        .to_string();
+    let name = java
+        .path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let max_size = int_const(&java.text, "MAX_SIZE").unwrap_or(0);
+
+    let mut subtypes = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(found) = java.text[cursor..].find("case ") {
+        let start = cursor + found + "case ".len();
+        let digits: String = java.text[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if digits.is_empty() {
+            cursor = start;
+            continue;
+        }
+        let after = &java.text[start + digits.len()..];
+        let Some(after_arrow) = after.strip_prefix(" -> ") else {
+            cursor = start;
+            continue;
+        };
+        let type_name: String = after_arrow
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if !type_name.is_empty() {
+            let type_id = digits.parse::<i64>().map_err(|_| {
+                parse_error(
+                    java,
+                    1,
+                    format!("union subtype id is not an integer: {digits}"),
+                )
+            })?;
+            if !subtypes
+                .iter()
+                .any(|existing: &UnionSubtype| existing.name == type_name)
+            {
+                if index.contains_key(&type_name) {
+                    pending.insert(type_name.clone());
+                }
+                subtypes.push(UnionSubtype {
+                    type_id,
+                    name: type_name,
+                });
+            }
+        }
+        cursor = start + digits.len();
+    }
+    if subtypes.is_empty() {
+        return Err(parse_error(
+            java,
+            1,
+            "abstract class has no case <id> -> <Subtype> dispatch",
+        ));
+    }
+    subtypes.sort_by_key(|subtype| subtype.type_id);
+
+    Ok(StructIr {
+        name: name.clone(),
+        package,
+        nullable_bit_field_size: 0,
+        fixed_block_size: 0,
+        variable_field_count: 0,
+        variable_block_start: 0,
+        max_size,
+        fields: Vec::new(),
+        union: Some(UnionIr { name, subtypes }),
+    })
+}
+
+fn build_fields(
+    java: &JavaSource,
+    raw_fields: Vec<RawField>,
+    nullable_bits: &BTreeMap<String, (u32, u32)>,
+    wire: &BTreeMap<String, WireInfo>,
+    enum_names: &[String],
+    fixed_block_size: i64,
+) -> Result<Vec<FieldIr>> {
+    let mut fields = Vec::with_capacity(raw_fields.len());
+    for raw in raw_fields {
+        let info = wire.get(&raw.name).cloned().unwrap_or_default();
+        let (kind, enum_type, nested_type) = classify_type(&raw.field_type, enum_names, &info);
+        let string = info.string.clone();
+        let array = raw
+            .field_type
+            .strip_suffix("[]")
+            .map(|element_type| ArrayInfo {
+                element_type: element_type.to_string(),
+                max_length: info.array_max,
+            });
+        let map = map_types(&raw.field_type).map(|(key_type, value_type)| MapInfo {
+            key_type,
+            value_type,
+            max_length: info.array_max.or_else(|| dictionary_limit(java, &raw.name)),
+        });
+        let (nullable_bit, nullable_byte) = match nullable_bits.get(&raw.name) {
+            Some((byte, bit)) => (Some(*bit), Some(*byte)),
+            None => (None, None),
+        };
+        if raw.nullable && nullable_bit.is_none() {
+            return Err(parse_error(
+                java,
+                raw.line,
+                format!(
+                    "nullable field {} has no generated has{}() method",
+                    raw.name,
+                    upper_first(&raw.name)
+                ),
+            ));
+        }
+        fields.push(FieldIr {
+            name: raw.name,
+            field_type: raw.field_type,
+            kind,
+            nullable: raw.nullable,
+            nullable_bit,
+            nullable_byte,
+            fixed_offset: info.fixed_offset,
+            fixed_size: info.fixed_size,
+            variable_order: info.variable_order,
+            variable_offset_slot: info.variable_offset_slot,
+            string,
+            array,
+            map,
+            enum_type,
+            nested_type,
+        });
+    }
+
+    let mut offsets: Vec<(i64, usize)> = fields
+        .iter()
+        .enumerate()
+        .filter_map(|(index, field)| field.fixed_offset.map(|offset| (offset, index)))
+        .collect();
+    offsets.sort_unstable();
+    for (position, (offset, index)) in offsets.iter().enumerate() {
+        if fields[*index].fixed_size.is_some() {
+            continue;
+        }
+        let end = offsets
+            .get(position + 1)
+            .map(|(next, _)| *next)
+            .unwrap_or(fixed_block_size);
+        fields[*index].fixed_size = Some(end - offset);
+    }
+    Ok(fields)
+}
+
+/// Read the entry bound from a generated `dictionaryTooLong("Field", len, MAX)`
+/// guard. Map bounds appear in `toObject`, not in `serialize`.
+fn dictionary_limit(java: &JavaSource, field: &str) -> Option<i64> {
+    let marker = format!("dictionaryTooLarge(\"{}\"", upper_first(field));
+    let start = java.text.find(&marker)?;
+    let rest = &java.text[start + marker.len()..];
+    let end = rest.find(')')?;
+    rest[..end]
+        .split(',')
+        .next_back()
+        .and_then(|tail| tail.trim().parse().ok())
+}
+
+fn parse_error(java: &JavaSource, line: usize, message: impl Into<String>) -> DumperError {
+    DumperError::Parse {
+        path: java.path.clone(),
+        line,
+        message: message.into(),
+    }
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -345,70 +733,14 @@ fn parse_packet(java: &JavaSource, enum_names: &[String]) -> Result<PacketIr> {
             message: "missing serialize() method".to_string(),
         })?;
     let wire = parse_wire(java, serialize, &raw_fields)?;
-
-    let mut fields = Vec::with_capacity(raw_fields.len());
-    for raw in raw_fields {
-        let info = wire.get(&raw.name).cloned().unwrap_or_default();
-        let (kind, enum_type, nested_type) = classify_type(&raw.field_type, enum_names, &info);
-        let string = info.string.clone();
-        let array = raw
-            .field_type
-            .strip_suffix("[]")
-            .map(|element_type| ArrayInfo {
-                element_type: element_type.to_string(),
-                max_length: info.array_max,
-            });
-        let (nullable_bit, nullable_byte) = match nullable_bits.get(&raw.name) {
-            Some((byte, bit)) => (Some(*bit), Some(*byte)),
-            None => (None, None),
-        };
-        if raw.nullable && nullable_bit.is_none() {
-            return Err(DumperError::Parse {
-                path: java.path.clone(),
-                line: raw.line,
-                message: format!(
-                    "nullable field {} has no generated has{}() method",
-                    raw.name, raw.name
-                ),
-            });
-        }
-        fields.push(FieldIr {
-            name: raw.name,
-            field_type: raw.field_type,
-            kind,
-            nullable: raw.nullable,
-            nullable_bit,
-            nullable_byte,
-            fixed_offset: info.fixed_offset,
-            fixed_size: info.fixed_size,
-            variable_order: info.variable_order,
-            variable_offset_slot: info.variable_offset_slot,
-            string,
-            array,
-            enum_type,
-            nested_type,
-        });
-    }
-
-    // Compute fixed sizes from the following fixed offset or the end of the
-    // fixed block. This covers nested structs whose size is not repeated in
-    // the packet class.
-    let mut offsets: Vec<(i64, usize)> = fields
-        .iter()
-        .enumerate()
-        .filter_map(|(index, field)| field.fixed_offset.map(|offset| (offset, index)))
-        .collect();
-    offsets.sort_unstable();
-    for (position, (offset, index)) in offsets.iter().enumerate() {
-        if fields[*index].fixed_size.is_some() {
-            continue;
-        }
-        let end = offsets
-            .get(position + 1)
-            .map(|(next, _)| *next)
-            .unwrap_or(fixed_block_size);
-        fields[*index].fixed_size = Some(end - offset);
-    }
+    let fields = build_fields(
+        java,
+        raw_fields,
+        &nullable_bits,
+        &wire,
+        enum_names,
+        fixed_block_size,
+    )?;
 
     Ok(PacketIr {
         name,
@@ -479,6 +811,31 @@ fn normalise_type(field_type: &str) -> String {
     field_type
         .replace("java.util.UUID", "UUID")
         .replace("java.lang.String", "String")
+        .replace("java.lang.Boolean", "Boolean")
+}
+
+/// Split `Map<K, V>` into its key and value types.
+fn map_types(field_type: &str) -> Option<(String, String)> {
+    let inner = field_type
+        .trim()
+        .strip_prefix("java.util.Map<")
+        .or_else(|| field_type.trim().strip_prefix("Map<"))?
+        .strip_suffix('>')?;
+    let mut depth = 0usize;
+    for (index, character) in inner.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                return Some((
+                    inner[..index].trim().to_string(),
+                    inner[index + 1..].trim().to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn parse_nullable_bits(
@@ -537,13 +894,28 @@ fn parse_wire(
     let mut variable_order = 0i64;
     let mut array_limits = BTreeMap::new();
 
-    // Array limits are declared in a length guard, not in the write call.
+    // Length limits are declared in a guard, not in the write call.
     for line in serialize.lines() {
         if line.contains("arrayTooLong(") {
             if let Some(field) = names
                 .iter()
                 .find(|name| line.contains(&format!("{name}.length")))
             {
+                if let Some(limit) = line.split(',').next_back().and_then(|tail| {
+                    tail.chars()
+                        .filter(|c| c.is_ascii_digit())
+                        .collect::<String>()
+                        .parse::<i64>()
+                        .ok()
+                }) {
+                    array_limits.insert((*field).to_string(), limit);
+                }
+            }
+        } else if line.contains("dictionaryTooLarge(") {
+            if let Some(field) = names.iter().find(|name| {
+                line.contains(&format!("this.{name}.size()"))
+                    || line.contains(&format!("{name}.size()"))
+            }) {
                 if let Some(limit) = line.split(',').next_back().and_then(|tail| {
                     tail.chars()
                         .filter(|c| c.is_ascii_digit())
@@ -696,17 +1068,37 @@ fn upper_first(name: &str) -> String {
 }
 
 fn field_reference<'a>(line: &str, names: &[&'a str]) -> Option<&'a str> {
-    for name in names {
-        if line.contains(&format!("this.{name}"))
-            || line.contains(&format!("this.{name}.length"))
-            || line.contains(&format!("{name}.length"))
+    // Longest first so `faceAccessory` never resolves to `face` (or `undertop`
+    // to `under`); the identifier-boundary check below is the second guard.
+    let mut ordered: Vec<&&str> = names.iter().collect();
+    ordered.sort_by_key(|name| std::cmp::Reverse(name.len()));
+    for name in ordered {
+        if contains_identifier(line, &format!("this.{name}"))
+            || contains_identifier(line, &format!("{name}.length"))
+            || contains_identifier(line, &format!("{name}.size"))
         {
             return Some(name);
         }
     }
-    // Array writes use the bare field in a guard but `this.field.length` in the
-    // write line; the loop above covers both generated forms.
     None
+}
+
+/// Match `needle` only at identifier boundaries.
+fn contains_identifier(haystack: &str, needle: &str) -> bool {
+    let mut start = 0usize;
+    while let Some(found) = haystack[start..].find(needle) {
+        let position = start + found;
+        let before = haystack[..position].chars().next_back();
+        let after = haystack[position + needle.len()..].chars().next();
+        let boundary = |character: Option<char>| {
+            character.is_none_or(|value| !value.is_alphanumeric() && value != '_')
+        };
+        if boundary(before) && boundary(after) {
+            return true;
+        }
+        start = position + 1;
+    }
+    false
 }
 
 fn number_after(text: &str, marker: &str) -> Option<i64> {
@@ -738,18 +1130,18 @@ fn classify_type(
     }
     if matches!(
         field_type,
-        "byte" | "short" | "int" | "long" | "float" | "double" | "boolean"
+        "byte" | "short" | "int" | "long" | "float" | "double" | "boolean" | "Boolean"
     ) {
         return ("primitive".to_string(), None, None);
     }
     if enum_names.iter().any(|name| name == field_type) {
         return ("enum".to_string(), Some(field_type.to_string()), None);
     }
+    if map_types(field_type).is_some() {
+        return ("map".to_string(), None, None);
+    }
     if wire.string.is_some() {
         return ("string".to_string(), None, None);
-    }
-    if field_type.starts_with("Map<") || field_type.starts_with("java.util.Map<") {
-        return ("map".to_string(), None, None);
     }
     ("struct".to_string(), None, Some(field_type.to_string()))
 }

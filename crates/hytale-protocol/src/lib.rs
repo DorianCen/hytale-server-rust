@@ -12,6 +12,7 @@
 #![deny(clippy::all)]
 
 pub mod frame;
+pub mod generated;
 pub mod io;
 
 pub use frame::{

@@ -115,6 +115,1091 @@
       ]
     }
   ],
+  "structs": [
+    {
+      "name": "BoolParamValue",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 1,
+      "variable_field_count": 0,
+      "variable_block_start": 1,
+      "max_size": 1,
+      "fields": [
+        {
+          "name": "value",
+          "field_type": "boolean",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "DoubleParamValue",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 8,
+      "variable_field_count": 0,
+      "variable_block_start": 8,
+      "max_size": 8,
+      "fields": [
+        {
+          "name": "value",
+          "field_type": "double",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 8,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "FormattedMessage",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 2,
+      "fixed_block_size": 8,
+      "variable_field_count": 8,
+      "variable_block_start": 40,
+      "max_size": 1677721600,
+      "fields": [
+        {
+          "name": "rawText",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 5,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": 8,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 4096000
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "messageId",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 6,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 1,
+          "variable_offset_slot": 12,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 4096000
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "children",
+          "field_type": "FormattedMessage[]",
+          "kind": "array",
+          "nullable": true,
+          "nullable_bit": 7,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 2,
+          "variable_offset_slot": 16,
+          "string": null,
+          "array": {
+            "element_type": "FormattedMessage",
+            "max_length": 4096000
+          },
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "params",
+          "field_type": "java.util.Map<String, ParamValue>",
+          "kind": "map",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 3,
+          "variable_offset_slot": 20,
+          "string": null,
+          "array": null,
+          "map": {
+            "key_type": "String",
+            "value_type": "ParamValue",
+            "max_length": 4096000
+          },
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "messageParams",
+          "field_type": "java.util.Map<String, FormattedMessage>",
+          "kind": "map",
+          "nullable": true,
+          "nullable_bit": 1,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 4,
+          "variable_offset_slot": 24,
+          "string": null,
+          "array": null,
+          "map": {
+            "key_type": "String",
+            "value_type": "FormattedMessage",
+            "max_length": 4096000
+          },
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "color",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 2,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 5,
+          "variable_offset_slot": 28,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 4096000
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "bold",
+          "field_type": "Boolean",
+          "kind": "primitive",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 0,
+          "fixed_offset": 2,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "italic",
+          "field_type": "Boolean",
+          "kind": "primitive",
+          "nullable": true,
+          "nullable_bit": 1,
+          "nullable_byte": 0,
+          "fixed_offset": 3,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "monospace",
+          "field_type": "Boolean",
+          "kind": "primitive",
+          "nullable": true,
+          "nullable_bit": 2,
+          "nullable_byte": 0,
+          "fixed_offset": 4,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "underlined",
+          "field_type": "Boolean",
+          "kind": "primitive",
+          "nullable": true,
+          "nullable_bit": 3,
+          "nullable_byte": 0,
+          "fixed_offset": 5,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "strikethrough",
+          "field_type": "Boolean",
+          "kind": "primitive",
+          "nullable": true,
+          "nullable_bit": 4,
+          "nullable_byte": 0,
+          "fixed_offset": 6,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "link",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 3,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 6,
+          "variable_offset_slot": 32,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 4096000
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "markupEnabled",
+          "field_type": "boolean",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 7,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "image",
+          "field_type": "FormattedMessageImage",
+          "kind": "struct",
+          "nullable": true,
+          "nullable_bit": 4,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 7,
+          "variable_offset_slot": 36,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": "FormattedMessageImage"
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "FormattedMessageImage",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 8,
+      "variable_field_count": 1,
+      "variable_block_start": 8,
+      "max_size": 16384013,
+      "fields": [
+        {
+          "name": "filePath",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": null,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 4096000
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "width",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "height",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 4,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "HostAddress",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 2,
+      "variable_field_count": 1,
+      "variable_block_start": 2,
+      "max_size": 1031,
+      "fields": [
+        {
+          "name": "host",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": null,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 256
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "port",
+          "field_type": "short",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 2,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "InstantData",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 12,
+      "variable_field_count": 0,
+      "variable_block_start": 12,
+      "max_size": 12,
+      "fields": [
+        {
+          "name": "seconds",
+          "field_type": "long",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 8,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "nanos",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 8,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "IntParamValue",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 4,
+      "variable_field_count": 0,
+      "variable_block_start": 4,
+      "max_size": 4,
+      "fields": [
+        {
+          "name": "value",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "LongParamValue",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 8,
+      "variable_field_count": 0,
+      "variable_block_start": 8,
+      "max_size": 8,
+      "fields": [
+        {
+          "name": "value",
+          "field_type": "long",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 8,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "ParamValue",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 0,
+      "variable_field_count": 0,
+      "variable_block_start": 0,
+      "max_size": 16384011,
+      "fields": [],
+      "union": {
+        "name": "ParamValue",
+        "subtypes": [
+          {
+            "type_id": 0,
+            "name": "StringParamValue"
+          },
+          {
+            "type_id": 1,
+            "name": "BoolParamValue"
+          },
+          {
+            "type_id": 2,
+            "name": "DoubleParamValue"
+          },
+          {
+            "type_id": 3,
+            "name": "IntParamValue"
+          },
+          {
+            "type_id": 4,
+            "name": "LongParamValue"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerSkin",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 3,
+      "fixed_block_size": 3,
+      "variable_field_count": 20,
+      "variable_block_start": 83,
+      "max_size": 2103,
+      "fields": [
+        {
+          "name": "bodyCharacteristic",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": 3,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "underwear",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 1,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 1,
+          "variable_offset_slot": 7,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "face",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 2,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 2,
+          "variable_offset_slot": 11,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "eyes",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 3,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 3,
+          "variable_offset_slot": 15,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "ears",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 4,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 4,
+          "variable_offset_slot": 19,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "mouth",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 5,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 5,
+          "variable_offset_slot": 23,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "facialHair",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 6,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 6,
+          "variable_offset_slot": 27,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "haircut",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 7,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 7,
+          "variable_offset_slot": 31,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "eyebrows",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 8,
+          "variable_offset_slot": 35,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "pants",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 1,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 9,
+          "variable_offset_slot": 39,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "overpants",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 2,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 10,
+          "variable_offset_slot": 43,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "undertop",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 3,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 11,
+          "variable_offset_slot": 47,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "overtop",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 4,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 12,
+          "variable_offset_slot": 51,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "shoes",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 5,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 13,
+          "variable_offset_slot": 55,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "headAccessory",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 6,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 14,
+          "variable_offset_slot": 59,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "faceAccessory",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 7,
+          "nullable_byte": 1,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 15,
+          "variable_offset_slot": 63,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "earAccessory",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 2,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 16,
+          "variable_offset_slot": 67,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "skinFeature",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 1,
+          "nullable_byte": 2,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 17,
+          "variable_offset_slot": 71,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "gloves",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 2,
+          "nullable_byte": 2,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 18,
+          "variable_offset_slot": 75,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "cape",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 3,
+          "nullable_byte": 2,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 19,
+          "variable_offset_slot": 79,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 96
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    },
+    {
+      "name": "StringParamValue",
+      "package": "com.hypixel.hytale.protocol",
+      "nullable_bit_field_size": 1,
+      "fixed_block_size": 1,
+      "variable_field_count": 1,
+      "variable_block_start": 1,
+      "max_size": 16384006,
+      "fields": [
+        {
+          "name": "value",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": null,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 4096000
+          },
+          "array": null,
+          "map": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ],
+      "union": null
+    }
+  ],
   "packets": [
     {
       "name": "Connect",
@@ -142,6 +1227,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -158,6 +1244,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -179,6 +1266,7 @@
             "max_length": null
           },
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -195,6 +1283,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": "ClientType",
           "nested_type": null
         },
@@ -216,6 +1305,7 @@
             "max_length": 8192
           },
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -237,6 +1327,7 @@
             "max_length": 100
           },
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -256,6 +1347,7 @@
             "element_type": "byte",
             "max_length": 4096
           },
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -272,6 +1364,7 @@
           "variable_offset_slot": 42,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": "HostAddress"
         }
@@ -303,6 +1396,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": "ClientDisconnectReason",
           "nested_type": null
         },
@@ -319,6 +1413,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": "DisconnectType",
           "nested_type": null
         }
@@ -350,6 +1445,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": "FormattedMessage"
         },
@@ -366,6 +1462,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": "DisconnectType",
           "nested_type": null
         }
@@ -397,6 +1494,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -413,6 +1511,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": "InstantData"
         },
@@ -429,6 +1528,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -445,6 +1545,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -461,6 +1562,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         }
@@ -492,6 +1594,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -508,6 +1611,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": "InstantData"
         },
@@ -524,6 +1628,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": "PongType",
           "nested_type": null
         },
@@ -540,6 +1645,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         }
@@ -571,6 +1677,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -587,6 +1694,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         }
@@ -618,6 +1726,7 @@
           "variable_offset_slot": null,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -639,6 +1748,7 @@
             "max_length": 16
           },
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": null
         },
@@ -655,6 +1765,7 @@
           "variable_offset_slot": 21,
           "string": null,
           "array": null,
+          "map": null,
           "enum_type": null,
           "nested_type": "PlayerSkin"
         }

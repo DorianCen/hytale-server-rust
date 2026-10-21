@@ -34,6 +34,39 @@ fn real_connection_family_matches_connect_constants() {
     assert_eq!(ir.packets.len(), 8);
     assert_eq!(ir.enums.len(), 5);
 
+    let struct_names: Vec<&str> = ir.structs.iter().map(|value| value.name.as_str()).collect();
+    assert_eq!(
+        struct_names,
+        [
+            "BoolParamValue",
+            "DoubleParamValue",
+            "FormattedMessage",
+            "FormattedMessageImage",
+            "HostAddress",
+            "InstantData",
+            "IntParamValue",
+            "LongParamValue",
+            "ParamValue",
+            "PlayerSkin",
+            "StringParamValue",
+        ]
+    );
+    let formatted = ir
+        .structs
+        .iter()
+        .find(|value| value.name == "FormattedMessage")
+        .expect("FormattedMessage closure");
+    let params = formatted
+        .fields
+        .iter()
+        .find(|field| field.name == "params")
+        .expect("params map");
+    assert_eq!(params.kind, "map");
+    assert_eq!(
+        params.map.as_ref().expect("map info").value_type,
+        "ParamValue"
+    );
+
     let connect = ir
         .packets
         .iter()

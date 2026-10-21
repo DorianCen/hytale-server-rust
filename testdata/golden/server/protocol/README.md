@@ -6,7 +6,7 @@ Do not edit these files by hand.
 | File | Command | Contents |
 |---|---|---|
 | `inventory.json` | `protocol-dumper inventory --source <protocol-dir> --out inventory.json` | every generated class with kind, packet id, direction, channel, compression flag, and size constants |
-| `connection.json` | `protocol-dumper connection --source <.../packets/connection> --out connection.json` | field-level IR for the 8 connection packets and 5 enums |
+| `connection.json` | `protocol-dumper connection --source <.../packets/connection> --out connection.json` | field-level IR for the 8 connection packets, 5 enums, and the reachable struct/union closure |
 
 Regenerate:
 
@@ -47,3 +47,16 @@ identityToken, language, referralData, referralSource
 Variable offset slots are emitted for multi-field variable blocks (`Connect`,
 `InsecurePlayerOptions`) and omitted for the single-field `ServerDisconnect`,
 matching the generated Java serializer.
+
+## Generated sources
+
+`protocol-gen connection` consumes `connection.json` and writes
+`crates/hytale-protocol/src/generated/`. Regeneration is:
+
+```sh
+cargo run -p protocol-gen -- connection --ir testdata/golden/server/protocol/connection.json --out crates/hytale-protocol/src/generated
+cargo run -p protocol-gen -- --check
+```
+
+`--check` regenerates, formats with the toolchain `rustfmt`, and diffs. The
+checked-in generated files are write-only; edit the dumper or generator instead.

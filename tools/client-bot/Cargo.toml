@@ -1,0 +1,15 @@
+[package]
+name = "client-bot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "client-bot"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+hytale-net = { path = "../../crates/hytale-net" }
+hytale-protocol = { path = "../../crates/hytale-protocol" }
+tokio = { workspace = true }
