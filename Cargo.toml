@@ -7,6 +7,17 @@ members = [
     "crates/worldgen-hytale",
     "crates/worldgen-cli",
     "crates/worldgen-server",
+    "crates/hytale-protocol",
+    "crates/hytale-assets",
+    "crates/hytale-core",
+    "crates/hytale-storage",
+    "crates/hytale-world",
+    "crates/hytale-entities",
+    "crates/hytale-net",
+    "crates/hytale-auth",
+    "crates/hytale-commands",
+    "crates/hytale-server",
+    "tools/protocol-dumper",
 ]
 
 [workspace.package]
@@ -24,6 +35,17 @@ moka = { version = "0.12", features = ["sync"] }
 log = "0.4"
 clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
+bytes = "1"
+bevy_ecs = "0.16"
+bson = "2"
+quinn = "0.11"
+rcgen = "0.13"
+rustls = "0.23"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+zip = "2"
+zstd = "0.13"
 
 [profile.bench]
 debug = true

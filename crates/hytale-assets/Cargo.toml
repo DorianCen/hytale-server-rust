@@ -1,0 +1,12 @@
+[package]
+name = "hytale-assets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hytale-core = { path = "../hytale-core" }
+hytale-protocol = { path = "../hytale-protocol" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+zip = { workspace = true }

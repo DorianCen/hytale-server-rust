@@ -1,0 +1,996 @@
+[
+  {
+    "class": "BlockBoundingBoxes",
+    "path": "Item/Block/Hitboxes",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "BlockBoundingBoxes",
+    "packetGenerator": "BlockBoundingBoxesPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [
+      "UNIT_BOX"
+    ],
+    "schema": "BlockBoundingBoxes.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": "Referenced by BlockType; also used by worldgen collision. Required by world generation."
+  },
+  {
+    "class": "BlockType",
+    "path": "Item/Block/Blocks",
+    "key": "String",
+    "map": "BlockTypeAssetMap",
+    "codec": "BlockType",
+    "packetGenerator": "BlockTypePacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "BlockBoundingBoxes",
+      "BlockSoundSet",
+      "PhysicalMaterial",
+      "SoundEvent",
+      "AmbienceFX",
+      "BlockParticleSet",
+      "BlockBreakingDecal",
+      "CustomConnectedBlockTemplateAsset",
+      "PrefabListAsset",
+      "BlockTypeListAsset",
+      "ItemDropList"
+    ],
+    "preLoadAssets": [
+      "EMPTY",
+      "UNKNOWN",
+      "DEBUG_CUBE",
+      "DEBUG_MODEL"
+    ],
+    "schema": "BlockType.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": "BlockType data is also embedded in Item assets via ContainedAssetCodec. Required by world generation. Id assignment is owned by BlockTypeAssetMap."
+  },
+  {
+    "class": "BlockTypeListAsset",
+    "path": "BlockTypeList",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "BlockTypeListAsset",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "BlockTypeListAsset.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "Environment",
+    "path": "Environments",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "Environment",
+    "packetGenerator": "EnvironmentPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "Weather",
+      "FluidFX",
+      "ParticleSystem"
+    ],
+    "preLoadAssets": [
+      "UNKNOWN"
+    ],
+    "schema": "Environment.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": "Required by world generation."
+  },
+  {
+    "class": "Fluid",
+    "path": "Item/Block/Fluids",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "Fluid",
+    "packetGenerator": "FluidTypePacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "FluidFX",
+      "BlockSoundSet",
+      "BlockParticleSet",
+      "SoundEvent"
+    ],
+    "preLoadAssets": [
+      "EMPTY",
+      "UNKNOWN"
+    ],
+    "schema": "Fluid.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": "Required by world generation."
+  },
+  {
+    "class": "Item",
+    "path": "Item/Items",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "Item",
+    "packetGenerator": "ItemPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ItemCategory",
+      "ItemPlayerAnimations",
+      "UnarmedInteractions",
+      "ResourceType",
+      "BlockType",
+      "EntityEffect",
+      "ItemQuality",
+      "ItemReticleConfig",
+      "SoundEvent",
+      "PortalType",
+      "ItemSoundSet"
+    ],
+    "preLoadAssets": [
+      "UNKNOWN"
+    ],
+    "schema": "Item.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": "Required by world generation. Preloaded with the unknown item."
+  },
+  {
+    "class": "PhysicalMaterial",
+    "path": "Item/Block/PhysicalMaterials",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "PhysicalMaterial",
+    "packetGenerator": "PhysicalMaterialPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [
+      "EMPTY_PHYSICAL_MATERIAL"
+    ],
+    "schema": "PhysicalMaterial.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "PrefabListAsset",
+    "path": "PrefabList",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "PrefabListAsset",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "PrefabListAsset.json",
+    "priority": "P0",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "BlockBreakingDecal",
+    "path": "Item/Block/BreakingDecals",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "BlockBreakingDecal",
+    "packetGenerator": "BlockBreakingDecalPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "BlockBreakingDecal.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "BlockParticleSet",
+    "path": "Item/Block/Particles",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "BlockParticleSet",
+    "packetGenerator": "BlockParticleSetPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ParticleSystem"
+    ],
+    "preLoadAssets": [],
+    "schema": "BlockParticleSet.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "BlockSet",
+    "path": "Item/Block/Sets",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "BlockSet",
+    "packetGenerator": "BlockSetPacketGenerator",
+    "loadsBefore": [
+      "Item"
+    ],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "BlockSet.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "BlockSoundSet",
+    "path": "Item/Block/Sounds",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "BlockSoundSet",
+    "packetGenerator": "BlockSoundSetPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "SoundEvent"
+    ],
+    "preLoadAssets": [
+      "EMPTY_BLOCK_SOUND_SET"
+    ],
+    "schema": "BlockSoundSet.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "GameplayConfig",
+    "path": "GameplayConfigs",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "GameplayConfig",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "Item",
+      "SoundEvent",
+      "SoundSet",
+      "BlockType",
+      "EntityEffect",
+      "HitboxCollisionConfig",
+      "DamageCause",
+      "RepulsionConfig",
+      "ParticleSystem",
+      "MusicContainer"
+    ],
+    "preLoadAssets": [],
+    "schema": "GameplayConfig.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "ItemCategory",
+    "path": "Item/Category/CreativeLibrary",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ItemCategory",
+    "packetGenerator": "ItemCategoryPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "ItemCategory.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "ItemQuality",
+    "path": "Item/Qualities",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "ItemQuality",
+    "packetGenerator": "ItemQualityPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ParticleSystem"
+    ],
+    "preLoadAssets": [
+      "DEFAULT_ITEM_QUALITY"
+    ],
+    "schema": "ItemQuality.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "ModelAsset",
+    "path": "Models",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ModelAsset",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ParticleSystem",
+      "SoundEvent",
+      "Trail"
+    ],
+    "preLoadAssets": [
+      "DEBUG"
+    ],
+    "schema": "ModelAsset.json",
+    "priority": "P1",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "AmbienceFX",
+    "path": "Audio/AmbienceFX",
+    "key": "String",
+    "map": "IndexedAssetMap",
+    "codec": "AmbienceFX",
+    "packetGenerator": "AmbienceFXPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "Weather",
+      "Environment",
+      "FluidFX",
+      "SoundEvent",
+      "BlockSoundSet",
+      "TagPattern",
+      "AudioCategory",
+      "ReverbEffect",
+      "EqualizerEffect",
+      "PhysicalMaterial",
+      "AudioState"
+    ],
+    "preLoadAssets": [
+      "EMPTY"
+    ],
+    "schema": "AmbienceFX.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": "Depends on most audio and environment stores."
+  },
+  {
+    "class": "AudioCategory",
+    "path": "Audio/AudioCategories",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "AudioCategory",
+    "packetGenerator": "AudioCategoryPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "AudioState"
+    ],
+    "preLoadAssets": [
+      "PRELOAD_ORDER"
+    ],
+    "schema": "AudioCategory.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": "Preload order is AudioCategory.PRELOAD_ORDER."
+  },
+  {
+    "class": "AudioState",
+    "path": "Audio/AudioStates",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "AudioState",
+    "packetGenerator": "AudioStatePacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [
+      "EMPTY_AUDIO_STATE"
+    ],
+    "schema": "AudioState.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "CameraEffect",
+    "path": "Camera/CameraEffect",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "CameraEffect",
+    "packetGenerator": "none",
+    "loadsBefore": [
+      "GameplayConfig",
+      "Interaction"
+    ],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "CameraEffect.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "EntityEffect",
+    "path": "Entity/Effects",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "EntityEffect",
+    "packetGenerator": "EntityEffectPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ModelAsset",
+      "ParticleSystem",
+      "EntityStatType",
+      "ModelVFX",
+      "DamageCause",
+      "CameraEffect",
+      "SoundEvent"
+    ],
+    "preLoadAssets": [],
+    "schema": "EntityEffect.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "EqualizerEffect",
+    "path": "Audio/EQ",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "EqualizerEffect",
+    "packetGenerator": "EqualizerEffectPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [
+      "EMPTY_EQUALIZER_EFFECT"
+    ],
+    "schema": "EqualizerEffect.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "FluidFX",
+    "path": "Item/Block/FluidFX",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "FluidFX",
+    "packetGenerator": "FluidFXPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ParticleSystem"
+    ],
+    "preLoadAssets": [
+      "EMPTY_FLUID_FX"
+    ],
+    "schema": "FluidFX.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": "Referenced by Fluid and Environment."
+  },
+  {
+    "class": "ItemSoundSet",
+    "path": "Audio/ItemSounds",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "ItemSoundSet",
+    "packetGenerator": "ItemSoundSetPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "SoundEvent"
+    ],
+    "preLoadAssets": [],
+    "schema": "ItemSoundSet.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "ModelVFX",
+    "path": "Entity/ModelVFX",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "ModelVFX",
+    "packetGenerator": "ModelVFXPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ModelAsset",
+      "ParticleSystem",
+      "EntityStatType"
+    ],
+    "preLoadAssets": [],
+    "schema": "ModelVFX.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "MusicContainer",
+    "path": "Audio/MusicContainers",
+    "key": "String",
+    "map": "IndexedAssetMap",
+    "codec": "MusicContainer",
+    "packetGenerator": "MusicContainerPacketGenerator",
+    "loadsBefore": [
+      "AmbienceFX"
+    ],
+    "loadsAfter": [
+      "AudioCategory",
+      "AudioState"
+    ],
+    "preLoadAssets": [
+      "EMPTY"
+    ],
+    "schema": "MusicContainer.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "MusicTransition",
+    "path": "Audio/MusicTransitions",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "MusicTransition",
+    "packetGenerator": "MusicTransitionPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "MusicContainer",
+      "TagPattern"
+    ],
+    "preLoadAssets": [
+      "EMPTY_MUSIC_TRANSITION"
+    ],
+    "schema": "MusicTransition.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "ParticleSpawner",
+    "path": "Particles",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ParticleSpawner",
+    "packetGenerator": "ParticleSpawnerPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "ParticleSpawner.json",
+    "priority": "P2",
+    "extension": ".particlespawner",
+    "notes": ""
+  },
+  {
+    "class": "ParticleSystem",
+    "path": "Particles",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ParticleSystem",
+    "packetGenerator": "ParticleSystemPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ParticleSpawner"
+    ],
+    "preLoadAssets": [],
+    "schema": "ParticleSystem.json",
+    "priority": "P2",
+    "extension": ".particlesystem",
+    "notes": ""
+  },
+  {
+    "class": "ResponseCurve",
+    "path": "ResponseCurves",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "ResponseCurve",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "ResponseCurve.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "ReverbEffect",
+    "path": "Audio/Reverb",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "ReverbEffect",
+    "packetGenerator": "ReverbEffectPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [
+      "EMPTY_REVERB_EFFECT"
+    ],
+    "schema": "ReverbEffect.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "SoundEvent",
+    "path": "Audio/SoundEvents",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "SoundEvent",
+    "packetGenerator": "SoundEventPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "AudioCategory",
+      "AudioState"
+    ],
+    "preLoadAssets": [
+      "EMPTY_SOUND_EVENT"
+    ],
+    "schema": "SoundEvent.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "SoundSet",
+    "path": "Audio/SoundSets",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "SoundSet",
+    "packetGenerator": "SoundSetPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "SoundEvent"
+    ],
+    "preLoadAssets": [
+      "EMPTY_SOUND_SET"
+    ],
+    "schema": "SoundSet.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "Stinger",
+    "path": "Audio/Stingers",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "Stinger",
+    "packetGenerator": "StingerPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "MusicContainer",
+      "AudioCategory"
+    ],
+    "preLoadAssets": [
+      "EMPTY_STINGER"
+    ],
+    "schema": "Stinger.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "TagPattern",
+    "path": "TagPatterns",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "TagPattern",
+    "packetGenerator": "TagPatternPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "TagPattern.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "Trail",
+    "path": "Entity/Trails",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "Trail",
+    "packetGenerator": "TrailPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "Trail.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "Weather",
+    "path": "Weathers",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "Weather",
+    "packetGenerator": "WeatherPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "ParticleSystem"
+    ],
+    "preLoadAssets": [
+      "UNKNOWN"
+    ],
+    "schema": "Weather.json",
+    "priority": "P2",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "AbilityKeyword",
+    "path": "Abilities/Keywords",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "AbilityKeyword",
+    "packetGenerator": "AbilityKeywordPacketGenerator",
+    "loadsBefore": [
+      "Item"
+    ],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "AbilityKeyword.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "BlockGroup",
+    "path": "Item/Groups",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "BlockGroup",
+    "packetGenerator": "BlockGroupPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "BlockType",
+      "Item"
+    ],
+    "preLoadAssets": [],
+    "schema": "BlockGroup.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "BlockMigration",
+    "path": "Item/Block/Migrations",
+    "key": "Integer",
+    "map": "DefaultAssetMap",
+    "codec": "BlockMigration",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "BlockMigration.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only. Keyed by Integer."
+  },
+  {
+    "class": "BuilderToolItemReferenceAsset",
+    "path": "Item/PlayerToolsMenuConfig",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "BuilderToolItemReferenceAsset",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "BlockType",
+      "Item"
+    ],
+    "preLoadAssets": [],
+    "schema": "BuilderToolItemReferenceAsset.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "CraftingRecipe",
+    "path": "Item/Recipes",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "CraftingRecipe",
+    "packetGenerator": "CraftingRecipePacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "Item",
+      "BlockType"
+    ],
+    "preLoadAssets": [],
+    "schema": "CraftingRecipe.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "DamageCause",
+    "path": "Entity/Damage",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "DamageCause",
+    "packetGenerator": "none",
+    "loadsBefore": [
+      "Item",
+      "Interaction"
+    ],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "DamageCause.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "FieldcraftCategory",
+    "path": "Item/Category/Fieldcraft",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "FieldcraftCategory",
+    "packetGenerator": "FieldcraftCategoryPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "FieldcraftCategory.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "GameModeType",
+    "path": "Entity/GameMode",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "GameModeType",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "Interaction"
+    ],
+    "preLoadAssets": [],
+    "schema": "GameModeType.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "ItemDropList",
+    "path": "Drops",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ItemDropList",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "ItemDropList.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "ItemPlayerAnimations",
+    "path": "Item/Animations",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ItemPlayerAnimations",
+    "packetGenerator": "ItemPlayerAnimationsPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "ItemPlayerAnimations.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "ItemReticleConfig",
+    "path": "Item/Reticles",
+    "key": "String",
+    "map": "IndexedLookupTableAssetMap",
+    "codec": "ItemReticleConfig",
+    "packetGenerator": "ItemReticleConfigPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [
+      "DEFAULT"
+    ],
+    "schema": "ItemReticleConfig.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "ItemToolSpec",
+    "path": "Item/Unarmed/Gathering",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ItemToolSpec",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "SoundEvent"
+    ],
+    "preLoadAssets": [],
+    "schema": "ItemToolSpec.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "PortalType",
+    "path": "PortalTypes",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "PortalType",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "PortalType.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "Projectile",
+    "path": "Projectiles",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "Projectile",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "SoundEvent",
+      "ModelAsset",
+      "ParticleSystem"
+    ],
+    "preLoadAssets": [],
+    "schema": "Projectile.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  },
+  {
+    "class": "ProjectileConfig",
+    "path": "ProjectileConfigs",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ProjectileConfig",
+    "packetGenerator": "ProjectileConfigPacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [
+      "Interaction",
+      "SoundEvent",
+      "ModelAsset",
+      "ParticleSystem"
+    ],
+    "preLoadAssets": [],
+    "schema": "ProjectileConfig.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "ResourceType",
+    "path": "Item/ResourceTypes",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "ResourceType",
+    "packetGenerator": "ResourceTypePacketGenerator",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "ResourceType.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": ""
+  },
+  {
+    "class": "WordList",
+    "path": "WordLists",
+    "key": "String",
+    "map": "DefaultAssetMap",
+    "codec": "WordList",
+    "packetGenerator": "none",
+    "loadsBefore": [],
+    "loadsAfter": [],
+    "preLoadAssets": [],
+    "schema": "WordList.json",
+    "priority": "P3",
+    "extension": "none",
+    "notes": "No packet generator; server-internal only."
+  }
+]

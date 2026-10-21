@@ -1,0 +1,11 @@
+{
+  "$Title": "Stone",
+  "$Comment": "base fixture asset",
+  "Value": 1,
+  "Nested": {
+    "a": 1,
+    "b": 2
+  },
+  "List": [1, 2],
+  "Keep": "parent"
+}

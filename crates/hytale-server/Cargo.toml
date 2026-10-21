@@ -1,0 +1,23 @@
+[package]
+name = "hytale-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hytale-server"
+path = "src/main.rs"
+
+[dependencies]
+hytale-assets = { path = "../hytale-assets" }
+hytale-auth = { path = "../hytale-auth" }
+hytale-commands = { path = "../hytale-commands" }
+hytale-core = { path = "../hytale-core" }
+hytale-entities = { path = "../hytale-entities" }
+hytale-net = { path = "../hytale-net" }
+hytale-protocol = { path = "../hytale-protocol" }
+hytale-storage = { path = "../hytale-storage" }
+hytale-world = { path = "../hytale-world" }
+worldgen-hytale = { path = "../worldgen-hytale" }
+worldgen-model = { path = "../worldgen-model" }
+worldgen-server = { path = "../worldgen-server" }

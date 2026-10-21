@@ -1,0 +1,14 @@
+[package]
+name = "hytale-world"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hytale-assets = { path = "../hytale-assets" }
+hytale-protocol = { path = "../hytale-protocol" }
+hytale-storage = { path = "../hytale-storage" }
+thiserror = { workspace = true }
+worldgen-hytale = { path = "../worldgen-hytale" }
+worldgen-model = { path = "../worldgen-model" }
+worldgen-server = { path = "../worldgen-server" }

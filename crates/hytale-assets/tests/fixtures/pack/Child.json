@@ -1,0 +1,9 @@
+{
+  "Parent": "Stone",
+  "$Author": "test",
+  "Value": 2,
+  "Nested": {
+    "b": 3
+  },
+  "List": [9]
+}

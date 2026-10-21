@@ -1,0 +1,678 @@
+{
+  "meta": {
+    "source": ".hytale-source/hytale-shared-source/HytaleServer/Protocol/target/generated-sources/java/com/hypixel/hytale/protocol/packets/connection",
+    "generator": "protocol-dumper 0.1.0",
+    "counts": {
+      "packets": 8,
+      "enums": 5
+    }
+  },
+  "enums": [
+    {
+      "name": "ClientDisconnectReason",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "values": [
+        {
+          "name": "PlayerLeave",
+          "value": 0
+        },
+        {
+          "name": "PlayerAbort",
+          "value": 1
+        },
+        {
+          "name": "UserLeave",
+          "value": 2
+        },
+        {
+          "name": "Crash",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "ClientType",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "values": [
+        {
+          "name": "Game",
+          "value": 0
+        },
+        {
+          "name": "Editor",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "DisconnectType",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "values": [
+        {
+          "name": "Disconnect",
+          "value": 0
+        },
+        {
+          "name": "Crash",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "PongType",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "values": [
+        {
+          "name": "Raw",
+          "value": 0
+        },
+        {
+          "name": "Direct",
+          "value": 1
+        },
+        {
+          "name": "Tick",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "name": "QuicApplicationErrorCode",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "values": [
+        {
+          "name": "NoError",
+          "value": 0
+        },
+        {
+          "name": "RateLimited",
+          "value": 1
+        },
+        {
+          "name": "AuthFailed",
+          "value": 2
+        },
+        {
+          "name": "InvalidVersion",
+          "value": 3
+        },
+        {
+          "name": "Timeout",
+          "value": 4
+        },
+        {
+          "name": "ClientOutdated",
+          "value": 5
+        },
+        {
+          "name": "ServerOutdated",
+          "value": 6
+        },
+        {
+          "name": "Crash",
+          "value": 7
+        }
+      ]
+    }
+  ],
+  "packets": [
+    {
+      "name": "Connect",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 0,
+      "direction": "ToServer",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 1,
+      "fixed_block_size": 30,
+      "variable_field_count": 4,
+      "variable_block_start": 46,
+      "max_size": 38056,
+      "fields": [
+        {
+          "name": "protocolCrc",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 1,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "protocolBuildNumber",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 5,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "clientVersion",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 9,
+          "fixed_size": 20,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "fixed",
+            "fixed_length": 20,
+            "max_length": null
+          },
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "clientType",
+          "field_type": "ClientType",
+          "kind": "enum",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 29,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": "ClientType",
+          "nested_type": null
+        },
+        {
+          "name": "identityToken",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": 30,
+          "string": {
+            "encoding": "UTF-8",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 8192
+          },
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "language",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 1,
+          "variable_offset_slot": 34,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 100
+          },
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "referralData",
+          "field_type": "byte[]",
+          "kind": "array",
+          "nullable": true,
+          "nullable_bit": 1,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 2,
+          "variable_offset_slot": 38,
+          "string": null,
+          "array": {
+            "element_type": "byte",
+            "max_length": 4096
+          },
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "referralSource",
+          "field_type": "HostAddress",
+          "kind": "struct",
+          "nullable": true,
+          "nullable_bit": 2,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 3,
+          "variable_offset_slot": 42,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": "HostAddress"
+        }
+      ]
+    },
+    {
+      "name": "ClientDisconnect",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 1,
+      "direction": "ToServer",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 2,
+      "variable_field_count": 0,
+      "variable_block_start": 2,
+      "max_size": 2,
+      "fields": [
+        {
+          "name": "reason",
+          "field_type": "ClientDisconnectReason",
+          "kind": "enum",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": "ClientDisconnectReason",
+          "nested_type": null
+        },
+        {
+          "name": "type",
+          "field_type": "DisconnectType",
+          "kind": "enum",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 1,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": "DisconnectType",
+          "nested_type": null
+        }
+      ]
+    },
+    {
+      "name": "ServerDisconnect",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 2,
+      "direction": "ToClient",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 1,
+      "fixed_block_size": 2,
+      "variable_field_count": 1,
+      "variable_block_start": 2,
+      "max_size": 1677721600,
+      "fields": [
+        {
+          "name": "reason",
+          "field_type": "FormattedMessage",
+          "kind": "struct",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": "FormattedMessage"
+        },
+        {
+          "name": "type",
+          "field_type": "DisconnectType",
+          "kind": "enum",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 1,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": "DisconnectType",
+          "nested_type": null
+        }
+      ]
+    },
+    {
+      "name": "Ping",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 3,
+      "direction": "ToClient",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 28,
+      "variable_field_count": 0,
+      "variable_block_start": 28,
+      "max_size": 28,
+      "fields": [
+        {
+          "name": "id",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "time",
+          "field_type": "InstantData",
+          "kind": "struct",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 4,
+          "fixed_size": 12,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": "InstantData"
+        },
+        {
+          "name": "lastPingValueRaw",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 16,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "lastPingValueDirect",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 20,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "lastPingValueTick",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 24,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ]
+    },
+    {
+      "name": "Pong",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 4,
+      "direction": "ToServer",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 19,
+      "variable_field_count": 0,
+      "variable_block_start": 19,
+      "max_size": 19,
+      "fields": [
+        {
+          "name": "id",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "time",
+          "field_type": "InstantData",
+          "kind": "struct",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 4,
+          "fixed_size": 12,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": "InstantData"
+        },
+        {
+          "name": "type",
+          "field_type": "PongType",
+          "kind": "enum",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 16,
+          "fixed_size": 1,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": "PongType",
+          "nested_type": null
+        },
+        {
+          "name": "packetQueueSize",
+          "field_type": "short",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 17,
+          "fixed_size": 2,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ]
+    },
+    {
+      "name": "NetworkTick",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 5,
+      "direction": "ToClient",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 8,
+      "variable_field_count": 0,
+      "variable_block_start": 8,
+      "max_size": 8,
+      "fields": [
+        {
+          "name": "tickDurationMicros",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 0,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "serverTick",
+          "field_type": "int",
+          "kind": "primitive",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 4,
+          "fixed_size": 4,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        }
+      ]
+    },
+    {
+      "name": "InsecurePlayerOptions",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 363,
+      "direction": "ToServer",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 1,
+      "fixed_block_size": 17,
+      "variable_field_count": 2,
+      "variable_block_start": 25,
+      "max_size": 2149,
+      "fields": [
+        {
+          "name": "uuid",
+          "field_type": "UUID",
+          "kind": "uuid",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": 1,
+          "fixed_size": 16,
+          "variable_order": null,
+          "variable_offset_slot": null,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "username",
+          "field_type": "String",
+          "kind": "string",
+          "nullable": false,
+          "nullable_bit": null,
+          "nullable_byte": null,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 0,
+          "variable_offset_slot": 17,
+          "string": {
+            "encoding": "ASCII",
+            "length_prefix": "varint",
+            "fixed_length": null,
+            "max_length": 16
+          },
+          "array": null,
+          "enum_type": null,
+          "nested_type": null
+        },
+        {
+          "name": "skin",
+          "field_type": "PlayerSkin",
+          "kind": "struct",
+          "nullable": true,
+          "nullable_bit": 0,
+          "nullable_byte": 0,
+          "fixed_offset": null,
+          "fixed_size": null,
+          "variable_order": 1,
+          "variable_offset_slot": 21,
+          "string": null,
+          "array": null,
+          "enum_type": null,
+          "nested_type": "PlayerSkin"
+        }
+      ]
+    },
+    {
+      "name": "RequestInsecurePlayerOptions",
+      "package": "com.hypixel.hytale.protocol.packets.connection",
+      "packet_id": 364,
+      "direction": "ToClient",
+      "channel": "Default",
+      "compressed": false,
+      "nullable_bit_field_size": 0,
+      "fixed_block_size": 0,
+      "variable_field_count": 0,
+      "variable_block_start": 0,
+      "max_size": 0,
+      "fields": []
+    }
+  ]
+}
