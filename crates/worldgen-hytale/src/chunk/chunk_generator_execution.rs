@@ -5,7 +5,7 @@
 //! [`HeightThresholdInterpolator`], and it arbitrates every block/fluid
 //! write.
 //!
-//! # What is *not* ported (see `NEXT_STEPS.md` / `plan.md`)
+//! # What is *not* ported (see `REMAINING.md`)
 //!
 //! * **The ECS boundary**: `chunk.setState(x, y, z, holder)` and the
 //!   `Holder<ChunkStore>` section machinery are CoreServer concepts and are

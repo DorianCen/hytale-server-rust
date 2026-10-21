@@ -33,8 +33,8 @@
 //!   *has* a `Prefabs` key; the extents are therefore `0` on both sides.
 //! * **phase 4 (caves)** — `LoaderDumper` pins the cave `EntryPoints` seed
 //!   chain; the full cave node-graph/geometry parity is verified by the
-//!   chunk-level `tests/chunks_golden.rs` (which is now down to 150 cave-cover
-//!   voxels, see NEXT_STEPS.md).
+//!   chunk-level `tests/chunks_golden.rs` (bit-exact on every cave and
+//!   cave-cover voxel).
 //!
 //! The noise-derived samples are **bit-exact now** (0 deviations): the
 //! `OLDSCHOOL` first-octave offset and the `DensityPointEvaluator`

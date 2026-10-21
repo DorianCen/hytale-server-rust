@@ -11,10 +11,8 @@
 //! | `ChunkGeneratorCache`         | [`chunk_generator_cache`]         |
 //! | `UniquePrefabCache`           | [`unique_prefab_cache`]           |
 //!
-//! # Skipped in this slice (documented per `NEXT_STEPS.md`)
-//!
-//! * `CaveGeneratorCache` — Phase 4 (cave package, see
-//!   [`crate::cave::cave_generator_cache`]).
+//! `CaveGeneratorCache` lives in the cave package
+//! ([`crate::cave::cave_generator_cache`]).
 //!
 //! # The `Send`/`Sync` deviation (important)
 //!

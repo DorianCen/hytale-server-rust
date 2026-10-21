@@ -3,8 +3,8 @@
 This document maps the original Java world generator (`.hytale-source/hytale-shared-source/HytaleServer/{Math,ProceduralLibrary,WorldGenerator,CoreServer}`) onto the Rust workspace in `crates/`.
 
 - **Goal:** bit-exact generation — same seed + same world assets + same registry dump ⇒ identical chunk bytes.
-- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI and criterion benches. The post-port backlog (real-server registry id check, golden-regeneration gate, remaining structural seams, server adapter) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md#what-comes-next-post-port-backlog-priority-order).
-- **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (history and remaining work), [`REMAINING.md`](REMAINING.md) (deferred scope), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
+- **Status:** Phases 0–5 complete and golden-verified; Phase 6 (integration) implemented — `WorldGen` trait, worker-pool service, provider config, stage timings, CLI and criterion benches. The post-port backlog (real-server registry id check, golden-regeneration gate, remaining structural seams, server adapter) is tracked in [`NEXT_STEPS.md`](NEXT_STEPS.md).
+- **Companion docs:** [`plan.md`](plan.md) (phase plan), [`PORTING.md`](PORTING.md) (porting rules), [`NEXT_STEPS.md`](NEXT_STEPS.md) (open work only), [`PORTING_HISTORY.md`](PORTING_HISTORY.md) (completed work and root causes), [`REMAINING.md`](REMAINING.md) (deferred scope), [`testdata/golden/README.md`](testdata/golden/README.md) (golden formats).
 
 Paths in the tables are relative to the repository root. A row maps one Java class, or a tightly coupled class family where the Rust port merges them; grouped rows list **every** Rust file they cover.
 

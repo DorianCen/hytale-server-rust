@@ -17,12 +17,13 @@
 //! | `cache/*`                          | [`cache`]                      |
 //! | `condition/*`                      | [`condition`]                  |
 //!
-//! ⚠ **Not ported** (see `NEXT_STEPS.md`):
-//! - `ChunkThreadPoolExecutor` / `ChunkWorkerThreadFactory` — the Rust port
-//!   uses its own dedicated worker pool (Phase 6),
+//! ⚠ **Not ported** (see `REMAINING.md`):
 //! - `CleanupFutureAction` / `CleanupRunnable` — the Java background scheduler
 //!   plumbing; the Rust caches use lazy eviction plus an explicit
 //!   [`cache::Cache::cleanup`].
+//!
+//! (The Java `ChunkThreadPoolExecutor` / `ChunkWorkerThreadFactory` are replaced
+//! by the dedicated [`crate::world_gen::WorldGenService`] worker pool.)
 
 pub mod array_utli;
 pub mod block_array;

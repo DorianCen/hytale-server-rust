@@ -4,21 +4,20 @@
 //! generators and the per-column core-data cache, and it answers the
 //! "which biome is here / how high is the ground here" questions.
 //!
-//! # What is *not* ported (see `NEXT_STEPS.md` / `plan.md`)
+//! # Not ported (see `REMAINING.md`)
 //!
-//! | Java member                          | Why it is missing                                  |
+//! | Java member                          | Status / reason                                    |
 //! |--------------------------------------|----------------------------------------------------|
-//! | `generate(…)` / `run(…)` / `execute(…)` | the `CompletableFuture` + thread-pool API is Phase 6 (`trait WorldGen`) |
-//! | `executor`, `ChunkThreadPoolExecutor`  | the Rust worker pool is Phase 6                     |
-//! | `timings`, `WorldGenTimingsCollector`   | the per-stage metrics are Phase 6 — the Java timing calls are **no-ops** here |
-//! | `benchmark`, `ChunkWorldgenBenchmark`   | the JMH benchmark ports are Phase 6                |
-//! | `caveGeneratorCache`, `getCave`, `generateCave` | the cache, the accessors and the cave *growth* (`CaveGenerator`) are ported (Phase 4a/4b); the concrete cave *shapes* are Phase 4c |
+//! | `generate(…)` / `run(…)` / `execute(…)` | **ported** as [`crate::world_gen::WorldGenService`] / [`crate::world_gen::WorldGen`] |
+//! | `executor`, `ChunkThreadPoolExecutor`  | **ported** as the `WorldGenService` worker pool     |
+//! | `timings`, `WorldGenTimingsCollector`   | **ported** as [`crate::chunk::chunk_generator_execution::StageTimings`] / [`crate::world_gen::WorldGenStats`] |
+//! | `benchmark`, `ChunkWorldgenBenchmark`   | the JMH benchmark API itself is not ported; `worldgen-cli bench` + the criterion benches cover the measurements |
+//! | `caveGeneratorCache`, `getCave`, `generateCave` | **ported** (Phase 4)                        |
 //! | `prefabLoadingCache`                 | the prefab *buffers* are cached by the [`crate::prefab::prefab_store::PrefabStore`] (the Java cache is keyed by the supplier, whose `equals` is the path — the same key) |
-//! | `uniquePrefabCache`, `getUniquePrefabs` | the cache, the accessor and the entries are ported (Phase 5b/5c) |
-//! | `generateUniquePrefabs`              | ported (Phase 5c) — see [`generate_unique_prefabs`] |
-//! | `getSpawnPoints`                     | ported (Phase 5c) — see [`get_spawn_points`]      |
-//! | `getGenerator` (world map)             | the world map is Phase 6                          |
-//! | `toMetricResults`                      | the metric registry is Phase 6                    |
+//! | `uniquePrefabCache`, `getUniquePrefabs` | **ported** (Phase 5b/5c)                        |
+//! | `generateUniquePrefabs`, `getSpawnPoints` | **ported** (Phase 5c)                          |
+//! | `getGenerator` (world map)             | not ported — the world-map UI is deferred (`REMAINING.md` §4) |
+//! | `toMetricResults`                      | not ported — the CoreServer `Metrics` registry is outside the generation scope |
 //!
 //! # Deviations
 //!

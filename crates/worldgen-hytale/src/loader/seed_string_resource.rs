@@ -9,12 +9,12 @@
 //! * the prefab loader (`WorldGenPrefabLoader`), and
 //! * the **unique-name counters** (`Map<String, AtomicInteger> uniqueIds`).
 //!
-//! The caches and the prefab loader are unobservable (the cached values are
-//! value-equal to the freshly loaded ones) and the prefab loader is Phase 5,
-//! so the Rust port keeps the **unique-name counters** — they are *not*
-//! unobservable: the generated names end up in the seed strings of the cave
-//! node types (`CaveType#0`, `ChildCaveType#0`, …) and therefore in the
-//! seeds of their noise layers.
+//! The caches are unobservable (the cached values are value-equal to the
+//! freshly loaded ones) and the prefab loader is installed on the file-loading
+//! context instead of the resource, so the Rust port keeps the **unique-name
+//! counters** — they are *not* unobservable: the generated names end up in the
+//! seed strings of the cave node types (`CaveType#0`, `ChildCaveType#0`, …)
+//! and therefore in the seeds of their noise layers.
 //!
 //! The counter is global for the whole world load (one resource instance),
 //! so the numbers depend on the order in which the zones are loaded — the

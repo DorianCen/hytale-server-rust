@@ -28,19 +28,18 @@
 //!    is called.
 //! 6. Finally the node prefabs that intersect this chunk are pasted.
 //!
-//! # Seams / deviations
+//! # Deviations
 //!
-//! * **`shape.populateChunk` is the Phase-4c seam** — the concrete shapes
-//!   draw their geometry (and therefore carve). Until they land, the stage
-//!   runs, the caves compile, but nothing is carved: the stub/empty shapes
-//!   write no blocks.
+//! * **The concrete shapes are ported** (Phase 4c/4d) — every node shape
+//!   carves its geometry and places its covers; the cave / cave-cover voxels
+//!   are bit-exact in `tests/chunks_golden.rs`.
 //! * **The cave-prefab paste is ported** (Phase 5a) — `PrefabPasteUtil` and
 //!   the reusable prefab buffer are in the prefab package, so a cave node
 //!   that carries a prefab pastes it into the chunk (with the
 //!   `CAVE_PREFAB` priority, and the `FLAG_SUBMERGE` flag when the cave
 //!   type submerges).
-//! * **The benchmark block is not ported** — `getBenchmark()` belongs to
-//!   Phase 6 and only records timings.
+//! * **The Java `getBenchmark()` timing hook is not ported** — per-stage
+//!   timings live in `StageTimings` / `WorldGenStats` instead.
 //! * **`new Random()` is `FastRandom::new(0)`** — every node is reseeded
 //!   before the shape is populated, so the initial state is unobservable.
 use std::rc::Rc;

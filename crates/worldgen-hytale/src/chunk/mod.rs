@@ -15,15 +15,10 @@
 //! | `PrefabPopulator`             | [`populator::prefab_populator`]              |
 //! | `WaterPopulator`              | [`populator::water_populator`]               |
 //!
-//! # Deferred to the later chunk-core slices
-//!
-//! * The worker pool and the `CompletableFuture` generation API of
-//!   `ChunkGenerator` — Phase 6 (`trait WorldGen`).
-//! * The caves (`CaveGeneratorCache`, `getCave`, `generateCave`) — the cache,
-//!   the accessors and the growth (`CaveGenerator`) are ported (Phase 4a/4b);
-//!   the concrete cave *shapes* are Phase 4c.
-//! * The world map (`getGenerator`) and the benchmark/timings collectors —
-//!   Phase 6.
+//! All chunk-core stages, caches, cave shapes and the worker-pool/`WorldGen`
+//! integration are ported. The only deliberately deferred pieces are the
+//! world-map generator (`getGenerator`, `REMAINING.md` §4) and the CoreServer
+//! ECS/entity/block-component writes (`REMAINING.md` §2/§3).
 //!
 //! `ValidationUtil` — the world validation — is ported (Phase 5c).
 

@@ -76,7 +76,7 @@ hytale-server-rust/
 - [x] Shapes: pipe, cylinder, ellipsoid, empty-line, prefab-as-node (structure), then the **distorted family** (extrusion/body math, interpolation curves, pitch compensation, width/floor/ceiling distortion noise) (4c + 4d)
 - [x] `CaveNodeShapeUtils` (anchors, covers, support invalidation), fillings/fluids, `CaveBlockPriorityModifier` — the block-support data gap is CLOSED: the golden `registries.json` now carries one `containsKey(DOWN/UP)` entry per Java `RotationTuple` per block (`RegistryDumper.blockSupportField`), and `BlockTypeInfo::get_support` honors the rotation index
 - [x] Cave JSON loaders with cross-zone node references (`CaveNodeTypeStorage`) — 4e done; all 28 Default zones load their `Cave/Caves.json`; entry-point seed chains bit-exact vs `loader.json`
-- [x] Verification: chunk slice PNGs + block-histogram invariants vs Java — the cave **node graph** (types, seeds, bounds, ends, prefabs), per-node floor/ceiling/replace geometry and every carve are bit-exact on the golden chunk grid (the last cave-cover seed edge was the quoted cave-type seed suffix, see NEXT_STEPS.md)
+- [x] Verification: chunk slice PNGs + block-histogram invariants vs Java — the cave **node graph** (types, seeds, bounds, ends, prefabs), per-node floor/ceiling/replace geometry and every carve are bit-exact on the golden chunk grid (the last cave-cover seed edge was the quoted cave-type seed suffix, see PORTING_HISTORY.md)
 
 ### Phase 5 — Prefabs (~2.5k lines + format work)
 - [x] Parse `.prefab.json` (12k files); investigate `.lpf` cache format only if needed for speed (JSON is source of truth)
@@ -93,7 +93,7 @@ hytale-server-rust/
 - [x] Architecture doc: Java class → Rust module mapping (`ARCHITECTURE.md`)
 
 ### Post-port backlog (outside the parity claim)
-Ordered list lives in [`NEXT_STEPS.md`](NEXT_STEPS.md#what-comes-next-post-port-backlog-priority-order):
+Ordered list lives in [`NEXT_STEPS.md`](NEXT_STEPS.md):
 1. Verify the dumped registry ids against a real vanilla-server load.
 2. Add a golden-regeneration determinism gate (`tools/java-dumper/run.sh` twice).
 3. Retire the remaining structural seams (`supplier.rs` move, duplicate registry load per worker).

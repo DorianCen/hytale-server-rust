@@ -7,13 +7,12 @@
 //! `&mut` scratch per task" model: the resource is an ordinary value that
 //! the worker owns (one per task) instead of a thread-local.
 //!
-//! # What is *not* ported (see `NEXT_STEPS.md` / `plan.md`)
+//! # What is *not* part of the resource (see `REMAINING.md`)
 //!
-//! | Java member                        | Why it is missing                          |
+//! | Java member                        | Why it is absent                           |
 //! |------------------------------------|-------------------------------------------|
-//! | `prefabs` (timeout cache), `getPrefab` | the prefab package is Phase 5          |
-//! | `cacheCaveCoordinateKey`          | the cave package is Phase 4                |
-//! | `prefabBuffer`                    | the prefab package is Phase 5              |
+//! | `prefabs` (timeout cache), `getPrefab` | the Rust [`crate::prefab::prefab_store::PrefabStore`] caches the prefab buffers by path |
+//! | `prefabBuffer`                    | the paste buffer borrows the execution mutably (see below) |
 //! | `bounds2d`, `resultBuffer2d`, `resultBuffer3d` | the procedural result buffers are not used by the chunk core |
 //! | `cacheVector2d`                   | the joml vector is only a scratch key for the Java caches; the Rust caches build their keys directly |
 //!

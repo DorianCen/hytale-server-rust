@@ -139,8 +139,8 @@ impl ChunkGeneratorJsonLoader {
     /// Java `ChunkGenerator load()`.
     ///
     /// Java's `AssetFileSystem` / `EventHandler` / `SeedStringResource
-    /// .setPrefabConfig` boot block is out of loader scope (documented in
-    /// NEXT_STEPS Subtask 7): the world config path reads from the on-disk
+    /// .setPrefabConfig` boot block is out of loader scope (see
+    /// `PORTING_HISTORY.md`): the world config path reads from the on-disk
     /// data folder directly and the prefab config hook is a no-op.
     pub fn load(&self) -> Rc<crate::chunk::chunk_generator::ChunkGenerator> {
         let world_file = absolute_path(&self.data_folder.join(FILE_WORLD_JSON));

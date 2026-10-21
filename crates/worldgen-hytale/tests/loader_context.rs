@@ -4,7 +4,7 @@
 //! These verify the id-assignment ORDER determinism (sorted zone folders;
 //! per-zone `Tile.` before `Custom.` biome files, each alphabetically). The
 //! definitive bit-exact verification of the ids happens with the Java dumper
-//! extension (NEXT_STEPS Subtask 7d) — the ids flow into seed derivation, so
+//! extension (see `PORTING_HISTORY.md`) — the ids flow into seed derivation, so
 //! they must match the Java scan exactly.
 
 use std::collections::HashSet;

@@ -57,8 +57,8 @@
 //!   [`PrefabPasteBuffer`] borrows the execution mutably, so it cannot live
 //!   in the (unborrowed) resource. The buffer is fully re-seeded before
 //!   every paste, so the reuse is not observable.
-//! * **The benchmark block is not ported** — `getBenchmark()` belongs to
-//!   Phase 6 and only records timings.
+//! * **The Java `getBenchmark()` timing hook is not ported** — per-stage
+//!   timings live in `StageTimings` / `WorldGenStats` instead.
 //! * **The `atMostEvery(1, TimeUnit.SECONDS)` rate limit of the base-check
 //!   log message is not ported** — the message is logged at the `FINE`
 //!   level (the `log` facade filters it).
