@@ -19,12 +19,14 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   and a Java read-back gate. Session 11 composed the three parts into
   `WorldSave` and `hytale-server world-boot`, with one Java gate
   (`run-save-check.sh`) that verifies the config, player and chunk in a
-  Rust-written save. That sits on session 7's headless boot, session 6's BSON
-  chunk storage, session 5's P0 asset registry, session 4's runtime chunk packet
-  encoders and session 3's full protocol codegen. Generation of missing chunks,
-  view-radius demand loading, the join path and the live server loop are still
-  open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
-  [`tasks/README.md`](tasks/README.md).
+  Rust-written save. Session 12 added demand loading: `WorldSave::ensure_chunks`
+  loads stored chunks and generates missing ones around the player, and the
+  shared `WorldGenerator` boot is used by both `headless` and `world-boot`. That
+  sits on session 7's headless boot, session 6's BSON chunk storage, session 5's
+  P0 asset registry, session 4's runtime chunk packet encoders and session 3's
+  full protocol codegen. Moving demand loading onto the world thread, streaming
+  chunks to a client, the join path and the live server loop are still open; see
+  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
@@ -250,9 +252,11 @@ owns the loaded columns, dirty set and `get_block`/`set_block`. `WorldSave`
 adds the rest of a saved world — `config.json` and `players/` — and is the
 object the boot path owns. `hytale-server world-boot` loads or creates the
 config/player, loads every stored chunk, applies an optional edit and saves
-everything; `load-chunk` remains the one-chunk editor. Missing-chunk generation,
-view-radius demand loading, unload/keep-alive and the live world thread are not
-wired yet.
+everything. `WorldSave::ensure_chunks` takes the stored chunk set plus a square
+radius around the player chunk, loads what exists and generates the rest through
+`hytale-server::generation::WorldGenerator` (shared with `headless`).
+`load-chunk` remains the one-chunk editor. On-thread demand scheduling,
+unload/keep-alive, chunk streaming and the live world thread are not wired yet.
 
 ---
 
@@ -357,7 +361,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
 | `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette and the `SetColumn`/`SetChunk`/tint/environment/fluid packet builders landed (M3); all 46 `chunks-pkts` payloads match Java byte-for-byte |
-| `CoreServer/.../universe/{Universe,World}` | `hytale-world` | runtime chunk model, one-chunk headless boot, `World`/`WorldStorage` load/mutate/save, `WorldConfig` v4 and `WorldSave` composed boot landed (M3); universe lifecycle, missing-chunk generation and view-radius demand loading pending |
+| `CoreServer/.../universe/{Universe,World}` | `hytale-world` | runtime chunk model, one-chunk headless boot, `World`/`WorldStorage` load/mutate/save, `WorldConfig` v4, `WorldSave` composed boot and generation-backed demand loading landed (M3); universe lifecycle, on-thread chunk scheduling and streaming pending |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |

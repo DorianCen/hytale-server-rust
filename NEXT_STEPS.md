@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 12
+# Next steps — CoreServer rewrite, session 13
 
-**Status:** sessions 1–11 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–12 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -17,8 +17,11 @@ Java-written fixture and a Java read-back probe. Session 10 added player saves
 `UUID`/`Transform`/`WorldGenId`, opaque preservation of every other component,
 and a Java read-back gate. Session 11 composed the three saved-world parts into
 `WorldSave` + `hytale-server world-boot`, and added a whole-save Java gate
-(`run-save-check.sh`). See [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the
-status board in [`tasks/README.md`](tasks/README.md).
+(`run-save-check.sh`). Session 12 added demand loading: `WorldSave::ensure_chunks`
+loads stored chunks and generates missing ones around the player, with the shared
+`WorldGenerator` boot now used by both `headless` and `world-boot`. See
+[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
+[`tasks/README.md`](tasks/README.md).
 
 **Try it:**
 
@@ -36,7 +39,7 @@ cargo run -p hytale-server -- player-data \
 tools/java-dumper/run-player-data.sh --probe \
   target/headless-world/players/12345678-1234-5678-9abc-def012345678.json
 cargo run -p hytale-server -- world-boot --save target/headless-world \
-  --set-block 129,250,-159,4
+  --view-radius 1 --set-block 129,250,-159,4
 tools/java-dumper/run-save-check.sh target/headless-world 4 -5 129 250 -159 Debug_Test_Block
 ```
 
@@ -51,8 +54,10 @@ tools/java-dumper/run-save-check.sh target/headless-world 4 -5 129 250 -159 Debu
    region → runtime `World` load/mutate/save and the Java reload gate done in
    session 8; `config.json`/`WorldConfig` done in session 9; player BSON
    (`DiskPlayerStorageProvider`) done in session 10; config + player + chunk boot
-   (`WorldSave`/`world-boot`) and the whole-save Java gate done in session 11.
-   Remaining: generate missing chunks and demand-load around the player.
+   (`WorldSave`/`world-boot`) and the whole-save Java gate done in session 11;
+   missing-chunk generation and player-radius demand loading done in session 12.
+   Remaining: move demand loading onto the world thread and stream chunks to a
+   client.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
    `hytale-assets` packet encoders still need their `assets/*.bin` comparison.

@@ -222,7 +222,10 @@ tools/java-dumper/run-save-check.sh <save-dir> <chunkX> <chunkZ> \
 It runs the config probe, the player probe (first file under `players/`) and the
 chunk reload probe against one Rust-written save, and prints
 `whole-save check: ok` only when all three pass. `WorldSave` and
-`hytale-server world-boot` are the Rust side of that gate.
+`hytale-server world-boot` are the Rust side of that gate; `--view-radius`
+generates missing chunks around the player and the check can point at any of
+them (`run-reload-check.sh <save> 0 0 0 64 0 Empty` for a generated seed-0
+chunk).
 
 ### 3.7 `trace/`
 

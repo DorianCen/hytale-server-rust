@@ -8,17 +8,13 @@
 
 use std::path::{Path, PathBuf};
 
-use hytale_assets::{AssetError, AssetPack, AssetRegistry};
 use hytale_world::chunk::column::{ChunkColumn, SECTION_COUNT};
 use hytale_world::chunk::storage::{
     chunk_blob_index, region_path, ChunkCodec, ChunkStorageError, RegionFile,
 };
-use hytale_world::chunk::SectionError;
-use hytale_world::registry::{registries_from_assets, RegistryError};
 use thiserror::Error;
-use worldgen_hytale::world_gen::{WorldGenError, WorldGenOptions};
-use worldgen_hytale::world_gen_config::WorldGenConfig;
-use worldgen_server::{ChunkProvider, ChunkProviderError, ChunkRequest, WorldGenChunkProvider};
+
+use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
 
 /// Paths and coordinates of a headless boot.
 #[derive(Debug, Clone)]
@@ -85,32 +81,12 @@ pub struct HeadlessReport {
 /// Errors from the headless boot.
 #[derive(Debug, Error)]
 pub enum HeadlessError {
-    /// The asset pack could not be loaded.
+    /// The worldgen boot or chunk generation failed.
     #[error(transparent)]
-    Asset(#[from] AssetError),
-    /// The asset registry could not be bridged into the worldgen registries.
-    #[error(transparent)]
-    Registry(#[from] RegistryError),
-    /// The generation service failed to load or generate.
-    #[error(transparent)]
-    Generation(#[from] ChunkProviderError),
-    /// The worldgen service failed to start.
-    #[error(transparent)]
-    WorldGen(#[from] WorldGenError),
-    /// The generated chunk could not be converted.
-    #[error(transparent)]
-    Section(#[from] SectionError),
+    Generation(#[from] GenerationError),
     /// The chunk could not be encoded or decoded.
     #[error(transparent)]
     Storage(#[from] ChunkStorageError),
-    /// A required path is missing.
-    #[error("required path is missing: {path} ({what})")]
-    MissingPath {
-        /// Path that was checked.
-        path: PathBuf,
-        /// What the path should contain.
-        what: &'static str,
-    },
     /// The saved chunk did not decode back to the generated values.
     #[error("saved chunk verification failed: {0}")]
     Verification(String),
@@ -118,44 +94,15 @@ pub enum HeadlessError {
 
 /// Run one headless boot and save one region blob.
 pub fn run(options: &HeadlessOptions) -> Result<HeadlessReport, HeadlessError> {
-    require_file(&options.assets_pack, "asset pack")?;
-    require_dir(&options.assets_root, "unpacked asset tree")?;
-    require_file(&options.world_dir.join("World.json"), "world configuration")?;
-    if options.workers == 0 {
-        return Err(HeadlessError::Verification(
-            "the worker count must be positive".to_string(),
-        ));
-    }
+    let generator = WorldGenerator::open(&GeneratorOptions {
+        assets_pack: options.assets_pack.clone(),
+        assets_root: options.assets_root.clone(),
+        world_dir: options.world_dir.clone(),
+        workers: options.workers,
+    })?;
 
-    let pack = AssetPack::open(&options.assets_pack)?;
-    let assets = AssetRegistry::load_p0(&pack)?;
-    let registries = std::sync::Arc::new(registries_from_assets(&assets)?);
-
-    let config = WorldGenConfig::new(
-        options.world_dir.clone(),
-        "Default".to_string(),
-        "0.0.0".to_string(),
-    );
-    let provider = WorldGenChunkProvider::new(
-        config,
-        WorldGenOptions {
-            workers: options.workers,
-            seed_label: "ChunkGenerator".to_string(),
-            assets_root: Some(options.assets_root.clone()),
-            registries_path: None,
-            registries: Some(std::sync::Arc::clone(&registries)),
-        },
-    )?;
-
-    let result = provider.generate(ChunkRequest::new(
-        options.seed,
-        options.chunk_x,
-        options.chunk_z,
-    ))?;
-    provider.shutdown();
-
-    let column = ChunkColumn::from_generated_chunk_with_registries(&result.chunk, &registries)?;
-    let codec = ChunkCodec::new(&assets);
+    let column = generator.generate(options.seed, options.chunk_x, options.chunk_z)?;
+    let codec = ChunkCodec::new(generator.assets());
     let document = codec.encode(&column)?;
 
     let region_file = region_path(&options.save_dir, options.chunk_x, options.chunk_z);
@@ -183,40 +130,19 @@ pub fn run(options: &HeadlessOptions) -> Result<HeadlessReport, HeadlessError> {
     }
     let decoded = codec.decode_at(&stored, options.chunk_x, options.chunk_z)?;
     verify_column(&column, &decoded)?;
+    generator.shutdown();
 
     Ok(HeadlessReport {
         seed: options.seed,
         chunk_x: options.chunk_x,
         chunk_z: options.chunk_z,
-        asset_blocks: assets.block_types.len(),
+        asset_blocks: generator.assets().block_types.len(),
         non_air_blocks: count_non_air(&column),
         region_file,
         blob_index: chunk_blob_index(options.chunk_x, options.chunk_z),
         document_bytes: document.len(),
         verified: true,
     })
-}
-
-fn require_file(path: &Path, what: &'static str) -> Result<(), HeadlessError> {
-    if path.is_file() {
-        Ok(())
-    } else {
-        Err(HeadlessError::MissingPath {
-            path: path.to_path_buf(),
-            what,
-        })
-    }
-}
-
-fn require_dir(path: &Path, what: &'static str) -> Result<(), HeadlessError> {
-    if path.is_dir() {
-        Ok(())
-    } else {
-        Err(HeadlessError::MissingPath {
-            path: path.to_path_buf(),
-            what,
-        })
-    }
 }
 
 fn count_non_air(column: &ChunkColumn) -> usize {

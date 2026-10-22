@@ -44,6 +44,9 @@ pub enum WorldError {
     /// A player save failed.
     #[error(transparent)]
     Player(#[from] PlayerDataError),
+    /// A missing chunk could not be generated.
+    #[error("chunk generation failed: {0}")]
+    Generation(String),
 }
 
 /// Result alias for the world storage.
@@ -332,6 +335,32 @@ impl World {
     }
 }
 
+/// Chunk coordinates in a square around a center chunk, sorted by Z then X.
+pub fn chunk_coordinates_around(center_x: i32, center_z: i32, radius: u32) -> Vec<(i32, i32)> {
+    let radius = i32::try_from(radius).unwrap_or(i32::MAX);
+    let side = (radius as i64 * 2 + 1) as usize;
+    let mut coordinates = Vec::with_capacity(side * side);
+    for dz in -radius..=radius {
+        for dx in -radius..=radius {
+            coordinates.push((center_x + dx, center_z + dz));
+        }
+    }
+    coordinates
+}
+
+/// What a demand-load pass did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DemandReport {
+    /// Unique chunks requested.
+    pub requested: usize,
+    /// Chunks already in memory.
+    pub already_loaded: usize,
+    /// Chunks loaded from region files.
+    pub loaded: usize,
+    /// Chunks generated and inserted.
+    pub generated: usize,
+}
+
 /// A complete saved world: `config.json`, player files and chunk regions.
 ///
 /// This is the boot-time bundle the live server will own. It loads or creates
@@ -446,6 +475,43 @@ impl WorldSave {
         let saved = self.world.save_all(codec)?;
         self.save_config()?;
         Ok(saved)
+    }
+
+    /// Ensure the requested chunks are loaded, generating missing ones.
+    ///
+    /// Chunks already in memory are counted, then stored chunks are read from
+    /// disk, then `generate` is called for the rest. Generated columns are
+    /// inserted as dirty, so [`Self::save_all`] writes them.
+    pub fn ensure_chunks<F>(
+        &mut self,
+        codec: &ChunkCodec<'_>,
+        coordinates: impl IntoIterator<Item = (i32, i32)>,
+        mut generate: F,
+    ) -> Result<DemandReport>
+    where
+        F: FnMut(i32, i32) -> std::result::Result<ChunkColumn, WorldError>,
+    {
+        let mut coordinates: Vec<(i32, i32)> = coordinates.into_iter().collect();
+        coordinates.sort_unstable();
+        coordinates.dedup();
+        let mut report = DemandReport {
+            requested: coordinates.len(),
+            ..DemandReport::default()
+        };
+        for (x, z) in coordinates {
+            if self.world.chunk(x, z).is_some() {
+                report.already_loaded += 1;
+                continue;
+            }
+            if self.world.load_chunk(codec, x, z)? {
+                report.loaded += 1;
+                continue;
+            }
+            let column = generate(x, z)?;
+            self.world.insert_chunk(column);
+            report.generated += 1;
+        }
+        Ok(report)
     }
 
     /// The config file path.

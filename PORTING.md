@@ -140,6 +140,11 @@ For the server, “exact” also applies to:
   `players/` and `chunks/` belong together. Save dirty chunks through its
   `World`, then the config/player documents; do not write the three parts from
   unrelated code paths.
+- Missing chunks go through `WorldSave::ensure_chunks`; generation is supplied by
+  `hytale-server::generation::WorldGenerator`. Do not add a second worldgen boot
+  for a new command.
+- Worldgen seed arithmetic follows Java `int`: use `wrapping_add`/`wrapping_mul`
+  for seed offsets. A checked add is a debug-only panic that release would hide.
 
 ---
 

@@ -715,3 +715,58 @@ Format:
   - Demand-load chunks around the player view radius.
   - Hydrate the join player components and wire the live world thread.
   - Client-bot auth/setup/game with the packet-trace fixture.
+
+---
+
+## Session 12 — missing-chunk generation and demand loading (2026-10-23)
+
+- **Goal:** make the saved-world boot load what the player needs: stored chunks
+  from disk, missing chunks from `worldgen-server`, then save the result.
+- **Landed:**
+  - `hytale-world::world`:
+    - `WorldSave::ensure_chunks(codec, coordinates, generate)` counts
+      in-memory chunks, loads stored ones, generates the rest and inserts them
+      dirty.
+    - `DemandReport` and `chunk_coordinates_around(center, radius)`.
+  - `hytale-server::generation::WorldGenerator`: one shared assets → P0 registry
+    → worldgen registries → worker-pool → runtime column boot. `headless` now
+    uses it instead of building the provider itself.
+  - `hytale-server world-boot` gained `--assets-root`, `--world`, `--workers`
+    and `--view-radius` (default 0 = the player's chunk). It unions stored chunk
+    coordinates with the radius around the player chunk, loads/generates, then
+    edits and saves. The report now includes requested/loaded/generated counts.
+  - Tests:
+    - `hytale-world/tests/world_save.rs` demand pass (stored vs generated, then
+      all from disk);
+    - `hytale-server/tests/world_boot.rs` generates the player chunk then
+      reloads it;
+    - `hytale-server/tests/headless.rs` boots with demand loading and saves the
+      stored plus generated chunks.
+- **Verified:**
+  - `world-boot --view-radius 1` on the golden-config save reported
+    `stored=1 requested=10 loaded=1 generated=9 saved=10`.
+  - `run-save-check.sh` still passes on chunk `(4, -5)`.
+  - A generated region reads in Java:
+    `run-reload-check.sh target/save-smoke 0 0 0 64 0 Empty` →
+    `java reload check: ok`.
+  - `cargo test --workspace` (1099 passed), clippy and fmt green; worldgen
+    goldens (`780 passed`) unchanged.
+- **Deviations:**
+  - `view_radius` is a square chunk radius; no view-distance shape, priority
+    queue or cancellation yet.
+  - The boot still loads every stored chunk, even outside the radius.
+  - Demand loading runs synchronously on the calling thread.
+  - Generated chunks are dirty and saved immediately by the boot.
+  - The config `Seed` is a Java `long`; the boot casts it to `i32` for
+    `worldgen-server`, matching the Java worldgen API.
+- **Bug fixed:**
+  - `PrefabPatternGenerator::get_displacement` used checked addition
+    (`seed + seed_offset`) and panicked for the config seed applied to chunks
+    around `(0, -1)`. Java `int` addition wraps, so it now uses
+    `seed.wrapping_add(seed_offset)`. The demand gate found this; all worldgen
+    goldens still pass.
+- **Follow-ups:**
+  - Move demand loading onto the world thread with priorities and cancellation.
+  - Add the view-distance tracker used by the join path.
+  - Stream the loaded/generated chunks to the client.
+  - Client-bot auth/setup/game with the packet-trace fixture.

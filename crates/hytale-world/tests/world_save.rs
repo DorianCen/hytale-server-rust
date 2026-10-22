@@ -6,7 +6,7 @@ use hytale_world::chunk::column::ChunkColumn;
 use hytale_world::chunk::palette::NameLookup;
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::player_data::{PlayerTransform, Position, Rotation};
-use hytale_world::world::{WorldSave, WorldStorage};
+use hytale_world::world::{chunk_coordinates_around, WorldSave, WorldStorage};
 use hytale_world::world_config::{ConfigObject, WorldConfig, WorldUuid};
 
 struct TestNames;
@@ -128,6 +128,50 @@ fn a_new_save_without_a_spawn_starts_at_the_origin() {
     // The bundle exposes the same storage handle as a plain World.
     let world = hytale_world::world::World::new(WorldStorage::new(&dir));
     assert_eq!(world.storage().save_dir(), dir);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn demand_loads_stored_chunks_and_generates_the_rest() {
+    let dir = temp_dir("demand");
+    let names = TestNames;
+    let codec = ChunkCodec::from_lookups(&names, &names, &names);
+
+    {
+        let (mut save, _) = WorldSave::open(&dir, 0, None, uuid()).expect("open");
+        save.world_mut().insert_chunk(column(1, 1));
+        save.save_all(&codec).expect("save the stored chunk");
+    }
+
+    let coordinates = chunk_coordinates_around(0, 0, 1);
+    assert_eq!(coordinates.len(), 9);
+
+    {
+        let (mut save, _) = WorldSave::open(&dir, 0, None, uuid()).expect("reopen");
+        let report = save
+            .ensure_chunks(&codec, coordinates.clone(), |x, z| Ok(column(x, z)))
+            .expect("demand load");
+        assert_eq!(report.requested, 9);
+        assert_eq!(report.already_loaded, 0);
+        assert_eq!(report.loaded, 1);
+        assert_eq!(report.generated, 8);
+        // Only the generated chunks are dirty.
+        assert_eq!(save.save_all(&codec).expect("save generated"), 8);
+    }
+
+    {
+        let (mut save, _) = WorldSave::open(&dir, 0, None, uuid()).expect("reopen again");
+        let report = save
+            .ensure_chunks(&codec, coordinates, |_x, _z| {
+                panic!("all chunks are now stored")
+            })
+            .expect("load all");
+        assert_eq!(report.requested, 9);
+        assert_eq!(report.loaded, 9);
+        assert_eq!(report.generated, 0);
+        assert_eq!(save.save_all(&codec).expect("nothing dirty"), 0);
+    }
+
     std::fs::remove_dir_all(dir).ok();
 }
 

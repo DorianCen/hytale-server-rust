@@ -115,7 +115,11 @@ fn headless_boot_saves_a_reloadable_region_blob() {
     // chunk, edit another block and write all three back.
     let boot = run_world_boot(&WorldBootOptions {
         assets_pack: options.assets_pack.clone(),
+        assets_root: options.assets_root.clone(),
+        world_dir: options.world_dir.clone(),
         save_dir: save_dir.clone(),
+        workers: options.workers,
+        view_radius: 0,
         seed: i64::from(options.seed),
         display_name: Some("Headless Gate".to_string()),
         world_uuid: None,
@@ -131,8 +135,10 @@ fn headless_boot_saves_a_reloadable_region_blob() {
     assert!(boot.config_created);
     assert!(boot.player_created);
     assert_eq!(boot.stored_chunks, 1);
+    assert_eq!(boot.requested_chunks, 2);
     assert_eq!(boot.loaded_chunks, 1);
-    assert_eq!(boot.saved_chunks, 1);
+    assert_eq!(boot.generated_chunks, 1);
+    assert_eq!(boot.saved_chunks, 2);
     assert_eq!(
         boot.block_edit,
         Some((

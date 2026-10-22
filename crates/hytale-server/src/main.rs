@@ -137,9 +137,21 @@ struct WorldBootArgs {
     /// Asset pack (zip or unpacked directory) for the chunk codec.
     #[arg(long, default_value = "Assets/Assets.zip")]
     assets_pack: PathBuf,
+    /// Unpacked asset tree used for prefabs, environments and tint gradients.
+    #[arg(long, default_value = "Assets/extracted")]
+    assets_root: PathBuf,
+    /// World-gen data folder (`World.json`).
+    #[arg(long, default_value = "testdata/Default")]
+    world: PathBuf,
     /// World save root (`config.json`, `chunks/`, `players/`).
     #[arg(long, default_value = "target/headless-world")]
     save: PathBuf,
+    /// Worldgen worker count.
+    #[arg(long, default_value_t = 1)]
+    workers: usize,
+    /// Chunk radius loaded/generated around the player (0 = the player chunk).
+    #[arg(long, default_value_t = 0)]
+    view_radius: u32,
     /// Seed used only when a new config is created.
     #[arg(long, default_value_t = 0)]
     seed: i64,
@@ -276,7 +288,11 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
 fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
     let options = WorldBootOptions {
         assets_pack: args.assets_pack,
+        assets_root: args.assets_root,
+        world_dir: args.world,
         save_dir: args.save,
+        workers: args.workers,
+        view_radius: args.view_radius,
         seed: args.seed,
         display_name: args.name,
         world_uuid: args.uuid,
@@ -297,8 +313,13 @@ fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
                 report.player_uuid, report.player_created
             );
             println!(
-                "chunks: stored={} loaded={} saved={}",
-                report.stored_chunks, report.loaded_chunks, report.saved_chunks
+                "chunks: stored={} requested={} loaded={} generated={} saved={} radius={}",
+                report.stored_chunks,
+                report.requested_chunks,
+                report.loaded_chunks,
+                report.generated_chunks,
+                report.saved_chunks,
+                report.view_radius
             );
             if let Some((x, y, z, before, after)) = report.block_edit {
                 println!("block edit ({x}, {y}, {z}): {before} -> {after}");

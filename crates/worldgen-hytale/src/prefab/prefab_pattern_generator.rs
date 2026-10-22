@@ -146,7 +146,11 @@ impl PrefabPatternGenerator {
 
     /// Java `public int getDisplacement(int seed, int x, int z)`.
     pub fn get_displacement(&self, seed: i32, x: i32, z: i32) -> i32 {
-        math_util::floor(self.displacement.apply2(seed + self.seed_offset, x, z))
+        // Java `int` addition wraps; certain world seeds overflow here.
+        math_util::floor(
+            self.displacement
+                .apply2(seed.wrapping_add(self.seed_offset), x, z),
+        )
     }
 
     /// Java `public boolean isOnWater()`.

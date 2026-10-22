@@ -35,7 +35,11 @@ fn creates_then_reopens_a_config_and_player() {
     let save_dir = temp_dir("boot");
     let options = WorldBootOptions {
         assets_pack: repo_root().join("Assets/Assets.zip"),
+        assets_root: repo_root().join("Assets/extracted"),
+        world_dir: repo_root().join("testdata/Default"),
         save_dir: save_dir.clone(),
+        workers: 1,
+        view_radius: 0,
         seed: 5,
         display_name: Some("Boot Gate".to_string()),
         world_uuid: None,
@@ -47,6 +51,10 @@ fn creates_then_reopens_a_config_and_player() {
     assert!(first.config_created);
     assert!(first.player_created);
     assert_eq!(first.stored_chunks, 0);
+    assert_eq!(first.requested_chunks, 1);
+    assert_eq!(first.loaded_chunks, 0);
+    assert_eq!(first.generated_chunks, 1);
+    assert_eq!(first.saved_chunks, 1);
     assert_eq!(first.seed, 5);
     assert_eq!(first.block_edit, None);
     assert!(save_dir.join("config.json").is_file());
@@ -59,6 +67,10 @@ fn creates_then_reopens_a_config_and_player() {
     let second = run_world_boot(&options).expect("second boot");
     assert!(!second.config_created);
     assert!(!second.player_created);
+    assert_eq!(second.stored_chunks, 1);
+    assert_eq!(second.loaded_chunks, 1);
+    assert_eq!(second.generated_chunks, 0);
+    assert_eq!(second.saved_chunks, 0);
     assert_eq!(second.world_uuid, first.world_uuid);
     assert_eq!(second.player_uuid, first.player_uuid);
     assert_eq!(
