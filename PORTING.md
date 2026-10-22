@@ -130,6 +130,9 @@ For the server, “exact” also applies to:
 - Runtime save paths go through `hytale-world::world` (`World`/`WorldStorage`).
   Loaded chunks are only written when dirty, and the codec is always bound to the
   server's own asset registry.
+- World metadata goes through `hytale-world::world_config`. Keep unknown
+  `config.json` fields when re-saving, use Java's extended-JSON UUID shape, and
+  keep provider sections opaque until their provider systems are ported.
 
 ---
 

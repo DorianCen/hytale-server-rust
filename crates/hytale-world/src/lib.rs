@@ -11,3 +11,4 @@
 pub mod chunk;
 pub mod registry;
 pub mod world;
+pub mod world_config;

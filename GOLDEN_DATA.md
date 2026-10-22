@@ -169,7 +169,30 @@ world, asserts block/fluid/environment values, modifies a block, writes, then th
 Java tool reads the result and prints the same values. A pure Rust round-trip is
 not sufficient.
 
-### 3.5 `trace/`
+### 3.5 `world-config/`
+
+Session 9 added `world-config/config.json`, written by `WorldConfigDumper` with
+the real Java `WorldConfig.CODEC` (version 4) through `WorldConfig.save`, which
+is the same path `WorldConfigProvider.save` uses:
+
+| Fixture | Contents | Gate |
+|---|---|---|
+| `config.json` | fixed UUID/seed/name, `Void` world gen, chunk regions, flags, client effects, fluid tickers | `crates/hytale-world/tests/world_config.rs` |
+| `README.md` | value table and regeneration commands | — |
+
+The Rust gate asserts every field, round-trips the document without losing
+fields (known or unknown), and checks the atomic save + `.bak` behavior.
+`crates/hytale-server/tests/world_config.rs` covers the CLI copy path.
+Regenerate with `tools/java-dumper/run-world-config.sh --check`.
+
+The reverse gate needs no committed fixture: the CLI loads the Java document,
+writes a Rust one, and `run-world-config.sh --probe` decodes it with the real
+`WorldConfig` codec. The probe checks `GameplayConfig` from the parsed document
+and removes that key before the codec decode because the harness cannot load the
+gameplay-config assets (they depend on the camera-effect store); a production
+Java boot validates it normally.
+
+### 3.6 `trace/`
 
 A packet sequence captured from the Java server during a scripted join:
 
@@ -219,7 +242,7 @@ values in the golden, variable fields in the manifest’s ignore list.
 - **Fast (every commit):** worldgen unit/golden tests, protocol round-trips,
   wire primitives, storage synthetic fixture, asset resolver fixtures.
 - **Full (manual/nightly):** Java dumper regeneration, full asset packet dumps,
-  full protocol byte dumps, Java world read-back, client join trace.
+  full protocol byte dumps, Java world/config read-back, client join trace.
 - **Long (release):** 24h soak, 100-bot load, save/load/crash-recovery matrix.
 
 The fast tier must stay under a few minutes on a developer machine. Do not put a

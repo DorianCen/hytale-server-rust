@@ -538,3 +538,74 @@ Format:
   - Generate-missing-chunks path on top of `World`.
   - Client-bot auth/setup/game with the packet-trace fixture.
   - P1 stores and asset packet encoders.
+
+---
+
+## Session 9 — world config and the Java config gate (2026-10-22)
+
+- **Goal:** load and write the per-world `config.json` (`WorldConfig` v4) with
+  the real Java codec as the oracle, completing the saved-world metadata half
+  next to the chunk regions.
+- **Landed:**
+  - `hytale-world::world_config`:
+    - `WorldConfig` models the v4 fields in codec order: `Version`, `UUID`,
+      `DisplayName`, `Seed`, providers, `ChunkConfig`, world flags, `GameTime`,
+      `ClientEffects`, `RequiredPlugins`, `GameMode`, `GameplayConfig`,
+      `DisabledFluidTickers`, `ResourceStorage` and `Plugin`.
+    - `WorldUuid` serializes as strict extended JSON
+      (`{"$binary":"<base64>","$type":"04"}`) and also accepts Java's hex-string
+      form.
+    - Provider sections stay as ordered JSON objects (`ConfigObject`), so
+      provider options are preserved without porting every provider codec.
+    - Unknown top-level fields are kept in `extra`; load → save → reload is
+      lossless for newer Java documents.
+    - `load`/`to_json_pretty`/`save` match Java's pretty JSON, `.bak` backup and
+      atomic temp-file rename; `WorldConfig::path_in(save_dir)`.
+  - `hytale-server::world_config_tool` and `hytale-server world-config
+    [--input] [--save] [--seed] [--name] [--uuid]`. New headless worlds derive a
+    stable UUID from seed + name; existing configs keep theirs.
+  - Java oracle:
+    - `WorldConfigDumper` `write` builds a config and saves it through the real
+      `WorldConfig.save` (booting the asset stores and registering the provider
+      codecs that `Universe` normally installs).
+    - `WorldConfigDumper` `probe` decodes a Rust-written file with
+      `WorldConfig.CODEC` and checks UUID, seed, name, game time, game mode,
+      flags and fluid tickers.
+    - `tools/java-dumper/run-world-config.sh` (`--check`, `--probe`).
+  - Fixture `testdata/golden/server/world-config/config.json` plus README.
+  - Tests: `crates/hytale-world/tests/world_config.rs` (fixture fields, lossless
+    round-trip, unknown fields, atomic save/backup) and
+    `crates/hytale-server/tests/world_config.rs` (CLI copy and stable default
+    UUIDs).
+- **Verified:**
+  - `tools/java-dumper/run-world-config.sh --check` is deterministic and matches
+    the committed fixture.
+  - `cargo run -q -p hytale-server -- world-config --input
+    testdata/golden/server/world-config/config.json --save
+    target/world-config-smoke` wrote a Rust config, and
+    `tools/java-dumper/run-world-config.sh --probe
+    target/world-config-smoke/config.json` printed
+    `java world config check: ok`.
+  - `cargo test -p hytale-world --test world_config` and `cargo test -p
+    hytale-server --test world_config` are green.
+  - `cargo clippy -p hytale-world -p hytale-server --all-targets -- -D warnings`
+    and `cargo fmt --all -- --check` are green.
+- **Deviations:**
+  - The Java probe checks `GameplayConfig` from the parsed document and removes
+    it before the codec decode. The harness cannot load the gameplay-config
+    assets (they depend on the camera-effect store), so that key's validator
+    cannot run there; a production Java boot validates it.
+  - `DisabledFluidTickers` is a `BTreeSet`, so Rust writes a sorted array; Java
+    uses a `HashSet`.
+  - Provider payloads remain opaque JSON; only the world config's own fields are
+    typed.
+  - The headless chunk boot still uses a fixed generator name/version and does
+    not read `config.json`; the CLI is the only writer today.
+  - New headless worlds derive a deterministic UUID instead of Java's random one.
+- **Follow-ups:**
+  - `DiskPlayerStorageProvider` player BSON and a Java-written player fixture.
+  - Wire `WorldConfig` into the headless boot / `World` lifecycle (seed, spawn,
+    world-gen settings, save flags).
+  - Generate-missing-chunks path on top of `World`.
+  - Client-bot auth/setup/game with the packet-trace fixture.
+  - P1 stores and asset packet encoders.

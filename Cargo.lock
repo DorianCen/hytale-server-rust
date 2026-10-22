@@ -869,6 +869,7 @@ dependencies = [
  "hytale-protocol",
  "hytale-storage",
  "procedural",
+ "serde",
  "serde_json",
  "thiserror",
  "worldgen-hytale",

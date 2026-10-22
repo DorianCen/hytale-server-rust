@@ -6,7 +6,12 @@
 #![deny(clippy::all)]
 
 pub mod headless;
+pub mod world_config_tool;
 pub mod world_tool;
 
 pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, HeadlessReport};
+pub use world_config_tool::{
+    run as run_world_config_tool, WorldConfigToolError, WorldConfigToolOptions,
+    WorldConfigToolReport,
+};
 pub use world_tool::{run as run_chunk_tool, ChunkToolError, ChunkToolOptions, ChunkToolReport};

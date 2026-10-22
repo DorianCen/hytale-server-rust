@@ -11,6 +11,7 @@ Regenerate everything with:
 tools/java-dumper/run.sh       # regenerate this directory
 tools/java-dumper/check.sh     # run twice in isolation + diff the committed files
 tools/java-dumper/run-storage.sh --check  # Java world-save fixture
+tools/java-dumper/run-world-config.sh --check  # Java world config fixture
 ```
 
 `check.sh` is the determinism gate: it runs the dumper twice into temporary
@@ -270,8 +271,9 @@ See [`render/README.md`](render/README.md) for the command.
 ### `server/` (CoreServer rewrite fixtures)
 New fixtures for the server rewrite live under `server/` and are documented in
 [`GOLDEN_DATA.md`](../../GOLDEN_DATA.md): `protocol/`, `assets/`,
-`chunks-pkts/`, `storage/`, and `trace/`. They are produced by separate Java
-tools under `tools/` and do not change the worldgen fixtures above.
-`storage/` now contains a real Java world save (`storage/java-world/`,
-regenerated with `tools/java-dumper/run-storage.sh --check`); `trace/` is still
-planned.
+`chunks-pkts/`, `storage/`, `world-config/`, and `trace/`. They are produced by
+separate Java tools under `tools/` and do not change the worldgen fixtures
+above. `storage/` contains a real Java world save (`storage/java-world/`,
+regenerated with `tools/java-dumper/run-storage.sh --check`), `world-config/`
+contains the real `WorldConfig` v4 document (`run-world-config.sh --check`), and
+`trace/` is still planned.

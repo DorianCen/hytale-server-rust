@@ -1,0 +1,90 @@
+{
+  "Version": 4,
+  "UUID": {
+    "$binary": "EjRWeBI0VniavN7wEjRWeA==",
+    "$type": "04"
+  },
+  "DisplayName": "Rust Golden World",
+  "Seed": 1234567890123,
+  "SpawnProvider": {
+    "Id": "Global",
+    "SpawnPoint": {
+      "X": 10.5,
+      "Y": 80.0,
+      "Z": -3.5,
+      "Pitch": 0.0,
+      "Yaw": 5156.6201171875,
+      "Roll": 0.0
+    }
+  },
+  "WorldGen": {
+    "Type": "Void",
+    "Tint": "#5b9e28",
+    "Environment": "Env_Zone1_Plains"
+  },
+  "WorldMap": {
+    "Type": "Disabled"
+  },
+  "ChunkStorage": {
+    "Type": "Hytale"
+  },
+  "ChunkConfig": {
+    "PregenerateRegion": {
+      "Min": {
+        "X": -512.0,
+        "Y": -512.0
+      },
+      "Max": {
+        "X": 512.0,
+        "Y": 512.0
+      }
+    },
+    "KeepLoadedRegion": {
+      "Min": {
+        "X": -64.0,
+        "Y": -64.0
+      },
+      "Max": {
+        "X": 64.0,
+        "Y": 64.0
+      }
+    }
+  },
+  "IsTicking": false,
+  "IsBlockTicking": true,
+  "IsPvpEnabled": true,
+  "IsFallDamageEnabled": false,
+  "IsGameTimePaused": true,
+  "GameTime": "2026-10-22T12:34:56Z",
+  "ClientEffects": {
+    "SunHeightPercent": 75.0,
+    "SunAngleDegrees": 71.6197280883789,
+    "BloomIntensity": 0.5,
+    "BloomPower": 4.0,
+    "SunIntensity": 0.75,
+    "SunshaftIntensity": 0.25,
+    "SunshaftScaleFactor": 2.0
+  },
+  "RequiredPlugins": {},
+  "GameMode": "Adventure",
+  "IsSpawningNPC": false,
+  "IsBlockSpawnersEnabled": true,
+  "IsSpawnMarkersEnabled": false,
+  "IsAllNPCFrozen": true,
+  "GameplayConfig": "Default",
+  "IsCompassUpdating": false,
+  "IsSavingPlayers": false,
+  "IsSavingChunks": true,
+  "SaveNewChunks": false,
+  "IsUnloadingChunks": false,
+  "IsObjectiveMarkersEnabled": true,
+  "DeleteOnUniverseStart": false,
+  "DeleteOnRemove": false,
+  "DisabledFluidTickers": [
+    "Fluid=Water"
+  ],
+  "ResourceStorage": {
+    "Type": "Hytale"
+  },
+  "Plugin": {}
+}

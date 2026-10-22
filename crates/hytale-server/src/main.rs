@@ -8,7 +8,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use hytale_server::{run_chunk_tool, run_headless, ChunkToolOptions, HeadlessOptions};
+use hytale_server::{
+    run_chunk_tool, run_headless, run_world_config_tool, ChunkToolOptions, HeadlessOptions,
+    WorldConfigToolOptions,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "hytale-server", version, about = "Hytale CoreServer rewrite")]
@@ -25,6 +28,8 @@ enum Command {
     /// Load a saved chunk, optionally edit one block, save it and verify the
     /// reload.
     LoadChunk(LoadChunkArgs),
+    /// Load or create a world `config.json` with the Java-compatible codec.
+    WorldConfig(WorldConfigArgs),
 }
 
 #[derive(Debug, Args)]
@@ -68,6 +73,25 @@ struct LoadChunkArgs {
     set_block: Option<(i32, i32, i32, i32)>,
 }
 
+#[derive(Debug, Args)]
+struct WorldConfigArgs {
+    /// Optional source config to load before writing the save directory copy.
+    #[arg(long)]
+    input: Option<PathBuf>,
+    /// World save root; the config is written to `<save>/config.json`.
+    #[arg(long, default_value = "target/headless-world")]
+    save: PathBuf,
+    /// Seed used only when a new config is created.
+    #[arg(long, default_value_t = 0)]
+    seed: i64,
+    /// Display name used only when a new config is created.
+    #[arg(long)]
+    name: Option<String>,
+    /// UUID used when a new config is created (or to replace a loaded one).
+    #[arg(long)]
+    uuid: Option<String>,
+}
+
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
     let (x, z) = value
         .split_once(',')
@@ -106,6 +130,7 @@ fn main() -> ExitCode {
     match cli.command {
         Some(Command::Headless(args)) => run_headless_command(args),
         Some(Command::LoadChunk(args)) => run_load_chunk_command(args),
+        Some(Command::WorldConfig(args)) => run_world_config_command(args),
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -176,6 +201,34 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
         }
         Err(error) => {
             eprintln!("load-chunk failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_world_config_command(args: WorldConfigArgs) -> ExitCode {
+    let options = WorldConfigToolOptions {
+        input: args.input,
+        save_dir: args.save,
+        seed: args.seed,
+        display_name: args.name,
+        uuid: args.uuid,
+    };
+    match run_world_config_tool(&options) {
+        Ok(report) => {
+            println!(
+                "world config v{} uuid={} seed={} name={} (loaded: {})",
+                report.version,
+                report.uuid,
+                report.seed,
+                report.display_name.as_deref().unwrap_or("<none>"),
+                report.loaded_existing
+            );
+            println!("saved {}", report.path.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("world-config failed: {error}");
             ExitCode::FAILURE
         }
     }

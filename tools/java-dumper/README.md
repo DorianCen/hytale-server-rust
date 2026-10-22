@@ -126,6 +126,30 @@ on `ChunkStore.REGISTRY`.
 `run.sh` forwards `DUMPER_EXTRA_ARGS` to the entry point, so wrapper scripts can
 pass tool-specific arguments without a new run script.
 
+## World config dump and probe
+
+`WorldConfigDumper` writes the per-world `config.json` with the real
+`WorldConfig` codec (version 4) and boots the asset stores its static
+initialiser needs. The `probe` mode is the reverse gate: it loads a Rust-written
+config with the real codec and checks the expected fields.
+
+```sh
+tools/java-dumper/run-world-config.sh                       # write testdata/golden/server/world-config/
+tools/java-dumper/run-world-config.sh /tmp/world-config     # arbitrary output directory
+tools/java-dumper/run-world-config.sh --check               # two isolated runs + diff
+
+cargo run -q -p hytale-server -- world-config \
+    --input testdata/golden/server/world-config/config.json --save target/world-config-smoke
+tools/java-dumper/run-world-config.sh --probe target/world-config-smoke/config.json
+```
+
+The dumper registers the provider codecs that `Universe` normally installs
+(Global spawn, Void world gen, Disabled world map, default chunk/resource
+storage). The probe strips `GameplayConfig` before the codec decode because this
+harness cannot load the gameplay-config assets; the key is checked from the
+parsed document instead. See
+[`../../testdata/golden/server/world-config/README.md`](../../testdata/golden/server/world-config/README.md).
+
 ## Live registry snapshot
 
 `RegistrySnapshot` writes the block / fluid / environment maps of the
@@ -178,6 +202,9 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   (wraps `run.sh` with `StorageDumper`; `--check` runs the determinism gate).
 - `run-reload-check.sh` – build + run entry point for the reverse storage gate
   (wraps `run.sh` with `WorldStorageProbe`; no fixture is written).
+- `run-world-config.sh` – build + run entry point for the world config fixture
+  and probe (wraps `run.sh` with `WorldConfigDumper`; `--check` runs the
+  determinism gate).
 - `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
   (math/noise dumps).
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
@@ -201,6 +228,9 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 - `src/main/java/com/hypixel/hytale/tools/golden/WorldStorageProbe.java` – the
   Rust save reload check: deserializes a Rust-written region with the real
   Java chunk codecs and resolves one block through the `BlockType` map.
+- `src/main/java/com/hypixel/hytale/tools/golden/WorldConfigDumper.java` – the
+  world config fixture writer and reverse probe: real `WorldConfig.CODEC` v4
+  save/load plus the expected-field checks.
 - `src/main/java/com/hypixel/hytale/tools/golden/ChunkStoreBootstrap.java` –
   shared minimal `AssetModule`/`LegacyModule` boot and `ChunkStore` component
   registration used by `StorageDumper` and `WorldStorageProbe`.
