@@ -59,3 +59,18 @@ tools/java-dumper/run-storage.sh --check
 registry and compares every block, filler, rotation, fluid level, environment,
 the tint and the legacy heightmap with the same Rust-generated chunk. It also
 round-trips a runtime column through the BSON codec and an on-disk region file.
+
+The reverse direction has no committed fixture. Write a fresh save, mutate one
+block through the runtime world and read it back with the Java codecs:
+
+```sh
+rm -rf target/headless-smoke
+cargo run -q -p hytale-server -- headless --save target/headless-smoke --chunk 4,-5
+cargo run -q -p hytale-server -- load-chunk --save target/headless-smoke --chunk 4,-5 \
+    --set-block 129,250,-159,4
+tools/java-dumper/run-reload-check.sh target/headless-smoke 4 -5 129 250 -159 Debug_Test_Block
+```
+
+`run-reload-check.sh` runs `WorldStorageProbe`, which opens the region with the
+real `IndexedStorageFile`, deserializes with `ChunkStore.REGISTRY` and checks the
+block name in the real `BlockType` map.

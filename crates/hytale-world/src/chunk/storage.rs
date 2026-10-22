@@ -713,6 +713,17 @@ pub fn region_file_name(region_x: i32, region_z: i32) -> String {
     format!("{region_x}.{region_z}.region.bin")
 }
 
+/// Parse `<regionX>.<regionZ>.region.bin` (`Java fromFileName`).
+pub fn parse_region_file_name(name: &str) -> Option<(i32, i32)> {
+    let mut parts = name.split('.');
+    let region_x = parts.next()?.parse().ok()?;
+    let region_z = parts.next()?.parse().ok()?;
+    if parts.next()? != "region" || parts.next()? != "bin" || parts.next().is_some() {
+        return None;
+    }
+    Some((region_x, region_z))
+}
+
 /// Path of the region file that owns `(chunk_x, chunk_z)` inside a world save
 /// directory.
 pub fn region_path(save_path: &Path, chunk_x: i32, chunk_z: i32) -> PathBuf {

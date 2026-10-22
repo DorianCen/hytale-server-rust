@@ -158,14 +158,18 @@ CP="$CP:$BSON_JAR:$JOPT_JAR:$JLINE_JAR:$JSR305_JAR:$ERRORPRONE_JAR"
 CP="$CP:$FLOGGER_JAR:$FLOGGER_BACKEND_JAR:$TINK_JAR:$NIMBUS_JAR:$BCPKIX_JAR:$BCPROV_JAR:$ZSTD_JAR"
 CP="$CP:$FASTDOUBLE_JAR:$NETTY_BUFFER_JAR:$NETTY_COMMON_JAR"
 
-echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
+echo "Running ${MAIN_CLASS##*.} -> ${OUT_DIR#"$ROOT/"}"
 # The asset pipeline decodes the assets in parallel and collects the decoded
 # assets in a ConcurrentHashMap, whose iteration order depends on the order in
 # which the parallel decodes finish. A single worker thread of the common fork
 # join pool makes that order deterministic (the tasks then run in submission
 # order), which is what makes the dumped registry ids reproducible.
 java -Djava.util.concurrent.ForkJoinPool.common.parallelism="$PARALLELISM" $LOADER_SEED_OPT \
-     -cp "$CP" "$MAIN_CLASS" "$OUT_DIR" "$WORLD_DIR" "$ROOT"
+     -cp "$CP" "$MAIN_CLASS" "$OUT_DIR" "$WORLD_DIR" "$ROOT" ${DUMPER_EXTRA_ARGS:-}
 
-echo "Done. Golden files:"
-ls -lh "$OUT_DIR"/*.json
+echo "Done."
+# Tools such as WorldStorageProbe only print a verdict and write no JSON.
+if compgen -G "$OUT_DIR/*.json" > /dev/null; then
+    echo "Golden files:"
+    ls -lh "$OUT_DIR"/*.json
+fi

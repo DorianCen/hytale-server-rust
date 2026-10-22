@@ -101,6 +101,31 @@ See
 [`../../testdata/golden/server/storage/README.md`](../../testdata/golden/server/storage/README.md)
 for the layout and the Rust gate.
 
+## Rust save reload check
+
+`WorldStorageProbe` is the reverse storage gate: it reads a **Rust-written**
+region with the real Java `IndexedStorageFile`, `BsonUtil.readFromBuffer`,
+`ChunkStore.REGISTRY`, `ChunkColumn`/`BlockSection` and `BlockType` asset map,
+then checks one block by name.
+
+```sh
+rm -rf target/headless-smoke
+cargo run -q -p hytale-server -- headless --save target/headless-smoke --chunk 4,-5
+cargo run -q -p hytale-server -- load-chunk --save target/headless-smoke --chunk 4,-5 \
+    --set-block 129,250,-159,4
+tools/java-dumper/run-reload-check.sh target/headless-smoke 4 -5 129 250 -159 Debug_Test_Block
+```
+
+The script prints `java reload check: ok` and exits non-zero when the region,
+the blob, the component or the expected block name is wrong. It writes no
+fixture; the check runs against a fresh temporary save. `WorldStorageProbe` and
+`StorageDumper` share `ChunkStoreBootstrap`, which installs the minimal
+`AssetModule`/`LegacyModule` singletons and registers the real chunk components
+on `ChunkStore.REGISTRY`.
+
+`run.sh` forwards `DUMPER_EXTRA_ARGS` to the entry point, so wrapper scripts can
+pass tool-specific arguments without a new run script.
+
 ## Live registry snapshot
 
 `RegistrySnapshot` writes the block / fluid / environment maps of the
@@ -151,6 +176,8 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   (wraps `run.sh` with `ChunkPacketDumper`; `--check` runs the determinism gate).
 - `run-storage.sh` – build + run entry point for the Java world-storage dump
   (wraps `run.sh` with `StorageDumper`; `--check` runs the determinism gate).
+- `run-reload-check.sh` – build + run entry point for the reverse storage gate
+  (wraps `run.sh` with `WorldStorageProbe`; no fixture is written).
 - `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
   (math/noise dumps).
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
@@ -171,6 +198,12 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 - `src/main/java/com/hypixel/hytale/tools/golden/StorageDumper.java` – the Java
   world save (`testdata/golden/server/storage/java-world/`): real BSON chunk
   documents written into `IndexedStorageFile` region files.
+- `src/main/java/com/hypixel/hytale/tools/golden/WorldStorageProbe.java` – the
+  Rust save reload check: deserializes a Rust-written region with the real
+  Java chunk codecs and resolves one block through the `BlockType` map.
+- `src/main/java/com/hypixel/hytale/tools/golden/ChunkStoreBootstrap.java` –
+  shared minimal `AssetModule`/`LegacyModule` boot and `ChunkStore` component
+  registration used by `StorageDumper` and `WorldStorageProbe`.
 - `src/main/java/com/hypixel/hytale/tools/golden/LoaderDumper.java` – the loader-chain
   dump (`loader.json`): the real Default-world `ChunkGeneratorJsonLoader` walk
   (zone requirements, seed chains, caves, biome containers) for the fixed seeds.

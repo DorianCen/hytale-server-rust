@@ -135,21 +135,39 @@ level and per-block environment against the same seed-0 generated chunk, and
 checks the tint and legacy heightmap. The fixture's heightmap caught a
 one-column packed-bitfield bug in the legacy heightmap decoder.
 
+The reverse half needs no committed fixture: the Rust runtime writes a region
+and the Java probe reads it with the same real codecs:
+
+```sh
+rm -rf target/headless-smoke
+cargo run -q -p hytale-server -- headless --save target/headless-smoke --chunk 4,-5
+cargo run -q -p hytale-server -- load-chunk --save target/headless-smoke --chunk 4,-5 \
+    --set-block 129,250,-159,4
+tools/java-dumper/run-reload-check.sh target/headless-smoke 4 -5 129 250 -159 Debug_Test_Block
+```
+
+`WorldStorageProbe` opens the region with `IndexedStorageFile`, deserializes the
+document with `ChunkStore.REGISTRY` and resolves the edited block through the
+real `BlockType` asset map; it prints `java reload check: ok` on success. The
+Rust side of the same path is `crates/hytale-world/tests/world_storage.rs` and
+`crates/hytale-server/tests/headless.rs`.
+
 The fixture has no player file yet; `DiskPlayerStorageProvider` player BSON is
-the remaining storage fixture.
+the remaining storage fixture, along with `World.json`.
 
 
-A full tiny Java-created world will contain:
+The chunk half of a full tiny Java-created world is covered:
 
-- `World.json` (or the config file Java actually writes);
-- `chunks/<region>.region.bin` with at least one chunk, including one modified
-  block;
-- one player data file;
-- a manifest describing the mutation.
+- ~~`chunks/<region>.region.bin` with at least one chunk, including one modified
+  block;~~ the Java-written fixture covers the read side and
+  `run-reload-check.sh` covers Rust write → Java read.
+- `World.json` (or the config file Java actually writes) and one player data file
+  are still missing.
 
-Test: Rust reads it, asserts block/fluid/environment values, modifies a block,
-writes, then the Java tool reads the result and prints the same values. A pure
-Rust round-trip is not sufficient.
+Full storage parity still requires the remaining files: Rust reads the whole
+world, asserts block/fluid/environment values, modifies a block, writes, then the
+Java tool reads the result and prints the same values. A pure Rust round-trip is
+not sufficient.
 
 ### 3.5 `trace/`
 

@@ -472,3 +472,69 @@ Format:
   - Player BSON and `World.json`/`WorldConfig`.
   - Client-bot auth/setup/game with the packet-trace fixture.
   - P1 stores and asset packet encoders.
+
+---
+
+## Session 8 — runtime world storage and the Java reload gate (2026-10-22)
+
+- **Goal:** load a saved chunk into a runtime world, mutate a block, save it back,
+  and verify the Rust-written region with the real Java codecs.
+- **Landed:**
+  - `hytale-world::world`:
+    - `WorldStorage` owns the region-file cache for a save directory and maps
+      chunk coordinates to `IndexedStorageFile` blobs. It provides
+      `load_chunk`/`save_chunk`/`remove_chunk`, `stored_chunk_coordinates` and
+      `flush`.
+    - `World` keeps the loaded `ChunkColumn`s, tracks dirty chunks and provides
+      `load_chunk`, `insert_chunk`, `get_block`/`set_block`,
+      `save_chunk`/`save_all` and `flush`.
+  - `parse_region_file_name` (Java `fromFileName`) in
+    `hytale-world::chunk::storage`, used by the region scan.
+  - `hytale-server::world_tool`: loads the P0 registry, loads a stored chunk,
+    optionally edits one block, saves, reloads with a fresh `World` and verifies
+    the edited block.
+  - CLI: `hytale-server load-chunk --assets-pack --save --chunk x,z
+    --set-block x,y,z,id`.
+  - `crates/hytale-world/tests/world_storage.rs`: storage round-trip plus
+    chunk listing/removal, and world load → mutate → save → reload.
+    `crates/hytale-server/tests/headless.rs` now also exercises
+    load → mutate → save → reload.
+  - Java reverse gate:
+    - `ChunkStoreBootstrap` extracts the minimal `AssetModule`/`LegacyModule`
+      boot and chunk component registration from `StorageDumper`; the dumper
+      now reuses it.
+    - `WorldStorageProbe` opens the Rust region with the real
+      `IndexedStorageFile`, `BsonUtil.readFromBuffer`,
+      `ChunkStore.REGISTRY.deserialize`, `ChunkColumn`/`BlockSection` and
+      resolves the block through the real `BlockType` asset map.
+    - `run-reload-check.sh <save-dir> <chunkX> <chunkZ> <blockX> <blockY>
+      <blockZ> <expected-name>`.
+    - `run.sh` accepts `DUMPER_EXTRA_ARGS`; the final JSON listing is now
+      conditional so probe-only entry points exit successfully.
+- **Verified:**
+  - `cargo run -p hytale-server -- headless --save target/headless-smoke
+    --chunk 4,-5` generated and saved the chunk.
+  - `cargo run -p hytale-server -- load-chunk --save target/headless-smoke
+    --chunk 4,-5 --set-block 129,250,-159,4` edited and reload-verified it.
+  - `tools/java-dumper/run-reload-check.sh target/headless-smoke 4 -5 129 250
+    -159 Debug_Test_Block` printed
+    `chunk (4, -5) block (129, 250, -159) = 4 (Debug_Test_Block)` and
+    `java reload check: ok`.
+  - `tools/java-dumper/run-storage.sh --check` remains deterministic and matches
+    the committed fixture after the bootstrap refactor.
+  - `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D
+    warnings` and `cargo fmt --all -- --check` are green.
+- **Deviations:**
+  - `WorldStorage::remove_chunk` leaves an empty region file in place; region
+    compaction/unlink is deferred.
+  - `stored_chunk_coordinates` opens a separate read-only region handle while
+    the write cache may hold the same file open. This is fine on Linux; Windows
+    exclusive-handle behavior is untested.
+  - No saved-world generation caching yet: the runtime loads stored chunks but
+    does not generate missing neighbours.
+  - `World.json`/`WorldConfig` and player BSON are still absent.
+- **Follow-ups:**
+  - `World.json`/`WorldConfig` load and `DiskPlayerStorageProvider` player BSON.
+  - Generate-missing-chunks path on top of `World`.
+  - Client-bot auth/setup/game with the packet-trace fixture.
+  - P1 stores and asset packet encoders.

@@ -23,7 +23,8 @@ pub use section::{
     SectionEnvironmentsMode, SectionError,
 };
 pub use storage::{
-    chunk_blob_index, region_coords, region_file_name, region_path, ChunkCodec, ChunkStorageError,
-    RegionFile, RegistryNames, BLOCK_CHUNK_VERSION, BLOCK_SECTION_VERSION,
-    ENVIRONMENT_SECTION_VERSION, FLUID_SECTION_VERSION, REGION_BLOB_COUNT, REGION_SEGMENT_SIZE,
+    chunk_blob_index, parse_region_file_name, region_coords, region_file_name, region_path,
+    ChunkCodec, ChunkStorageError, RegionFile, RegistryNames, BLOCK_CHUNK_VERSION,
+    BLOCK_SECTION_VERSION, ENVIRONMENT_SECTION_VERSION, FLUID_SECTION_VERSION, REGION_BLOB_COUNT,
+    REGION_SEGMENT_SIZE,
 };

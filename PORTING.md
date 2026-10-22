@@ -124,8 +124,12 @@ For the server, “exact” also applies to:
   crash/recovery behavior.
 - Java-written worlds are the compatibility gate. Do not declare storage done
   based only on Rust round-trips. The committed
-  `testdata/golden/server/storage/java-world/` fixture is the current read gate;
-  the mutate → Java-reload half is still open.
+  `testdata/golden/server/storage/java-world/` fixture is the read gate;
+  `tools/java-dumper/run-reload-check.sh` is the Rust-write → Java-read gate.
+  Both must stay green when the chunk storage layout changes.
+- Runtime save paths go through `hytale-world::world` (`World`/`WorldStorage`).
+  Loaded chunks are only written when dirty, and the codec is always bound to the
+  server's own asset registry.
 
 ---
 

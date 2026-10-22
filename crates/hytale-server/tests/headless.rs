@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use hytale_assets::{AssetPack, AssetRegistry};
-use hytale_server::{run_headless, HeadlessOptions};
+use hytale_server::{run_chunk_tool, run_headless, ChunkToolOptions, HeadlessOptions};
 use hytale_world::chunk::column::SECTION_COUNT;
 use hytale_world::chunk::storage::{chunk_blob_index, ChunkCodec, RegionFile};
 use hytale_world::chunk::NO_HEIGHT;
@@ -83,6 +83,30 @@ fn headless_boot_saves_a_reloadable_region_blob() {
         })
         .sum::<usize>();
     assert!(non_air > 0);
+
+    // Load through the runtime world storage, mutate one block, save and
+    // verify the reload independently of the generation path.
+    let block_id = assets
+        .block_types
+        .id_of("Rock_Stone")
+        .expect("Rock_Stone is in the asset registry");
+    let tool = run_chunk_tool(&ChunkToolOptions {
+        assets_pack: options.assets_pack.clone(),
+        save_dir: save_dir.clone(),
+        chunk_x: options.chunk_x,
+        chunk_z: options.chunk_z,
+        set_block: Some((
+            options.chunk_x * 32 + 1,
+            250,
+            options.chunk_z * 32 + 1,
+            block_id,
+        )),
+    })
+    .expect("load, mutate and save the chunk");
+    assert!(tool.verified);
+    assert_eq!(tool.block_before, Some(0));
+    assert_eq!(tool.block_after, Some(block_id));
+    assert_eq!(tool.non_air_blocks, non_air + 1);
 
     std::fs::remove_dir_all(save_dir).ok();
 }
