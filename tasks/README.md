@@ -35,6 +35,7 @@ task done until its acceptance section is satisfied.
 | [T20](T20-player-data.md) | Player save BSON + Java player gate | T19 | medium | done (session 10) |
 | [T21](T21-world-save-boot.md) | Complete saved-world boot + whole-save gate | T18, T19, T20 | medium | done (session 11) |
 | [T22](T22-demand-chunks.md) | Generate missing chunks + demand-load | T21 | medium | done (session 12) |
+| [T23](T23-world-thread.md) | World thread + view tracking + demand queue | T22 | medium | done (session 13) |
 
 ## Rules
 

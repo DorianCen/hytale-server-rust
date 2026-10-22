@@ -1,21 +1,17 @@
-//! Boot a complete saved world: config, player, stored chunks and the player's
-//! view-radius chunks.
+//! Boot a complete saved world on its own thread: config, player, stored chunks
+//! and the player's view-radius chunks.
 //!
-//! This composes the pieces the live server will own — [`WorldSave`] (world
-//! config + player storage + [`World`]) and the asset-bound [`ChunkCodec`] — so
-//! one command loads an existing save (or creates it), loads/creates a player,
-//! loads stored chunks, generates missing chunks around the player, optionally
-//! edits a block and saves everything.
+//! The heavy work is owned by [`WorldThread`] (save + generator + demand queue).
+//! This module is the synchronous CLI/test adapter: it applies the initial view,
+//! ticks until the queue is empty, applies an optional block edit and shuts the
+//! thread down.
 
 use std::path::PathBuf;
 
-use hytale_world::chunk::storage::ChunkCodec;
-use hytale_world::player_data::PlayerDataError;
-use hytale_world::world::{chunk_coordinates_around, WorldError, WorldSave};
-use hytale_world::world_config::{WorldConfigError, WorldUuid};
 use thiserror::Error;
 
-use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
+use crate::generation::GeneratorOptions;
+use crate::world_thread::{LoadOutcome, WorldThread, WorldThreadError, WorldThreadOptions};
 
 /// Paths and overrides for a saved-world boot.
 #[derive(Debug, Clone)]
@@ -32,6 +28,8 @@ pub struct WorldBootOptions {
     pub workers: usize,
     /// Radius of chunks loaded/generated around the player chunk.
     pub view_radius: u32,
+    /// Maximum chunks loaded/generated per tick.
+    pub chunks_per_tick: usize,
     /// Seed used only when a new config is created.
     pub seed: i64,
     /// Display name used only when a new config is created.
@@ -60,15 +58,15 @@ pub struct WorldBootReport {
     pub player_uuid: String,
     /// True when this boot created the player file.
     pub player_created: bool,
-    /// Chunks stored on disk before demand loading.
+    /// Chunks stored on disk at startup.
     pub stored_chunks: usize,
     /// View radius used around the player chunk.
     pub view_radius: u32,
-    /// Unique chunks requested (stored + demand set).
+    /// Chunks in the initial view plan.
     pub requested_chunks: usize,
-    /// Chunks read from region files.
+    /// Chunks read from region files (view ticks + explicit edit chunk).
     pub loaded_chunks: usize,
-    /// Chunks generated because they were missing.
+    /// Chunks generated (view ticks + explicit edit chunk).
     pub generated_chunks: usize,
     /// Chunks written back (dirty ones).
     pub saved_chunks: usize,
@@ -79,151 +77,68 @@ pub struct WorldBootReport {
 /// Errors from the saved-world boot.
 #[derive(Debug, Error)]
 pub enum WorldBootError {
-    /// The generator boot failed.
+    /// The world thread failed.
     #[error(transparent)]
-    Generation(#[from] GenerationError),
-    /// The world/config/player layer failed.
-    #[error(transparent)]
-    World(#[from] WorldError),
-    /// The config codec failed.
-    #[error(transparent)]
-    Config(#[from] WorldConfigError),
-    /// A player file failed.
-    #[error(transparent)]
-    Player(#[from] PlayerDataError),
-    /// A UUID argument is malformed.
-    #[error("invalid UUID `{0}`")]
-    InvalidUuid(String),
-    /// The block edit targets a chunk that is not loaded or stored.
-    #[error("cannot edit block ({x}, {y}, {z}): chunk ({chunk_x}, {chunk_z}) is not loaded")]
-    ChunkNotLoaded {
-        /// Block x.
-        x: i32,
-        /// Block y.
-        y: i32,
-        /// Block z.
-        z: i32,
-        /// Chunk x.
-        chunk_x: i32,
-        /// Chunk z.
-        chunk_z: i32,
-    },
+    Thread(#[from] WorldThreadError),
 }
 
-/// Load or create the save, demand-load around the player, and save the result.
+/// Spawn the world thread, drain its demand queue and save the result.
 pub fn run(options: &WorldBootOptions) -> Result<WorldBootReport, WorldBootError> {
-    let generator = WorldGenerator::open(&GeneratorOptions {
-        assets_pack: options.assets_pack.clone(),
-        assets_root: options.assets_root.clone(),
-        world_dir: options.world_dir.clone(),
-        workers: options.workers,
+    let (thread, start) = WorldThread::spawn(WorldThreadOptions {
+        generator: GeneratorOptions {
+            assets_pack: options.assets_pack.clone(),
+            assets_root: options.assets_root.clone(),
+            world_dir: options.world_dir.clone(),
+            workers: options.workers,
+        },
+        save_dir: options.save_dir.clone(),
+        seed: options.seed,
+        display_name: options.display_name.clone(),
+        world_uuid: options.world_uuid.clone(),
+        player_uuid: options.player_uuid.clone(),
+        view_radius: options.view_radius,
+        chunks_per_tick: options.chunks_per_tick.max(1),
     })?;
-    let codec = ChunkCodec::new(generator.assets());
 
-    let world_uuid = match &options.world_uuid {
-        Some(value) => value
-            .parse()
-            .map_err(|_| WorldBootError::InvalidUuid(value.clone()))?,
-        None => WorldUuid::derive(
-            options.seed,
-            options.display_name.as_deref().unwrap_or("Default"),
-        ),
-    };
-    let (mut save, config_created) = WorldSave::open(
-        &options.save_dir,
-        options.seed,
-        options.display_name.clone(),
-        world_uuid,
-    )?;
-    let generation_seed = save.config().seed as i32;
-
-    let player_uuid = match &options.player_uuid {
-        Some(value) => value
-            .parse()
-            .map_err(|_| WorldBootError::InvalidUuid(value.clone()))?,
-        None => {
-            let stored = save.players().players()?;
-            stored.first().copied().unwrap_or_else(|| {
-                WorldUuid::derive(
-                    save.config().seed,
-                    &format!(
-                        "{}:player",
-                        save.config().display_name.as_deref().unwrap_or("Default")
-                    ),
-                )
-            })
+    let mut loaded_chunks = 0;
+    let mut generated_chunks = 0;
+    loop {
+        let tick = thread.tick()?;
+        loaded_chunks += tick.loaded;
+        generated_chunks += tick.generated;
+        if tick.remaining == 0 {
+            break;
         }
-    };
-    let (player, player_created) = save.load_or_create_player(player_uuid)?;
-    // A real boot would hydrate more components here; save the holder so the
-    // create path and the load path exercise the same writer.
-    save.save_player(player_uuid, &player)?;
-
-    let stored = save.world().storage().stored_chunk_coordinates()?;
-    let stored_chunks = stored.len();
-    let (center_x, center_z) = player
-        .transform()
-        .map(|transform| {
-            (
-                block_to_chunk(transform.position.x),
-                block_to_chunk(transform.position.z),
-            )
-        })
-        .unwrap_or((0, 0));
-
-    let mut coordinates = stored;
-    coordinates.extend(chunk_coordinates_around(
-        center_x,
-        center_z,
-        options.view_radius,
-    ));
-    let demand = save.ensure_chunks(&codec, coordinates, |x, z| {
-        generator
-            .generate(generation_seed, x, z)
-            .map_err(|error| WorldError::Generation(error.to_string()))
-    })?;
+    }
 
     let block_edit = match options.set_block {
         Some((x, y, z, block_id)) => {
-            let (chunk_x, chunk_z) = (x >> 5, z >> 5);
-            if save.world().chunk(chunk_x, chunk_z).is_none() {
-                return Err(WorldBootError::ChunkNotLoaded {
-                    x,
-                    y,
-                    z,
-                    chunk_x,
-                    chunk_z,
-                });
+            match thread.load_chunk(x >> 5, z >> 5)? {
+                LoadOutcome::Loaded => loaded_chunks += 1,
+                LoadOutcome::Generated => generated_chunks += 1,
+                LoadOutcome::AlreadyLoaded => {}
             }
-            let before = save.world().get_block(x, y, z);
-            save.world_mut().set_block(x, y, z, block_id)?;
-            let after = save.world().get_block(x, y, z);
+            let (before, after) = thread.set_block(x, y, z, block_id)?;
             Some((x, y, z, before, after))
         }
         None => None,
     };
 
-    let saved_chunks = save.save_all(&codec)?;
-    generator.shutdown();
+    let saved_chunks = thread.shutdown()?;
 
     Ok(WorldBootReport {
         save_dir: options.save_dir.clone(),
-        config_created,
-        world_uuid: save.config().uuid.to_string(),
-        seed: save.config().seed,
-        player_uuid: player_uuid.to_string(),
-        player_created,
-        stored_chunks,
-        view_radius: options.view_radius,
-        requested_chunks: demand.requested,
-        loaded_chunks: demand.loaded,
-        generated_chunks: demand.generated,
+        config_created: start.config_created,
+        world_uuid: start.world_uuid,
+        seed: start.seed,
+        player_uuid: start.player_uuid,
+        player_created: start.player_created,
+        stored_chunks: start.stored_chunks,
+        view_radius: start.view_radius,
+        requested_chunks: start.initial_loads,
+        loaded_chunks,
+        generated_chunks,
         saved_chunks,
         block_edit,
     })
-}
-
-/// Floor a world coordinate to its chunk coordinate (negative-safe).
-fn block_to_chunk(value: f64) -> i32 {
-    (value.floor() as i32) >> 5
 }

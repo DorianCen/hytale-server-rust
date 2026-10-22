@@ -152,6 +152,9 @@ struct WorldBootArgs {
     /// Chunk radius loaded/generated around the player (0 = the player chunk).
     #[arg(long, default_value_t = 0)]
     view_radius: u32,
+    /// Maximum chunks loaded/generated per world-thread tick.
+    #[arg(long, default_value_t = 8)]
+    chunks_per_tick: usize,
     /// Seed used only when a new config is created.
     #[arg(long, default_value_t = 0)]
     seed: i64,
@@ -293,6 +296,7 @@ fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
         save_dir: args.save,
         workers: args.workers,
         view_radius: args.view_radius,
+        chunks_per_tick: args.chunks_per_tick,
         seed: args.seed,
         display_name: args.name,
         world_uuid: args.uuid,

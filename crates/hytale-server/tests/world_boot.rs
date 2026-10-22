@@ -40,6 +40,7 @@ fn creates_then_reopens_a_config_and_player() {
         save_dir: save_dir.clone(),
         workers: 1,
         view_radius: 0,
+        chunks_per_tick: 1,
         seed: 5,
         display_name: Some("Boot Gate".to_string()),
         world_uuid: None,

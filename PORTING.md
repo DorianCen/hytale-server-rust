@@ -168,8 +168,15 @@ For the server, “exact” also applies to:
 - Use `bevy_ecs` for entities; use the custom chunk store for chunks.
 - All world state is mutated on the world thread. Async tasks send messages;
   they do not touch `Store`/`World` directly.
+- `WorldThread` owns the demand queue: change the view with `SetView`, process a
+  bounded number of chunks per `Tick`, and consume `WorldEvent::ChunkLoaded`
+  for streaming. Do not load/generate chunks from the network or command threads.
+- A view change must cancel queued loads outside the new view and unload chunks
+  that left it; `World::unload_chunk` saves dirty chunks first.
 - No blocking I/O on the world thread. Storage and generation complete
-  asynchronously and are installed on the tick.
+  asynchronously and are installed on the tick. (Current `WorldThread` still
+  generates synchronously per tick; move it to completion messages when the live
+  loop lands.)
 - Use `Arc` for immutable registries/assets; avoid global locks in hot paths.
 - Do not promise Java `Holder`/`Ref`/`ComponentRegistry` API parity. Preserve
   behavior, expose Rust-native APIs.

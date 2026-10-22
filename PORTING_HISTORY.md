@@ -770,3 +770,55 @@ Format:
   - Add the view-distance tracker used by the join path.
   - Stream the loaded/generated chunks to the client.
   - Client-bot auth/setup/game with the packet-trace fixture.
+
+---
+
+## Session 13 — world thread, view tracking and demand scheduling (2026-10-23)
+
+- **Goal:** move chunk demand onto a dedicated world thread, order it
+  nearest-first, cancel queued work when the view changes, unload chunks that
+  leave the view, and expose the events a chunk stream will consume.
+- **Landed:**
+  - `hytale-world::view::ChunkView`/`ChunkPlan`: square view, desired set,
+    nearest-first loads (with deterministic X/Z ties), X/Z-ordered unloads, and
+    unit tests for priority, view replacement and negative centers.
+  - `World::loaded_chunk_coordinates()` and `World::unload_chunk(codec, x, z)`
+    (saves dirty chunks before dropping them).
+  - `hytale-server::world_thread::WorldThread`:
+    - one OS thread (`hytale-world`) owns `WorldSave`, `WorldGenerator` and the
+      pending queue;
+    - commands `SetView`, `Tick`, `LoadChunk`, `SetBlock`, `Save`, `Shutdown`;
+    - `SetView` rebuilds the plan, unloads chunks that left, replaces the queue
+      (cancelling pending loads) and orders the new work;
+    - `Tick` processes a bounded number of chunks and emits
+      `WorldEvent::ChunkLoaded { generated }`; `SetView` emits
+      `WorldEvent::ChunkUnloaded`;
+    - `WorldStartReport`, `ViewReport`, `TickReport`, `LoadOutcome`;
+    - `Drop` shuts the thread down, so early returns do not leak it.
+  - `world-boot` now drives the thread (spawn → tick until empty → optional
+    explicit load/edit → shutdown) and has `--chunks-per-tick`.
+  - `crates/hytale-server/tests/world_thread.rs`: radius-0 view ticks, a one-chunk
+    view move unloads the old chunk and generates the new one, with events.
+- **Verified:**
+  - `world-boot --view-radius 1 --chunks-per-tick 4` reported
+    `stored=1 requested=9 loaded=1 generated=9 saved=10`.
+  - `run-save-check.sh` still prints `whole-save check: ok`; a generated region
+    still reads in Java (`chunk (0,0) … Empty` → `java reload check: ok`).
+  - `cargo test -p hytale-server --test world_thread` and the existing
+    `world_boot`/`headless` gates are green.
+  - `cargo test --workspace` (1105 passed), clippy and fmt green.
+- **Deviations:**
+  - Generation is synchronous in the world thread; a `SetView` arriving during a
+    generation is handled after it completes. Cancellation covers queued chunks,
+    not an in-flight generator call.
+  - `Tick` processes a fixed budget per command; the live loop still has to drive
+    it.
+  - The view is square; per-player views and priority aging are not implemented.
+  - Unloading saves dirty chunks synchronously on the world thread.
+  - `WorldEvent` has no consumer yet; it is the seam for the chunk stream.
+- **Follow-ups:**
+  - Drive `Tick` from the real world tick loop and add async generation
+    completion.
+  - Stream `ChunkLoaded` events to a player as chunk packets.
+  - Per-player views and a non-square view-distance shape.
+  - Client-bot auth/setup/game with the packet-trace fixture.

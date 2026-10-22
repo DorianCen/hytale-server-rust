@@ -333,6 +333,34 @@ impl World {
     pub fn dirty_chunks(&self) -> Vec<i64> {
         self.dirty.iter().copied().collect()
     }
+
+    /// Loaded chunk coordinates, sorted by X then Z.
+    pub fn loaded_chunk_coordinates(&self) -> Vec<(i32, i32)> {
+        let mut coordinates: Vec<(i32, i32)> = self
+            .chunks
+            .keys()
+            .map(|&index| ((index >> 32) as i32, index as i32))
+            .collect();
+        coordinates.sort_unstable();
+        coordinates
+    }
+
+    /// Save a dirty chunk (if needed) and drop it from memory.
+    ///
+    /// Returns `false` when the chunk was not loaded.
+    pub fn unload_chunk(&mut self, codec: &ChunkCodec<'_>, x: i32, z: i32) -> Result<bool> {
+        let index = index_chunk(x, z);
+        if !self.chunks.contains_key(&index) {
+            return Ok(false);
+        }
+        if self.dirty.contains(&index) {
+            let column = self.chunks.get(&index).expect("checked above");
+            self.storage.save_chunk(codec, column)?;
+            self.dirty.remove(&index);
+        }
+        self.chunks.remove(&index);
+        Ok(true)
+    }
 }
 
 /// Chunk coordinates in a square around a center chunk, sorted by Z then X.

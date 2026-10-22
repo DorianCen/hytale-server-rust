@@ -120,6 +120,7 @@ fn headless_boot_saves_a_reloadable_region_blob() {
         save_dir: save_dir.clone(),
         workers: options.workers,
         view_radius: 0,
+        chunks_per_tick: 8,
         seed: i64::from(options.seed),
         display_name: Some("Headless Gate".to_string()),
         world_uuid: None,
@@ -135,7 +136,7 @@ fn headless_boot_saves_a_reloadable_region_blob() {
     assert!(boot.config_created);
     assert!(boot.player_created);
     assert_eq!(boot.stored_chunks, 1);
-    assert_eq!(boot.requested_chunks, 2);
+    assert_eq!(boot.requested_chunks, 1);
     assert_eq!(boot.loaded_chunks, 1);
     assert_eq!(boot.generated_chunks, 1);
     assert_eq!(boot.saved_chunks, 2);
