@@ -9,3 +9,4 @@
 #![deny(clippy::all)]
 
 pub mod chunk;
+pub mod registry;

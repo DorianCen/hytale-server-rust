@@ -1,0 +1,14 @@
+{
+  "BlockType": {
+    "Material": "Solid",
+    "DrawType": "Model",
+    "Support": {
+      "Down": []
+    }
+  },
+  "State": {
+    "Filled": {
+      "BlockType": {}
+    }
+  }
+}

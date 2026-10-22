@@ -69,6 +69,43 @@ pub enum AssetError {
         /// Nodes participating in the cycle.
         cycle: String,
     },
+    /// An asset's `Parent` was not loaded before the asset had to be assigned an
+    /// id.
+    #[error("store `{store}`: missing parent `{parent}` for asset `{key}`")]
+    MissingAssetParent {
+        /// Store name.
+        store: String,
+        /// Asset key.
+        key: String,
+        /// Missing parent key.
+        parent: String,
+    },
+    /// Two assets in one store resolved to the same key.
+    #[error("store `{store}`: duplicate asset key `{key}`")]
+    DuplicateAsset {
+        /// Store name.
+        store: String,
+        /// Duplicate key.
+        key: String,
+    },
+    /// Two indexed assets in one store resolved to the same numeric id.
+    #[error("store `{store}`: duplicate asset id {id}")]
+    DuplicateAssetId {
+        /// Store name.
+        store: String,
+        /// Duplicate id.
+        id: i32,
+    },
+    /// A store's asset has a value the typed decoder rejects.
+    #[error("store `{store}`: invalid asset `{key}`: {message}")]
+    InvalidAsset {
+        /// Store name.
+        store: String,
+        /// Asset key.
+        key: String,
+        /// What is wrong.
+        message: String,
+    },
 }
 
 type Result<T> = std::result::Result<T, AssetError>;
@@ -156,8 +193,20 @@ impl AssetPack {
 
     /// List all files as sorted pack-relative `/` paths.
     pub fn list(&self) -> Result<Vec<String>> {
+        let mut files = self.list_in_storage_order()?;
+        files.sort();
+        Ok(files)
+    }
+
+    /// List all files in the order the pack stores them.
+    ///
+    /// Zip packs preserve their central-directory order, which is the order the
+    /// Java `Files.walkFileTree` sees on a zip `FileSystem` (the canonical
+    /// golden dump walks it in reverse). Directory packs are sorted so the
+    /// result stays deterministic across filesystems.
+    pub fn list_in_storage_order(&self) -> Result<Vec<String>> {
         if self.is_zip {
-            self.list_zip()
+            self.list_zip_in_storage_order()
         } else {
             self.list_directory()
         }
@@ -184,6 +233,44 @@ impl AssetPack {
                 .join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
             std::fs::read(&full).map_err(|source| AssetError::Io { path: full, source })
         }
+    }
+
+    /// Read several files, opening a zip pack only once.
+    ///
+    /// Asset loading reads thousands of JSON files from the pack; reopening the
+    /// 3.7 GB zip for every entry dominates boot time.
+    pub fn read_many(&self, paths: &[String]) -> Result<Vec<Vec<u8>>> {
+        if !self.is_zip {
+            return paths
+                .iter()
+                .map(|path| self.read(path))
+                .collect::<Result<Vec<_>>>();
+        }
+
+        let file = File::open(&self.root).map_err(|source| AssetError::Io {
+            path: self.root.clone(),
+            source,
+        })?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|error| AssetError::Zip {
+            path: self.root.clone(),
+            message: error.to_string(),
+        })?;
+        let mut contents = Vec::with_capacity(paths.len());
+        for path in paths {
+            let path = validate_path(path)?;
+            let mut entry = archive
+                .by_name(&path)
+                .map_err(|_| AssetError::NotFound(path.clone()))?;
+            let mut bytes = Vec::with_capacity(entry.size() as usize);
+            entry
+                .read_to_end(&mut bytes)
+                .map_err(|source| AssetError::Io {
+                    path: self.root.join(&path),
+                    source,
+                })?;
+            contents.push(bytes);
+        }
+        Ok(contents)
     }
 
     /// Find a file by case-insensitive path.
@@ -243,7 +330,7 @@ impl AssetPack {
         Ok(files)
     }
 
-    fn list_zip(&self) -> Result<Vec<String>> {
+    fn list_zip_in_storage_order(&self) -> Result<Vec<String>> {
         let file = File::open(&self.root).map_err(|source| AssetError::Io {
             path: self.root.clone(),
             source,
@@ -265,7 +352,6 @@ impl AssetPack {
             validate_path(&name)?;
             files.push(name);
         }
-        files.sort();
         Ok(files)
     }
 

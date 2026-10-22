@@ -30,6 +30,14 @@ pub enum MergeHook {
     Replace,
     /// Recursive object merge, arrays append parent then child.
     AppendArrays,
+    /// Top-level field replacement: a child object field replaces the parent
+    /// field entirely, while absent child fields are inherited.
+    ///
+    /// This mirrors the Java `AssetBuilderCodec` parent callbacks, which assign
+    /// the parent field wholesale when the child does not define it. It is the
+    /// right rule for most asset stores; `Replace` (recursive object merge) is
+    /// only correct for stores that explicitly document that behavior.
+    Shallow,
     /// Store-specific hook. It receives the already-resolved parent and child.
     Custom(fn(&mut serde_json::Value, serde_json::Value)),
 }
@@ -48,7 +56,25 @@ impl MergeHook {
             }
             Self::Replace => merge_values(parent, child, ArrayMerge::Replace),
             Self::AppendArrays => merge_values(parent, child, ArrayMerge::Append),
+            Self::Shallow => merge_shallow(parent, child),
         }
+    }
+}
+
+/// Replace the parent's top-level fields with the child's, keeping inherited
+/// fields the child does not define.
+pub fn merge_shallow(parent: serde_json::Value, child: serde_json::Value) -> serde_json::Value {
+    match (parent, child) {
+        (serde_json::Value::Object(mut parent), serde_json::Value::Object(child)) => {
+            for (key, value) in child {
+                if is_metadata(&key) {
+                    continue;
+                }
+                parent.insert(key, strip_metadata(value));
+            }
+            serde_json::Value::Object(parent)
+        }
+        (_, child) => strip_metadata(child),
     }
 }
 

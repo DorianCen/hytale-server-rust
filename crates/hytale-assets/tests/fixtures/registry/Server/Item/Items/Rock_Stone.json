@@ -1,0 +1,7 @@
+{
+  "BlockType": {
+    "Material": "Solid",
+    "DrawType": "Cube",
+    "Opacity": "Solid"
+  }
+}

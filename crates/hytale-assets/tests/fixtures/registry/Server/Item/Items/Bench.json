@@ -1,0 +1,17 @@
+{
+  "BlockType": {
+    "Material": "Solid",
+    "DrawType": "Model",
+    "State": {
+      "Definitions": {
+        "Open": {
+          "Material": "Solid",
+          "Support": {
+            "Up": []
+          }
+        },
+        "Alias": "*Bench_State_Definitions_Open"
+      }
+    }
+  }
+}

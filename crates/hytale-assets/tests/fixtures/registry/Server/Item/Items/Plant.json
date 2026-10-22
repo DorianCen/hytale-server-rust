@@ -1,0 +1,7 @@
+{
+  "Parent": "Plant_Template",
+  "BlockType": {
+    "Material": "Empty",
+    "DrawType": "Model"
+  }
+}
