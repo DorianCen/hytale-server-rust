@@ -59,7 +59,8 @@ runs behind an environment variable or a separate script.
 ### 3.1 `protocol/`
 
 Session 1 landed `protocol/inventory.json` (389 packets, every generated class)
-and `protocol/connection.json` (the 8 connection packets and 5 enums). See
+and `protocol/connection.json`; session 3 added `protocol/protocol.json`, the
+full field-level IR for all packets, structs, unions and enums. See
 [`testdata/golden/server/protocol/README.md`](testdata/golden/server/protocol/README.md)
 for regeneration commands and the documented count discrepancies.
 
@@ -87,7 +88,11 @@ the registry dump.
 
 ### 3.3 `chunks-pkts/`
 
-For a handful of chunks (start with `(0,0)` and `(4,-5)`):
+Session 3 landed the fixture for seed `0`, chunks `(0,0)` and `(4,-5)`:
+46 uncompressed payloads (`SetChunk` per section, `SetColumn`,
+`SetChunkTintmap`, `SetChunkEnvironments`, `SetFluids`) plus a manifest. See
+[`testdata/golden/server/chunks-pkts/README.md`](testdata/golden/server/chunks-pkts/README.md)
+and regenerate with `tools/java-dumper/run-chunks.sh --check`.
 
 - `SetChunk` payloads per section;
 - `SetColumn`, `SetChunkTintmap`, `SetChunkEnvironments`, `SetFluids`;

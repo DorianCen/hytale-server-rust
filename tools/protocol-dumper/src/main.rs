@@ -40,6 +40,15 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Emit the field-level IR for the whole generated protocol tree.
+    All {
+        /// `com/hypixel/hytale/protocol` source directory.
+        #[arg(long)]
+        source: PathBuf,
+        /// Output JSON path.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -71,6 +80,16 @@ fn run() -> Result<()> {
             let ir = connection::build(&source)?;
             write_json(&out, &ir)?;
             println!("packets={} enums={}", ir.packets.len(), ir.enums.len());
+        }
+        Command::All { source, out } => {
+            let ir = connection::build_all(&source)?;
+            write_json(&out, &ir)?;
+            println!(
+                "packets={} structs={} enums={}",
+                ir.packets.len(),
+                ir.structs.len(),
+                ir.enums.len()
+            );
         }
     }
     Ok(())

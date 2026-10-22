@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::{DumperError, Result};
 
 /// A source file that has been read and split into lines.
+#[derive(Debug, Clone)]
 pub struct JavaSource {
     /// Path relative to the tool invocation for reporting.
     pub path: PathBuf,

@@ -1,6 +1,6 @@
 # T14 — Full protocol codegen
 
-**Status:** todo
+**Status:** done (session 3)
 **Agent fit:** medium (mechanical, but large output; split by family if needed)
 **Depends on:** T04
 **Owns:** `tools/protocol-gen/**`, `crates/hytale-protocol/src/generated/**`,
@@ -72,3 +72,17 @@ All 389 packets compile and are registered.
 ## Handoff
 
 Report generated counts, unsupported constructs, and any family split.
+
+## Session 3 result
+
+- `protocol.json`: 389 packets, 443 concrete structs + 13 union bases, 175
+  top-level enums, `ProtocolSettings`.
+- Generated: one module per packet family, `common.rs`, `wire.rs`, and
+  `registry.rs` with `PACKETS`, `packet_info`, `validate_packet`, the settings
+  constants, and generated round-trip helpers.
+- Tests: `tests/registry.rs` (389 unique ids, family coverage, header rejection,
+  settings) and `tests/full.rs` (packed booleans, maps of arrays, non-string
+  map keys, arrays of maps, fixed arrays, JOML vectors). Every packet default
+  also round-trips.
+- No family split was needed; the generator emits all families in one run.
+

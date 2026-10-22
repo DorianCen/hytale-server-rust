@@ -10,17 +10,39 @@ use crate::java::{
 };
 use crate::{DumperError, Result};
 
-/// Field-level IR for the connection packet family.
+/// Field-level IR for a packet family or the full protocol.
 #[derive(Debug, Serialize)]
 pub struct ConnectionIr {
     /// Generation metadata.
     pub meta: Meta,
+    /// `ProtocolSettings` constants, present in full-protocol mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<ProtocolSettingsIr>,
     /// Enums declared in the connection package or referenced by a packet.
     pub enums: Vec<EnumIr>,
     /// Nested structs/unions needed by the packets, sorted by name.
     pub structs: Vec<StructIr>,
     /// Packets, sorted by packet id.
     pub packets: Vec<PacketIr>,
+}
+
+/// Constants declared by `ProtocolSettings.java`.
+#[derive(Debug, Serialize)]
+pub struct ProtocolSettingsIr {
+    /// Protocol CRC expected in `Connect`.
+    pub crc: i64,
+    /// Protocol version.
+    pub version: i64,
+    /// Protocol build number.
+    pub build_number: i64,
+    /// Declared packet count.
+    pub packet_count: i64,
+    /// Declared struct count.
+    pub struct_count: i64,
+    /// Declared enum count.
+    pub enum_count: i64,
+    /// Maximum packet payload size.
+    pub max_packet_size: i64,
 }
 
 /// One nested struct or union referenced by a connection packet.
@@ -166,6 +188,18 @@ pub struct FieldIr {
     pub enum_type: Option<String>,
     /// Nested struct type, when the field is a struct.
     pub nested_type: Option<String>,
+    /// Packed boolean bit location, when the field is bit-packed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bool_packed: Option<BoolPacked>,
+}
+
+/// A boolean packed into a shared byte with other boolean fields.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct BoolPacked {
+    /// Byte offset inside the fixed block.
+    pub byte_offset: i64,
+    /// Bit index inside that byte (0-7).
+    pub bit: u8,
 }
 
 /// String wire metadata.
@@ -217,6 +251,7 @@ struct WireInfo {
     variable_offset_slot: Option<i64>,
     string: Option<StringInfo>,
     array_max: Option<i64>,
+    bool_packed: Option<BoolPacked>,
 }
 
 /// Build the connection IR over `source`.
@@ -276,10 +311,274 @@ pub fn build(source: &Path) -> Result<ConnectionIr> {
                 enums: enums.len(),
             },
         },
+        settings: None,
         enums,
         structs,
         packets,
     })
+}
+
+/// Build the field-level IR for every generated protocol class.
+///
+/// Unlike [`build`], which parses one packet family, this walks the full
+/// `com/hypixel/hytale/protocol` tree and emits every packet, struct, union and
+/// enum. The generated Java sources are classified by their declaration shape;
+/// helper classes (`PacketRegistry`, `ProtocolSettings`, flag holders) are not
+/// wire types and are skipped.
+pub fn build_all(source: &Path) -> Result<ConnectionIr> {
+    if !source.is_dir() {
+        return Err(DumperError::Io {
+            path: source.to_path_buf(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "not a directory"),
+        });
+    }
+
+    let mut files = Vec::new();
+    walk(source, &mut files)?;
+    files.sort();
+
+    let mut sources = Vec::with_capacity(files.len());
+    for path in &files {
+        sources.push(JavaSource::read(path)?);
+    }
+
+    let index: BTreeMap<String, PathBuf> = files
+        .iter()
+        .filter_map(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|stem| (stem.to_string(), path.clone()))
+        })
+        .collect();
+
+    let enum_names: Vec<String> = sources
+        .iter()
+        .filter(|java| is_enum_source(&java.text))
+        .filter_map(stem)
+        .collect();
+
+    let mut enums = Vec::new();
+    let mut structs = Vec::new();
+    let mut packets = Vec::new();
+    let mut skipped = Vec::new();
+
+    for java in &sources {
+        if is_enum_source(&java.text) {
+            enums.push(parse_enum(java)?);
+            continue;
+        }
+        let Some(name) = stem(java) else {
+            continue;
+        };
+        if has_packet_interface(&java.text) {
+            packets.push(parse_packet(java, &enum_names)?);
+        } else if java.text.contains("public abstract class ") {
+            let mut pending = std::collections::BTreeSet::new();
+            structs.push(parse_union(java, &index, &mut pending)?);
+        } else if java.text.contains("public int computeSize()") {
+            structs.push(parse_struct(java, &enum_names, &index)?);
+        } else {
+            skipped.push(name);
+        }
+    }
+
+    enums.sort_by(|a, b| a.name.cmp(&b.name));
+    structs.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // A packet class can also appear as a nested wire type (for example
+    // `InteractionEffects.cameraShake` references the `CameraShakeEffect`
+    // packet). Resolve those references to their generated field layout.
+    resolve_missing_structs(&mut structs, &enums, &index)?;
+
+    packets.sort_by_key(|packet| packet.packet_id);
+    structs.sort_by(|a, b| a.name.cmp(&b.name));
+
+    validate_full(&sources, &packets, &enums, &structs)?;
+
+    let settings = parse_settings(source);
+    Ok(ConnectionIr {
+        meta: Meta {
+            source: display_path(source),
+            generator: format!("protocol-dumper {}", env!("CARGO_PKG_VERSION")),
+            counts: Counts {
+                packets: packets.len(),
+                enums: enums.len(),
+            },
+        },
+        settings,
+        enums,
+        structs,
+        packets,
+    })
+}
+
+fn stem(java: &JavaSource) -> Option<String> {
+    java.path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(str::to_string)
+}
+
+fn is_enum_source(text: &str) -> bool {
+    top_level_declaration_kind(text) == Some("enum")
+}
+
+/// First top-level type declaration keyword.
+fn top_level_declaration_kind(text: &str) -> Option<&'static str> {
+    let declarations = [
+        ("public enum ", "enum"),
+        ("public interface ", "interface"),
+        ("public final class ", "class"),
+        ("public abstract class ", "class"),
+        ("public class ", "class"),
+    ];
+    declarations
+        .iter()
+        .filter_map(|(needle, kind)| text.find(needle).map(|position| (position, *kind)))
+        .min_by_key(|(position, _)| *position)
+        .map(|(_, kind)| kind)
+}
+
+fn has_packet_interface(text: &str) -> bool {
+    let Some(start) = text.find("implements ") else {
+        return false;
+    };
+    let clause = &text[start + "implements ".len()..];
+    let end = clause.find('{').unwrap_or(clause.len());
+    clause[..end]
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|part| part == "Packet")
+}
+
+fn parse_settings(source: &Path) -> Option<ProtocolSettingsIr> {
+    let text = std::fs::read_to_string(source.join("ProtocolSettings.java")).ok()?;
+    Some(ProtocolSettingsIr {
+        crc: int_const(&text, "PROTOCOL_CRC")?,
+        version: int_const(&text, "PROTOCOL_VERSION")?,
+        build_number: int_const(&text, "PROTOCOL_BUILD_NUMBER")?,
+        packet_count: int_const(&text, "PACKET_COUNT")?,
+        struct_count: int_const(&text, "STRUCT_COUNT")?,
+        enum_count: int_const(&text, "ENUM_COUNT")?,
+        max_packet_size: int_const(&text, "MAX_PACKET_SIZE")?,
+    })
+}
+
+fn resolve_missing_structs(
+    structs: &mut Vec<StructIr>,
+    enums: &[EnumIr],
+    index: &BTreeMap<String, PathBuf>,
+) -> Result<()> {
+    loop {
+        let mut known: std::collections::BTreeSet<String> =
+            structs.iter().map(|value| value.name.clone()).collect();
+        known.extend(enums.iter().map(|value| value.name.clone()));
+        let mut missing = std::collections::BTreeSet::new();
+        for structure in structs.iter() {
+            for field in &structure.fields {
+                if field.kind != "struct" {
+                    continue;
+                }
+                if let Some(nested) = &field.nested_type {
+                    if !known.contains(nested) && is_user_type(nested) {
+                        missing.insert(nested.clone());
+                    }
+                }
+            }
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
+        for name in missing {
+            let Some(path) = index.get(&name) else {
+                return Err(DumperError::Parse {
+                    path: PathBuf::new(),
+                    line: 0,
+                    message: format!("referenced type {name} has no generated source file"),
+                });
+            };
+            let java = JavaSource::read(path)?;
+            let enum_names: Vec<String> = enums.iter().map(|value| value.name.clone()).collect();
+            let parsed = if java.text.contains("public abstract class ") {
+                let mut pending = std::collections::BTreeSet::new();
+                parse_union(&java, index, &mut pending)?
+            } else {
+                parse_struct(&java, &enum_names, index)?
+            };
+            structs.push(parsed);
+        }
+    }
+}
+
+fn validate_full(
+    sources: &[JavaSource],
+    packets: &[PacketIr],
+    enums: &[EnumIr],
+    structs: &[StructIr],
+) -> Result<()> {
+    let mut errors = Vec::new();
+
+    let mut ids = std::collections::BTreeSet::new();
+    for packet in packets {
+        if !ids.insert(packet.packet_id) {
+            errors.push(format!(
+                "duplicate packet id {} ({})",
+                packet.packet_id, packet.name
+            ));
+        }
+        if packet.direction == "None" {
+            errors.push(format!("packet {} has no direction marker", packet.name));
+        }
+    }
+
+    let mut names = std::collections::BTreeSet::new();
+    for structure in structs {
+        if !names.insert(structure.name.as_str()) {
+            errors.push(format!("duplicate struct name {}", structure.name));
+        }
+        if structure.union.is_some() {
+            continue;
+        }
+        for field in &structure.fields {
+            if field.fixed_offset.is_none() && field.variable_order.is_none() {
+                errors.push(format!(
+                    "{}.{} has no fixed offset or variable order",
+                    structure.name, field.name
+                ));
+            }
+        }
+    }
+    for enumeration in enums {
+        if !names.insert(enumeration.name.as_str()) {
+            errors.push(format!("duplicate type name {}", enumeration.name));
+        }
+    }
+    for packet in packets {
+        for field in &packet.fields {
+            if field.fixed_offset.is_none() && field.variable_order.is_none() {
+                errors.push(format!(
+                    "{}.{} has no fixed offset or variable order",
+                    packet.name, field.name
+                ));
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DumperError::Parse {
+            path: sources
+                .first()
+                .map(|source| source.path.clone())
+                .unwrap_or_default(),
+            line: 0,
+            message: format!(
+                "full protocol validation failed ({} errors): {}",
+                errors.len(),
+                errors.join("; ")
+            ),
+        })
+    }
 }
 
 /// Resolve the struct/union/enum types reachable from the packets.
@@ -339,7 +638,7 @@ fn discover_structs(
         let parsed = if java.text.contains("public abstract class ") {
             parse_union(&java, &index, &mut pending)?
         } else {
-            parse_struct(&java, &enum_names)?
+            parse_struct(&java, &enum_names, &index)?
         };
         collect_references(&parsed.fields, &mut pending);
         structs.push(parsed);
@@ -380,14 +679,84 @@ fn is_user_type(name: &str) -> bool {
             | "double"
             | "boolean"
             | "Boolean"
+            | "Integer"
+            | "Float"
             | "String"
             | "UUID"
-    ) && !name.ends_with("[]")
+    ) && vector_kind(name).is_none()
+        && !name.ends_with("[]")
         && !name.starts_with("Map<")
         && !name.starts_with("java.util.Map<")
 }
 
-fn parse_struct(java: &JavaSource, enum_names: &[String]) -> Result<StructIr> {
+fn collect_fields(java: &JavaSource, index: &BTreeMap<String, PathBuf>) -> Result<Vec<RawField>> {
+    let mut chain = Vec::new();
+    let mut current = java.clone();
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let name = current
+            .path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if !seen.insert(name.clone()) {
+            return Err(parse_error(
+                &current,
+                1,
+                format!("inheritance cycle through {name}"),
+            ));
+        }
+        let parent = parent_name(&current.text);
+        chain.push(current);
+        let Some(parent) = parent else {
+            break;
+        };
+        let Some(path) = index.get(&parent) else {
+            return Err(parse_error(
+                java,
+                1,
+                format!("{name} extends {parent}, which has no generated source file"),
+            ));
+        };
+        current = JavaSource::read(path)?;
+    }
+    chain.reverse();
+
+    let mut fields = Vec::new();
+    for source in chain {
+        fields.extend(parse_fields(&source)?);
+    }
+    Ok(fields)
+}
+
+/// Top-level `extends` target, if any.
+fn parent_name(text: &str) -> Option<String> {
+    let class = [
+        "public class ",
+        "public final class ",
+        "public abstract class ",
+    ]
+    .iter()
+    .filter_map(|needle| text.find(needle))
+    .min()?;
+    let rest = &text[class..];
+    let end = rest.find('{').unwrap_or(rest.len());
+    let declaration = &rest[..end];
+    let start = declaration.find(" extends ")? + " extends ".len();
+    let name: String = declaration[start..]
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+fn parse_struct(
+    java: &JavaSource,
+    enum_names: &[String],
+    index: &BTreeMap<String, PathBuf>,
+) -> Result<StructIr> {
     let package = package_name(&java.text)
         .ok_or_else(|| parse_error(java, 1, "missing package declaration"))?
         .to_string();
@@ -402,7 +771,7 @@ fn parse_struct(java: &JavaSource, enum_names: &[String]) -> Result<StructIr> {
             .ok_or_else(|| parse_error(java, 1, format!("missing {constant} constant")))
     };
     let fixed_block_size = required_int("FIXED_BLOCK_SIZE")?;
-    let raw_fields = parse_fields(java)?;
+    let raw_fields = collect_fields(java, index)?;
     let nullable_bits = parse_nullable_bits(java, &raw_fields)?;
     let serialize = method_body(&java.text, "public int serialize(")
         .ok_or_else(|| parse_error(java, 1, "missing serialize() method"))?;
@@ -528,12 +897,12 @@ fn build_fields(
             .field_type
             .strip_suffix("[]")
             .map(|element_type| ArrayInfo {
-                element_type: element_type.to_string(),
+                element_type: normalise_type(element_type),
                 max_length: info.array_max,
             });
         let map = map_types(&raw.field_type).map(|(key_type, value_type)| MapInfo {
-            key_type,
-            value_type,
+            key_type: normalise_type(&key_type),
+            value_type: normalise_type(&value_type),
             max_length: info.array_max.or_else(|| dictionary_limit(java, &raw.name)),
         });
         let (nullable_bit, nullable_byte) = match nullable_bits.get(&raw.name) {
@@ -558,8 +927,16 @@ fn build_fields(
             nullable: raw.nullable,
             nullable_bit,
             nullable_byte,
-            fixed_offset: info.fixed_offset,
-            fixed_size: info.fixed_size,
+            fixed_offset: if info.bool_packed.is_some() {
+                info.bool_packed.map(|packed| packed.byte_offset)
+            } else {
+                info.fixed_offset
+            },
+            fixed_size: if info.bool_packed.is_some() {
+                Some(1)
+            } else {
+                info.fixed_size
+            },
             variable_order: info.variable_order,
             variable_offset_slot: info.variable_offset_slot,
             string,
@@ -567,6 +944,7 @@ fn build_fields(
             map,
             enum_type,
             nested_type,
+            bool_packed: info.bool_packed,
         });
     }
 
@@ -577,7 +955,7 @@ fn build_fields(
         .collect();
     offsets.sort_unstable();
     for (position, (offset, index)) in offsets.iter().enumerate() {
-        if fields[*index].fixed_size.is_some() {
+        if fields[*index].fixed_size.is_some() || fields[*index].bool_packed.is_some() {
             continue;
         }
         let end = offsets
@@ -788,6 +1166,11 @@ fn parse_fields(java: &JavaSource) -> Result<Vec<RawField>> {
             .trim_start_matches("public ")
             .trim_end_matches(';');
         let declaration = declaration.split(" = ").next().unwrap_or(declaration);
+        // Abstract/static method declarations also end in `;`; a real field has
+        // no parenthesis before its initializer.
+        if declaration.contains('(') {
+            continue;
+        }
         let (field_type, name) =
             split_type_and_name(declaration).ok_or_else(|| DumperError::Parse {
                 path: java.path.clone(),
@@ -801,7 +1184,11 @@ fn parse_fields(java: &JavaSource) -> Result<Vec<RawField>> {
             line: index + 1,
         });
     }
-    if fields.is_empty() && !java.text.contains("VARIABLE_FIELD_COUNT = 0") {
+    if fields.is_empty()
+        && !java.text.contains("VARIABLE_FIELD_COUNT = 0")
+        && !java.text.contains(" extends ")
+        && !java.text.contains("public abstract class ")
+    {
         return java.err_at("public class", "packet declares no fields");
     }
     Ok(fields)
@@ -812,6 +1199,8 @@ fn normalise_type(field_type: &str) -> String {
         .replace("java.util.UUID", "UUID")
         .replace("java.lang.String", "String")
         .replace("java.lang.Boolean", "Boolean")
+        .replace("java.lang.Integer", "Integer")
+        .replace("java.lang.Float", "Float")
 }
 
 /// Split `Map<K, V>` into its key and value types.
@@ -844,8 +1233,7 @@ fn parse_nullable_bits(
 ) -> Result<BTreeMap<String, (u32, u32)>> {
     let mut bits = BTreeMap::new();
     for field in fields.iter().filter(|field| field.nullable) {
-        let header = format!("public static boolean has{}(", upper_first(&field.name));
-        let Some(start) = java.text.find(&header) else {
+        let Some((header, start)) = nullable_header(java, &field.name) else {
             continue;
         };
         let rest = &java.text[start..];
@@ -940,7 +1328,8 @@ fn parse_wire(
         let variable_write = line.contains("writeVarString(")
             || line.contains("writeVarAsciiString(")
             || line.contains("VarInt.set(mem, varOffset")
-            || line.contains(".serialize(mem, varOffset");
+            || line.contains(".serialize(mem, varOffset")
+            || line.contains(".serializeWithTypeId(mem, varOffset");
         if !variable_write && !line.contains("offset + ") {
             continue;
         }
@@ -1017,7 +1406,9 @@ fn parse_wire(
                 fixed_length: length,
                 max_length: None,
             });
-        } else if line.contains(".serialize(mem, varOffset") {
+        } else if line.contains(".serialize(mem, varOffset")
+            || line.contains(".serializeWithTypeId(mem, varOffset")
+        {
             let entry = wire.entry(field.to_string()).or_default();
             if entry.variable_order.is_none() {
                 entry.variable_order = Some(variable_order);
@@ -1056,7 +1447,82 @@ fn parse_wire(
         );
     }
 
+    // Bit-packed booleans: a `boolBits<X>_<Y>` byte collects up to eight
+    // `if (this.field) boolBitsX_Y |= 0xNN;` lines and is written once.
+    let bool_offsets = bool_group_offsets(serialize);
+    for line in serialize.lines() {
+        let line = line.trim();
+        if !line.contains("|= 0x") || !line.contains("boolBits") {
+            continue;
+        }
+        let Some(field) = field_reference(line, &names) else {
+            continue;
+        };
+        let Some(group) = bool_group(line) else {
+            continue;
+        };
+        let Some(offset) = bool_offsets.get(&group) else {
+            continue;
+        };
+        let Some(mask_start) = line.find("0x") else {
+            continue;
+        };
+        let mask_hex: String = line[mask_start + 2..]
+            .chars()
+            .take_while(|c| c.is_ascii_hexdigit())
+            .collect();
+        let Ok(mask) = u32::from_str_radix(&mask_hex, 16) else {
+            continue;
+        };
+        wire.entry(field.to_string()).or_default().bool_packed = Some(BoolPacked {
+            byte_offset: *offset,
+            bit: mask.trailing_zeros() as u8,
+        });
+    }
+
     Ok(wire)
+}
+
+fn bool_group(line: &str) -> Option<String> {
+    let start = line.find("boolBits")? + "boolBits".len();
+    let group: String = line[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    (!group.is_empty()).then_some(group)
+}
+
+/// Map each `boolBitsX_Y` group to the fixed-block byte it is written to.
+fn bool_group_offsets(serialize: &str) -> BTreeMap<String, i64> {
+    let mut offsets = BTreeMap::new();
+    for line in serialize.lines() {
+        let line = line.trim();
+        if !line.contains("mem.set(PacketIO.PROTO_BYTE, offset + ") || !line.contains("boolBits") {
+            continue;
+        }
+        let Some(group) = bool_group(line) else {
+            continue;
+        };
+        let Some(after) = line.split("offset + ").nth(1) else {
+            continue;
+        };
+        let expression = after.split(',').next().unwrap_or(after);
+        let mut offset = 0i64;
+        let mut valid = true;
+        for part in expression.split('+') {
+            match part.trim().parse::<i64>() {
+                Ok(value) => offset += value,
+                Err(_) => {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if valid {
+            offsets.insert(group, offset);
+        }
+    }
+    offsets
 }
 
 fn upper_first(name: &str) -> String {
@@ -1065,6 +1531,24 @@ fn upper_first(name: &str) -> String {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// Locate the generated `has<Field>` method.
+///
+/// The Java generator drops a trailing `Value` for the four `defaultValue`
+/// fields (`hasDefault`, not `hasDefaultValue`), so try both forms.
+fn nullable_header(java: &JavaSource, field: &str) -> Option<(String, usize)> {
+    let mut candidates = vec![upper_first(field)];
+    if let Some(stripped) = field.strip_suffix("Value") {
+        candidates.push(upper_first(stripped));
+    }
+    for candidate in candidates {
+        let header = format!("public static boolean has{candidate}(");
+        if let Some(start) = java.text.find(&header) {
+            return Some((header, start));
+        }
+    }
+    None
 }
 
 fn field_reference<'a>(line: &str, names: &[&'a str]) -> Option<&'a str> {
@@ -1130,9 +1614,21 @@ fn classify_type(
     }
     if matches!(
         field_type,
-        "byte" | "short" | "int" | "long" | "float" | "double" | "boolean" | "Boolean"
+        "byte"
+            | "short"
+            | "int"
+            | "long"
+            | "float"
+            | "double"
+            | "boolean"
+            | "Boolean"
+            | "Integer"
+            | "Float"
     ) {
         return ("primitive".to_string(), None, None);
+    }
+    if let Some(kind) = vector_kind(field_type) {
+        return (kind.to_string(), None, None);
     }
     if enum_names.iter().any(|name| name == field_type) {
         return ("enum".to_string(), Some(field_type.to_string()), None);
@@ -1144,6 +1640,20 @@ fn classify_type(
         return ("string".to_string(), None, None);
     }
     ("struct".to_string(), None, Some(field_type.to_string()))
+}
+
+/// JOML vector interfaces used by the generated sources.
+///
+/// The plain `Vector3i`/`Vector3d`/`Vector2i` protocol classes are generated
+/// structs; only the JOML interfaces need synthetic Rust types.
+fn vector_kind(field_type: &str) -> Option<&'static str> {
+    Some(match field_type {
+        "Vector2fc" | "Vector2f" => "vector2f",
+        "Vector3fc" | "Vector3f" => "vector3f",
+        "Vector4fc" | "Vector4f" => "vector4f",
+        "Quaternionfc" | "Quaternionf" => "quaternionf",
+        _ => return None,
+    })
 }
 
 fn direction(text: &str) -> String {

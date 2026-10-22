@@ -91,6 +91,68 @@ Format:
 
 ---
 
+## Session 3 — full protocol codegen and chunk-packet goldens (2026-10-22)
+
+- **Goal:** finish the wire layer (all packets, registry, settings) and capture
+  the Java chunk network payloads that T10b/T10c must match.
+- **Landed:**
+  - T14: `protocol-dumper all` emits `testdata/golden/server/protocol/protocol.json`
+    (389 packets, 443 concrete structs + 13 union bases, 175 top-level enums,
+    `ProtocolSettings`). It handles inheritance (flattened onto concrete
+    subtypes), bit-packed booleans, fixed arrays (`SetColumn.heightmap`), maps
+    with string/integer/float/enum/struct keys, maps/arrays of structs, nested
+    maps, JOML vector interfaces and packet classes used as nested wire types.
+  - T14: `protocol-gen all` emits one module per packet family, `common.rs`
+    (all structs/unions/enums), `wire.rs` (traits + vector helpers) and
+    `registry.rs` (`PacketInfo`, `packet_info`, `validate_packet`,
+    `ProtocolSettings`, generated round-trip helpers). Cycle detection boxes
+    only the fields/variants that need indirection.
+  - T14: `crates/hytale-protocol/tests/registry.rs` checks 389 entries, unique
+    ascending ids, every family, header rejection and `ProtocolSettings`;
+    `tests/full.rs` covers bit-packed booleans, maps of arrays of structs,
+    numeric/enum/float map keys, arrays of maps, fixed arrays and JOML vectors.
+    Every packet's default value round-trips byte-for-byte.
+  - T12: `ChunkPacketDumper` + `run-chunks.sh` produce
+    `testdata/golden/server/chunks-pkts/` for seed 0, chunks `(0,0)` and
+    `(4,-5)`: 46 uncompressed payloads (569,520 bytes) plus a manifest and
+    README. `run-chunks.sh --check` passes two isolated runs and the committed
+    fixture.
+- **Verified:**
+  - `cargo test --workspace` green, including all existing worldgen goldens.
+  - `cargo clippy --workspace --all-targets -- -D warnings` green.
+  - `cargo fmt --all -- --check` green.
+  - `cargo run -p protocol-gen -- --check` is clean (full regeneration).
+  - `protocol.json` validates: 389 packets, no duplicate ids, every field has a
+    fixed offset or variable order.
+  - `tools/java-dumper/run-chunks.sh --check` is byte-identical across runs and
+    matches the committed chunk packets.
+- **Deviations:**
+  - The IR has 456 struct entries because it includes 13 abstract union bases
+    next to the 443 concrete structs; `ProtocolSettings.STRUCT_COUNT` is 445.
+    The registry does not depend on the declared count, and the delta is
+    documented in the protocol fixture README.
+  - 175 top-level enums are parsed; the declared 177 includes the nested
+    `PacketRegistry.PacketDirection` and schema bookkeeping.
+  - The Java generator drops a trailing `Value` for `defaultValue` nullable
+    getters (`hasDefault`); the dumper handles both spellings.
+  - `SetChunkTintmap` and `SetFluids` are captured from the real Java
+    serializers but CoreServer's initial load-query systems do not send them;
+    the manifest marks them `sentAtInit: false` and lists them in
+    `packetsNotSentAtInit`.
+  - `run.sh` now puts netty-buffer/netty-common on the runtime classpath because
+    `CachedPacket` uses `io.netty.buffer.Unpooled`.
+  - Float-keyed maps are represented as `Vec<(f32, V)>` because `f32` is not
+    `Ord`; other supported key types use `BTreeMap`.
+- **Follow-ups:**
+  - Consume `protocol.json` in the asset packet encoders and compare against
+    `testdata/golden/server/assets/*.bin`.
+  - Add a Rust chunk-packet test that regenerates the two T12 chunks and
+    byte-compares the committed payloads (filtering on `sentAtInit` for strict
+    join parity).
+  - Asset registry / typed stores and BSON world storage are the next slice.
+
+---
+
 ## Session 2 — codegen, transport, runtime chunks, client bot (2026-10-22)
 
 - **Goal:** turn the session-1 foundations into the first end-to-end wire and

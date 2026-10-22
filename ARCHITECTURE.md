@@ -7,11 +7,11 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
 - **Goal:** a Rust server that loads unmodified Hytale assets, hosts worlds,
   speaks the matching Hytale protocol to a vanilla client, and reads/writes
   vanilla `IndexedStorage` saves.
-- **Status:** session 2 landed (connection codegen, QUIC mTLS transport,
-  runtime sections/`ChunkColumn`, storage/packet section round-trips,
-  `client-bot`, and P0 asset-packet goldens). Full protocol codegen, chunk
-  packet goldens, server wiring, and join are still open; see
-  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
+- **Status:** session 3 landed full protocol codegen (389 packets, registry,
+  `ProtocolSettings`) and Java chunk-packet goldens on top of the session-2
+  transport/runtime sections, `client-bot` and P0 asset packets. Asset
+  registry/typed stores, world storage, server wiring and join are still open;
+  see [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
@@ -301,12 +301,12 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `ProceduralLibrary/**` (generation subset) | `procedural` | ported |
 | `CoreServer/.../world/worldgen/{Generated*}` | `worldgen-model::chunk` | ported as generation buffer |
 | `CoreServer/.../world/worldgen/IWorldGen` | `worldgen-server` adapter | ported |
-| `Protocol/**` generated | `hytale-protocol` | inventory + connection IR + connection codegen landed (M1); full codegen pending |
+| `Protocol/**` generated | `hytale-protocol` | full codegen landed (M1): 389 packets, registry, `ProtocolSettings`, round-trip gate |
 | `Protocol/.../io/*` wire helpers | `hytale-protocol::io` | varint/fixed/UUID/strings/bitsets/framing/zstd + big-endian storage accessors landed (M1) |
 | `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); typed stores pending |
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
-| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk` landed (M3) |
+| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk` landed (M3); Java `SetChunk`/`SetColumn`/tint/environment/fluid payloads captured in `testdata/golden/server/chunks-pkts/` |
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` | planned (M3) |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world` | planned (M3) |

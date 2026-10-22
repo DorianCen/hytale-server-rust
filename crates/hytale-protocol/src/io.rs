@@ -128,6 +128,16 @@ pub enum ProtocolError {
         /// Repeated key.
         key: String,
     },
+    /// A fixed array did not match its declared element count.
+    #[error("{field} has {length} elements, expected {expected}")]
+    FixedArrayLength {
+        /// Field name.
+        field: &'static str,
+        /// Observed element count.
+        length: usize,
+        /// Declared element count.
+        expected: usize,
+    },
     /// A generated fixed-block write exceeded the fixed block.
     #[error("fixed block write at {offset} for {length} bytes exceeds {size}")]
     FixedBlockOverflow {
@@ -137,6 +147,30 @@ pub enum ProtocolError {
         length: usize,
         /// Fixed block size.
         size: usize,
+    },
+    /// A generated packet did not round-trip byte-for-byte.
+    #[error("{type_name} did not round-trip")]
+    RoundTripMismatch {
+        /// Rust type name.
+        type_name: &'static str,
+    },
+    /// A frame named a packet id that the registry does not know.
+    #[error("unknown packet id {packet_id}")]
+    UnknownPacket {
+        /// Packet id.
+        packet_id: u32,
+    },
+    /// A frame arrived on a stream for the wrong direction.
+    #[error("packet {packet_id} has the wrong direction")]
+    WrongDirection {
+        /// Packet id.
+        packet_id: u32,
+    },
+    /// A frame arrived on the wrong network channel.
+    #[error("packet {packet_id} has the wrong network channel")]
+    WrongChannel {
+        /// Packet id.
+        packet_id: u32,
     },
 }
 
