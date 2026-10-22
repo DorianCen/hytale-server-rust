@@ -75,8 +75,9 @@ Report generated counts, unsupported constructs, and any family split.
 
 ## Session 3 result
 
-- `protocol.json`: 389 packets, 443 concrete structs + 13 union bases, 175
-  top-level enums, `ProtocolSettings`.
+- `protocol.json`: 389 packets, 457 struct entries (443 concrete + 13 union
+  bases + one packet reused as a nested type), 175 top-level enums,
+  `ProtocolSettings`.
 - Generated: one module per packet family, `common.rs`, `wire.rs`, and
   `registry.rs` with `PACKETS`, `packet_info`, `validate_packet`, the settings
   constants, and generated round-trip helpers.

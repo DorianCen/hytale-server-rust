@@ -7,7 +7,7 @@ Do not edit these files by hand.
 |---|---|---|
 | `inventory.json` | `protocol-dumper inventory --source <protocol-dir> --out inventory.json` | every generated class with kind, packet id, direction, channel, compression flag, and size constants |
 | `connection.json` | `protocol-dumper connection --source <.../packets/connection> --out connection.json` | field-level IR for the 8 connection packets, 5 enums, and the reachable struct/union closure |
-| `protocol.json` | `protocol-dumper all --source <protocol-dir> --out protocol.json` | field-level IR for all 389 packets, 456 struct/union entries, 175 top-level enums, plus `ProtocolSettings` |
+| `protocol.json` | `protocol-dumper all --source <protocol-dir> --out protocol.json` | field-level IR for all 389 packets, 457 struct/union entries, 175 top-level enums, plus `ProtocolSettings` |
 
 Regenerate:
 
@@ -30,9 +30,10 @@ than hidden:
 - 5 declarations are constant/registry helpers (`CameraSequenceFlags`,
   `DebugFlags`, `ModelTransformFields`, `ProtocolSettings`, `PacketRegistry`).
 - `PacketRegistry.PacketDirection` is a nested enum (+1), not a separate file.
-- `all` emits 456 struct entries (443 concrete + 13 abstract union bases) because
-  the union base carries the common fields its subtypes inherit. The Java
-  `STRUCT_COUNT` counts those bases differently; the Rust registry does not
+- `all` emits 457 struct entries: 443 concrete structs, 13 abstract union bases
+  (the base carries the common fields its subtypes inherit), and the
+  `CameraShakeEffect` packet, which is also used as a nested field type. The
+  Java `STRUCT_COUNT` counts those bases differently; the Rust registry does not
   depend on the declared number.
 
 No packet is silently skipped; all 389 are present in `classes` and

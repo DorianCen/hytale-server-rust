@@ -97,7 +97,7 @@ Format:
   the Java chunk network payloads that T10b/T10c must match.
 - **Landed:**
   - T14: `protocol-dumper all` emits `testdata/golden/server/protocol/protocol.json`
-    (389 packets, 443 concrete structs + 13 union bases, 175 top-level enums,
+    (389 packets, 457 struct entries: 443 concrete structs + 13 union bases + one packet reused as a nested struct, 175 top-level enums,
     `ProtocolSettings`). It handles inheritance (flattened onto concrete
     subtypes), bit-packed booleans, fixed arrays (`SetColumn.heightmap`), maps
     with string/integer/float/enum/struct keys, maps/arrays of structs, nested
@@ -127,8 +127,9 @@ Format:
   - `tools/java-dumper/run-chunks.sh --check` is byte-identical across runs and
     matches the committed chunk packets.
 - **Deviations:**
-  - The IR has 456 struct entries because it includes 13 abstract union bases
-    next to the 443 concrete structs; `ProtocolSettings.STRUCT_COUNT` is 445.
+  - The IR has 457 struct entries: 443 concrete structs, 13 abstract union bases
+    and the `CameraShakeEffect` packet (also a nested field type);
+    `ProtocolSettings.STRUCT_COUNT` is 445.
     The registry does not depend on the declared count, and the delta is
     documented in the protocol fixture README.
   - 175 top-level enums are parsed; the declared 177 includes the nested
