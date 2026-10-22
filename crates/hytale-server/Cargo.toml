@@ -21,3 +21,5 @@ hytale-world = { path = "../hytale-world" }
 worldgen-hytale = { path = "../worldgen-hytale" }
 worldgen-model = { path = "../worldgen-model" }
 worldgen-server = { path = "../worldgen-server" }
+clap = { workspace = true }
+thiserror = { workspace = true }

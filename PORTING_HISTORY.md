@@ -417,3 +417,58 @@ Format:
   - Use one registry for generation, packets and storage; the generator still
     resolves block ids from `registries.json`.
   - P1 stores and the asset packet encoders.
+
+---
+
+## Session 7 — headless boot with one chunk and a region save (2026-10-22)
+
+- **Goal:** compose the asset registry, worldgen worker, runtime chunk model and
+  storage codec into the first real server boot, and use one registry for all
+  of them.
+- **Landed:**
+  - `ChunkGeneratorJsonLoader::with_registries(Rc<Registries>)` and a
+    `registries` field. An in-memory snapshot takes precedence over the
+    `registries.json` path.
+  - `WorldGenOptions.registries: Option<Arc<Registries>>`; each
+    `worldgen-server` worker clones the snapshot into its `Rc`-based generator.
+    The worldgen CLI keeps using the file-backed option.
+  - `hytale-server` now has a library target (`headless`):
+    - load the asset pack and P0 registry once;
+    - bridge it to `worldgen_model::Registries`;
+    - generate one chunk through `WorldGenChunkProvider`;
+    - convert it with `ChunkColumn::from_generated_chunk_with_registries`;
+    - encode it with `ChunkCodec` and write `chunks/<regionX>.<regionZ>.region.bin`;
+    - reopen, decode and compare every block, fluid, environment, tint and the
+      heightmap.
+  - CLI: `hytale-server headless` with `--assets-pack`, `--assets-root`,
+    `--world`, `--save`, `--seed`, `--chunk x,z` and `--workers`. No arguments
+    still prints the version.
+  - `ChunkCodec::decode_at` (the BSON document has no chunk coordinates);
+    `decode` remains the `(0,0)` convenience form.
+  - `crates/hytale-server/tests/headless.rs` runs the boot for chunk `(4,-5)`
+    and independently decodes the saved region with a fresh registry.
+- **Verified:**
+  - `cargo run -p hytale-server -- headless --save target/headless-smoke`
+    generated seed-0 chunk `(0,0)`: 6138 registry blocks, 98,378 non-air
+    blocks, 317,335-byte BSON document, reload verified.
+  - `cargo test -p hytale-server --test headless` green (base-game pack
+    present).
+  - `cargo test -p hytale-world -p hytale-server -p worldgen-server` green.
+  - `cargo clippy --workspace --all-targets -- -D warnings` green.
+  - `cargo fmt --all -- --check` green.
+- **Deviations:**
+  - The headless boot still generates only one seed-0 chunk; the world runtime,
+    player spawn and packet stream are later slices.
+  - `WorldGenOptions` clones the registry snapshot per worker. The generator
+    graph is `Rc`-based, so sharing the `Arc` directly would require an
+    `Arc`-based refactor; the snapshot is small relative to the generation
+    caches.
+  - `WorldGenConfig.name` is fixed to `"Default"` and version to `"0.0.0"` in
+    the boot; the loader only logs them. Reading the real `World.json` fields
+    is part of the world-config task.
+- **Follow-ups:**
+  - Load an existing region back into a world runtime (region →
+    `ChunkColumn`) and add the mutate → Java-reload gate.
+  - Player BSON and `World.json`/`WorldConfig`.
+  - Client-bot auth/setup/game with the packet-trace fixture.
+  - P1 stores and asset packet encoders.

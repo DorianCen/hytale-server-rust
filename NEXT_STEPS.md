@@ -1,14 +1,21 @@
-# Next steps — CoreServer rewrite, session 7
+# Next steps — CoreServer rewrite, session 8
 
-**Status:** sessions 1–6 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–7 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
-goldens, the runtime chunk packet encoders and the P0 asset registry are in
-place. Session 6 added Java-compatible BSON chunk storage
-(`hytale-world::chunk::storage`), region files, name-keyed section storage, the
-legacy heightmap codec and a real Java world-save fixture. See
+goldens, the runtime chunk packet encoders, the P0 asset registry and
+Java-compatible BSON chunk storage are in place. Session 7 added the first
+headless boot: it loads the asset pack, hands the generator the server's
+in-memory registry ids, generates one chunk through `worldgen-server`, converts
+it to a runtime `ChunkColumn`, saves a region blob and verifies the reload. See
 [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
 [`tasks/README.md`](tasks/README.md).
+
+**Try it:**
+
+```sh
+cargo run -p hytale-server -- headless --save target/headless-world
+```
 
 **Next up:** finish the first vertical slice.
 
@@ -23,14 +30,14 @@ legacy heightmap codec and a real Java world-save fixture. See
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
    `hytale-assets` packet encoders still need their `assets/*.bin` comparison.
-4. Wire `hytale-world` + `worldgen-server` into a headless boot that loads a
+4. ~~Wire `hytale-world` + `worldgen-server` into a headless boot that loads a
    world, generates one chunk, converts it to a runtime chunk, and saves a
-   region blob. The storage codec and the asset-registry bridge now exist; the
-   boot must load the asset pack once and use the same registry for generation,
-   packets and storage (the generator still resolves block ids from
-   `registries.json`).
+   region blob.~~ Done in session 7. The boot loads the asset pack once, uses
+   its registry ids for generation/storage and verifies the decoded save.
 5. Extend `client-bot` from the connection handshake into auth/setup/game with
    the packet-trace fixture.
+6. Load saved chunks back into a world runtime (region → `ChunkColumn`) and add
+   the mutate → Rust save → Java reload compatibility gate.
 
 The completed worldgen port is archived under [`done/`](done/) and its
 regression gate must stay green. The session-1 sections below remain as the

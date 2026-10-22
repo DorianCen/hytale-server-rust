@@ -7,12 +7,13 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
 - **Goal:** a Rust server that loads unmodified Hytale assets, hosts worlds,
   speaks the matching Hytale protocol to a vanilla client, and reads/writes
   vanilla `IndexedStorage` saves.
-- **Status:** session 6 landed Java-compatible BSON chunk storage
-  (`hytale-world::chunk::storage`), region files, name-keyed section storage, the
-  legacy heightmap codec and a real Java world-save fixture. That sits on
-  session 5's P0 asset registry, session 4's runtime chunk packet encoders (all
-  46 committed Java payloads match byte-for-byte) and session 3's full protocol
-  codegen. Player BSON, the headless boot and the join path are still open; see
+- **Status:** session 7 landed the first headless boot: one process loads the
+  asset pack and P0 registry once, generates a chunk through `worldgen-server`
+  with the server's registry ids, converts it to the runtime column, saves a
+  Java-compatible region blob and verifies the reload. That sits on session 6's
+  BSON chunk storage, session 5's P0 asset registry, session 4's runtime chunk
+  packet encoders and session 3's full protocol codegen. Player BSON, saved-world
+  loading, the join path and the live server loop are still open; see
   [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -226,6 +227,12 @@ Chunk lifecycle:
 
 Network and storage encodings are tested against the same golden chunk fixtures.
 
+The first headless boot (`hytale-server headless`) wires the pieces together for
+one chunk: P0 asset registry → `worldgen-model::Registries` → `worldgen-server`
+worker → `GeneratedChunk` → runtime `ChunkColumn` → BSON codec → region file.
+`WorldGenOptions.registries` carries the in-memory snapshot so generation,
+storage and (later) packets use the same ids.
+
 ---
 
 ## 6. Entity layer
@@ -317,7 +324,8 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
 | `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette and the `SetColumn`/`SetChunk`/tint/environment/fluid packet builders landed (M3); all 46 `chunks-pkts` payloads match Java byte-for-byte |
-| `CoreServer/.../universe/{Universe,World}` | `hytale-world` | planned (M3) |
+| `CoreServer/.../universe/{Universe,World}` | `hytale-world` | runtime chunk model landed; one-chunk headless boot landed (M3); universe/world lifecycle, config and player load pending |
+| `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::chunk::storage` | `IndexedStorageFile` container landed (M3); BSON chunk holder codec, named-palette storage, legacy heightmap and region files landed; Java world fixture gate green (M3). Player BSON pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` | QUIC mTLS spike + `PeerIdentity` landed (M4); packet decoding/session pending |

@@ -834,6 +834,7 @@ dependencies = [
 name = "hytale-server"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "hytale-assets",
  "hytale-auth",
  "hytale-commands",
@@ -843,6 +844,7 @@ dependencies = [
  "hytale-protocol",
  "hytale-storage",
  "hytale-world",
+ "thiserror",
  "worldgen-hytale",
  "worldgen-model",
  "worldgen-server",

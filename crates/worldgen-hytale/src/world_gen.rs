@@ -169,6 +169,11 @@ pub struct WorldGenOptions {
     pub assets_root: Option<PathBuf>,
     /// The golden registry dump override (`registries.json`).
     pub registries_path: Option<PathBuf>,
+    /// An already loaded registry snapshot (the server's own asset ids).
+    ///
+    /// Takes precedence over [`Self::registries_path`]. Each worker clones the
+    /// snapshot because the generator graph is `Rc`-based.
+    pub registries: Option<Arc<Registries>>,
 }
 
 impl Default for WorldGenOptions {
@@ -178,6 +183,7 @@ impl Default for WorldGenOptions {
             seed_label: "ChunkGenerator".to_string(),
             assets_root: None,
             registries_path: None,
+            registries: None,
         }
     }
 }
@@ -593,7 +599,9 @@ fn worker_main(
         if let Some(assets_root) = &options.assets_root {
             loader = loader.with_assets_root(assets_root);
         }
-        if let Some(registries_path) = &options.registries_path {
+        if let Some(registries) = &options.registries {
+            loader = loader.with_registries(Rc::new(Registries::clone(registries)));
+        } else if let Some(registries_path) = &options.registries_path {
             loader = loader.with_registries_path(registries_path);
         }
         let generator = loader.load();

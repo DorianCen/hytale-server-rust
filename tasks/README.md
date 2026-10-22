@@ -29,6 +29,7 @@ task done until its acceptance section is satisfied.
 | [T14](T14-full-protocol-codegen.md) | Full protocol codegen | T04 | medium | done (session 3) |
 | [T15](T15-asset-registry.md) | P0 asset registry and typed stores | T08, T09 | medium | done (session 5) |
 | [T16](T16-bson-world-storage.md) | BSON chunk storage + Java world fixture | T07, T10c, T15 | medium | done (session 6) |
+| [T17](T17-headless-boot.md) | Headless boot: one chunk + region save | T15, T16 | medium | done (session 7) |
 
 ## Rules
 

@@ -108,6 +108,10 @@ pub struct ChunkGeneratorJsonLoader {
     /// repository default (Java reads the static CoreServer asset maps, which
     /// the Rust port mirrors with the dumped registries).
     pub registries_path: Option<PathBuf>,
+    /// An already loaded registry snapshot. Takes precedence over
+    /// [`Self::registries_path`]; this is how the server hands the world
+    /// generator the ids from its own asset registry.
+    pub registries: Option<Rc<Registries>>,
 }
 
 impl ChunkGeneratorJsonLoader {
@@ -120,6 +124,7 @@ impl ChunkGeneratorJsonLoader {
             data_folder,
             assets_root: PrefabStoreRoot::default_assets_root(),
             registries_path: None,
+            registries: None,
         }
     }
 
@@ -133,6 +138,17 @@ impl ChunkGeneratorJsonLoader {
     /// Overrides the golden registry dump path (`registries.json`).
     pub fn with_registries_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.registries_path = Some(path.into());
+        self
+    }
+
+    /// Hands the loader an already loaded registry snapshot.
+    ///
+    /// The server uses this so world generation resolves block, fluid and
+    /// environment names through the same ids as the asset registry, chunk
+    /// packets and storage. It takes precedence over
+    /// [`Self::with_registries_path`].
+    pub fn with_registries(mut self, registries: Rc<Registries>) -> Self {
+        self.registries = Some(registries);
         self
     }
 
@@ -189,15 +205,16 @@ impl ChunkGeneratorJsonLoader {
         )
         .load();
 
-        let registries = Rc::new(match &self.registries_path {
-            Some(path) => Registries::load_from(path).unwrap_or_else(|error| {
+        let registries = match (&self.registries, &self.registries_path) {
+            (Some(registries), _) => Rc::clone(registries),
+            (None, Some(path)) => Rc::new(Registries::load_from(path).unwrap_or_else(|error| {
                 panic!(
                     "could not load the registries from {}: {error}",
                     path.display()
                 )
-            }),
-            None => Registries::load(),
-        });
+            })),
+            (None, None) => Rc::new(Registries::load()),
+        };
         // The Java `SeedStringResource` — the world-wide unique-name
         // counters (the cave node types use them for their names and
         // therefore for their seeds).

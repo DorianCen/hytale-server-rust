@@ -333,15 +333,24 @@ impl<'a> ChunkCodec<'a> {
         Ok(bytes)
     }
 
-    /// Decode a Java `ChunkStore` holder document.
+    /// Decode a Java `ChunkStore` holder document at `(0, 0)`.
+    ///
+    /// The BSON document does not carry chunk coordinates (Java passes them to
+    /// `BufferChunkLoader` separately); use [`Self::decode_at`] when loading a
+    /// real chunk.
     pub fn decode(&self, bytes: &[u8]) -> Result<ChunkColumn> {
+        self.decode_at(bytes, 0, 0)
+    }
+
+    /// Decode a Java `ChunkStore` holder document for chunk `(x, z)`.
+    pub fn decode_at(&self, bytes: &[u8], x: i32, z: i32) -> Result<ChunkColumn> {
         let document = Document::from_reader(bytes)?;
         let components = component_map(&document, "chunk")?;
         let block_names = &self.blocks;
         let fluid_names = &self.fluids;
         let environment_names = &self.environments;
 
-        let mut column = ChunkColumn::new(0, 0);
+        let mut column = ChunkColumn::new(x, z);
         column.flags_mut().on_disk = true;
 
         if let Ok(block_chunk) = components.get_document("BlockChunk") {
@@ -837,8 +846,10 @@ mod tests {
         let names = TestNames;
         let codec = ChunkCodec::from_lookups(&names, &names, &names);
         let bytes = codec.encode(&column).expect("encode");
-        let decoded = codec.decode(&bytes).expect("decode");
+        let decoded = codec.decode_at(&bytes, 3, -4).expect("decode");
 
+        assert_eq!(decoded.x(), 3);
+        assert_eq!(decoded.z(), -4);
         assert_eq!(decoded.get_block(0, 32, 0), 7);
         assert_eq!(decoded.get_filler(0, 32, 0), 5);
         assert_eq!(decoded.get_rotation(0, 32, 0), 3);

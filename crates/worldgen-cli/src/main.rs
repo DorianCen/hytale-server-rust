@@ -119,6 +119,7 @@ impl WorldArgs {
             seed_label: "ChunkGenerator".to_string(),
             assets_root: self.assets_root.clone(),
             registries_path: self.registries.clone(),
+            registries: None,
         }
     }
 }
