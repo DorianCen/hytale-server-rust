@@ -100,6 +100,8 @@ and regenerate with `tools/java-dumper/run-chunks.sh --check`.
 
 The Java dumper must produce these from the real `WorldChunk`/`BlockSection`
 serialization, not a reimplementation. Rust must match byte-for-byte.
+`crates/hytale-world/tests/chunk_packets_golden.rs` is that gate: it
+regenerates both chunks and compares all 46 payloads.
 
 ### 3.4 `storage/`
 

@@ -77,6 +77,25 @@ impl BlockSection {
         }
     }
 
+    /// Build a section with pre-built palettes (used by generated chunks,
+    /// where Java hands the block palette from its run-count map but builds
+    /// the filler/rotation palettes through `set`).
+    pub fn from_palettes(blocks: Palette, fillers: Palette, rotations: Palette) -> Self {
+        Self {
+            block_migration_asset_count: 0,
+            blocks,
+            fillers,
+            rotations,
+            ticking_blocks: BTreeSet::new(),
+            ticking_wait_adjacent: BTreeSet::new(),
+            local_light: LightData::empty(0),
+            local_change_counter: 0,
+            global_light: LightData::empty(0),
+            global_change_counter: 0,
+            sky_lit_stamp: 0,
+        }
+    }
+
     /// Block palette.
     pub const fn blocks(&self) -> &Palette {
         &self.blocks

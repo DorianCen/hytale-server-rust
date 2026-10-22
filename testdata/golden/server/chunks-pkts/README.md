@@ -130,11 +130,12 @@ pinned: the asset pipeline runs with one common fork-join worker, generation is
 single-threaded and seeded by `(seed, chunk)`, packet section order is explicit,
 and the manifest contains no timestamps or absolute paths.
 
-## Suggested Rust test
+## Rust gate
 
-`worldgen-hytale/tests/chunks_packets_golden.rs` (follow-up): regenerate seed 0
-chunks `(0,0)` and `(4,-5)` through the Rust chunk pipeline, build the same
-packets, and compare each `computeSize`/encode result byte-for-byte with the
-`.bin` files selected by the manifest. For the initial-join check, filter on
-`sentAtInit == true`; for encoder coverage, also check `SetChunkTintmap` and
-`SetFluids` (setting the fluid section coordinates to the manifest `section`).
+`crates/hytale-world/tests/chunk_packets_golden.rs`: regenerates seed 0 chunks
+`(0,0)` and `(4,-5)` through the Rust chunk pipeline, builds the same packets
+with `hytale-world::chunk::packet`, and compares every `encode` result
+byte-for-byte with the `.bin` files selected by the manifest. All 46 payloads
+(including `SetChunkTintmap` and `SetFluids`, whose manifest entries say
+`sentAtInit: false`) are checked; the test skips when the base-game pack is
+absent.

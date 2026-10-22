@@ -1,9 +1,10 @@
-# Next steps — CoreServer rewrite, session 3
+# Next steps — CoreServer rewrite, session 4
 
-**Status:** sessions 1–3 landed. The connection codegen, QUIC mTLS transport,
-runtime chunk sections, client-bot skeleton, P0 asset-packet goldens, full
-protocol codegen (389 packets / registry / `ProtocolSettings`) and Java
-chunk-packet goldens are in place. See
+**Status:** sessions 1–4 landed. The wire layer (connection codegen, full
+protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
+chunk sections, client-bot skeleton, P0 asset-packet goldens and Java
+chunk-packet goldens are in place. Session 4 added the runtime chunk packet
+encoders and a 46-payload byte-for-byte golden test. See
 [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
 [`tasks/README.md`](tasks/README.md).
 
@@ -11,22 +12,23 @@ chunk-packet goldens are in place. See
 
 1. Asset registry and typed P0/P1 stores (`BlockType`, `Fluid`, `Environment`,
    `Item`, …) backed by the existing `asset.json`/index goldens; deterministic
-   id assignment is the gate.
+   id assignment is the gate. This replaces the golden-registry stand-in used
+   by the chunk heightmap and unblocks real asset packet encoders.
 2. Runtime world storage: BSON chunk/player codecs on top of
    `IndexedStorageFile`, validated by a Java-written world fixture.
-3. Consume `protocol.json` in `hytale-assets` packet encoders and
-   `hytale-world` chunk packets; compare against `assets/*.bin` and
-   `chunks-pkts/**/*.bin` byte-for-byte.
+3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
+   against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
+   `hytale-assets` packet encoders still need their `assets/*.bin` comparison
+   once the typed stores land.
 4. Wire `hytale-world` + `worldgen-server` into a headless boot that loads a
    world, generates one chunk, converts it to a runtime chunk, and saves a
    region blob.
 5. Extend `client-bot` from the connection handshake into auth/setup/game with
    the packet-trace fixture.
 
-T12's fixture and T14's generated types are ready for those consumers. The
-completed worldgen port is archived under [`done/`](done/) and its regression
-gate must stay green. The session-1 sections below remain as the record of what
-was planned.
+The completed worldgen port is archived under [`done/`](done/) and its
+regression gate must stay green. The session-1 sections below remain as the
+record of what was planned.
 
 **Session 1 goal:** stand up the workspace skeleton and prove the two highest-risk
 foundations — **protocol codegen** and **Java-compatible storage** — on a small,

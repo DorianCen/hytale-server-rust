@@ -11,8 +11,11 @@ use hytale_math::chunk_util::{SIZE, SIZE_BLOCKS};
 const HEIGHT: i32 = SECTION_COUNT as i32 * SIZE;
 
 use worldgen_model::chunk::{GeneratedChunk, ENVIRONMENT_UNKNOWN_ID};
+use worldgen_model::registry::Registries;
 
+use crate::chunk::palette::Palette;
 use crate::chunk::section::{BlockSection, EnvironmentSection, FluidSection};
+use crate::chunk::tint::TintPalette;
 
 /// Number of 32³ sections in a legacy full-height column.
 pub const SECTION_COUNT: usize = 10;
@@ -45,21 +48,36 @@ pub struct ChunkFlags {
     pub needs_saving: bool,
 }
 
-/// Placeholder for the legacy/tree heightmap.
+/// Java `HeightmapColumn.NO_HEIGHT` — no opaque block was found in a column.
+pub const NO_HEIGHT: i32 = i32::MIN;
+
+/// The legacy/tree heightmap of one column.
 ///
-/// Heightmap propagation is a later M3 slice; the column only reserves the
-/// storage so a loaded chunk keeps the field it was created with.
+/// The legacy backend stores one `int` per column in memory (`serializeToInts`
+/// widens the persisted `short`), so the height can be [`NO_HEIGHT`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Heightmap {
-    /// Legacy `short` height per column.
-    Legacy(Vec<i16>),
+    /// Legacy per-column top (Java `LegacyHeightmap`) — highest non-transparent
+    /// block y, or [`NO_HEIGHT`].
+    Legacy(Vec<i32>),
     /// Tree heightmap bytes.
     Tree(Vec<u8>),
 }
 
 impl Default for Heightmap {
     fn default() -> Self {
-        Self::Legacy(vec![0; COLUMN_COUNT])
+        Self::Legacy(vec![NO_HEIGHT; COLUMN_COUNT])
+    }
+}
+
+impl Heightmap {
+    /// Java `IHeightmap.serializeToInts()` for the legacy backend — one `int`
+    /// per column in `z * SIZE + x` order (`ChunkUtil.indexColumn`).
+    pub fn serialize_to_ints(&self) -> Option<Vec<i32>> {
+        match self {
+            Self::Legacy(heights) => Some(heights.clone()),
+            Self::Tree(_) => None,
+        }
     }
 }
 
@@ -70,7 +88,7 @@ pub struct ChunkColumn {
     x: i32,
     z: i32,
     sections: [Option<Box<ChunkSection>>; SECTION_COUNT],
-    tint: Vec<i32>,
+    tint: TintPalette,
     environment_column: Vec<i32>,
     heightmap: Heightmap,
     flags: ChunkFlags,
@@ -84,7 +102,7 @@ impl ChunkColumn {
             x,
             z,
             sections: std::array::from_fn(|_| None),
-            tint: vec![0; COLUMN_COUNT],
+            tint: TintPalette::new(),
             environment_column: vec![ENVIRONMENT_UNKNOWN_ID; COLUMN_COUNT],
             heightmap: Heightmap::default(),
             flags: ChunkFlags::default(),
@@ -158,16 +176,21 @@ impl ChunkColumn {
 
     /// Java `BlockChunk.getTint(int x, int z)`.
     pub fn tint(&self, x: i32, z: i32) -> i32 {
-        self.tint[column_index(x, z)]
+        self.tint.get(x, z)
     }
 
     /// Java `BlockChunk.setTint(int x, int z, int tint)`.
     pub fn set_tint(&mut self, x: i32, z: i32, tint: i32) {
-        let index = column_index(x, z);
-        if self.tint[index] != tint {
-            self.tint[index] = tint;
+        if self.tint.get(x, z) != tint {
+            self.tint.set(x, z, tint);
             self.flags.needs_saving = true;
         }
+    }
+
+    /// The serialized Java `IntBytePalette` form embedded in `SetColumn` and
+    /// `SetChunkTintmap`.
+    pub fn tint_bytes(&self) -> Vec<u8> {
+        self.tint.serialize()
     }
 
     /// Java `BlockChunk.getEnvironmentColumn(int x, int z)` equivalent.
@@ -288,7 +311,32 @@ impl ChunkColumn {
     /// or non-default rotation/filler data. Every value present in
     /// `GeneratedChunk` is copied; tint and the environment base columns are
     /// column-level fields.
+    ///
+    /// The legacy heightmap is left at [`NO_HEIGHT`] because computing it needs
+    /// the block opacity assets; use
+    /// [`ChunkColumn::from_generated_chunk_with_registries`] when the registries
+    /// are available (the packet and storage paths always should be).
     pub fn from_generated_chunk(generated: &GeneratedChunk) -> crate::chunk::section::Result<Self> {
+        Self::convert_generated(generated, None)
+    }
+
+    /// Convert a generated chunk and compute the Java `LegacyHeightmap`.
+    ///
+    /// The heightmap is the highest non-transparent block in each column
+    /// (Java `HeightmapColumn.onSectionGenerated` fed by
+    /// `GetOpacity.FROM_SECTION`): block id 0 and ids missing from the block
+    /// registry are transparent.
+    pub fn from_generated_chunk_with_registries(
+        generated: &GeneratedChunk,
+        registries: &Registries,
+    ) -> crate::chunk::section::Result<Self> {
+        Self::convert_generated(generated, Some(registries))
+    }
+
+    fn convert_generated(
+        generated: &GeneratedChunk,
+        registries: Option<&Registries>,
+    ) -> crate::chunk::section::Result<Self> {
         let blocks = generated.blocks();
         let rotations = generated.rotation();
         let fillers = generated.filler();
@@ -316,11 +364,20 @@ impl ChunkColumn {
 
         let mut column = Self::new(generated.get_x(), generated.get_z());
         column.index = generated.get_index();
-        column.tint.copy_from_slice(tint);
+        // Java's generator sets the tint in `x`-major, `z`-minor order; the
+        // palette's key insertion order is part of the packet bytes.
+        for x in 0..SIZE {
+            for z in 0..SIZE {
+                column.tint.set(x, z, tint[column_index(x, z)]);
+            }
+        }
         column
             .environment_column
             .copy_from_slice(environment_column);
         column.flags.newly_generated = true;
+        if let Some(registries) = registries {
+            column.heightmap = Heightmap::Legacy(legacy_heightmap(generated, registries));
+        }
 
         for section_index in 0..SECTION_COUNT {
             let start = section_index * SIZE_BLOCKS as usize;
@@ -339,14 +396,32 @@ impl ChunkColumn {
             if !needs_section {
                 continue;
             }
-            let section = column.sections[section_index]
-                .get_or_insert_with(|| Box::new(ChunkSection::default()));
+            // Java `GeneratedChunkSection.toChunkSection`: the block palette is
+            // built from the run-count map (fastutil iteration order), while
+            // filler/rotation palettes keep the internal ids the live
+            // generation `set` calls handed out (first-use order).
+            let block_palette = Palette::from_generated_ids(&blocks[start..end])?;
+            let filler_palette = Palette::from_ids_with_order(
+                &fillers[start..end],
+                generated.filler_first_use(section_index as i32),
+            )?;
+            let rotation_palette = Palette::from_ids_with_order(
+                &rotations[start..end],
+                generated.rotation_first_use(section_index as i32),
+            )?;
+            let section = column.sections[section_index].get_or_insert_with(|| {
+                Box::new(ChunkSection {
+                    block: BlockSection::from_palettes(
+                        block_palette,
+                        filler_palette,
+                        rotation_palette,
+                    ),
+                    ..ChunkSection::default()
+                })
+            });
 
             for index in start..end {
                 let local = index - start;
-                section
-                    .block
-                    .set(local, blocks[index], rotations[index], fillers[index])?;
                 section
                     .fluid
                     .set_fluid(local, fluids[index], levels[index])?;
@@ -384,6 +459,36 @@ fn section_index(y: i32) -> Option<usize> {
     }
     let index = (y >> 5) as usize;
     (index < SECTION_COUNT).then_some(index)
+}
+
+/// Java `LegacyHeightmap.onSectionGenerated` for every section, collapsed to
+/// the equivalent topmost-non-transparent scan per column.
+///
+/// `GetOpacity.FROM_SECTION` treats block id 0 and ids missing from the block
+/// map as `Opacity.Transparent`.
+fn legacy_heightmap(generated: &GeneratedChunk, registries: &Registries) -> Vec<i32> {
+    let mut heights = vec![NO_HEIGHT; COLUMN_COUNT];
+    for z in 0..SIZE {
+        for x in 0..SIZE {
+            let mut height = NO_HEIGHT;
+            for y in (0..HEIGHT).rev() {
+                let block_id = generated.get_block(x, y, z);
+                if block_id == 0 {
+                    continue;
+                }
+                let opaque = registries
+                    .blocks
+                    .get(block_id)
+                    .is_some_and(|block| !block.opacity.is_transparent());
+                if opaque {
+                    height = y;
+                    break;
+                }
+            }
+            heights[column_index(x, z)] = height;
+        }
+    }
+    heights
 }
 
 #[inline]

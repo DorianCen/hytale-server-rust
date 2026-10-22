@@ -1,6 +1,6 @@
 # T12 — Java chunk-packet goldens
 
-**Status:** done (session 3)
+**Status:** done (session 3; Rust consumer landed in session 4)
 **Agent fit:** medium (Java; one world boot and packet serialization)
 **Depends on:** T10b (format understanding), existing chunk goldens
 **Owns:** `tools/java-dumper/src/main/java/com/hypixel/hytale/tools/golden/ChunkPacketDumper.java`,

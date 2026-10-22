@@ -13,3 +13,7 @@ thiserror = { workspace = true }
 worldgen-hytale = { path = "../worldgen-hytale" }
 worldgen-model = { path = "../worldgen-model" }
 worldgen-server = { path = "../worldgen-server" }
+
+[dev-dependencies]
+procedural = { path = "../procedural" }
+serde_json = { workspace = true }

@@ -119,6 +119,30 @@ fn from_ids_selects_the_java_thresholds() {
 }
 
 #[test]
+fn generated_palettes_roundtrip_both_layouts() {
+    assert_roundtrip(&Palette::from_generated_ids(&ids(1)).unwrap(), &ByteKey);
+    assert_roundtrip(&Palette::from_generated_ids(&ids(3)).unwrap(), &ByteKey);
+    assert_roundtrip(&Palette::from_generated_ids(&ids(20)).unwrap(), &ByteKey);
+    assert_roundtrip(&Palette::from_generated_ids(&ids(300)).unwrap(), &ShortKey);
+}
+
+#[test]
+fn set_order_palette_uses_the_recorded_first_use_order() {
+    let mut values = vec![0; BLOCK_COUNT];
+    values[10] = 9;
+    values[11] = 5;
+    values[12] = 9;
+    let palette = Palette::from_ids_with_order(&values, &[5, 9]).unwrap();
+    let entries = palette.entries();
+    assert_eq!(entries[0].external, 0);
+    assert_eq!(entries[1].external, 5);
+    assert_eq!(entries[2].external, 9);
+    for (index, value) in values.iter().enumerate() {
+        assert_eq!(palette.get(index), *value);
+    }
+}
+
+#[test]
 fn all_types_roundtrip_both_layouts() {
     assert_roundtrip(&Palette::from_ids(&ids(1)).unwrap(), &ByteKey);
     assert_roundtrip(&Palette::from_ids(&ids(3)).unwrap(), &ByteKey);

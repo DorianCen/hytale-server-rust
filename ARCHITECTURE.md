@@ -7,9 +7,10 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
 - **Goal:** a Rust server that loads unmodified Hytale assets, hosts worlds,
   speaks the matching Hytale protocol to a vanilla client, and reads/writes
   vanilla `IndexedStorage` saves.
-- **Status:** session 3 landed full protocol codegen (389 packets, registry,
-  `ProtocolSettings`) and Java chunk-packet goldens on top of the session-2
-  transport/runtime sections, `client-bot` and P0 asset packets. Asset
+- **Status:** session 4 landed the runtime chunk packet encoders (`SetColumn`,
+  `SetChunkTintmap`, `SetChunk`, `SetChunkEnvironments`, `SetFluids`) and a
+  golden test that matches all 46 committed Java payloads byte-for-byte, on top
+  of session 3's full protocol codegen and chunk-packet goldens. Asset
   registry/typed stores, world storage, server wiring and join are still open;
   see [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -306,7 +307,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); typed stores pending |
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
-| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk` landed (M3); Java `SetChunk`/`SetColumn`/tint/environment/fluid payloads captured in `testdata/golden/server/chunks-pkts/` |
+| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette and the `SetColumn`/`SetChunk`/tint/environment/fluid packet builders landed (M3); all 46 `chunks-pkts` payloads match Java byte-for-byte |
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` | planned (M3) |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world` | planned (M3) |

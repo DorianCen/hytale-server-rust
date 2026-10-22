@@ -20,8 +20,11 @@
 //! - **storage**: big-endian palette table, external ids go through a
 //!   [`KeyCodec`] (byte for blocks, short for fillers, byte for rotations).
 //!
-//! The palette table is emitted in ascending internal-id order, which is the
-//! deterministic order the Rust server owns.
+//! Java writes both layouts in the iteration order of its
+//! `Byte2IntOpenHashMap`/`Short2IntOpenHashMap` of internal ids (fastutil slot
+//! order, `0` first, descending slots), not in ascending internal-id order.
+//! [`Palette::entries_serialized`] reproduces that order because it is visible
+//! in the committed packet and storage bytes.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -226,6 +229,10 @@ pub struct Palette {
     external_to_internal: BTreeMap<i32, u16>,
     counts: Vec<u16>,
     blocks: Blocks,
+    /// True when Java built the internal-id map with
+    /// `new Byte2IntOpenHashMap(distinctCount)` (generated block palettes)
+    /// rather than the no-arg constructor used while `set` inserts ids.
+    table_expected_from_count: bool,
 }
 
 impl Palette {
@@ -241,6 +248,7 @@ impl Palette {
             internal_to_external: vec![None; kind.max_size()],
             external_to_internal: BTreeMap::new(),
             counts: vec![0; kind.max_size()],
+            table_expected_from_count: false,
             blocks: match kind {
                 PaletteType::Empty => Blocks::Empty,
                 PaletteType::HalfByte => Blocks::Half(vec![0; HALF_BYTE_BLOCK_BYTES]),
@@ -252,6 +260,154 @@ impl Palette {
         palette.external_to_internal.insert(0, 0);
         palette.counts[0] = BLOCK_COUNT as u16;
         palette
+    }
+
+    /// Build a palette from a dense array of external ids the way Java's
+    /// `GeneratedChunkSection.toChunkSection` does.
+    ///
+    /// The palette type follows `AbstractSectionPalette.from`'s thresholds.
+    /// Internal ids are handed out in the iteration order of the temporary
+    /// `Int2ShortOpenHashMap` Java uses to count the runs, which is the
+    /// fastutil open-addressing table order (null key first, then table slots
+    /// ascending). That order is observable in the network/storage bytes, so it
+    /// is reproduced exactly instead of sorting the ids.
+    pub fn from_generated_ids(ids: &[i32]) -> Result<Self> {
+        if ids.len() != BLOCK_COUNT {
+            return Err(PaletteError::InvalidBlockCount(ids.len()));
+        }
+        let distinct: BTreeSet<i32> = ids.iter().copied().collect();
+        if distinct.len() == 1 && distinct.contains(&0) {
+            return Ok(Self::empty());
+        }
+        let kind = palette_type_for(distinct.len());
+
+        // Java counts runs in a fastutil `Int2ShortOpenHashMap`; the key
+        // iteration order of that map is the internal-id order.
+        let mut run_keys = FastutilIntKeySet::new();
+        let mut index = 0;
+        while index < BLOCK_COUNT {
+            let value = ids[index];
+            run_keys.insert(value);
+            index += 1;
+            while index < BLOCK_COUNT && ids[index] == value {
+                index += 1;
+            }
+        }
+        let ordered = run_keys.keys_in_iteration_order();
+
+        let mut counts = vec![0u16; kind.max_size()];
+        let mut count_by_id: BTreeMap<i32, u16> = BTreeMap::new();
+        for id in ids {
+            let count = count_by_id.entry(*id).or_insert(0);
+            *count = count.wrapping_add(1);
+        }
+
+        let mut palette = Self::with_kind(kind);
+        palette.external_to_internal.clear();
+        palette.internal_to_external.fill(None);
+        for (internal, external) in ordered.iter().enumerate() {
+            let internal = internal as u16;
+            palette.internal_to_external[internal as usize] = Some(*external);
+            palette.external_to_internal.insert(*external, internal);
+            counts[internal as usize] = count_by_id.get(external).copied().unwrap_or(0);
+        }
+        palette.counts = counts;
+        palette.table_expected_from_count = true;
+        for (position, id) in ids.iter().enumerate() {
+            let internal = *palette
+                .external_to_internal
+                .get(id)
+                .expect("id was collected") as usize;
+            palette.set_raw_internal(position, internal);
+        }
+        Ok(palette)
+    }
+
+    /// Build a palette from a dense array of external ids using a Java
+    /// `set`-order list for the internal ids.
+    ///
+    /// `first_use` is the order in which the generated section observed the
+    /// non-zero values (`GeneratedChunk::filler_first_use` /
+    /// `rotation_first_use`). Values no longer present in `ids` are ignored;
+    /// values missing from the list (only possible for hand-built chunks) are
+    /// appended in ascending order.
+    pub fn from_ids_with_order(ids: &[i32], first_use: &[i32]) -> Result<Self> {
+        if ids.len() != BLOCK_COUNT {
+            return Err(PaletteError::InvalidBlockCount(ids.len()));
+        }
+        let distinct: BTreeSet<i32> = ids.iter().copied().collect();
+        if distinct.len() == 1 && distinct.contains(&0) {
+            return Ok(Self::empty());
+        }
+        let kind = palette_type_for(distinct.len());
+
+        let mut ordered = Vec::with_capacity(distinct.len());
+        if distinct.contains(&0) {
+            ordered.push(0);
+        }
+        for value in first_use {
+            if *value != 0 && distinct.contains(value) && !ordered.contains(value) {
+                ordered.push(*value);
+            }
+        }
+        for value in &distinct {
+            if !ordered.contains(value) {
+                ordered.push(*value);
+            }
+        }
+
+        let mut counts = vec![0u16; kind.max_size()];
+        let mut count_by_id: BTreeMap<i32, u16> = BTreeMap::new();
+        for id in ids {
+            let count = count_by_id.entry(*id).or_insert(0);
+            *count = count.wrapping_add(1);
+        }
+
+        let mut palette = Self::with_kind(kind);
+        palette.external_to_internal.clear();
+        palette.internal_to_external.fill(None);
+        for (internal, external) in ordered.iter().enumerate() {
+            let internal = internal as u16;
+            palette.internal_to_external[internal as usize] = Some(*external);
+            palette.external_to_internal.insert(*external, internal);
+            counts[internal as usize] = count_by_id.get(external).copied().unwrap_or(0);
+        }
+        palette.counts = counts;
+        for (position, id) in ids.iter().enumerate() {
+            let internal = *palette
+                .external_to_internal
+                .get(id)
+                .expect("id was collected") as usize;
+            palette.set_raw_internal(position, internal);
+        }
+        Ok(palette)
+    }
+
+    /// Build a palette by replaying Java's `set` calls in index order.
+    ///
+    /// This is how `GeneratedChunkSection` builds its filler and rotation
+    /// palettes: an `EmptySectionPalette` is promoted on the first non-zero
+    /// value and internal ids are handed out in first-use order. It does not
+    /// touch any change counters, unlike going through `BlockSection::set`
+    /// after construction.
+    pub fn from_ids_set_order(ids: &[i32]) -> Result<Self> {
+        if ids.len() != BLOCK_COUNT {
+            return Err(PaletteError::InvalidBlockCount(ids.len()));
+        }
+        let mut palette = Self::empty();
+        for (index, id) in ids.iter().enumerate() {
+            let mut result = palette.set(index, *id);
+            if result == SetResult::RequiresPromote {
+                palette.promote()?;
+                result = palette.set(index, *id);
+                if result == SetResult::RequiresPromote {
+                    return Err(PaletteError::CannotPromote(palette.kind));
+                }
+            } else if palette.should_demote() {
+                palette.demote()?;
+            }
+        }
+        Ok(palette)
     }
 
     /// Build a palette from a dense array of external ids.
@@ -522,6 +678,30 @@ impl Palette {
         entries
     }
 
+    /// Palette entries in Java's serialized table order.
+    ///
+    /// The serializers iterate `internalToExternal`, a fastutil
+    /// `Byte2IntOpenHashMap`/`Short2IntOpenHashMap`, so the table order is the
+    /// map's slot order — not ascending internal id. Replaying those slots is
+    /// required for byte-identical packets and storage blobs.
+    pub fn entries_serialized(&self) -> Vec<PaletteEntry> {
+        let expected = self.table_expected_from_count.then_some(self.count());
+        let signed_bits = match self.kind {
+            PaletteType::HalfByte | PaletteType::Byte => 8,
+            PaletteType::Short => 16,
+            PaletteType::Empty => return Vec::new(),
+        };
+        java_internal_order(self.count(), expected, signed_bits)
+            .into_iter()
+            .map(|internal| PaletteEntry {
+                internal: internal as u16,
+                external: self.internal_to_external[internal]
+                    .expect("serialized internal id is live"),
+                count: usize::from(self.counts[internal]),
+            })
+            .collect()
+    }
+
     /// Serialized size in the network packet layout.
     pub fn serialized_packet_size(&self) -> usize {
         if self.kind == PaletteType::Empty {
@@ -536,7 +716,7 @@ impl Palette {
             return;
         }
         writer.write_u16(self.count() as u16);
-        for entry in self.entries() {
+        for entry in self.entries_serialized() {
             match self.kind {
                 PaletteType::HalfByte | PaletteType::Byte => {
                     writer.write_u8(entry.internal as u8);
@@ -569,7 +749,7 @@ impl Palette {
             return Ok(());
         }
         writer.write_u16_be(self.count() as u16);
-        for entry in self.entries() {
+        for entry in self.entries_serialized() {
             match self.kind {
                 PaletteType::HalfByte | PaletteType::Byte => {
                     writer.write_u8(entry.internal as u8);
@@ -836,6 +1016,197 @@ impl Palette {
             }
         }
     }
+}
+
+/// `AbstractSectionPalette.from`'s palette-type thresholds.
+fn palette_type_for(distinct: usize) -> PaletteType {
+    if distinct < HALF_BYTE_MAX_SIZE {
+        PaletteType::HalfByte
+    } else if distinct < BYTE_MAX_SIZE {
+        PaletteType::Byte
+    } else {
+        PaletteType::Short
+    }
+}
+
+/// The minimal model of fastutil's `Int2ShortOpenHashMap` needed to reproduce
+/// Java's generated-palette internal-id order.
+///
+/// Key `0` lives in the map's dedicated null-key slot; every other key uses
+/// open addressing with `HashCommon.mix` and linear probing. The table grows
+/// after insertion exactly like fastutil (`size >= maxFill` → rehash with
+/// `arraySize(size + 1)`), and a rehash reinserts the old table from the
+/// highest slot down, which is what makes the final order observable.
+struct FastutilIntKeySet {
+    n: usize,
+    mask: usize,
+    max_fill: usize,
+    size: usize,
+    contains_null_key: bool,
+    keys: Vec<i32>,
+    used: Vec<bool>,
+}
+
+impl FastutilIntKeySet {
+    fn new() -> Self {
+        // Java: `new Int2ShortOpenHashMap()` → expected size 16, load factor
+        // 0.75, so the table itself is `arraySize(16) = 32`.
+        Self::with_expected(16)
+    }
+
+    fn with_expected(expected: usize) -> Self {
+        Self::with_capacity(array_size(expected))
+    }
+
+    fn with_capacity(n: usize) -> Self {
+        Self {
+            n,
+            mask: n - 1,
+            max_fill: max_fill(n),
+            size: 0,
+            contains_null_key: false,
+            keys: vec![0; n],
+            used: vec![false; n],
+        }
+    }
+
+    fn insert(&mut self, key: i32) {
+        if key == 0 {
+            if !self.contains_null_key {
+                self.contains_null_key = true;
+                self.size += 1;
+                self.grow_if_needed();
+            }
+            return;
+        }
+        if self.find(key).is_some() {
+            return;
+        }
+        let mut slot = mix(key) & self.mask as i32;
+        while self.used[slot as usize] {
+            slot = (slot + 1) & self.mask as i32;
+        }
+        self.keys[slot as usize] = key;
+        self.used[slot as usize] = true;
+        self.size += 1;
+        self.grow_if_needed();
+    }
+
+    fn find(&self, key: i32) -> Option<usize> {
+        if key == 0 {
+            return self.contains_null_key.then_some(self.n);
+        }
+        let mut slot = mix(key) & self.mask as i32;
+        while self.used[slot as usize] {
+            if self.keys[slot as usize] == key {
+                return Some(slot as usize);
+            }
+            slot = (slot + 1) & self.mask as i32;
+        }
+        None
+    }
+
+    fn grow_if_needed(&mut self) {
+        // fastutil rehashes once the table is filled *beyond* `maxFill`
+        // (observable: a 32-slot map holding 24 entries stays at 32).
+        if self.size <= self.max_fill {
+            return;
+        }
+        let new_n = array_size(self.size + 1);
+        let old_keys = std::mem::take(&mut self.keys);
+        let old_used = std::mem::take(&mut self.used);
+        self.n = new_n;
+        self.mask = new_n - 1;
+        self.max_fill = max_fill(new_n);
+        self.keys = vec![0; new_n];
+        self.used = vec![false; new_n];
+        // fastutil rehashes by scanning the old table from the last slot down.
+        for slot in (0..old_used.len()).rev() {
+            if old_used[slot] {
+                self.insert_without_growing(old_keys[slot]);
+            }
+        }
+    }
+
+    fn insert_without_growing(&mut self, key: i32) {
+        let mut slot = mix(key) & self.mask as i32;
+        while self.used[slot as usize] {
+            slot = (slot + 1) & self.mask as i32;
+        }
+        self.keys[slot as usize] = key;
+        self.used[slot as usize] = true;
+    }
+
+    fn keys_in_iteration_order(&self) -> Vec<i32> {
+        let mut keys = Vec::with_capacity(self.size);
+        if self.contains_null_key {
+            keys.push(0);
+        }
+        // fastutil's `MapIterator` starts at `n` and decrements, so table
+        // entries are visited from the highest slot down.
+        for slot in (0..self.n).rev() {
+            if self.used[slot] {
+                keys.push(self.keys[slot]);
+            }
+        }
+        keys
+    }
+}
+
+/// fastutil `HashCommon.mix(int)`.
+fn mix(value: i32) -> i32 {
+    let value = value.wrapping_mul(-1640531527);
+    value ^ ((value as u32) >> 16) as i32
+}
+
+/// fastutil `HashCommon.maxFill(int, 0.75f)`.
+fn max_fill(n: usize) -> usize {
+    (n - (n >> 2)).min((n as f64 * 0.75).floor() as usize)
+}
+
+/// fastutil `HashCommon.arraySize(expected, 0.75f)`.
+fn array_size(expected: usize) -> usize {
+    let minimum = ((expected as f64 / 0.75).ceil() as usize).max(2);
+    minimum.next_power_of_two()
+}
+
+/// Replay the iteration order of the internal-id → external-id map Java's
+/// palette serializer walks.
+///
+/// `signed_bits` is 8 for `Byte2IntOpenHashMap`, 16 for
+/// `Short2IntOpenHashMap` (both map byte/short keys through the signed
+/// `HashCommon.mix(int)`), and 0 for the `Int2ShortOpenHashMap` used to collect
+/// block run counts.
+fn java_internal_order(count: usize, expected: Option<usize>, signed_bits: u32) -> Vec<usize> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut keys = match expected {
+        Some(expected) => FastutilIntKeySet::with_expected(expected),
+        None => FastutilIntKeySet::new(),
+    };
+    for internal in 0..count {
+        let key = match signed_bits {
+            8 => {
+                let value = internal as u8;
+                i32::from(value as i8)
+            }
+            16 => {
+                let value = internal as u16;
+                i32::from(value as i16)
+            }
+            _ => internal as i32,
+        };
+        keys.insert(key);
+    }
+    keys.keys_in_iteration_order()
+        .into_iter()
+        .map(|key| match signed_bits {
+            8 => key as u8 as usize,
+            16 => key as u16 as usize,
+            _ => key as usize,
+        })
+        .collect()
 }
 
 fn get_nibble(bytes: &[u8], index: usize) -> u16 {

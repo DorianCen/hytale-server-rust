@@ -103,6 +103,16 @@ pub struct GeneratedChunk {
     /// Java's `GeneratedChunkSection[] chunkSections` where an unwritten
     /// section is `null`.
     initialized_sections: u32,
+    /// First-use order of the non-zero filler values in every section.
+    ///
+    /// Java's `GeneratedChunkSection.fillers` is a live `AbstractSectionPalette`
+    /// whose internal ids are handed out by the order `setBlock` observes the
+    /// values. That order is visible in the section's network/storage bytes, so
+    /// the flattened Rust model keeps this small side table to reconstruct the
+    /// palette in `ChunkColumn::from_generated_chunk`.
+    filler_first_use: Vec<Vec<i32>>,
+    /// First-use order of the non-zero rotation values in every section.
+    rotation_first_use: Vec<Vec<i32>>,
 }
 
 impl GeneratedChunk {
@@ -126,6 +136,8 @@ impl GeneratedChunk {
             fluid: vec![EMPTY_FLUID_ID; BLOCK_COUNT],
             fluid_level: vec![0; BLOCK_COUNT],
             initialized_sections: 0,
+            filler_first_use: vec![Vec::new(); SECTION_COUNT as usize],
+            rotation_first_use: vec![Vec::new(); SECTION_COUNT as usize],
         }
     }
 
@@ -263,6 +275,34 @@ impl GeneratedChunk {
         self.blocks[index] = block_id;
         self.rotation[index] = rotation;
         self.filler[index] = filler;
+
+        let section = section as usize;
+        if filler != NO_FILLER && !self.filler_first_use[section].contains(&filler) {
+            self.filler_first_use[section].push(filler);
+        }
+        if rotation != ROTATION_NONE_INDEX && !self.rotation_first_use[section].contains(&rotation)
+        {
+            self.rotation_first_use[section].push(rotation);
+        }
+    }
+
+    /// First-use order of the non-zero filler values in `section`
+    /// (Java `GeneratedChunkSection.fillers` internal-id order).
+    #[inline]
+    pub fn filler_first_use(&self, section: i32) -> &[i32] {
+        if !(0..SECTION_COUNT).contains(&section) {
+            return &[];
+        }
+        &self.filler_first_use[section as usize]
+    }
+
+    /// First-use order of the non-zero rotation values in `section`.
+    #[inline]
+    pub fn rotation_first_use(&self, section: i32) -> &[i32] {
+        if !(0..SECTION_COUNT).contains(&section) {
+            return &[];
+        }
+        &self.rotation_first_use[section as usize]
     }
 
     /// Java `FluidSection.setFluid(int x, int y, int z, int fluidId, byte level)`.

@@ -4,12 +4,14 @@
 //! the runtime section/palette model used by networking and storage.
 
 pub mod column;
+pub mod packet;
 pub mod palette;
 pub mod section;
+pub mod tint;
 
 pub use column::{
     ChunkColumn, ChunkFlags, ChunkSection, Heightmap, BLOCK_COUNT as COLUMN_BLOCK_COUNT,
-    COLUMN_COUNT, SECTION_COUNT,
+    COLUMN_COUNT, NO_HEIGHT, SECTION_COUNT,
 };
 pub use palette::{
     ByteKey, KeyCodec, Palette, PaletteEntry, PaletteError, PaletteType, SetResult, ShortKey,

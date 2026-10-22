@@ -228,3 +228,61 @@ Format:
   - T14 full protocol codegen (389 packets, registry, `ProtocolSettings`).
   - T12 should pin the block-key width, light octree bytes, and environment
     name mapping against Java output.
+
+---
+
+## Session 4 — Java-compatible chunk packet encoders (2026-10-22)
+
+- **Goal:** consume the generated protocol types in `hytale-world`, encode the
+  initial chunk packet set, and match T12's Java payloads byte-for-byte.
+- **Landed:**
+  - `hytale-world::chunk::packet` builds `SetColumn`, `SetChunkTintmap`,
+    `SetChunk`, `SetChunkEnvironments` and `SetFluids` from a runtime
+    `ChunkColumn` with the same field semantics as the CoreServer builders
+    (all-air sections send `data = null`, empty local light is still sent, and
+    global light stays disabled like `BlockChunk.SEND_GLOBAL_LIGHTING_DATA`).
+  - `ChunkColumn` now owns a Java `IntBytePalette` port for the tint map; the
+    serialized key order is the generator's first-use order.
+  - `ChunkColumn::from_generated_chunk_with_registries` computes the legacy
+    heightmap from block opacity (`GetOpacity.FROM_SECTION`: id 0 and missing
+    ids are transparent). `Heightmap::Legacy` now stores `i32` so `NO_HEIGHT`
+    survives.
+  - `worldgen-model::GeneratedChunk` records the first-use order of non-zero
+    filler and rotation values per section. Java builds those palettes with
+    live `set` calls, so this order is observable in the packet bytes; the
+    flat Rust generation buffer had lost it.
+  - `Palette` reproduces Java's fastutil iteration order: the generated block
+    palette replays the `Int2ShortOpenHashMap` run-count map, and all palette
+    serializers walk `Byte2IntOpenHashMap`/`Short2IntOpenHashMap` slots in
+    fastutil's descending order (null key first). This also fixes the
+    storage-layout entry order, which uses the same maps.
+  - `crates/hytale-world/tests/chunk_packets_golden.rs` regenerates seed 0
+    chunks `(0,0)` and `(4,-5)`, converts them through the runtime model, and
+    byte-compares all 46 committed payloads.
+  - Tint/palette unit tests cover the packed layout and first-use ordering.
+- **Verified:**
+  - `cargo test -p hytale-world` green, including the 46-packet golden test
+    with the base-game pack present.
+  - `cargo test -p worldgen-model -p worldgen-hytale` green (all existing
+    worldgen goldens unchanged).
+  - `cargo clippy -p hytale-world -p worldgen-model --all-targets -- -D
+    warnings` green.
+  - `cargo fmt --all -- --check` green.
+- **Deviations:**
+  - The Java block palette order comes from fastutil's hash-table slot order,
+    not a sorted id order. The port now models the exact table growth
+    (`arraySize`/`maxFill`, rehash after `size > maxFill`, null key first,
+    descending slot iteration) instead of claiming a Rust-owned order.
+  - Filler/rotation palettes use a recorded first-use list rather than carrying
+    a full Java palette through world generation. This matches the committed
+    Java chunks; a value that appears, disappears and reappears across a
+    promotion/demotion would need the live palette to be carried instead.
+  - `SetChunk` light uses the CoreServer default (`SEND_LOCAL_LIGHTING_DATA =
+    true`, `SEND_GLOBAL_LIGHTING_DATA = false`). A server option for global
+    light is not exposed yet.
+- **Follow-ups:**
+  - Asset registry and typed P0/P1 stores; the heightmap still reads the
+    opacity table from the golden registries instead of a loaded pack.
+  - BSON world storage and the Java-written region fixture.
+  - `SetColumn`/section packets for edited chunks should be re-checked against
+    a Java fixture after the asset registry owns the block ids.
