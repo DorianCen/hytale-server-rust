@@ -18,6 +18,10 @@ use crate::chunk::section::SectionError;
 use crate::chunk::storage::{
     parse_region_file_name, region_coords, region_path, ChunkCodec, ChunkStorageError, RegionFile,
 };
+use crate::player_data::{
+    PlayerData, PlayerDataError, PlayerStorage, PlayerTransform, Position, Rotation,
+};
+use crate::world_config::{WorldConfig, WorldConfigError, WorldUuid};
 
 /// Errors from the runtime world storage.
 #[derive(Debug, Error)]
@@ -34,6 +38,12 @@ pub enum WorldError {
     /// The save directory contains a file whose name is not a region file.
     #[error("invalid region file name: {0}")]
     InvalidRegionFile(String),
+    /// The world `config.json` failed.
+    #[error(transparent)]
+    Config(#[from] WorldConfigError),
+    /// A player save failed.
+    #[error(transparent)]
+    Player(#[from] PlayerDataError),
 }
 
 /// Result alias for the world storage.
@@ -319,5 +329,162 @@ impl World {
     /// Dirty chunk indexes, sorted.
     pub fn dirty_chunks(&self) -> Vec<i64> {
         self.dirty.iter().copied().collect()
+    }
+}
+
+/// A complete saved world: `config.json`, player files and chunk regions.
+///
+/// This is the boot-time bundle the live server will own. It loads or creates
+/// the world config, exposes the runtime [`World`] for chunks, and manages
+/// `<save>/players/` through [`PlayerStorage`]. Saving writes dirty chunks,
+/// then the config.
+#[derive(Debug)]
+pub struct WorldSave {
+    world: World,
+    config: WorldConfig,
+    players: PlayerStorage,
+    config_path: PathBuf,
+}
+
+impl WorldSave {
+    /// Open a save directory, loading `config.json` or creating one.
+    ///
+    /// `seed`, `display_name` and `uuid` are only used when the config does not
+    /// exist yet. Returns the bundle and whether a new config was created.
+    pub fn open(
+        save_dir: impl Into<PathBuf>,
+        seed: i64,
+        display_name: Option<String>,
+        uuid: WorldUuid,
+    ) -> Result<(Self, bool)> {
+        let save_dir = save_dir.into();
+        let config_path = WorldConfig::path_in(&save_dir);
+        let (config, created) = if config_path.is_file() {
+            (WorldConfig::load(&config_path)?, false)
+        } else {
+            let config = WorldConfig::new(uuid, seed, display_name);
+            config.save(&config_path)?;
+            (config, true)
+        };
+        let world = World::new(WorldStorage::new(save_dir.clone()));
+        let players = PlayerStorage::for_save_dir(&save_dir);
+        Ok((
+            Self {
+                world,
+                config,
+                players,
+                config_path,
+            },
+            created,
+        ))
+    }
+
+    /// Build a bundle from an already-created world and config.
+    pub fn with_config(world: World, config: WorldConfig) -> Self {
+        let config_path = WorldConfig::path_in(world.storage().save_dir());
+        let players = PlayerStorage::for_save_dir(world.storage().save_dir());
+        Self {
+            world,
+            config,
+            players,
+            config_path,
+        }
+    }
+
+    /// The runtime chunk world.
+    pub fn world(&self) -> &World {
+        &self.world
+    }
+
+    /// Mutable runtime chunk world.
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
+    }
+
+    /// The per-world config.
+    pub fn config(&self) -> &WorldConfig {
+        &self.config
+    }
+
+    /// Mutable config; call [`Self::save_config`] after changing it.
+    pub fn config_mut(&mut self) -> &mut WorldConfig {
+        &mut self.config
+    }
+
+    /// Player storage under `<save>/players/`.
+    pub fn players(&self) -> &PlayerStorage {
+        &self.players
+    }
+
+    /// Load a player, or create one at the config spawn point.
+    ///
+    /// Returns the holder and whether it was newly created (and written).
+    pub fn load_or_create_player(&mut self, uuid: WorldUuid) -> Result<(PlayerData, bool)> {
+        if let Some(data) = self.players.load(uuid)? {
+            return Ok((data, false));
+        }
+        let mut data = PlayerData::new(uuid, self.default_spawn());
+        data.set_world_gen_id(0);
+        self.players.save(uuid, &data)?;
+        Ok((data, true))
+    }
+
+    /// Write a player holder.
+    pub fn save_player(&self, uuid: WorldUuid, data: &PlayerData) -> Result<()> {
+        self.players.save(uuid, data)?;
+        Ok(())
+    }
+
+    /// Write `config.json`.
+    pub fn save_config(&self) -> Result<()> {
+        self.config.save(&self.config_path)?;
+        Ok(())
+    }
+
+    /// Save every dirty chunk, flush the region files and write the config.
+    pub fn save_all(&mut self, codec: &ChunkCodec<'_>) -> Result<usize> {
+        let saved = self.world.save_all(codec)?;
+        self.save_config()?;
+        Ok(saved)
+    }
+
+    /// The config file path.
+    pub fn config_path(&self) -> &Path {
+        &self.config_path
+    }
+
+    /// The save root.
+    pub fn save_dir(&self) -> &Path {
+        self.world.storage().save_dir()
+    }
+
+    fn default_spawn(&self) -> PlayerTransform {
+        let position = self
+            .config
+            .spawn_provider
+            .as_ref()
+            .and_then(|provider| provider.get("SpawnPoint"))
+            .and_then(|point| {
+                Some(Position {
+                    x: point.get("X")?.as_f64()?,
+                    y: point.get("Y")?.as_f64()?,
+                    z: point.get("Z")?.as_f64()?,
+                })
+            })
+            .unwrap_or(Position {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            });
+        // The config's spawn rotation is stored in degrees (Transform.CODEC_DEGREES);
+        // a new player starts facing the default direction.
+        PlayerTransform::new(
+            position,
+            Rotation {
+                pitch: 0.0,
+                yaw: 0.0,
+                roll: 0.0,
+            },
+        )
     }
 }

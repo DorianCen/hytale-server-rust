@@ -7,6 +7,7 @@
 
 pub mod headless;
 pub mod player_data_tool;
+pub mod world_boot;
 pub mod world_config_tool;
 pub mod world_tool;
 
@@ -14,6 +15,7 @@ pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, Headless
 pub use player_data_tool::{
     run as run_player_data_tool, PlayerDataToolError, PlayerDataToolOptions, PlayerDataToolReport,
 };
+pub use world_boot::{run as run_world_boot, WorldBootError, WorldBootOptions, WorldBootReport};
 pub use world_config_tool::{
     run as run_world_config_tool, WorldConfigToolError, WorldConfigToolOptions,
     WorldConfigToolReport,

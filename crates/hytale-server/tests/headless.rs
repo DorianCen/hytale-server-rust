@@ -4,7 +4,10 @@
 use std::path::PathBuf;
 
 use hytale_assets::{AssetPack, AssetRegistry};
-use hytale_server::{run_chunk_tool, run_headless, ChunkToolOptions, HeadlessOptions};
+use hytale_server::{
+    run_chunk_tool, run_headless, run_world_boot, ChunkToolOptions, HeadlessOptions,
+    WorldBootOptions,
+};
 use hytale_world::chunk::column::SECTION_COUNT;
 use hytale_world::chunk::storage::{chunk_blob_index, ChunkCodec, RegionFile};
 use hytale_world::chunk::NO_HEIGHT;
@@ -107,6 +110,44 @@ fn headless_boot_saves_a_reloadable_region_blob() {
     assert_eq!(tool.block_before, Some(0));
     assert_eq!(tool.block_after, Some(block_id));
     assert_eq!(tool.non_air_blocks, non_air + 1);
+
+    // Boot the complete save: load/create config and player, load the stored
+    // chunk, edit another block and write all three back.
+    let boot = run_world_boot(&WorldBootOptions {
+        assets_pack: options.assets_pack.clone(),
+        save_dir: save_dir.clone(),
+        seed: i64::from(options.seed),
+        display_name: Some("Headless Gate".to_string()),
+        world_uuid: None,
+        player_uuid: None,
+        set_block: Some((
+            options.chunk_x * 32 + 2,
+            251,
+            options.chunk_z * 32 + 2,
+            block_id,
+        )),
+    })
+    .expect("boot the complete save");
+    assert!(boot.config_created);
+    assert!(boot.player_created);
+    assert_eq!(boot.stored_chunks, 1);
+    assert_eq!(boot.loaded_chunks, 1);
+    assert_eq!(boot.saved_chunks, 1);
+    assert_eq!(
+        boot.block_edit,
+        Some((
+            options.chunk_x * 32 + 2,
+            251,
+            options.chunk_z * 32 + 2,
+            0,
+            block_id
+        ))
+    );
+    assert!(save_dir.join("config.json").is_file());
+    assert!(save_dir
+        .join("players")
+        .join(format!("{}.json", boot.player_uuid))
+        .is_file());
 
     std::fs::remove_dir_all(save_dir).ok();
 }

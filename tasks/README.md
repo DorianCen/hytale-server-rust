@@ -33,6 +33,7 @@ task done until its acceptance section is satisfied.
 | [T18](T18-world-storage-runtime.md) | Runtime world storage + Java reload gate | T16, T17 | medium | done (session 8) |
 | [T19](T19-world-config.md) | World config load/save + Java config gate | T18 | medium | done (session 9) |
 | [T20](T20-player-data.md) | Player save BSON + Java player gate | T19 | medium | done (session 10) |
+| [T21](T21-world-save-boot.md) | Complete saved-world boot + whole-save gate | T18, T19, T20 | medium | done (session 11) |
 
 ## Rules
 

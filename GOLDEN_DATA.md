@@ -212,6 +212,18 @@ The reverse gate needs no committed fixture: the CLI loads the Java file, writes
 a Rust one, and `run-player-data.sh --probe` deserializes it with the real
 `EntityStore` registry, checks the components, and re-serializes the holder.
 
+Session 11 added the whole-save gate:
+
+```sh
+tools/java-dumper/run-save-check.sh <save-dir> <chunkX> <chunkZ> \
+    <blockX> <blockY> <blockZ> <expected-block-name>
+```
+
+It runs the config probe, the player probe (first file under `players/`) and the
+chunk reload probe against one Rust-written save, and prints
+`whole-save check: ok` only when all three pass. `WorldSave` and
+`hytale-server world-boot` are the Rust side of that gate.
+
 ### 3.7 `trace/`
 
 A packet sequence captured from the Java server during a scripted join:
@@ -262,8 +274,8 @@ values in the golden, variable fields in the manifest’s ignore list.
 - **Fast (every commit):** worldgen unit/golden tests, protocol round-trips,
   wire primitives, storage synthetic fixture, asset resolver fixtures.
 - **Full (manual/nightly):** Java dumper regeneration, full asset packet dumps,
-  full protocol byte dumps, Java world/config/player read-back, client join
-  trace.
+  full protocol byte dumps, Java world/config/player read-back (including the
+  combined `run-save-check.sh`), client join trace.
 - **Long (release):** 24h soak, 100-bot load, save/load/crash-recovery matrix.
 
 The fast tier must stay under a few minutes on a developer machine. Do not put a

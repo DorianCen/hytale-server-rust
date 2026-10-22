@@ -667,3 +667,51 @@ Format:
   - Port `Player`/inventory/settings/skin component codecs as gameplay lands.
   - Generate-missing-chunks path on top of `World`.
   - Client-bot auth/setup/game with the packet-trace fixture.
+
+---
+
+## Session 11 — complete saved-world boot and the whole-save gate (2026-10-22)
+
+- **Goal:** compose the three saved-world parts (config, players, chunks) into
+  one boot path and verify a Rust-written save in all three places with Java.
+- **Landed:**
+  - `hytale-world::world::WorldSave`: opens a save root, loads `config.json` or
+    creates it, owns the runtime `World` and `PlayerStorage`,
+    `load_or_create_player` (using the config spawn point), `save_player`,
+    `save_config` and `save_all` (dirty chunks + config + flush).
+  - `WorldUuid::derive(seed, label)` moved into `world_config`; the config CLI and
+    the new boot share it.
+  - `hytale-server::world_boot` and `hytale-server world-boot`:
+    - load/create config and player;
+    - load every stored chunk;
+    - optional block edit;
+    - save dirty chunks + config and re-save the player holder.
+  - Tests:
+    - `crates/hytale-world/tests/world_save.rs` (config+player+chunk create and
+      reopen, spawn-point and existing-config cases);
+    - `crates/hytale-server/tests/world_boot.rs` (config/player create then
+      reopen);
+    - the existing `tests/headless.rs` now boots the complete save after
+      generation and applies a second block edit.
+  - `tools/java-dumper/run-save-check.sh`: one command that runs the config,
+    player and chunk Java probes against the same save directory.
+- **Verified:**
+  - `tools/java-dumper/run-save-check.sh target/save-smoke 4 -5 129 250 -159
+    Debug_Test_Block` printed `java world config check: ok`, `java player data
+    check: ok`, `java reload check: ok` and `whole-save check: ok`.
+  - `cargo test --workspace` (1098 passed), clippy and fmt are green.
+- **Deviations:**
+  - `world-boot` loads stored chunks but does not generate missing ones yet;
+    `headless` remains the generation path.
+  - It loads every stored chunk, not a view-radius demand set.
+  - A new config has no spawn provider, so a new player starts at the origin;
+    with a `Global`/`SpawnPoint` only the position is used (rotation starts at
+    zero).
+  - A new player gets `WorldGenId = 0`; gameplay components are not hydrated.
+  - `headless` still writes the chunk directly; the fixture setup uses the
+    dedicated config/player CLIs before `world-boot`.
+- **Follow-ups:**
+  - Generate missing chunks on boot and add `WorldGenRuntime`.
+  - Demand-load chunks around the player view radius.
+  - Hydrate the join player components and wire the live world thread.
+  - Client-bot auth/setup/game with the packet-trace fixture.

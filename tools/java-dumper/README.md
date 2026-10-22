@@ -176,6 +176,18 @@ holder, so a full Java player save round-trips before the gameplay component
 codecs land. See
 [`../../testdata/golden/server/player-data/README.md`](../../testdata/golden/server/player-data/README.md).
 
+## Whole-save check
+
+`run-save-check.sh` runs the config, player and chunk probes against one
+Rust-written save:
+
+```sh
+tools/java-dumper/run-save-check.sh target/save-smoke 4 -5 129 250 -159 Debug_Test_Block
+```
+
+It uses `config.json`, the first `players/*.json` and the region file for the
+given chunk. The Rust side is `WorldSave` / `hytale-server world-boot`.
+
 ## Live registry snapshot
 
 `RegistrySnapshot` writes the block / fluid / environment maps of the
@@ -234,6 +246,8 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 - `run-player-data.sh` – build + run entry point for the player holder fixture
   and probe (wraps `run.sh` with `WorldPlayerDumper`; `--check` runs the
   determinism gate).
+- `run-save-check.sh` – whole-save gate: config, player and chunk probes against
+  one save directory (no fixture is written).
 - `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
   (math/noise dumps).
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2

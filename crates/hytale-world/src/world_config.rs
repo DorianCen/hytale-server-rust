@@ -82,6 +82,32 @@ impl WorldUuid {
         Self { bytes }
     }
 
+    /// Deterministic UUID for a headless world or player label.
+    ///
+    /// Java generates random UUIDs for new worlds. Headless tools need a value
+    /// that is stable across runs, so this derives one from the seed and label
+    /// (FNV-1a expanded to 16 bytes, with the v4 version/variant bits set).
+    /// Existing configs and player files keep their UUIDs; this is only used
+    /// when a new document is created.
+    pub fn derive(seed: i64, label: &str) -> Self {
+        let mut bytes = [0u8; 16];
+        for (pass, chunk) in bytes.chunks_mut(8).enumerate() {
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            for byte in seed.to_le_bytes() {
+                hash ^= u64::from(byte) ^ pass as u64;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            for byte in label.bytes() {
+                hash ^= u64::from(byte) ^ pass as u64;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            chunk.copy_from_slice(&hash.to_be_bytes());
+        }
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Self { bytes }
+    }
+
     /// The 16 big-endian bytes.
     pub const fn as_bytes(&self) -> &[u8; 16] {
         &self.bytes

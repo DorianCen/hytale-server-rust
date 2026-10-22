@@ -136,6 +136,10 @@ For the server, “exact” also applies to:
 - Player saves go through `hytale-world::player_data`. Keep the
   `{"Components": ...}` holder shape, type only components the server owns, and
   preserve every other component verbatim until its system is ported.
+- A bootable save is a `hytale-world::world::WorldSave`: `config.json`,
+  `players/` and `chunks/` belong together. Save dirty chunks through its
+  `World`, then the config/player documents; do not write the three parts from
+  unrelated code paths.
 
 ---
 

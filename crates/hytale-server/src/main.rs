@@ -9,8 +9,9 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use hytale_server::{
-    run_chunk_tool, run_headless, run_player_data_tool, run_world_config_tool, ChunkToolOptions,
-    HeadlessOptions, PlayerDataToolOptions, WorldConfigToolOptions,
+    run_chunk_tool, run_headless, run_player_data_tool, run_world_boot, run_world_config_tool,
+    ChunkToolOptions, HeadlessOptions, PlayerDataToolOptions, WorldBootOptions,
+    WorldConfigToolOptions,
 };
 use hytale_world::player_data::{Position, Rotation};
 
@@ -33,6 +34,8 @@ enum Command {
     WorldConfig(WorldConfigArgs),
     /// Load or create a player save (`players/<uuid>.json`).
     PlayerData(PlayerDataArgs),
+    /// Boot a complete save: config, player and stored chunks.
+    WorldBoot(WorldBootArgs),
 }
 
 #[derive(Debug, Args)]
@@ -129,6 +132,31 @@ struct PlayerDataArgs {
     world_gen_id: i32,
 }
 
+#[derive(Debug, Args)]
+struct WorldBootArgs {
+    /// Asset pack (zip or unpacked directory) for the chunk codec.
+    #[arg(long, default_value = "Assets/Assets.zip")]
+    assets_pack: PathBuf,
+    /// World save root (`config.json`, `chunks/`, `players/`).
+    #[arg(long, default_value = "target/headless-world")]
+    save: PathBuf,
+    /// Seed used only when a new config is created.
+    #[arg(long, default_value_t = 0)]
+    seed: i64,
+    /// Display name used only when a new config is created.
+    #[arg(long)]
+    name: Option<String>,
+    /// World UUID used only when a new config is created.
+    #[arg(long)]
+    uuid: Option<String>,
+    /// Player to load or create.
+    #[arg(long)]
+    player_uuid: Option<String>,
+    /// Optional block edit as `x,y,z,block_id` in world coordinates.
+    #[arg(long, value_parser = parse_block)]
+    set_block: Option<(i32, i32, i32, i32)>,
+}
+
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
     let (x, z) = value
         .split_once(',')
@@ -169,6 +197,7 @@ fn main() -> ExitCode {
         Some(Command::LoadChunk(args)) => run_load_chunk_command(args),
         Some(Command::WorldConfig(args)) => run_world_config_command(args),
         Some(Command::PlayerData(args)) => run_player_data_command(args),
+        Some(Command::WorldBoot(args)) => run_world_boot_command(args),
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -239,6 +268,45 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
         }
         Err(error) => {
             eprintln!("load-chunk failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
+    let options = WorldBootOptions {
+        assets_pack: args.assets_pack,
+        save_dir: args.save,
+        seed: args.seed,
+        display_name: args.name,
+        world_uuid: args.uuid,
+        player_uuid: args.player_uuid,
+        set_block: args.set_block,
+    };
+    match run_world_boot(&options) {
+        Ok(report) => {
+            println!(
+                "world boot {}: uuid={} seed={} config_created={}",
+                report.save_dir.display(),
+                report.world_uuid,
+                report.seed,
+                report.config_created
+            );
+            println!(
+                "player {} (created: {})",
+                report.player_uuid, report.player_created
+            );
+            println!(
+                "chunks: stored={} loaded={} saved={}",
+                report.stored_chunks, report.loaded_chunks, report.saved_chunks
+            );
+            if let Some((x, y, z, before, after)) = report.block_edit {
+                println!("block edit ({x}, {y}, {z}): {before} -> {after}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("world-boot failed: {error}");
             ExitCode::FAILURE
         }
     }
