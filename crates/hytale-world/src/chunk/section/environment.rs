@@ -3,13 +3,16 @@
 //! Ported from `CoreServer/.../world/chunk/section/EnvironmentSection.java`.
 //!
 //! The storage format is a palette plus uniform/column/dedup modes. Java writes
-//! palette keys as asset-name strings; until the environment registry lands this
-//! port writes numeric runtime ids as varints and reads the same form. The
-//! structural tags, run records and packed dedup refs match Java.
+//! palette keys as asset-name strings; [`EnvironmentSection::serialize_with_lookup`]
+//! and [`EnvironmentSection::deserialize_with_lookup`] take a
+//! [`NameLookup`]. The plain `serialize`/`deserialize` methods use numeric
+//! runtime ids for tests that do not need the asset registry.
 
 use std::collections::BTreeSet;
 
 use hytale_protocol::io::{Reader, Writer};
+
+use crate::chunk::palette::NameLookup;
 
 use super::{Result, SectionError};
 
@@ -187,11 +190,38 @@ impl EnvironmentSection {
 
     /// Storage bytes (palette + uniform/column/dedup mode).
     pub fn serialize(&self) -> Result<Vec<u8>> {
+        self.serialize_with(&|writer, environment| Ok(writer.write_varint(environment as u32)?))
+    }
+
+    /// Storage bytes with Java asset-name palette keys.
+    ///
+    /// Java writes each environment asset key as a big-endian length-prefixed
+    /// UTF-8 string. `fallback_name` is used for ids missing from the
+    /// registry, matching `EnvironmentSection.keyFor`.
+    pub fn serialize_with_lookup(
+        &self,
+        lookup: &dyn NameLookup,
+        fallback_name: &str,
+    ) -> Result<Vec<u8>> {
+        self.serialize_with(&|writer, environment| {
+            let name = lookup.name_of(environment).unwrap_or(fallback_name);
+            let length = u16::try_from(name.len())
+                .map_err(|_| SectionError::InvalidData("environment name too long"))?;
+            writer.write_u16_be(length);
+            writer.write_slice(name.as_bytes());
+            Ok(())
+        })
+    }
+
+    fn serialize_with(
+        &self,
+        write_entry: &dyn Fn(&mut Writer, i32) -> Result<()>,
+    ) -> Result<Vec<u8>> {
         let mut writer = Writer::new();
         let Some(values) = &self.values else {
             let environment = self.uniform.unwrap_or(0);
             writer.write_varint(1)?;
-            write_palette_entry(&mut writer, environment);
+            write_entry(&mut writer, environment)?;
             writer.write_u8(STORAGE_UNIFORM);
             writer.write_varint(0)?;
             return Ok(writer.into_inner());
@@ -209,7 +239,7 @@ impl EnvironmentSection {
         }
         writer.write_varint(palette.len() as u32)?;
         for environment in &palette {
-            write_palette_entry(&mut writer, *environment);
+            write_entry(&mut writer, *environment)?;
         }
         writer.write_u8(STORAGE_COLUMNS);
         for column in 0..COLUMNS {
@@ -253,6 +283,27 @@ impl EnvironmentSection {
 
     /// Decode the storage layout.
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+        Self::deserialize_with(bytes, &mut |reader| Ok(reader.read_varint()? as i32))
+    }
+
+    /// Decode the storage layout with Java asset-name palette keys.
+    pub fn deserialize_with_lookup(
+        bytes: &[u8],
+        lookup: &dyn NameLookup,
+        fallback_id: i32,
+    ) -> Result<Self> {
+        Self::deserialize_with(bytes, &mut |reader| {
+            let length = reader.read_u16_be()? as usize;
+            let name = std::str::from_utf8(reader.read_slice(length)?)
+                .map_err(|_| SectionError::InvalidData("environment name is not UTF-8"))?;
+            Ok(lookup.id_of(name).unwrap_or(fallback_id))
+        })
+    }
+
+    fn deserialize_with(
+        bytes: &[u8],
+        read_entry: &mut dyn FnMut(&mut Reader<'_>) -> Result<i32>,
+    ) -> Result<Self> {
         let mut reader = Reader::new(bytes);
         let palette_count = reader.read_varint()? as usize;
         if palette_count == 0 || palette_count > BLOCKS {
@@ -262,7 +313,7 @@ impl EnvironmentSection {
         }
         let mut palette = Vec::with_capacity(palette_count);
         for _ in 0..palette_count {
-            palette.push(read_palette_entry(&mut reader)?);
+            palette.push(read_entry(&mut reader)?);
         }
         let mode = reader.read_u8()?;
         let section = match mode {
@@ -360,14 +411,6 @@ impl EnvironmentSection {
             })),
         }
     }
-}
-
-fn write_palette_entry(writer: &mut Writer, environment: i32) {
-    let _ = writer.write_varint(environment as u32);
-}
-
-fn read_palette_entry(reader: &mut Reader<'_>) -> Result<i32> {
-    Ok(reader.read_varint()? as i32)
 }
 
 fn runs_for(values: &[i32], column: usize) -> Vec<(u8, i32)> {

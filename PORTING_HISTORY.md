@@ -286,3 +286,134 @@ Format:
   - BSON world storage and the Java-written region fixture.
   - `SetColumn`/section packets for edited chunks should be re-checked against
     a Java fixture after the asset registry owns the block ids.
+
+---
+
+## Session 5 — P0 asset registry and typed stores (2026-10-22)
+
+- **Goal:** load the P0 asset stores from the unmodified pack, assign numeric
+  ids once, expose the typed fields the world generator/heightmap need, and
+  bridge them into `worldgen-model`.
+- **Landed:**
+  - `hytale-assets::registry` with `AssetRegistry::load_p0`, `StoreSpec`/
+    `MapKind`, `AssetCollection`/`AssetRecord`, preloaded assets and the P0
+    store specs.
+  - `AssetPack::list_in_storage_order` (zip central-directory order) and
+    `read_many` (one zip open per store instead of one per file).
+  - `MergeHook::Shallow`/`merge_shallow`: Java `AssetBuilderCodec` field
+    replacement (child field replaces the inherited field; absent fields are
+    inherited). The existing recursive `Replace` remains available for stores
+    that document it.
+  - Id assignment reproduces the Java file-backed load order: preloads, reverse
+    zip walk, non-parented first batch, then parented waves in Java
+    `ConcurrentHashMap` slot/insertion order with the table capacity fixed by
+    the original waiting count. `BlockBoundingBoxes`, `Fluid`, `Environment`
+    and `PhysicalMaterial` ids match `assets/index.json` exactly.
+  - `BlockType` extraction from item documents, including item `State` keys and
+    nested `State.Definitions` keys (`*`/`**` prefixes), string definitions as
+    references, and item-parent inheritance for contained block types.
+  - Typed `BlockTypeAsset` (draw type, opacity, material, support map) with all
+    64 `RotationTuple` support probes, including `MergedBlockFaces` aliases,
+    `RequiredBlockFaceSupport.Rotate`, Java's plant default support and the
+    `@Tech` exclusion. Typed `FluidAsset` (`MaxFluidLevel`).
+  - `hytale-world::registry::registries_from_assets`: asset snapshot →
+    `worldgen-model::registry::Registries`, preserving names, ids, draw type,
+    opacity and rotated support.
+  - Fixture tests for loading/ids/inheritance/item-state extraction and
+    real-pack gates for exact simple-store ids and every `registries.json`
+    block's semantics.
+- **Verified:**
+  - `cargo test -p hytale-assets` green, including the real-pack registry tests.
+  - `cargo test -p hytale-world` green, including the 46-packet chunk golden.
+  - `cargo clippy -p hytale-assets -p hytale-world --all-targets -- -D warnings`
+    green.
+  - `cargo fmt --all -- --check` green.
+  - Real pack: all 6135 golden block names resolve; draw type, opacity and all
+    64 support probes match `registries.json` for every one; no golden key is
+    missing. The only extras are the known Java load-failure keys
+    (`ExamplePrefabPlacementBlock_Tree`, two `PortalKey_*` blocks).
+- **Deviations:**
+  - `BlockType`/`Item` numeric ids are Rust-owned. Java groups contained assets
+    through `HashMap`s in `AssetStore.loadContainedAssets`; those ids are not a
+    stable content order (the golden README documents schedule-dependent
+    sibling swaps). The Rust snapshot matches all names/fields and keeps one
+    consistent id table for generation, packets and storage. The first five
+    block ids (preloads + `Debug_Test_Block`) still match Java.
+  - Asset packet bytes for `BlockType`/`Item` therefore cannot be compared to
+    the Java goldens until the Java contained-asset order is modelled or the
+    comparison accepts the Rust id order.
+- **Follow-ups:**
+  - Wire `registries_from_assets` into the headless server boot and the
+    `ChunkColumn::from_generated_chunk_with_registries` path.
+  - P1 stores and the 39 asset packet encoders.
+  - BSON world storage and the Java-written region fixture.
+
+---
+
+## Session 6 — BSON chunk storage and the Java world fixture (2026-10-22)
+
+- **Goal:** persist runtime chunk columns in the vanilla Java world layout and
+  prove the codec against a Java-written `IndexedStorage` save.
+- **Landed:**
+  - `hytale-world::chunk::storage`:
+    - `ChunkCodec` encodes/decodes the Java `ChunkStore` holder document
+      (`Components` → `WorldChunk`, `BlockChunk`, `ChunkColumn` sections,
+      `HeightmapColumn`).
+    - Section storage uses the Java layouts: block/fluid/environment palette
+      keys are asset names, fillers use big-endian `u16` keys, rotations use
+      `u8`; block ticking, both light blobs, change counters and the sky-lit
+      stamp are preserved.
+    - `BlockChunk.Data` preserves `needsPhysics` and the tint palette.
+    - Legacy heightmaps encode/decode the packed 10-bit `ShortBytePalette`
+      (all 1024 columns, including the last packed value).
+    - Region helpers: `region_coords`, `chunk_blob_index`,
+      `region_file_name`, `region_path`, and `RegionFile` (create/open/read/
+      write/remove/flush over `IndexedStorageFile`, 1024 blobs by default).
+  - `ChunkColumn` gained `needs_physics` and tint-palette accessors.
+  - `palette::NameLookup` / `NamedKey` and section `serialize_with_*` /
+    `deserialize_with_*` methods. The numeric defaults remain for tests that do
+    not load assets; Java-compatible storage uses the named path.
+  - `EnvironmentSection` storage gained `serialize_with_lookup` /
+    `deserialize_with_lookup`; the existing dedup decoder is reused.
+  - `StorageDumper` + `run-storage.sh` produce
+    `testdata/golden/server/storage/java-world/`: two real Java region files for
+    seed-0 chunks `(0,0)` and `(4,-5)` plus a manifest. The dumper calls
+    `ChunkStore.REGISTRY.serialize(holder)` and `BsonUtil.writeToBytes`.
+  - `crates/hytale-world/tests/chunk_storage.rs` decodes both chunks and checks
+    every block, filler, rotation, fluid level, environment, the tint and the
+    legacy heightmap against the Rust-generated chunk; a second test round-trips
+    a runtime column through BSON and an on-disk region file.
+- **Verified:**
+  - `cargo test -p hytale-world` green, including the 46 chunk-packet goldens,
+    the new storage fixture gate and the asset-free unit tests.
+  - `cargo clippy -p hytale-world --all-targets -- -D warnings` green.
+  - `cargo fmt --all -- --check` green.
+  - `tools/java-dumper/run-storage.sh --check` green: two isolated runs are
+    byte-identical and match the committed fixture.
+- **Deviations:**
+  - `BlockChunk.Data` is decoded for `needsPhysics` and tint, but the legacy
+    `EnvironmentChunk` component is not part of the save (Java never writes it);
+    `ChunkColumn::environment_column` is not persisted and decodes as `Unknown`.
+    Per-block environments come from the section components.
+  - The Java fixture still uses the golden registry ids for generated blocks
+    (the generator loads `registries.json` internally). The storage codec
+    resolves names back through whichever `NameLookup` the caller supplies;
+    the fixture gate uses the golden lookup, while the runtime path uses the
+    asset registry. Both paths agree on names.
+  - The storage codec implements only the legacy heightmap backend; a
+    `Heightmap::Tree` column returns a documented `Unsupported` error instead
+    of writing a non-Java document. The seed-0 fixture uses Legacy.
+  - A generated palette's fastutil table order is not stable across a
+    save/load cycle (Java rebuilds the map on deserialize), so the Rust
+    round-trip test asserts steady-state stability after one load, not
+    byte-identical bytes between the first and second save.
+  - `ShortKey` now writes big-endian keys; it was little-endian-only before and
+    no storage path used it until this session.
+- **Follow-ups:**
+  - Player BSON matching `DiskPlayerStorageProvider` (`<uuid>.json`, an
+    `EntityStore` holder document) and a Java-written player fixture.
+  - `World.json`/`WorldConfig` load, and the mutate → Rust save → Java reload
+    compatibility check.
+  - Use one registry for generation, packets and storage; the generator still
+    resolves block ids from `registries.json`.
+  - P1 stores and the asset packet encoders.

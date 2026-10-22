@@ -1,28 +1,34 @@
-# Next steps — CoreServer rewrite, session 4
+# Next steps — CoreServer rewrite, session 7
 
-**Status:** sessions 1–4 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–6 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
-chunk sections, client-bot skeleton, P0 asset-packet goldens and Java
-chunk-packet goldens are in place. Session 4 added the runtime chunk packet
-encoders and a 46-payload byte-for-byte golden test. See
+chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
+goldens, the runtime chunk packet encoders and the P0 asset registry are in
+place. Session 6 added Java-compatible BSON chunk storage
+(`hytale-world::chunk::storage`), region files, name-keyed section storage, the
+legacy heightmap codec and a real Java world-save fixture. See
 [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
 [`tasks/README.md`](tasks/README.md).
 
-**Next up:** the first vertical slice.
+**Next up:** finish the first vertical slice.
 
-1. Asset registry and typed P0/P1 stores (`BlockType`, `Fluid`, `Environment`,
-   `Item`, …) backed by the existing `asset.json`/index goldens; deterministic
-   id assignment is the gate. This replaces the golden-registry stand-in used
-   by the chunk heightmap and unblocks real asset packet encoders.
-2. Runtime world storage: BSON chunk/player codecs on top of
-   `IndexedStorageFile`, validated by a Java-written world fixture.
+1. ~~P0 asset registry and typed stores (`BlockType`, `Fluid`, `Environment`,
+   `Item`, …) with deterministic id assignment.~~ Done in session 5. P1 stores
+   and the asset packet encoders are the remaining asset work; `BlockType`
+   packet bytes still need the Java contained-asset load order.
+2. ~~Runtime world storage: BSON chunk codecs on top of `IndexedStorageFile`,
+   validated by a Java-written world fixture.~~ Chunks done in session 6.
+   Remaining: player BSON (`DiskPlayerStorageProvider`), `World.json`/world
+   config, and the mutate → Rust save → Java reload compatibility check.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
-   `hytale-assets` packet encoders still need their `assets/*.bin` comparison
-   once the typed stores land.
+   `hytale-assets` packet encoders still need their `assets/*.bin` comparison.
 4. Wire `hytale-world` + `worldgen-server` into a headless boot that loads a
    world, generates one chunk, converts it to a runtime chunk, and saves a
-   region blob.
+   region blob. The storage codec and the asset-registry bridge now exist; the
+   boot must load the asset pack once and use the same registry for generation,
+   packets and storage (the generator still resolves block ids from
+   `registries.json`).
 5. Extend `client-bot` from the connection handshake into auth/setup/game with
    the packet-trace fixture.
 
@@ -99,7 +105,8 @@ the asset pipeline. The chunk-section backlog (T10b/T10c) is in
   177 enums** (or documents every intentional discrepancy).
 - `crates/hytale-protocol` has passing tests for the wire primitives and framing.
 - `crates/hytale-storage` reads and writes a synthetic `IndexedStorageFile` whose
-  bytes match a Java-produced fixture.
+  bytes match a Java-produced fixture, and `hytale-world::chunk::storage`
+  decodes the Java world-save fixture into the generated column.
 - `tools/asset-golden-dumper/asset-stores.md` lists all 54 stores and flags the
   P0/P1 subset.
 - No Java source has been modified. No generated Rust file is hand-edited;

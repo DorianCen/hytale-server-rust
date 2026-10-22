@@ -7,12 +7,13 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
 - **Goal:** a Rust server that loads unmodified Hytale assets, hosts worlds,
   speaks the matching Hytale protocol to a vanilla client, and reads/writes
   vanilla `IndexedStorage` saves.
-- **Status:** session 4 landed the runtime chunk packet encoders (`SetColumn`,
-  `SetChunkTintmap`, `SetChunk`, `SetChunkEnvironments`, `SetFluids`) and a
-  golden test that matches all 46 committed Java payloads byte-for-byte, on top
-  of session 3's full protocol codegen and chunk-packet goldens. Asset
-  registry/typed stores, world storage, server wiring and join are still open;
-  see [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
+- **Status:** session 6 landed Java-compatible BSON chunk storage
+  (`hytale-world::chunk::storage`), region files, name-keyed section storage, the
+  legacy heightmap codec and a real Java world-save fixture. That sits on
+  session 5's P0 asset registry, session 4's runtime chunk packet encoders (all
+  46 committed Java payloads match byte-for-byte) and session 3's full protocol
+  codegen. Player BSON, the headless boot and the join path are still open; see
+  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
@@ -172,7 +173,11 @@ Components:
   types for computed/discriminated assets. Do not port the Java `Codec` library.
 - **Index maps**: `DefaultAssetMap`, `IndexedAssetMap`,
   `IndexedLookupTableAssetMap`, `BlockTypeAssetMap` equivalents. Id assignment is
-  deterministic and owned by the Rust pipeline.
+  deterministic and owned by the Rust pipeline. `hytale-assets::registry`
+  reproduces the Java load order for file-backed stores (including the
+  `ConcurrentHashMap` waiting-asset wave); block types contained in item
+  documents use the Rust snapshot's own order after the preloads and standalone
+  block files.
 - **Packet encoders**: one per store, matching the Java `toPacket()` output; the
   39 asset packet types are golden-tested byte-for-byte (one per store that has
   a packet generator).
@@ -253,12 +258,16 @@ Target: vanilla `IndexedStorage` compatibility.
   `ChunkUtil.indexColumn(localX, localZ)`.
 - Chunk payloads: BSON documents of ECS components, using the Java component
   names and `Data` byte arrays. The section bytes are the exact palette blobs
-  from §5.
+  from §5. Implemented by `hytale_world::chunk::storage::ChunkCodec` and
+  `RegionFile`; block/fluid/environment palettes store asset names, and the
+  legacy heightmap uses `ShortBytePalette`.
 - Player data: `DiskPlayerStorageProvider` layout.
 - World config: `World.json`/config fields used by `WorldConfig`.
 
 A Java-written world fixture is the compatibility gate: read it in Rust, mutate,
 write, then read it in Java and compare. RocksDB support is not part of v1.
+The read side is landed (`testdata/golden/server/storage/java-world/`); the
+mutate → Java-reload half is the remaining gate.
 
 ---
 
@@ -304,13 +313,13 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../world/worldgen/IWorldGen` | `worldgen-server` adapter | ported |
 | `Protocol/**` generated | `hytale-protocol` | full codegen landed (M1): 389 packets, registry, `ProtocolSettings`, round-trip gate |
 | `Protocol/.../io/*` wire helpers | `hytale-protocol::io` | varint/fixed/UUID/strings/bitsets/framing/zstd + big-endian storage accessors landed (M1) |
-| `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); typed stores pending |
-| `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2) |
+| `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); P0 registry/typed stores and the `worldgen-model` bridge landed (M2) |
+| `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
 | `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette and the `SetColumn`/`SetChunk`/tint/environment/fluid packet builders landed (M3); all 46 `chunks-pkts` payloads match Java byte-for-byte |
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` | planned (M3) |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
-| `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world` | planned (M3) |
+| `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::chunk::storage` | `IndexedStorageFile` container landed (M3); BSON chunk holder codec, named-palette storage, legacy heightmap and region files landed; Java world fixture gate green (M3). Player BSON pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` | QUIC mTLS spike + `PeerIdentity` landed (M4); packet decoding/session pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | planned (M4) |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |

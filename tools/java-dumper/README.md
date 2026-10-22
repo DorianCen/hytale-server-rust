@@ -85,6 +85,22 @@ See
 [`../../testdata/golden/server/chunks-pkts/README.md`](../../testdata/golden/server/chunks-pkts/README.md)
 for the manifest schema, packet list and `sentAtInit` semantics.
 
+## World-storage dump
+
+`StorageDumper` builds the same seed-0 chunks through the server's runtime chunk
+model, serializes the `ChunkStore` holder with the real BSON component codec, and
+writes the bytes into Java `IndexedStorageFile` region files:
+
+```sh
+tools/java-dumper/run-storage.sh                     # write testdata/golden/server/storage/java-world/
+tools/java-dumper/run-storage.sh /tmp/storage-golden  # arbitrary output directory
+tools/java-dumper/run-storage.sh --check              # two isolated runs + diff
+```
+
+See
+[`../../testdata/golden/server/storage/README.md`](../../testdata/golden/server/storage/README.md)
+for the layout and the Rust gate.
+
 ## Live registry snapshot
 
 `RegistrySnapshot` writes the block / fluid / environment maps of the
@@ -133,6 +149,8 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   (wraps `run.sh` with `AssetDumper`; `--check` runs the determinism gate).
 - `run-chunks.sh` – build + run entry point for the chunk-packet dump
   (wraps `run.sh` with `ChunkPacketDumper`; `--check` runs the determinism gate).
+- `run-storage.sh` – build + run entry point for the Java world-storage dump
+  (wraps `run.sh` with `StorageDumper`; `--check` runs the determinism gate).
 - `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
   (math/noise dumps).
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
@@ -150,6 +168,9 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   chunk-packet dump (`testdata/golden/server/chunks-pkts/`): real Java packets
   for seed 0 chunks `(0,0)` and `(4,-5)` from the same world boot as
   `ChunkDumper`.
+- `src/main/java/com/hypixel/hytale/tools/golden/StorageDumper.java` – the Java
+  world save (`testdata/golden/server/storage/java-world/`): real BSON chunk
+  documents written into `IndexedStorageFile` region files.
 - `src/main/java/com/hypixel/hytale/tools/golden/LoaderDumper.java` – the loader-chain
   dump (`loader.json`): the real Default-world `ChunkGeneratorJsonLoader` walk
   (zone requirements, seed chains, caves, biome containers) for the fixed seeds.

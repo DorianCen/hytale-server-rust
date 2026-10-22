@@ -10,6 +10,7 @@ hytale-math = { path = "../hytale-math" }
 hytale-protocol = { path = "../hytale-protocol" }
 hytale-storage = { path = "../hytale-storage" }
 thiserror = { workspace = true }
+bson = { workspace = true }
 worldgen-hytale = { path = "../worldgen-hytale" }
 worldgen-model = { path = "../worldgen-model" }
 worldgen-server = { path = "../worldgen-server" }

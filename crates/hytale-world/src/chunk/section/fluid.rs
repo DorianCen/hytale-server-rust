@@ -6,7 +6,7 @@
 
 use hytale_protocol::io::{Reader, Writer};
 
-use crate::chunk::palette::{ByteKey, Palette, PaletteType, SetResult, BLOCK_COUNT};
+use crate::chunk::palette::{ByteKey, KeyCodec, Palette, PaletteType, SetResult, BLOCK_COUNT};
 
 use super::{Result, SectionError};
 
@@ -152,9 +152,14 @@ impl FluidSection {
 
     /// Java `serialize` (storage).
     pub fn serialize(&self) -> Result<Vec<u8>> {
+        self.serialize_with_key(&ByteKey)
+    }
+
+    /// Java `serialize` with an explicit storage key codec.
+    pub fn serialize_with_key(&self, key: &dyn KeyCodec) -> Result<Vec<u8>> {
         let mut writer = Writer::new();
         writer.write_u8(self.fluids.ordinal());
-        self.fluids.serialize(&ByteKey, &mut writer)?;
+        self.fluids.serialize(key, &mut writer)?;
         writer.write_bool(self.level_data.is_some());
         if let Some(data) = &self.level_data {
             writer.write_slice(data);
@@ -176,11 +181,16 @@ impl FluidSection {
 
     /// Decode the storage layout.
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+        Self::deserialize_with_key(bytes, &ByteKey)
+    }
+
+    /// Decode the storage layout with an explicit storage key codec.
+    pub fn deserialize_with_key(bytes: &[u8], key: &dyn KeyCodec) -> Result<Self> {
         let mut reader = Reader::new(bytes);
         let type_byte = reader.read_u8()?;
         let palette_type = PaletteType::from_ordinal(type_byte)
             .ok_or(SectionError::InvalidPaletteType(type_byte))?;
-        let fluids = Palette::deserialize(palette_type, &ByteKey, &mut reader)?;
+        let fluids = Palette::deserialize(palette_type, key, &mut reader)?;
         let level_data = if reader.read_bool()? {
             Some(reader.read_slice(LEVEL_DATA_SIZE)?.to_vec())
         } else {

@@ -9,7 +9,7 @@ subdirectory, never by hand.
 | `protocol/` | `tools/protocol-dumper` + `tools/protocol-gen` | session 3: inventory, connection IR, full `protocol.json` + generated Rust |
 | `assets/` | `tools/java-dumper/run-assets.sh` | session 2: P0 store init packets + index |
 | `chunks-pkts/` | `tools/java-dumper/run-chunks.sh` | session 3: seed-0 `SetChunk`/`SetColumn`/tint/environment/fluid payloads |
-| `storage/` | Java world fixture (T11/T12) | planned; `hytale-storage` reads it automatically if present |
+| `storage/` | `tools/java-dumper/run-storage.sh` | session 6: real Java world region files + BSON chunk documents; `hytale-storage` reads the container sample automatically |
 | `trace/` | `tools/packet-trace` | planned |
 
 Keep fast fixtures committed. Full-pack runs belong behind an environment

@@ -10,6 +10,7 @@ Regenerate everything with:
 ```sh
 tools/java-dumper/run.sh       # regenerate this directory
 tools/java-dumper/check.sh     # run twice in isolation + diff the committed files
+tools/java-dumper/run-storage.sh --check  # Java world-save fixture
 ```
 
 `check.sh` is the determinism gate: it runs the dumper twice into temporary
@@ -266,8 +267,11 @@ Java dumper. `crates/worldgen-cli/tests/render_golden.rs` regenerates them and
 compares every pixel, protecting the renderer against accidental changes.
 See [`render/README.md`](render/README.md) for the command.
 
-### `server/` (CoreServer rewrite fixtures — planned)
+### `server/` (CoreServer rewrite fixtures)
 New fixtures for the server rewrite live under `server/` and are documented in
-[`GOLDEN_DATA.md`](../../GOLDEN_DATA.md): `protocol/`, `assets/`, `chunks-pkts/`,
-`storage/`, and `trace/`. They are produced by separate Java tools under
-`tools/` and do not change the worldgen fixtures above.
+[`GOLDEN_DATA.md`](../../GOLDEN_DATA.md): `protocol/`, `assets/`,
+`chunks-pkts/`, `storage/`, and `trace/`. They are produced by separate Java
+tools under `tools/` and do not change the worldgen fixtures above.
+`storage/` now contains a real Java world save (`storage/java-world/`,
+regenerated with `tools/java-dumper/run-storage.sh --check`); `trace/` is still
+planned.

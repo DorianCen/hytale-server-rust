@@ -39,8 +39,8 @@ Reuse the existing worldgen benches and add the server conversion:
 | Chunk generation | `worldgen-cli bench` | existing baseline |
 | Generated → runtime chunk | new bench in `hytale-world` | `from_generated_chunk` |
 | Chunk packet encode | new bench in `hytale-world` | `SetChunk`/`SetColumn` |
-| Chunk storage encode/decode | new bench in `hytale-storage` | section blobs + zstd |
-| Region read/write | new bench in `hytale-storage` | 1024-blob file |
+| Chunk storage encode/decode | new bench in `hytale-world` (`chunk::storage`) | section blobs + zstd |
+| Region read/write | new bench in `hytale-world` (`chunk::storage::RegionFile`) | 1024-blob file |
 
 ### Tick and network
 

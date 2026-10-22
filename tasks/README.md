@@ -27,6 +27,8 @@ task done until its acceptance section is satisfied.
 | [T12](T12-chunk-packet-goldens.md) | Java chunk-packet goldens | T10b | medium | done (session 3; Rust consumer in session 4) |
 | [T13](T13-client-bot.md) | Rust client bot skeleton | T04, T06 | medium | done (session 2) |
 | [T14](T14-full-protocol-codegen.md) | Full protocol codegen | T04 | medium | done (session 3) |
+| [T15](T15-asset-registry.md) | P0 asset registry and typed stores | T08, T09 | medium | done (session 5) |
+| [T16](T16-bson-world-storage.md) | BSON chunk storage + Java world fixture | T07, T10c, T15 | medium | done (session 6) |
 
 ## Rules
 

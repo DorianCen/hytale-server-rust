@@ -204,12 +204,83 @@ impl KeyCodec for ShortKey {
     fn write_key(&self, writer: &mut Writer, external_id: i32) -> Result<()> {
         let value =
             u16::try_from(external_id).map_err(|_| PaletteError::KeyOverflow(external_id, 2))?;
-        writer.write_u16(value);
+        writer.write_u16_be(value);
         Ok(())
     }
 
     fn read_key(&self, reader: &mut Reader<'_>) -> Result<i32> {
-        Ok(i32::from(reader.read_u16()?))
+        Ok(i32::from(reader.read_u16_be()?))
+    }
+}
+
+/// Maps runtime asset ids to the names Java writes into section storage.
+///
+/// The palette format itself only knows numeric external ids; the Java storage
+/// path resolves them through `BlockType`/`Fluid`/`Environment` asset maps and
+/// writes the asset key as a length-prefixed UTF-8 string.
+pub trait NameLookup {
+    /// Asset name for `id`, or `None` when the id is not in the registry.
+    fn name_of(&self, id: i32) -> Option<&str>;
+    /// Asset id for `name`, or `None` when the name is not in the registry.
+    fn id_of(&self, name: &str) -> Option<i32>;
+    /// Name written for ids missing from the registry.
+    fn fallback_name(&self) -> &str {
+        "Unknown"
+    }
+    /// Id returned for names missing from the registry.
+    fn fallback_id(&self) -> i32 {
+        0
+    }
+}
+
+/// Java storage keys: a big-endian `u16` byte length followed by the UTF-8 name.
+pub struct NamedKey<'a> {
+    lookup: &'a dyn NameLookup,
+    fallback_name: &'a str,
+    fallback_id: i32,
+}
+
+impl<'a> NamedKey<'a> {
+    /// Create a name codec.
+    ///
+    /// `fallback_name` is written for ids missing from the registry;
+    /// `fallback_id` is returned for names missing from the registry.
+    pub fn new(lookup: &'a dyn NameLookup, fallback_name: &'a str, fallback_id: i32) -> Self {
+        Self {
+            lookup,
+            fallback_name,
+            fallback_id,
+        }
+    }
+
+    fn name(&self, external_id: i32) -> &str {
+        self.lookup
+            .name_of(external_id)
+            .unwrap_or(self.fallback_name)
+    }
+}
+
+impl KeyCodec for NamedKey<'_> {
+    fn key_size(&self, external_id: i32) -> usize {
+        2 + self.name(external_id).len()
+    }
+
+    fn write_key(&self, writer: &mut Writer, external_id: i32) -> Result<()> {
+        let name = self.name(external_id);
+        let length = u16::try_from(name.len())
+            .map_err(|_| PaletteError::KeyOverflow(external_id, u16::MAX as usize))?;
+        writer.write_u16_be(length);
+        writer.write_slice(name.as_bytes());
+        Ok(())
+    }
+
+    fn read_key(&self, reader: &mut Reader<'_>) -> Result<i32> {
+        let length = reader.read_u16_be()? as usize;
+        let bytes = reader.read_slice(length)?;
+        let name = std::str::from_utf8(bytes).map_err(|_| ProtocolError::InvalidUtf8 {
+            field: "asset name",
+        })?;
+        Ok(self.lookup.id_of(name).unwrap_or(self.fallback_id))
     }
 }
 

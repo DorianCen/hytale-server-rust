@@ -92,6 +92,7 @@ pub struct ChunkColumn {
     environment_column: Vec<i32>,
     heightmap: Heightmap,
     flags: ChunkFlags,
+    needs_physics: bool,
 }
 
 impl ChunkColumn {
@@ -106,6 +107,7 @@ impl ChunkColumn {
             environment_column: vec![ENVIRONMENT_UNKNOWN_ID; COLUMN_COUNT],
             heightmap: Heightmap::default(),
             flags: ChunkFlags::default(),
+            needs_physics: true,
         }
     }
 
@@ -191,6 +193,26 @@ impl ChunkColumn {
     /// `SetChunkTintmap`.
     pub fn tint_bytes(&self) -> Vec<u8> {
         self.tint.serialize()
+    }
+
+    /// The tint palette.
+    pub const fn tint_palette(&self) -> &TintPalette {
+        &self.tint
+    }
+
+    /// Replace the tint palette (used when loading a stored column).
+    pub fn set_tint_palette(&mut self, tint: TintPalette) {
+        self.tint = tint;
+    }
+
+    /// Java `BlockChunk.needsPhysics`.
+    pub const fn needs_physics(&self) -> bool {
+        self.needs_physics
+    }
+
+    /// Set Java `BlockChunk.needsPhysics`.
+    pub fn set_needs_physics(&mut self, needs_physics: bool) {
+        self.needs_physics = needs_physics;
     }
 
     /// Java `BlockChunk.getEnvironmentColumn(int x, int z)` equivalent.

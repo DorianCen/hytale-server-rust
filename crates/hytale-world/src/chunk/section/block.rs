@@ -21,7 +21,9 @@ use std::collections::BTreeSet;
 
 use hytale_protocol::io::{Reader, Writer};
 
-use crate::chunk::palette::{ByteKey, Palette, PaletteType, SetResult, ShortKey, BLOCK_COUNT};
+use crate::chunk::palette::{
+    ByteKey, KeyCodec, Palette, PaletteType, SetResult, ShortKey, BLOCK_COUNT,
+};
 
 use super::light::LightData;
 use super::{Result, SectionError};
@@ -336,10 +338,25 @@ impl BlockSection {
 
     /// Java `serialize`.
     pub fn serialize(&self) -> Result<Vec<u8>> {
+        self.serialize_with_keys(&ShortKey, &ShortKey, &ByteKey)
+    }
+
+    /// Java `serialize` with explicit storage key codecs.
+    ///
+    /// Java resolves blocks, fluids and environments to asset names through
+    /// their registries; fillers and rotations stay numeric. The Java server
+    /// path uses [`crate::chunk::palette::NamedKey`] for blocks and
+    /// [`ShortKey`]/[`ByteKey`] for the other two palettes.
+    pub fn serialize_with_keys(
+        &self,
+        blocks: &dyn KeyCodec,
+        fillers: &dyn KeyCodec,
+        rotations: &dyn KeyCodec,
+    ) -> Result<Vec<u8>> {
         let mut writer = Writer::new();
         writer.write_i32_be(self.block_migration_asset_count);
         writer.write_u8(self.blocks.ordinal());
-        self.blocks.serialize(&ShortKey, &mut writer)?;
+        self.blocks.serialize(blocks, &mut writer)?;
 
         if self.blocks.kind() != PaletteType::Empty {
             let (count, words) = self.combined_ticking_words();
@@ -354,9 +371,9 @@ impl BlockSection {
         }
 
         writer.write_u8(self.fillers.ordinal());
-        self.fillers.serialize(&ShortKey, &mut writer)?;
+        self.fillers.serialize(fillers, &mut writer)?;
         writer.write_u8(self.rotations.ordinal());
-        self.rotations.serialize(&ByteKey, &mut writer)?;
+        self.rotations.serialize(rotations, &mut writer)?;
         self.local_light.serialize(&mut writer)?;
         self.global_light.serialize(&mut writer)?;
         writer.write_i16_be(self.local_change_counter);
@@ -400,12 +417,22 @@ impl BlockSection {
 
     /// Java `deserialize` (storage version 6/7).
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+        Self::deserialize_with_keys(bytes, &ShortKey, &ShortKey, &ByteKey)
+    }
+
+    /// Java `deserialize` with explicit storage key codecs.
+    pub fn deserialize_with_keys(
+        bytes: &[u8],
+        blocks: &dyn KeyCodec,
+        fillers: &dyn KeyCodec,
+        rotations: &dyn KeyCodec,
+    ) -> Result<Self> {
         let mut reader = Reader::new(bytes);
         let block_migration_asset_count = reader.read_i32_be()?;
         let block_type_byte = reader.read_u8()?;
         let block_type = PaletteType::from_ordinal(block_type_byte)
             .ok_or(SectionError::InvalidPaletteType(block_type_byte))?;
-        let blocks = Palette::deserialize(block_type, &ShortKey, &mut reader)?;
+        let blocks = Palette::deserialize(block_type, blocks, &mut reader)?;
 
         let mut ticking_blocks = BTreeSet::new();
         if block_type != PaletteType::Empty {
@@ -431,11 +458,11 @@ impl BlockSection {
         let filler_type_byte = reader.read_u8()?;
         let filler_type = PaletteType::from_ordinal(filler_type_byte)
             .ok_or(SectionError::InvalidPaletteType(filler_type_byte))?;
-        let fillers = Palette::deserialize(filler_type, &ShortKey, &mut reader)?;
+        let fillers = Palette::deserialize(filler_type, fillers, &mut reader)?;
         let rotation_type_byte = reader.read_u8()?;
         let rotation_type = PaletteType::from_ordinal(rotation_type_byte)
             .ok_or(SectionError::InvalidPaletteType(rotation_type_byte))?;
-        let rotations = Palette::deserialize(rotation_type, &ByteKey, &mut reader)?;
+        let rotations = Palette::deserialize(rotation_type, rotations, &mut reader)?;
         let local_light = LightData::deserialize(&mut reader)?;
         let global_light = LightData::deserialize(&mut reader)?;
         let local_change_counter = reader.read_i16_be()?;

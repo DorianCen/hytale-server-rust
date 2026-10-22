@@ -86,6 +86,13 @@ P0 stores first: `BlockType`, `Fluid`, `Environment`, `Item`,
 `PrefabListAsset`. The dump boots the real `AssetRegistryLoader`, exactly like
 the registry dump.
 
+Session 5 consumer: `crates/hytale-assets/tests/registry.rs` loads the real
+pack, checks that the file-backed P0 stores (`BlockBoundingBoxes`, `Fluid`,
+`Environment`, `PhysicalMaterial`) reproduce `index.json` ids exactly, and
+checks every `registries.json` block's draw type, opacity and all 64 support
+probes against `hytale-assets::registry`. Block-type ids contained in item
+documents are Rust-owned; only the key set and semantics are compared.
+
 ### 3.3 `chunks-pkts/`
 
 Session 3 landed the fixture for seed `0`, chunks `(0,0)` and `(4,-5)`:
@@ -108,8 +115,29 @@ regenerates both chunks and compares all 46 payloads.
 Session 1 committed `storage/java-sample.region.bin`, produced by the real Java
 `IndexedStorageFile` (16 blobs, 64-byte segments, big-endian header/index/blob
 headers). `crates/hytale-storage/tests/indexed_storage.rs` reads it and checks
-the three blobs, including the 1,000-byte LCG payload. A full world fixture
-(region files + player data) is still needed for T11/T12.
+the three blobs, including the 1,000-byte LCG payload.
+
+Session 6 added `storage/java-world/`, a real Java world save for seed 0 chunks
+`(0,0)` and `(4,-5)`:
+
+| Fixture | Contents | Gate |
+|---|---|---|
+| `chunks/0.0.region.bin` | Java `IndexedStorage` region file, chunk `(0,0)` at blob 0 | `crates/hytale-world/tests/chunk_storage.rs` |
+| `chunks/0.-1.region.bin` | Java region file, chunk `(4,-5)` at blob 868 | same |
+| `manifest.json` | seed, chunk/region/index map, document sizes | same |
+
+The chunk documents are `ChunkStore.REGISTRY.serialize(holder)` output, not a
+reimplementation: `WorldChunk`, `BlockChunk`, `ChunkColumn` with `Block`,
+`Fluid` and `Environment` section components, and `HeightmapColumn` with the
+legacy backend. Regenerate with `tools/java-dumper/run-storage.sh --check`.
+The Rust gate decodes each document, checks every block/filler/rotation, fluid
+level and per-block environment against the same seed-0 generated chunk, and
+checks the tint and legacy heightmap. The fixture's heightmap caught a
+one-column packed-bitfield bug in the legacy heightmap decoder.
+
+The fixture has no player file yet; `DiskPlayerStorageProvider` player BSON is
+the remaining storage fixture.
+
 
 A full tiny Java-created world will contain:
 

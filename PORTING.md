@@ -112,13 +112,20 @@ For the server, “exact” also applies to:
 
 - `IndexedStorageFile` must match the Java header, blob index table, segment
   chain, and zstd payloads exactly.
-- Chunk BSON uses the Java component names and `Data` byte arrays.
+- Chunk BSON uses the Java component names and `Data` byte arrays. Section
+  storage writes block, fluid and environment palette keys as asset names, not
+  runtime ids, and uses big-endian keys for fillers. The chunk holder codec lives
+  in `hytale-world::chunk::storage`.
+- The legacy heightmap backend is the storage-supported backend; `Tree` returns
+  a documented `Unsupported` error until its fields are ported.
 - Never silently migrate or rewrite a world on load. Read-only mode must not
   create files, locks, or indexes.
 - Atomicity: write blob, update index, flush in the same order as Java. Test
   crash/recovery behavior.
 - Java-written worlds are the compatibility gate. Do not declare storage done
-  based only on Rust round-trips.
+  based only on Rust round-trips. The committed
+  `testdata/golden/server/storage/java-world/` fixture is the current read gate;
+  the mutate → Java-reload half is still open.
 
 ---
 

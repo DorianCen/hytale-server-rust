@@ -1,0 +1,31 @@
+{
+  "seed": 0,
+  "meta": {
+    "producer": "com.hypixel.hytale.tools.golden.StorageDumper",
+    "source": "seed 0 chunks (0,0) and (4,-5), the real Default-world generator and the server's runtime chunk model",
+    "layout": "chunks/<regionX>.<regionZ>.region.bin, blob index ChunkUtil.indexColumn(chunkX & 31, chunkZ & 31)",
+    "payload": "ChunkStore.REGISTRY.serialize(holder) written by BsonUtil.writeToBytes; components: WorldChunk, BlockChunk, ChunkColumn (sections), HeightmapColumn",
+    "heightmap": "Legacy backend, populated like a loaded legacy column",
+    "deterministic": "fixed seed and chunk list, single-threaded generator and common fork-join pool (DUMPER_PARALLELISM=1), no timestamps and no absolute paths"
+  },
+  "chunks": [
+    {
+      "chunk": [
+        0,
+        0
+      ],
+      "region": "0.0.region.bin",
+      "index": 0,
+      "documentBytes": 313055
+    },
+    {
+      "chunk": [
+        4,
+        -5
+      ],
+      "region": "0.-1.region.bin",
+      "index": 868,
+      "documentBytes": 227327
+    }
+  ]
+}
