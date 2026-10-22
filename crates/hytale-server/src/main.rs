@@ -9,9 +9,10 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use hytale_server::{
-    run_chunk_tool, run_headless, run_world_config_tool, ChunkToolOptions, HeadlessOptions,
-    WorldConfigToolOptions,
+    run_chunk_tool, run_headless, run_player_data_tool, run_world_config_tool, ChunkToolOptions,
+    HeadlessOptions, PlayerDataToolOptions, WorldConfigToolOptions,
 };
+use hytale_world::player_data::{Position, Rotation};
 
 #[derive(Debug, Parser)]
 #[command(name = "hytale-server", version, about = "Hytale CoreServer rewrite")]
@@ -30,6 +31,8 @@ enum Command {
     LoadChunk(LoadChunkArgs),
     /// Load or create a world `config.json` with the Java-compatible codec.
     WorldConfig(WorldConfigArgs),
+    /// Load or create a player save (`players/<uuid>.json`).
+    PlayerData(PlayerDataArgs),
 }
 
 #[derive(Debug, Args)]
@@ -92,6 +95,40 @@ struct WorldConfigArgs {
     uuid: Option<String>,
 }
 
+#[derive(Debug, Args)]
+struct PlayerDataArgs {
+    /// Optional source player document to load before writing the save copy.
+    #[arg(long)]
+    input: Option<PathBuf>,
+    /// World save root; the file is written to `<save>/players/<uuid>.json`.
+    #[arg(long, default_value = "target/headless-world")]
+    save: PathBuf,
+    /// Player UUID (required when creating; overrides a loaded document).
+    #[arg(long)]
+    uuid: Option<String>,
+    /// Spawn X for a new player.
+    #[arg(long, default_value_t = 0.0)]
+    x: f64,
+    /// Spawn Y for a new player.
+    #[arg(long, default_value_t = 0.0)]
+    y: f64,
+    /// Spawn Z for a new player.
+    #[arg(long, default_value_t = 0.0)]
+    z: f64,
+    /// Pitch (radians) for a new player.
+    #[arg(long, default_value_t = 0.0)]
+    pitch: f32,
+    /// Yaw (radians) for a new player.
+    #[arg(long, default_value_t = 0.0)]
+    yaw: f32,
+    /// Roll (radians) for a new player.
+    #[arg(long, default_value_t = 0.0)]
+    roll: f32,
+    /// `WorldGenId` component for a new player.
+    #[arg(long, default_value_t = 0)]
+    world_gen_id: i32,
+}
+
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
     let (x, z) = value
         .split_once(',')
@@ -131,6 +168,7 @@ fn main() -> ExitCode {
         Some(Command::Headless(args)) => run_headless_command(args),
         Some(Command::LoadChunk(args)) => run_load_chunk_command(args),
         Some(Command::WorldConfig(args)) => run_world_config_command(args),
+        Some(Command::PlayerData(args)) => run_player_data_command(args),
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -201,6 +239,44 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
         }
         Err(error) => {
             eprintln!("load-chunk failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_player_data_command(args: PlayerDataArgs) -> ExitCode {
+    let options = PlayerDataToolOptions {
+        input: args.input,
+        save_dir: args.save,
+        uuid: args.uuid,
+        position: Position {
+            x: args.x,
+            y: args.y,
+            z: args.z,
+        },
+        rotation: Rotation {
+            pitch: args.pitch,
+            yaw: args.yaw,
+            roll: args.roll,
+        },
+        world_gen_id: args.world_gen_id,
+    };
+    match run_player_data_tool(&options) {
+        Ok(report) => {
+            println!(
+                "player {} position=({}, {}, {}) components={} (loaded: {})",
+                report.uuid,
+                report.position.x,
+                report.position.y,
+                report.position.z,
+                report.component_count,
+                report.loaded_existing
+            );
+            println!("saved {}", report.path.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("player-data failed: {error}");
             ExitCode::FAILURE
         }
     }

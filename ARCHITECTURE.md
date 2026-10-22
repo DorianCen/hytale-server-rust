@@ -13,11 +13,14 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   green: the real Java `ChunkStore` codec reads a Rust-mutated region and resolves
   the edited block. Session 9 added `WorldConfig` v4 load/save for the per-world
   `config.json`, preserving unknown fields, with a Java-written fixture and a
-  Java read-back probe. That sits on session 7's headless boot, session 6's BSON
-  chunk storage, session 5's P0 asset registry, session 4's runtime chunk packet
-  encoders and session 3's full protocol codegen. Player BSON, wiring the config
-  into the boot, generation of missing chunks, the join path and the live server
-  loop are still open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  Java read-back probe. Session 10 added player saves
+  (`DiskPlayerStorageProvider`): the `EntityStore` holder document with typed
+  `UUID`/`Transform`/`WorldGenId`, opaque preservation of every other component,
+  and a Java read-back gate. That sits on session 7's headless boot, session 6's
+  BSON chunk storage, session 5's P0 asset registry, session 4's runtime chunk
+  packet encoders and session 3's full protocol codegen. Wiring config and player
+  load into the boot, generation of missing chunks, the join path and the live
+  server loop are still open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -278,7 +281,11 @@ Target: vanilla `IndexedStorage` compatibility.
   from §5. Implemented by `hytale_world::chunk::storage::ChunkCodec` and
   `RegionFile`; block/fluid/environment palettes store asset names, and the
   legacy heightmap uses `ShortBytePalette`.
-- Player data: `DiskPlayerStorageProvider` layout.
+- Player data: `DiskPlayerStorageProvider` layout in
+  `hytale_world::player_data`. `<world>/players/<uuid>.json` is the
+  `EntityStore` holder (`{"Components": ...}`), with typed `UUID`, `Transform`
+  and `WorldGenId` and opaque preservation of all other components. The
+  Java-written fixture and the Java read-back probe are the gates.
 - World config: `WorldConfig` v4 (`config.json`) lands in
   `hytale_world::world_config`: typed server-owned fields, opaque provider
   sections, Java extended-JSON UUIDs, `.bak` + atomic save, and unknown-field
@@ -343,7 +350,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` | runtime chunk model and one-chunk headless boot landed (M3); `World`/`WorldStorage` load/mutate/save (M3) and `WorldConfig` v4 load/save (M3) landed; universe lifecycle, boot-time config wiring, missing-chunk generation and player load pending |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
-| `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::chunk::storage` + `hytale-world::world` + `hytale-world::world_config` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files and `WorldConfig` v4 landed (M3); Java fixture read gates and both Rust write → Java read gates green (M3). Player BSON pending |
+| `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` | QUIC mTLS spike + `PeerIdentity` landed (M4); packet decoding/session pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | planned (M4) |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |

@@ -609,3 +609,61 @@ Format:
   - Generate-missing-chunks path on top of `World`.
   - Client-bot auth/setup/game with the packet-trace fixture.
   - P1 stores and asset packet encoders.
+
+---
+
+## Session 10 — player saves and the Java player gate (2026-10-22)
+
+- **Goal:** read and write `DiskPlayerStorageProvider` player files
+  (`<world>/players/<uuid>.json`) with the real `EntityStore` holder codec as the
+  oracle, completing the saved-world triad after chunks (session 8) and config
+  (session 9).
+- **Landed:**
+  - `hytale-world::player_data`:
+    - `PlayerData` is the `{"Components": {...}}` holder document with ordered
+      component preservation.
+    - Typed core components: `UUID` (Java extended JSON), `Transform`
+      (`Position` XYZ doubles + `Rotation` Pitch/Yaw/Roll floats in radians) and
+      `WorldGenId`.
+    - Every other component (inventory, player, stats, settings, skin, …) is
+      kept as an opaque JSON value, so a full Java player save survives a Rust
+      load/save cycle.
+    - `PlayerStorage` implements `<save>/players/<uuid>.json` load/save/remove/
+      list with Java-style pretty JSON, `.bak` copy and atomic rename.
+  - `hytale-server::player_data_tool` and CLI `hytale-server player-data
+    [--input] [--save] [--uuid] [--x --y --z] [--pitch --yaw --roll]
+    [--world-gen-id]`.
+  - Java oracle:
+    - `WorldPlayerDumper` registers the `EntityModule.setup()` component ids for
+      the core set, builds a holder and writes
+      `EntityStore.REGISTRY.serialize(holder)` through `BsonUtil.writeDocument`.
+    - `probe` deserializes a Rust-written file with the real registry, checks
+      UUID/Transform/WorldGenId, and re-serializes the holder to check the
+      `Components` map.
+    - `tools/java-dumper/run-player-data.sh` (`--check`, `--probe`).
+  - Fixture `testdata/golden/server/player-data/` plus README, and tests in
+    `crates/hytale-world/tests/player_data.rs` and
+    `crates/hytale-server/tests/player_data.rs`.
+- **Verified:**
+  - `tools/java-dumper/run-player-data.sh --check` is deterministic and matches
+    the committed fixture.
+  - Rust write → Java read: the CLI copied the fixture into
+    `target/player-smoke/players/…`, and `run-player-data.sh --probe` printed
+    `java player data check: ok`.
+  - `cargo test -p hytale-world --test player_data` and `cargo test -p
+    hytale-server --test player_data` are green.
+  - `cargo clippy -p hytale-world -p hytale-server --all-targets -- -D warnings`
+    and `cargo fmt --all -- --check` are green.
+- **Deviations:**
+  - Only `UUID`, `Transform` and `WorldGenId` are typed; the remaining player
+    components are opaque until their gameplay systems are ported.
+  - The fixture is a minimal holder, not a full join state. Java accepts the
+    missing components; a real spawn adds defaults.
+  - `PlayerStorage::players` sorts UUID strings instead of exposing directory
+    order.
+  - The world boot does not load/save players yet; the CLI is the only caller.
+- **Follow-ups:**
+  - Wire `WorldConfig` and player load into a world boot and the join path.
+  - Port `Player`/inventory/settings/skin component codecs as gameplay lands.
+  - Generate-missing-chunks path on top of `World`.
+  - Client-bot auth/setup/game with the packet-trace fixture.

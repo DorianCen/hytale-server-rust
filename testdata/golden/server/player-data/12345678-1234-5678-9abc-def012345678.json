@@ -1,0 +1,25 @@
+{
+  "Components": {
+    "WorldGenId": {
+      "WorldGenId": 42
+    },
+    "Transform": {
+      "Position": {
+        "X": 10.5,
+        "Y": 80.0,
+        "Z": -3.5
+      },
+      "Rotation": {
+        "Pitch": 0.25,
+        "Yaw": 1.5707963705062866,
+        "Roll": -0.125
+      }
+    },
+    "UUID": {
+      "UUID": {
+        "$binary": "EjRWeBI0VniavN7wEjRWeA==",
+        "$type": "04"
+      }
+    }
+  }
+}

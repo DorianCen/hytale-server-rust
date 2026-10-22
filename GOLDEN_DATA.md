@@ -192,7 +192,27 @@ and removes that key before the codec decode because the harness cannot load the
 gameplay-config assets (they depend on the camera-effect store); a production
 Java boot validates it normally.
 
-### 3.6 `trace/`
+### 3.6 `player-data/`
+
+Session 10 added `player-data/12345678-1234-5678-9abc-def012345678.json`, a real
+`EntityStore` holder document written with `EntityStore.REGISTRY.serialize` and
+`BsonUtil.writeDocument` (the `DiskPlayerStorageProvider` save path):
+
+| Fixture | Contents | Gate |
+|---|---|---|
+| `<uuid>.json` | core `UUID`, `Transform` (position + radians rotation) and `WorldGenId` components | `crates/hytale-world/tests/player_data.rs` |
+| `README.md` | value table, regeneration and reverse-check commands | — |
+
+The Rust gate checks every component, round-trips the document and verifies that
+unknown components (a full Java player save has many) survive a save.
+`crates/hytale-server/tests/player_data.rs` covers the CLI copy/create path.
+Regenerate with `tools/java-dumper/run-player-data.sh --check`.
+
+The reverse gate needs no committed fixture: the CLI loads the Java file, writes
+a Rust one, and `run-player-data.sh --probe` deserializes it with the real
+`EntityStore` registry, checks the components, and re-serializes the holder.
+
+### 3.7 `trace/`
 
 A packet sequence captured from the Java server during a scripted join:
 
@@ -242,7 +262,8 @@ values in the golden, variable fields in the manifest’s ignore list.
 - **Fast (every commit):** worldgen unit/golden tests, protocol round-trips,
   wire primitives, storage synthetic fixture, asset resolver fixtures.
 - **Full (manual/nightly):** Java dumper regeneration, full asset packet dumps,
-  full protocol byte dumps, Java world/config read-back, client join trace.
+  full protocol byte dumps, Java world/config/player read-back, client join
+  trace.
 - **Long (release):** 24h soak, 100-bot load, save/load/crash-recovery matrix.
 
 The fast tier must stay under a few minutes on a developer machine. Do not put a

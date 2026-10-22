@@ -150,6 +150,32 @@ harness cannot load the gameplay-config assets; the key is checked from the
 parsed document instead. See
 [`../../testdata/golden/server/world-config/README.md`](../../testdata/golden/server/world-config/README.md).
 
+## Player data dump and probe
+
+`WorldPlayerDumper` writes a real `EntityStore` holder document with the same
+path `DiskPlayerStorageProvider` uses (`EntityStore.REGISTRY.serialize` +
+`BsonUtil.writeDocument`). The `probe` mode is the reverse gate: it deserializes
+a Rust-written player file with the real registry and checks the core
+components.
+
+```sh
+tools/java-dumper/run-player-data.sh                    # write testdata/golden/server/player-data/
+tools/java-dumper/run-player-data.sh /tmp/player-data   # arbitrary output directory
+tools/java-dumper/run-player-data.sh --check            # two isolated runs + diff
+
+cargo run -q -p hytale-server -- player-data \
+    --input testdata/golden/server/player-data/12345678-1234-5678-9abc-def012345678.json \
+    --save target/player-smoke
+tools/java-dumper/run-player-data.sh --probe \
+    target/player-smoke/players/12345678-1234-5678-9abc-def012345678.json
+```
+
+The dumper registers the `EntityModule.setup()` ids for the ported core set
+(`UUID`, `Transform`, `WorldGenId`). Unknown components are preserved by the Rust
+holder, so a full Java player save round-trips before the gameplay component
+codecs land. See
+[`../../testdata/golden/server/player-data/README.md`](../../testdata/golden/server/player-data/README.md).
+
 ## Live registry snapshot
 
 `RegistrySnapshot` writes the block / fluid / environment maps of the
@@ -205,6 +231,9 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 - `run-world-config.sh` – build + run entry point for the world config fixture
   and probe (wraps `run.sh` with `WorldConfigDumper`; `--check` runs the
   determinism gate).
+- `run-player-data.sh` – build + run entry point for the player holder fixture
+  and probe (wraps `run.sh` with `WorldPlayerDumper`; `--check` runs the
+  determinism gate).
 - `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
   (math/noise dumps).
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
@@ -231,6 +260,9 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 - `src/main/java/com/hypixel/hytale/tools/golden/WorldConfigDumper.java` – the
   world config fixture writer and reverse probe: real `WorldConfig.CODEC` v4
   save/load plus the expected-field checks.
+- `src/main/java/com/hypixel/hytale/tools/golden/WorldPlayerDumper.java` – the
+  player holder fixture writer and reverse probe: real `EntityStore.REGISTRY`
+  serialization plus the core-component checks.
 - `src/main/java/com/hypixel/hytale/tools/golden/ChunkStoreBootstrap.java` –
   shared minimal `AssetModule`/`LegacyModule` boot and `ChunkStore` component
   registration used by `StorageDumper` and `WorldStorageProbe`.

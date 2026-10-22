@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 10
+# Next steps — CoreServer rewrite, session 11
 
-**Status:** sessions 1–9 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–10 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -12,9 +12,11 @@ Session 8 added runtime world storage — load a saved chunk into a `World`, edi
 a block, track dirty chunks and save back — plus the reverse Java reload gate:
 the real Java codecs read the Rust-written region. Session 9 added the per-world
 `config.json` codec (`WorldConfig` v4), preserving unknown fields, with a
-Java-written fixture and a Java read-back probe. See
-[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
-[`tasks/README.md`](tasks/README.md).
+Java-written fixture and a Java read-back probe. Session 10 added player saves
+(`DiskPlayerStorageProvider`): the `EntityStore` holder document with typed
+`UUID`/`Transform`/`WorldGenId`, opaque preservation of every other component,
+and a Java read-back gate. See [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the
+status board in [`tasks/README.md`](tasks/README.md).
 
 **Try it:**
 
@@ -26,6 +28,11 @@ tools/java-dumper/run-reload-check.sh target/headless-world 4 -5 129 250 -159 De
 cargo run -p hytale-server -- world-config \
   --input testdata/golden/server/world-config/config.json --save target/headless-world
 tools/java-dumper/run-world-config.sh --probe target/headless-world/config.json
+cargo run -p hytale-server -- player-data \
+  --input testdata/golden/server/player-data/12345678-1234-5678-9abc-def012345678.json \
+  --save target/headless-world
+tools/java-dumper/run-player-data.sh --probe \
+  target/headless-world/players/12345678-1234-5678-9abc-def012345678.json
 ```
 
 **Next up:** finish the first vertical slice.
@@ -37,8 +44,9 @@ tools/java-dumper/run-world-config.sh --probe target/headless-world/config.json
 2. ~~Runtime world storage: BSON chunk codecs on top of `IndexedStorageFile`,
    validated by a Java-written world fixture.~~ Chunks done in session 6;
    region → runtime `World` load/mutate/save and the Java reload gate done in
-   session 8; `config.json`/`WorldConfig` done in session 9. Remaining: player
-   BSON (`DiskPlayerStorageProvider`) and wiring the config into the world boot.
+   session 8; `config.json`/`WorldConfig` done in session 9; player BSON
+   (`DiskPlayerStorageProvider`) done in session 10. Remaining: wiring the config
+   and player load into the world boot.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
    `hytale-assets` packet encoders still need their `assets/*.bin` comparison.

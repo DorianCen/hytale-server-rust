@@ -133,6 +133,9 @@ For the server, “exact” also applies to:
 - World metadata goes through `hytale-world::world_config`. Keep unknown
   `config.json` fields when re-saving, use Java's extended-JSON UUID shape, and
   keep provider sections opaque until their provider systems are ported.
+- Player saves go through `hytale-world::player_data`. Keep the
+  `{"Components": ...}` holder shape, type only components the server owns, and
+  preserve every other component verbatim until its system is ported.
 
 ---
 
