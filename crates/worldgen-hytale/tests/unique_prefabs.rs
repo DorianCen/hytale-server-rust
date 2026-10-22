@@ -42,6 +42,14 @@ fn manifest_root() -> PathBuf {
     ))
 }
 
+/// The Default world's `PrefabStore` is `ASSETS`; the base-game pack is
+/// git-ignored, so these end-to-end tests are skipped when it is absent (CI).
+fn assets_available() -> bool {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../Assets/extracted/Server/Prefabs")
+        .is_dir()
+}
+
 /// The loaded Default world.
 fn default_world() -> Rc<worldgen_hytale::chunk::chunk_generator::ChunkGenerator> {
     let root = manifest_root();
@@ -70,6 +78,11 @@ fn zones_with_unique_prefabs(
 
 #[test]
 fn the_default_world_loads_the_unique_prefab_containers() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     let zones = zones_with_unique_prefabs(&generator);
     assert!(
@@ -92,6 +105,11 @@ fn the_default_world_loads_the_unique_prefab_containers() {
 
 #[test]
 fn the_unique_prefabs_are_generated_for_every_seed() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     for seed in SEEDS {
         let entries = generator.generate_unique_prefabs(seed);
@@ -118,6 +136,11 @@ fn the_unique_prefabs_are_generated_for_every_seed() {
 
 #[test]
 fn the_unique_prefab_generation_is_deterministic() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     for seed in SEEDS {
         let first = generator.generate_unique_prefabs(seed);
@@ -132,6 +155,11 @@ fn the_unique_prefab_generation_is_deterministic() {
 
 #[test]
 fn the_unique_prefabs_differ_between_the_seeds() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     let first = generator.generate_unique_prefabs(0);
     let second = generator.generate_unique_prefabs(1);
@@ -144,6 +172,11 @@ fn the_unique_prefabs_differ_between_the_seeds() {
 
 #[test]
 fn the_spawn_points_follow_the_unique_prefabs() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     for seed in SEEDS {
         let spawn_points = generator.get_spawn_points(seed);
@@ -172,6 +205,11 @@ fn the_spawn_points_follow_the_unique_prefabs() {
 
 #[test]
 fn the_spawn_points_are_deterministic() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     let first = generator.get_spawn_points(0);
     let second = generator.get_spawn_points(0);
@@ -214,6 +252,11 @@ fn prefab_blocks(
 
 #[test]
 fn the_unique_prefab_is_pasted_into_its_chunk() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     let entry = generator.generate_unique_prefabs(0)[0].clone();
     let position = entry.get_position();
@@ -269,6 +312,11 @@ fn the_unique_prefab_is_pasted_into_its_chunk() {
 
 #[test]
 fn the_default_world_passes_the_validation() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let generator = default_world();
     assert!(
         !ValidationUtil::is_invalid(generator.get_zone_pattern_provider()),

@@ -176,3 +176,9 @@ values in the golden, variable fields in the manifest’s ignore list.
 
 The fast tier must stay under a few minutes on a developer machine. Do not put a
 3.7 GB asset-pack boot in the default `cargo test` path.
+
+Tests that need the base-game pack (`Assets/extracted/Server/Prefabs`, e.g.
+`chunks_golden` and `unique_prefabs`) detect its absence and skip with an
+explicit log line. GitHub CI does not have the pack, so the fast tier remains
+green there; run those suites locally (or in the full/manual tier) before a
+release.

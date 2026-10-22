@@ -70,6 +70,15 @@ fn manifest_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// The golden chunks load real prefabs from the base-game asset pack. CI has no
+/// copy of the pack (it is git-ignored), so the test is skipped there; the
+/// committed `chunks.json` still covers the terrain-only parity paths.
+fn assets_available() -> bool {
+    manifest_root()
+        .join("../../Assets/extracted/Server/Prefabs")
+        .is_dir()
+}
+
 /// The loaded Default world — the same chain the Java dumper and the vanilla
 /// `HytaleWorldGenProvider` use (`SeedString("ChunkGenerator")`; the loader is
 /// seed-independent, the world seed is passed to the execution).
@@ -197,6 +206,11 @@ fn tint_column(x: i32, z: i32) -> usize {
 /// and the priority bytes all match the Java pipeline.
 #[test]
 fn the_default_world_chunk_grids_match_the_java_pipeline() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
     let path = manifest_root().join(GOLDEN);
     let dump: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("read the golden chunk dump"))
