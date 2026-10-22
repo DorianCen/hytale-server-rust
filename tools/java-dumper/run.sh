@@ -135,6 +135,9 @@ BCPKIX_JAR="$(find_jar 'org/bouncycastle' 'bcpkix-jdk18on')"
 BCPROV_JAR="$(find_jar 'org/bouncycastle' 'bcprov-jdk18on')"
 ZSTD_JAR="$(find_jar 'com/github/luben/zstd-jni' 'zstd-jni')"
 FASTDOUBLE_JAR="$(find_jar 'ch/randelshofer/fastdoubleparser' 'fastdoubleparser')"
+# CachedPacket (used by the chunk-packet dump) wraps its payload in a Netty ByteBuf.
+NETTY_BUFFER_JAR="$(find_jar 'io/netty/netty-buffer' 'netty-buffer')"
+NETTY_COMMON_JAR="$(find_jar 'io/netty/netty-common' 'netty-common')"
 
 echo "Building dumper..."
 if ! mvn -q -o -f "$SCRIPT_DIR/pom.xml" compile; then
@@ -153,7 +156,7 @@ done
 CP="$CP:$GSON_JAR:$JOML_JAR:$FASTUTIL_JAR:$SENTRY_JAR"
 CP="$CP:$BSON_JAR:$JOPT_JAR:$JLINE_JAR:$JSR305_JAR:$ERRORPRONE_JAR"
 CP="$CP:$FLOGGER_JAR:$FLOGGER_BACKEND_JAR:$TINK_JAR:$NIMBUS_JAR:$BCPKIX_JAR:$BCPROV_JAR:$ZSTD_JAR"
-CP="$CP:$FASTDOUBLE_JAR"
+CP="$CP:$FASTDOUBLE_JAR:$NETTY_BUFFER_JAR:$NETTY_COMMON_JAR"
 
 echo "Running GoldenDumper -> ${OUT_DIR#"$ROOT/"}"
 # The asset pipeline decodes the assets in parallel and collects the decoded

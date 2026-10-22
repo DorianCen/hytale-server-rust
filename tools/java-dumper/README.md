@@ -65,6 +65,26 @@ absolute). See
 [`../../testdata/golden/server/assets/README.md`](../../testdata/golden/server/assets/README.md)
 for the schema, sizes and the deterministic map-order canonicalization.
 
+## Chunk-packet dump
+
+`ChunkPacketDumper` boots the same real Default-world generator as `ChunkDumper`
+for seed `0` at chunks `(0,0)` and `(4,-5)` and writes the real, uncompressed
+`SetChunk` (per section), `SetColumn`, `SetChunkTintmap`,
+`SetChunkEnvironments` (per section) and non-empty `SetFluids` payloads. It
+calls the server's own packet builders (`BlockSection.getCachedChunkPacket`,
+`BlockChunk.getCachedColumnPacket/getCachedTintsPacket`,
+`EnvironmentSection.getCachedPacket`, `FluidSection.getCachedPacket`).
+
+```sh
+tools/java-dumper/run-chunks.sh                     # write testdata/golden/server/chunks-pkts/
+tools/java-dumper/run-chunks.sh /tmp/chunks-golden   # arbitrary output directory
+tools/java-dumper/run-chunks.sh --check             # two isolated runs + diff
+```
+
+See
+[`../../testdata/golden/server/chunks-pkts/README.md`](../../testdata/golden/server/chunks-pkts/README.md)
+for the manifest schema, packet list and `sentAtInit` semantics.
+
 ## Live registry snapshot
 
 `RegistrySnapshot` writes the block / fluid / environment maps of the
@@ -111,6 +131,8 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 - `run.sh` – build + run entry point.
 - `run-assets.sh` – build + run entry point for the P0 asset-store dump
   (wraps `run.sh` with `AssetDumper`; `--check` runs the determinism gate).
+- `run-chunks.sh` – build + run entry point for the chunk-packet dump
+  (wraps `run.sh` with `ChunkPacketDumper`; `--check` runs the determinism gate).
 - `src/main/java/com/hypixel/hytale/tools/golden/GoldenDumper.java` – the dumper
   (math/noise dumps).
 - `src/main/java/com/hypixel/hytale/tools/golden/Phase2Dumper.java` – the Phase-2
@@ -124,6 +146,10 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   asset-store dump (`testdata/golden/server/assets/`): the real
   `generateInitPacket` payloads (uncompressed, unframed) and the key/id index,
   booting the same pipeline as `RegistryDumper`.
+- `src/main/java/com/hypixel/hytale/tools/golden/ChunkPacketDumper.java` – the
+  chunk-packet dump (`testdata/golden/server/chunks-pkts/`): real Java packets
+  for seed 0 chunks `(0,0)` and `(4,-5)` from the same world boot as
+  `ChunkDumper`.
 - `src/main/java/com/hypixel/hytale/tools/golden/LoaderDumper.java` – the loader-chain
   dump (`loader.json`): the real Default-world `ChunkGeneratorJsonLoader` walk
   (zone requirements, seed chains, caves, biome containers) for the fixed seeds.

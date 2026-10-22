@@ -1,0 +1,573 @@
+{
+  "seed": 0,
+  "meta": {
+    "producer": "com.hypixel.hytale.tools.golden.ChunkPacketDumper",
+    "source": "seed 0 chunks (0,0) and (4,-5), the same real Default-world generator boot as ChunkDumper (chunks.json)",
+    "world": "Server/World/Default inside Assets/extracted",
+    "loaderSeed": "ChunkGenerator",
+    "packetOrder": "per chunk: SetColumn, SetChunkTintmap, then per section (ascending section Y): SetChunk, SetChunkEnvironments, SetFluids when the section holds fluid",
+    "payload": "each .bin is the exact uncompressed, unframed payload of the real packet object: byte[packet.computeSize()] filled by packet.serialize(MemorySegment.ofArray(bytes), 0)",
+    "sentAtInit": "true for packets produced by CoreServer's chunk/section load query systems (SetColumn, SetChunk, SetChunkEnvironments). SetChunkTintmap and SetFluids are real serializations of the same chunk state but are only sent on updates, so they are marked false; see packetsNotSentAtInit",
+    "deterministic": "fixed seed and chunk list, single-threaded generator and common fork-join pool (DUMPER_PARALLELISM=1), no timestamps and no absolute paths"
+  },
+  "chunks": [
+    {
+      "chunk": [
+        0,
+        0
+      ],
+      "packets": [
+        {
+          "name": "SetColumn",
+          "id": 138,
+          "file": "0_0/SetColumn_0_0.bin",
+          "size": 6068,
+          "sentAtInit": true
+        },
+        {
+          "name": "SetChunkTintmap",
+          "id": 133,
+          "file": "0_0/SetChunkTintmap_0_0.bin",
+          "size": 1972,
+          "sentAtInit": false
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_0_0.bin",
+          "size": 16489,
+          "sentAtInit": true,
+          "section": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_0_0.bin",
+          "size": 2151,
+          "sentAtInit": true,
+          "section": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_1_0.bin",
+          "size": 65946,
+          "sentAtInit": true,
+          "section": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_1_0.bin",
+          "size": 5745,
+          "sentAtInit": true,
+          "section": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_2_0.bin",
+          "size": 65785,
+          "sentAtInit": true,
+          "section": [
+            0,
+            2,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_2_0.bin",
+          "size": 6903,
+          "sentAtInit": true,
+          "section": [
+            0,
+            2,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_3_0.bin",
+          "size": 65946,
+          "sentAtInit": true,
+          "section": [
+            0,
+            3,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_3_0.bin",
+          "size": 3025,
+          "sentAtInit": true,
+          "section": [
+            0,
+            3,
+            0
+          ]
+        },
+        {
+          "name": "SetFluids",
+          "id": 136,
+          "file": "0_0/SetFluids_0_3_0.bin",
+          "size": 32802,
+          "sentAtInit": false,
+          "section": [
+            0,
+            3,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_4_0.bin",
+          "size": 32910,
+          "sentAtInit": true,
+          "section": [
+            0,
+            4,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_4_0.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            0,
+            4,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_5_0.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            0,
+            5,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_5_0.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            0,
+            5,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_6_0.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            0,
+            6,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_6_0.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            0,
+            6,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_7_0.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            0,
+            7,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_7_0.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            0,
+            7,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_8_0.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            0,
+            8,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_8_0.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            0,
+            8,
+            0
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "0_0/SetChunk_0_9_0.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            0,
+            9,
+            0
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "0_0/SetChunkEnvironments_0_9_0.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            0,
+            9,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "chunk": [
+        4,
+        -5
+      ],
+      "packets": [
+        {
+          "name": "SetColumn",
+          "id": 138,
+          "file": "4_-5/SetColumn_4_-5.bin",
+          "size": 6852,
+          "sentAtInit": true
+        },
+        {
+          "name": "SetChunkTintmap",
+          "id": 133,
+          "file": "4_-5/SetChunkTintmap_4_-5.bin",
+          "size": 2756,
+          "sentAtInit": false
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_0_-5.bin",
+          "size": 16461,
+          "sentAtInit": true,
+          "section": [
+            4,
+            0,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_0_-5.bin",
+          "size": 2067,
+          "sentAtInit": true,
+          "section": [
+            4,
+            0,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_1_-5.bin",
+          "size": 49345,
+          "sentAtInit": true,
+          "section": [
+            4,
+            1,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_1_-5.bin",
+          "size": 4349,
+          "sentAtInit": true,
+          "section": [
+            4,
+            1,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_2_-5.bin",
+          "size": 65820,
+          "sentAtInit": true,
+          "section": [
+            4,
+            2,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_2_-5.bin",
+          "size": 6581,
+          "sentAtInit": true,
+          "section": [
+            4,
+            2,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_3_-5.bin",
+          "size": 49413,
+          "sentAtInit": true,
+          "section": [
+            4,
+            3,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_3_-5.bin",
+          "size": 2279,
+          "sentAtInit": true,
+          "section": [
+            4,
+            3,
+            -5
+          ]
+        },
+        {
+          "name": "SetFluids",
+          "id": 136,
+          "file": "4_-5/SetFluids_4_3_-5.bin",
+          "size": 32802,
+          "sentAtInit": false,
+          "section": [
+            4,
+            3,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_4_-5.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            4,
+            4,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_4_-5.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            4,
+            4,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_5_-5.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            4,
+            5,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_5_-5.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            4,
+            5,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_6_-5.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            4,
+            6,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_6_-5.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            4,
+            6,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_7_-5.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            4,
+            7,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_7_-5.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            4,
+            7,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_8_-5.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            4,
+            8,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_8_-5.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            4,
+            8,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunk",
+          "id": 131,
+          "file": "4_-5/SetChunk_4_9_-5.bin",
+          "size": 27,
+          "sentAtInit": true,
+          "section": [
+            4,
+            9,
+            -5
+          ]
+        },
+        {
+          "name": "SetChunkEnvironments",
+          "id": 134,
+          "file": "4_-5/SetChunkEnvironments_4_9_-5.bin",
+          "size": 2063,
+          "sentAtInit": true,
+          "section": [
+            4,
+            9,
+            -5
+          ]
+        }
+      ]
+    }
+  ],
+  "packetsNotSentAtInit": [
+    {
+      "name": "SetChunkTintmap",
+      "reason": "CoreServer has no load-query system for this packet; it is built by BlockChunk.getCachedTintsPacket() and sent by WorldNotificationHandler.updateChunkTints() when the tint changes"
+    },
+    {
+      "name": "SetFluids",
+      "reason": "CoreServer has no load-query system for this packet; it is built by FluidSection.getCachedPacket() and sent by ChunkSystems.ReplicateChanges when fluid blocks change. Payloads are still captured for non-empty fluid sections and marked sentAtInit=false"
+    }
+  ]
+}
