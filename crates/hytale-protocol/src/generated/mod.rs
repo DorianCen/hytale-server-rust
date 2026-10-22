@@ -27,5 +27,5 @@ pub mod world;
 pub mod worldmap;
 
 pub use common::*;
-pub use registry::{packet_info, PacketInfo, PACKETS};
+pub use registry::{packet_info, settings, validate_packet, PacketInfo, PACKETS};
 pub use wire::{NetworkChannel, Packet, PacketDirection, Wire};

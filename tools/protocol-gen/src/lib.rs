@@ -286,7 +286,9 @@ fn generate_all_mod(families: &BTreeMap<String, Vec<&PacketIr>>) -> String {
     }
     out.push_str("pub mod registry;\npub mod wire;\n\n");
     out.push_str("pub use common::*;\n");
-    out.push_str("pub use registry::{packet_info, PacketInfo, PACKETS};\n");
+    out.push_str(
+        "pub use registry::{packet_info, settings, validate_packet, PacketInfo, PACKETS};\n",
+    );
     out.push_str("pub use wire::{NetworkChannel, Packet, PacketDirection, Wire};\n");
     out
 }
