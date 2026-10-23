@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 23
+# Next steps — CoreServer rewrite, session 24
 
-**Status:** sessions 1–22 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–23 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -46,8 +46,10 @@ the encodable config asset packets, translations, and the Game transition
 added the initial world time/gameplay packets, the `readyForGameplay` teleport
 exchange, a persistent chunk stream and movement-driven view updates. Session
 22 added `Environment` (61) and `Fluid` (83) config packets with a Rust-owned
-tag registry and matching `ServerTags`. See
-[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
+tag registry and matching `ServerTags`. Session 23 added the `BlockType` (40)
+and `Item` (54) config packets, including item `State` contained assets and the
+Rust-owned group registry, so the join now streams all six P0 content packets.
+See [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
 [`tasks/README.md`](tasks/README.md).
 
 **Try it:**
@@ -93,9 +95,11 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
 1. ~~P0 asset registry and typed stores (`BlockType`, `Fluid`, `Environment`,
    `Item`, …) with deterministic id assignment.~~ Done in session 5. Session 18
    added byte-exact `PhysicalMaterial`/`BlockBoundingBoxes` packets; session 22
-   added `Environment`/`Fluid` with Rust-owned tag indexes and `ServerTags`.
-   Remaining: `BlockType`/`Item`, the child stores (`FluidFX`,
-   `BlockSoundSet`, `BlockParticleSet`) and `UpdateTagPatterns`.
+   added `Environment`/`Fluid` with Rust-owned tag indexes and `ServerTags`;
+   session 23 added `BlockType`/`Item` with a Rust-owned group registry and item
+   `State` assets. Remaining: the child stores (`FluidFX`, `BlockSoundSet`,
+   `BlockParticleSet`, `ItemSoundSet`, `ItemQuality`) and
+   `UpdateTagPatterns`.
 2. ~~Runtime world storage: BSON chunk codecs on top of `IndexedStorageFile`,
    validated by a Java-written world fixture.~~ Chunks done in session 6;
    region → runtime `World` load/mutate/save and the Java reload gate done in
@@ -116,7 +120,12 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
    real multiplayer/universe management.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
-   `hytale-assets` packet encoders still need their `assets/*.bin` comparison.
+   `hytale-assets` packet encoders now cover all six self-contained P0 stores:
+   `PhysicalMaterial`/`BlockBoundingBoxes` are byte-exact, while
+   `Environment`/`Fluid`/`BlockType`/`Item` are compared semantically because
+   tags, block ids and groups are Rust-owned. Child-store indexes
+   (`BlockSoundSet`, `ItemSoundSet`, `ItemQuality`, `FluidFX`,
+   `BlockParticleSet`) remain.
 4. ~~Wire `hytale-world` + `worldgen-server` into a headless boot that loads a
    world, generates one chunk, converts it to a runtime chunk, and saves a
    region blob.~~ Done in session 7. The boot loads the asset pack once, uses

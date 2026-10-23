@@ -133,6 +133,11 @@ timestamp is written anywhere.
   stores; the Rust registry assigns its own deterministic indexes and publishes
   them in `ServerTags`, so tag arrays intentionally differ. `fluidFXIndex` and
   `blockSoundSetIndex` are 0 until those child stores are streamed.
-
-`BlockType`/`Item` packets are still pending; they use Rust-owned contained-asset
-ids and the same Rust-owned tag registry.
+- `crates/hytale-assets/tests/block_item_packets.rs` decodes `BlockType.bin` and
+  `Item.bin` and compares the implemented fields by block name/item key. Block
+  ids, group ids and tag indexes are Rust-owned, so id references are
+  normalized through the Rust registries; the item map uses string keys and is
+  compared directly (`blockId` by block name). The test documents the small set
+  of fields inherited from Java's already-`processConfig`-ed parents and the
+  child-store indexes (`BlockSoundSet`, `ItemSoundSet`, `ItemQuality`) that stay
+  `0` until those stores are streamed.

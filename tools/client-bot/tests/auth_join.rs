@@ -123,6 +123,8 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     assert!(report.config_packets.contains(&87)); // UpdatePhysicalMaterials
     assert!(report.config_packets.contains(&83)); // UpdateFluids
     assert!(report.config_packets.contains(&61)); // UpdateEnvironments
+    assert!(report.config_packets.contains(&40)); // UpdateBlockTypes
+    assert!(report.config_packets.contains(&54)); // UpdateItems
     assert!(report.translations);
     assert!(report.rebuild_requested);
     assert!(report.game.clear_chunks);

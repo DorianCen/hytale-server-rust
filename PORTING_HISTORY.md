@@ -1260,3 +1260,67 @@ Format:
   - Add `FluidFX`, `BlockSoundSet` and `BlockParticleSet` for real child indexes.
   - Add `UpdateTagPatterns` for tag-pattern assets.
   - Keep `ServerTags` in sync when block/item/contained tags are added.
+
+---
+
+## Session 23 — BlockType/Item config packets (2026-10-23)
+
+- **Goal:** stream the last two P0 content stores — `BlockType`
+  (`UpdateBlockTypes`, 40) and `Item` (`UpdateItems`, 54) — so the join sends
+  every self-contained config packet.
+- **Landed:**
+  - `hytale-assets::registry`:
+    - item `State` entries are expanded into Java's contained item assets
+      (`*<item>_State_<name>`, recursively); all 3971 Java item keys are now
+      present plus the 37 assets the canonical Java dump fails to decode;
+    - items resolve parents with the recursive object merge Java's nested
+      `BuilderCodec` fields use (`TranslationProperties.Description` etc.);
+    - `BlockTypeAsset::container_item` records `BlockType.getItem()`;
+    - `AssetRecord::parent` keeps the source `Parent` for inherited block-id
+      lookup; `Face::{expand, neighbor}` are exposed to the packet layer.
+  - `hytale-assets::packets::block_type`:
+    - `UpdateBlockTypes` init from the Rust snapshot: draw/material/opacity,
+      textures, model/animation, hitbox + interaction hitbox, shader effects,
+      movement settings, tint/biome tint, light, gathering, rail, support and
+      supporting maps, interaction hint, group/transition groups, tag indexes,
+      and Java `processConfig` defaults;
+    - deterministic Rust-owned group ids; `transitionToTag` uses the tag
+      registry, which now also collects transition/support tag ids.
+  - `hytale-assets::packets::item`:
+    - `UpdateItems` init with id/model/texture/icon/translation props,
+      stack/level/resource types/categories/set, utility, item entity,
+      block id (including inherited item blocks), interaction config with
+      priority slots, particles/light/durability/tags and Java defaults;
+    - item maps and interaction priorities are `BTreeMap`s.
+  - `config_assets()` order is `[41, 87, 83, 61, 40, 54]`; `client-bot`
+    records ids 40/54.
+  - `crates/hytale-assets/tests/block_item_packets.rs`: decodes both Java
+    goldens and compares core fields by key, normalizes Rust-owned ids, checks
+    config order, sorted item keys and `ServerTags` membership.
+- **Verified:**
+  - `cargo test -p hytale-assets` (17 tests), `cargo test --workspace` (all
+    green), clippy and fmt clean.
+  - `cargo test -p client-bot --test auth_join -- --ignored` passes; the auth
+    join reports config packets `[41, 87, 83, 61, 40, 54]` and still completes
+    the teleport/movement loop.
+  - All 6135 Java block keys and 3971 Java item keys are compared; residual
+    differences are limited to Rust-owned ids/groups/tags and the documented
+    parent-processed/child-store cases.
+- **Deviations:**
+  - Rust-owned block ids, group ids and tag indexes.
+  - Deferred trees: block `states`, `interactions`, `bench`,
+    `connectedBlockRuleSet`, `placementSettings`, `conditionalSounds`,
+    `display`; item tool/weapon/armor/glider/ability/builder/selector/trails/
+    appearance conditions/pullback/HUD.
+  - Child-store indexes remain 0 (`BlockSoundSet`, `AmbientSoundEvent`,
+    `ItemSoundSet`, `Quality`, `Reticle`, interaction ids).
+  - 818 `itemEntity` values (quality override), 61 `playerAnimationsId`s
+    (generated child assets), 3 salad `utility` flags, 24 inherited
+    `supporting` maps and a few `processConfig`-inherited colors/hints differ
+    from Java until those stores/behaviours are ported.
+- **Follow-ups:**
+  - Port `ItemQuality`, `ItemSoundSet`, `BlockSoundSet`, `FluidFX`,
+    `BlockParticleSet` and `UpdateTagPatterns`.
+  - Emit block states/interactions/benches/connected rules and the item
+    equipment payloads.
+  - Capture a real vanilla-client trace to validate the 40/54 payloads.

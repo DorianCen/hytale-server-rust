@@ -14,6 +14,9 @@
 //! `AssetDumper.canonicalizeMaps` sorts every protocol map first; the Rust
 //! encoders use `BTreeMap` for the same order.
 
+mod block_type;
+mod item;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use hytale_protocol::generated::assets::{
@@ -87,6 +90,14 @@ impl TagRegistry {
         for record in registry.items.iter() {
             collect_tags(&record.value, &mut names);
         }
+        for record in registry.block_types.iter() {
+            let json = &record.value.json;
+            if let Some(name) = json.get("TransitionToTag").and_then(Value::as_str) {
+                names.insert(name.to_string());
+            }
+            collect_support_tags(json.get("Support"), &mut names);
+            collect_support_tags(json.get("Supporting"), &mut names);
+        }
         let indexes = names
             .into_iter()
             .enumerate()
@@ -143,6 +154,19 @@ fn collect_tags(value: &Value, names: &mut BTreeSet<String>) {
     }
 }
 
+fn collect_support_tags(value: Option<&Value>, names: &mut BTreeSet<String>) {
+    let Some(map) = value.and_then(Value::as_object) else {
+        return;
+    };
+    for entries in map.values().filter_map(Value::as_array) {
+        for entry in entries {
+            if let Some(tag) = entry.get("TagId").and_then(Value::as_str) {
+                names.insert(tag.to_string());
+            }
+        }
+    }
+}
+
 /// One encoded, unframed asset packet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetPacket {
@@ -170,9 +194,11 @@ impl AssetRegistry {
     /// The config-asset packets and the matching `ServerTags` map.
     ///
     /// Java sends one init packet per store with a packet generator. This port
-    /// currently encodes `BlockBoundingBoxes`, `PhysicalMaterial`, `Fluid` and
-    /// `Environment`; `BlockType`/`Item` remain follow-ups. Tag indexes are
-    /// owned by the Rust snapshot, so every packet and `ServerTags` agree.
+    /// encodes `BlockBoundingBoxes`, `PhysicalMaterial`, `Fluid`, `Environment`,
+    /// `BlockType` and `Item`. The dependencies are sent first so `BlockType`
+    /// can resolve hitbox/physical-material ids and `Item` block ids. Tag
+    /// indexes are owned by the Rust snapshot, so every packet and
+    /// `ServerTags` agree.
     pub fn config_assets(&self) -> Result<ConfigAssets> {
         let tags = TagRegistry::from_assets(self);
         Ok(ConfigAssets {
@@ -181,6 +207,8 @@ impl AssetRegistry {
                 self.physical_material_packet()?,
                 self.fluid_packet(&tags)?,
                 self.environment_packet(&tags)?,
+                self.block_type_packet(&tags)?,
+                self.item_packet(&tags)?,
             ],
             tags: tags.map(),
         })
@@ -189,6 +217,16 @@ impl AssetRegistry {
     /// The config-asset packets without the tag map.
     pub fn config_packets(&self) -> Result<Vec<AssetPacket>> {
         Ok(self.config_assets()?.packets)
+    }
+
+    /// `UpdateBlockTypes` (id 40) from the P0 `BlockType` store.
+    pub fn block_type_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
+        block_type::block_type_packet(self, tags)
+    }
+
+    /// `UpdateItems` (id 54) from the P0 `Item` store.
+    pub fn item_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
+        item::item_packet(self, tags)
     }
 
     /// `UpdateFluids` (id 83) from the P0 `Fluid` store.

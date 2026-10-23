@@ -93,15 +93,17 @@ checks every `registries.json` block's draw type, opacity and all 64 support
 probes against `hytale-assets::registry`. Block-type ids contained in item
 documents are Rust-owned; only the key set and semantics are compared.
 
-Sessions 18/22 consumer: `crates/hytale-assets/tests/asset_packets.rs` encodes
-`PhysicalMaterial.bin` and `BlockBoundingBoxes.bin` from the real registry and
-compares them byte-for-byte, then encodes `Environment.bin` and `Fluid.bin` and
-compares every non-tag/non-child-index field. Java's tag indexes are global
-across all 54 stores; the Rust registry assigns deterministic indexes and
-publishes them in `ServerTags`, so tag arrays intentionally differ.
-`FluidFX`/`BlockSoundSet` indexes are 0 until those child stores are streamed.
-The Rust-owned `BlockType`/`Item` order and payloads are the remaining packet
-work.
+Sessions 18/22/23 consumer: `crates/hytale-assets/tests/asset_packets.rs` and
+`block_item_packets.rs` encode the P0 stores from the real registry.
+`PhysicalMaterial.bin` and `BlockBoundingBoxes.bin` are byte-identical.
+`Environment.bin`/`Fluid.bin` are compared on every non-tag/non-child-index
+field. `BlockType.bin`/`Item.bin` are decoded and compared by asset key: block
+ids, group ids and tag indexes are Rust-owned (published through the same
+registry and `ServerTags`), and the documented parent-processed/child-store
+fields are excluded. `FluidFX`/`BlockSoundSet`/`ItemSoundSet`/`ItemQuality`
+indexes are 0 until those child stores are streamed. Item `State` contained
+assets (`*<item>_State_<name>`) are extracted so every Java item key has a
+packet entry.
 
 ### 3.3 `chunks-pkts/`
 

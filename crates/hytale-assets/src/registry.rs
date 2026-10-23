@@ -29,7 +29,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use hytale_protocol::generated::common::{BlockMaterial, DrawType, Opacity};
+use hytale_protocol::generated::common::{BlockMaterial, BlockNeighbor, DrawType, Opacity};
 use serde_json::{json, Value};
 
 use crate::pack::{AssetError, AssetPack, ParentProvider};
@@ -119,6 +119,8 @@ pub struct AssetRecord<T> {
     pub key: String,
     /// Numeric id for indexed stores.
     pub id: Option<i32>,
+    /// Raw `Parent` key from the source document, before resolution.
+    pub parent: Option<String>,
     /// Pack-relative source path, or `<preloaded>`.
     pub source: String,
     /// True for a code-defined asset that has no pack file.
@@ -229,6 +231,9 @@ pub struct BlockTypeAsset {
     pub material: BlockMaterial,
     /// Support requirements, or `None` for the Java `null` map.
     pub support: Option<BlockTypeSupport>,
+    /// Item key whose document contained this block (`BlockType.getItem()`),
+    /// or `None` for a standalone/preloaded block.
+    pub container_item: Option<String>,
     /// Merged asset document (parents resolved).
     pub json: Value,
 }
@@ -358,7 +363,7 @@ impl Face {
             .collect()
     }
 
-    fn from_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
         let name = Self::normalize(name);
         Some(match name.as_str() {
             "up" => FACE_UP,
@@ -391,7 +396,7 @@ impl Face {
         })
     }
 
-    fn expand(name: &str) -> Option<Vec<Self>> {
+    pub(crate) fn expand(name: &str) -> Option<Vec<Self>> {
         let normalized = Self::normalize(name);
         Some(match normalized.as_str() {
             "all" => ALL_FACES.to_vec(),
@@ -402,6 +407,39 @@ impl Face {
             "downcardinaldirections" => DOWN_CARDINAL_DIRECTIONS.to_vec(),
             _ => vec![Self::from_name(&normalized)?],
         })
+    }
+
+    /// Map this direction to the protocol `BlockNeighbor` used by the
+    /// `support` / `supporting` dictionaries.
+    pub(crate) fn neighbor(self) -> BlockNeighbor {
+        match (self.0, self.1, self.2) {
+            (0, 1, 0) => BlockNeighbor::Up,
+            (0, -1, 0) => BlockNeighbor::Down,
+            (0, 0, -1) => BlockNeighbor::North,
+            (1, 0, 0) => BlockNeighbor::East,
+            (0, 0, 1) => BlockNeighbor::South,
+            (-1, 0, 0) => BlockNeighbor::West,
+            (0, 1, -1) => BlockNeighbor::UpNorth,
+            (0, 1, 1) => BlockNeighbor::UpSouth,
+            (1, 1, 0) => BlockNeighbor::UpEast,
+            (-1, 1, 0) => BlockNeighbor::UpWest,
+            (0, -1, -1) => BlockNeighbor::DownNorth,
+            (0, -1, 1) => BlockNeighbor::DownSouth,
+            (1, -1, 0) => BlockNeighbor::DownEast,
+            (-1, -1, 0) => BlockNeighbor::DownWest,
+            (1, 0, -1) => BlockNeighbor::NorthEast,
+            (1, 0, 1) => BlockNeighbor::SouthEast,
+            (-1, 0, 1) => BlockNeighbor::SouthWest,
+            (-1, 0, -1) => BlockNeighbor::NorthWest,
+            (1, 1, -1) => BlockNeighbor::UpNorthEast,
+            (1, 1, 1) => BlockNeighbor::UpSouthEast,
+            (-1, 1, 1) => BlockNeighbor::UpSouthWest,
+            (-1, 1, -1) => BlockNeighbor::UpNorthWest,
+            (1, -1, -1) => BlockNeighbor::DownNorthEast,
+            (1, -1, 1) => BlockNeighbor::DownSouthEast,
+            (-1, -1, 1) => BlockNeighbor::DownSouthWest,
+            _ => BlockNeighbor::DownNorthWest,
+        }
     }
 
     /// Java `Rotation.rotate(Vector3ic, yaw, pitch, roll)`.
@@ -553,6 +591,8 @@ impl AssetRegistry {
 struct RawAsset {
     key: String,
     parent: Option<String>,
+    /// Top-level item document that contained this block type.
+    container_item: Option<String>,
     source: String,
     preloaded: bool,
     value: Value,
@@ -606,6 +646,7 @@ fn read_store_files(pack: &AssetPack, path: &str) -> Result<Vec<RawAsset>, Asset
         assets.push(RawAsset {
             key,
             parent,
+            container_item: None,
             source: path,
             preloaded: false,
             value,
@@ -638,7 +679,7 @@ fn load_indexed_store<T>(
     let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
     let mut all = preloaded;
     all.extend(ordered);
-    let resolved = resolve_assets(all, spec.name)?;
+    let resolved = resolve_assets(all, spec.name, MergeHook::Shallow)?;
     let records = resolved
         .into_iter()
         .enumerate()
@@ -656,6 +697,7 @@ fn load_indexed_store<T>(
             Ok(AssetRecord {
                 key: asset.raw.key,
                 id: Some(id),
+                parent: asset.raw.parent,
                 source: asset.raw.source,
                 preloaded: asset.raw.preloaded,
                 value,
@@ -679,12 +721,13 @@ fn load_default_store(
     let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
     let mut all = preloaded;
     all.extend(ordered);
-    let resolved = resolve_assets(all, spec.name)?;
+    let resolved = resolve_assets(all, spec.name, MergeHook::Shallow)?;
     let records = resolved
         .into_iter()
         .map(|asset| AssetRecord {
             key: asset.raw.key,
             id: None,
+            parent: asset.raw.parent,
             source: asset.raw.source,
             preloaded: asset.raw.preloaded,
             value: asset.merged,
@@ -699,6 +742,7 @@ fn preloaded_assets_with(preloads: Vec<(&'static str, Value)>) -> Vec<RawAsset> 
         .map(|(key, value)| RawAsset {
             key: key.to_string(),
             parent: None,
+            container_item: None,
             source: "<preloaded>".to_string(),
             preloaded: true,
             value,
@@ -802,7 +846,11 @@ fn assign_phase(
     Ok(ordered)
 }
 
-fn resolve_assets(raw: Vec<RawAsset>, store: &str) -> Result<Vec<LoadedAsset>, AssetError> {
+fn resolve_assets(
+    raw: Vec<RawAsset>,
+    store: &str,
+    hook: MergeHook,
+) -> Result<Vec<LoadedAsset>, AssetError> {
     let mut values = HashMap::with_capacity(raw.len());
     for asset in &raw {
         let mut value = asset.value.clone();
@@ -819,7 +867,7 @@ fn resolve_assets(raw: Vec<RawAsset>, store: &str) -> Result<Vec<LoadedAsset>, A
             .or_insert(value);
     }
     let provider = ValueProvider { values: &values };
-    let resolver = ParentResolver::with_hook(&provider, MergeHook::Shallow);
+    let resolver = ParentResolver::with_hook(&provider, hook);
 
     raw.into_iter()
         .map(|asset| {
@@ -852,30 +900,81 @@ fn load_items(pack: &AssetPack) -> Result<(AssetCollection<Value>, Vec<RawAsset>
     let mut all = preloaded;
     all.extend(ordered);
 
-    let records = all
-        .iter()
-        .map(|asset| AssetRecord {
-            key: asset.key.clone(),
-            id: None,
-            source: asset.source.clone(),
-            preloaded: asset.preloaded,
-            value: asset.value.clone(),
-        })
-        .collect();
-    let items = AssetCollection::new(ITEM.name, records)?;
-
+    // Contained item states (`State` entries) are loaded as their own assets by
+    // Java's `ContainedAssetCodec` (`*<item>_State_<name>`). They may contain
+    // their own block types and nested states, so expand them before resolving
+    // parents and extracting blocks.
     let mut contained = Vec::new();
+    let mut state_items = Vec::new();
+    for asset in &all {
+        extract_item_state_assets(
+            &asset.value,
+            &asset.key,
+            &asset.source,
+            &mut state_items,
+            &mut contained,
+        );
+    }
+    all.extend(state_items);
+
     for asset in &all {
         extract_item_block_types(
             &asset.value,
             &asset.key,
             None,
+            &asset.key,
             &asset.source,
             &mut contained,
         );
     }
 
+    // Item fields are nested `BuilderCodec` objects whose inherited fields are
+    // filled from the parent object (e.g. `TranslationProperties.Description`),
+    // so item parents merge recursively while arrays are replaced.
+    let resolved = resolve_assets(all, ITEM.name, MergeHook::Replace)?;
+    let records = resolved
+        .into_iter()
+        .map(|asset| AssetRecord {
+            key: asset.raw.key,
+            id: None,
+            parent: asset.raw.parent,
+            source: asset.raw.source,
+            preloaded: asset.raw.preloaded,
+            value: asset.merged,
+        })
+        .collect();
+    let items = AssetCollection::new(ITEM.name, records)?;
+
     Ok((items, contained))
+}
+
+/// Expand a `State` map into Java's contained item assets.
+fn extract_item_state_assets(
+    item: &Value,
+    key: &str,
+    source: &str,
+    items: &mut Vec<RawAsset>,
+    blocks: &mut Vec<RawAsset>,
+) {
+    let Some(states) = item.get("State").and_then(Value::as_object) else {
+        return;
+    };
+    for (state, value) in states {
+        if !value.is_object() {
+            continue;
+        }
+        let state_key = format!("*{key}_State_{state}");
+        items.push(RawAsset {
+            key: state_key.clone(),
+            parent: Some(key.to_string()),
+            container_item: None,
+            source: source.to_string(),
+            preloaded: false,
+            value: value.clone(),
+        });
+        extract_item_block_types(value, &state_key, Some(key), &state_key, source, blocks);
+        extract_item_state_assets(value, &state_key, source, items, blocks);
+    }
 }
 
 fn load_block_types(
@@ -928,7 +1027,7 @@ fn load_block_types(
     )?;
     all.extend(contained);
 
-    let resolved = resolve_assets(all, BLOCK_TYPE.name)?;
+    let resolved = resolve_assets(all, BLOCK_TYPE.name, MergeHook::Shallow)?;
     let records = resolved
         .into_iter()
         .enumerate()
@@ -947,9 +1046,13 @@ fn load_block_types(
             Ok(AssetRecord {
                 key: asset.raw.key,
                 id: Some(id),
+                parent: asset.raw.parent,
                 source: asset.raw.source,
                 preloaded: asset.raw.preloaded,
-                value,
+                value: BlockTypeAsset {
+                    container_item: asset.raw.container_item,
+                    ..value
+                },
             })
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
@@ -964,6 +1067,7 @@ fn extract_item_block_types(
     item: &Value,
     key: &str,
     inherited_parent: Option<&str>,
+    container_item: &str,
     source: &str,
     out: &mut Vec<RawAsset>,
 ) {
@@ -981,27 +1085,19 @@ fn extract_item_block_types(
         out.push(RawAsset {
             key: key.to_string(),
             parent,
+            container_item: Some(container_item.to_string()),
             source: source.to_string(),
             preloaded: false,
             value: block_type.clone(),
         });
-        extract_block_type_definitions(block_type, key, source, out);
-    }
-
-    if let Some(states) = item.get("State").and_then(Value::as_object) {
-        for (state, value) in states {
-            if !value.is_object() {
-                continue;
-            }
-            let state_key = format!("*{key}_State_{state}");
-            extract_item_block_types(value, &state_key, Some(key), source, out);
-        }
+        extract_block_type_definitions(block_type, key, container_item, source, out);
     }
 }
 
 fn extract_block_type_definitions(
     block_type: &Value,
     key: &str,
+    container_item: &str,
     source: &str,
     out: &mut Vec<RawAsset>,
 ) {
@@ -1026,11 +1122,12 @@ fn extract_block_type_definitions(
         out.push(RawAsset {
             key: definition_key.clone(),
             parent: Some(parent),
+            container_item: Some(container_item.to_string()),
             source: source.to_string(),
             preloaded: false,
             value: value.clone(),
         });
-        extract_block_type_definitions(value, &definition_key, source, out);
+        extract_block_type_definitions(value, &definition_key, container_item, source, out);
     }
 }
 
@@ -1067,6 +1164,7 @@ fn parse_block_type(merged: &Value) -> Result<BlockTypeAsset, String> {
         opacity,
         material,
         support,
+        container_item: None,
         json: merged.clone(),
     })
 }
@@ -1210,5 +1308,8 @@ fn block_bounding_box_preloads() -> Vec<(&'static str, Value)> {
 }
 
 fn item_preloads() -> Vec<(&'static str, Value)> {
-    vec![("Unknown", json!({}))]
+    vec![(
+        "Unknown",
+        json!({"Model": "Items/CreativeTools/EditorTool.blockymodel"}),
+    )]
 }

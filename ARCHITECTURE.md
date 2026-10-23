@@ -226,12 +226,13 @@ Components:
   block files.
 - **Packet encoders**: one per store, matching the Java `toPacket()` output; the
   39 asset packet types are golden-tested byte-for-byte (one per store that has
-  a packet generator). `hytale-assets::packets` currently covers
-  `PhysicalMaterial` (87), `BlockBoundingBoxes` (41), `Environment` (61) and
-  `Fluid` (83). Environment/Fluid non-tag fields are golden-checked; their tag
-  indexes are Rust-owned and sent through `ServerTags` with the same registry.
-  `BlockType`/`Item` remain pending; `FluidFX`/`BlockSoundSet` child indexes are
-  still 0 until those stores are streamed.
+  a packet generator). `hytale-assets::packets` covers all six self-contained
+  P0 stores: `PhysicalMaterial` (87) and `BlockBoundingBoxes` (41) are
+  byte-exact; `Environment` (61), `Fluid` (83), `BlockType` (40) and `Item`
+  (54) are golden-checked by asset key because their tag indexes, block ids and
+  group ids are Rust-owned and published consistently (`ServerTags`, the
+  deterministic group registry). `FluidFX`/`BlockSoundSet`/`ItemSoundSet`/
+  `ItemQuality` child indexes are still 0 until those stores are streamed.
 - **Common assets**: `hytale-assets::common` reads the pack-root
   `CommonAssetsIndex.hashes`, advertises the hash/name pairs in
   `WorldSettings.requiredAssets`, and lazily loads + SHA-256-verifies the files
@@ -444,7 +445,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (PhysicalMaterial, BlockHitboxes, Environment, Fluid), the `Game` transition, the joining player's list/self-spawn, the initial time/gameplay packets, the teleport exchange and movement-driven view updates (M4) landed; BlockType/Item, other-player tracking, block interactions, world-clock progression and the universe/listener runtime pending |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all six P0 stores incl. BlockType/Item), the `Game` transition, the joining player's list/self-spawn, the initial time/gameplay packets, the teleport exchange and movement-driven view updates (M4) landed; other-player tracking, block interactions, world-clock progression and the universe/listener runtime pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | Ed25519 keys, EdDSA JWT claims/signature/time/scope validation, `cnf.x5t#S256` certificate binding and the local issuer/validator authority landed (M4); OAuth device/browser, session-service JWKS and credential-store adapters pending |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |

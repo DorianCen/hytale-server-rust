@@ -45,6 +45,7 @@ task done until its acceptance section is satisfied.
 | [T30](T30-auth-assets-game.md) | Local EdDSA auth, common/config assets, Game transition | T28, T29 | low/medium | done (session 20) |
 | [T31](T31-player-spawn-game-loop.md) | Player add/spawn, entity tracker and game loop | T30 | low/medium | done (session 21) |
 | [T32](T32-environment-fluid-packets.md) | Environment/Fluid packets + Rust-owned tags | T30 | medium | done (session 22) |
+| [T33](T33-blocktype-item-packets.md) | BlockType + Item config packets | T32 | low/medium | done (session 23) |
 
 ## Rules
 
