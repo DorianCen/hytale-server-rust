@@ -40,10 +40,13 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   incremental updates: `send_updates` forwards `ChunkLoaded` batches and
   `UnloadChunk` packets after a view change (`chunk-serve --move-demo`). Session
   18 started the asset packet encoders: `PhysicalMaterial` and
-  `BlockBoundingBoxes` now match the Java payloads byte-for-byte. The
-  auth/setup/game session state machine (still blocked on the remaining asset
-  packets and a packet trace), movement-driven views and the live tick loop are
-  still open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  `BlockBoundingBoxes` now match the Java payloads byte-for-byte. Session 19
+  completed the first dev/insecure join: a generic frame stream, the
+  Connect → insecure options → ConnectAccept → setup handshake in
+  `hytale-server::session`, and `client-bot --dev-join` receiving 21 chunk
+  packets. Real authentication, common/config asset streaming, the player
+  add/spawn/game packets, movement-driven views and the live tick loop are still
+  open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -348,7 +351,12 @@ not part of v1.
   certificate binding (`cnf.x5t#S256`) is the actual identity check.
 - Connection states: `Initial` → `Authentication` → `Setup` → `Game`.
   The exact packet order is part of the client contract and is covered by
-  packet-trace fixtures.
+  packet-trace fixtures. The dev/insecure flow (`Initial` → `Setup` → chunk
+  stream) is implemented in `hytale-server::session`; real authentication and
+  the game-state packet stream are still pending.
+- Generic framed streams live in `hytale-net::frame_stream`; both the setup
+  stream and the `Chunks` stream use it. The setup stream is the client-opened
+  bidirectional QUIC stream; the chunk stream is server-opened unidirectional.
 - Chunk stream: `hytale-net::chunk_stream` opens a server→client unidirectional
   QUIC stream and writes the frames from `ChunkPacketBatch`. The reader validates
   the registry id/max size and zstd-decompresses compressed packets. The exact
@@ -401,7 +409,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::chunk_streamer` | QUIC mTLS spike + `PeerIdentity`, the framed `Chunks` writer/reader, the live world-thread → stream bridge and incremental load/unload updates (M4) landed; packet/session state machine and movement-driven views pending |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates and the dev/insecure Connect → Setup join (M4) landed; real authentication, asset streaming and the game-state packet loop pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | planned (M4) |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |

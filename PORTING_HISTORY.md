@@ -1033,3 +1033,47 @@ Format:
     the Java order is modelled).
   - Build the `WorldSettings`/asset-init sequence and the connection state
     machine on top.
+
+---
+
+## Session 19 — dev/insecure join handshake and first bot join (2026-10-23)
+
+- **Goal:** run the Java insecure-mode control flow end to end and stream chunks:
+  `Connect` → `RequestInsecurePlayerOptions` → `InsecurePlayerOptions` →
+  `ConnectAccept` → `WorldSettings`/`ServerInfo` → `RequestAssets` →
+  `WorldLoadProgress`/`WorldLoadFinished` → `SetupFinalize` → chunks.
+- **Landed:**
+  - `hytale-net::frame_stream`: generic `FrameReader`/`FrameWriter` for any QUIC
+    stream, `write_packet` with registry-driven zstd compression, incremental
+    reads with id/max-size validation, `Frame::decode::<T>()`.
+  - `hytale-server::session`:
+    - `SessionOptions`/`SessionReport`/`SessionError`;
+    - `serve_connection` accepts the client's bidirectional setup stream, runs
+      the insecure handshake (CRC check, Ping/Pong, ViewRadius, duplicate-assets
+      guard, SetupFinalize), then streams the player view;
+    - reports UUID/username/view radius/stream counts.
+  - `chunk-serve --handshake` plus `--server-name`/`--motd`/`--max-players`/
+    `--handshake-timeout`.
+  - `client-bot::dev_join` + CLI `--dev-join --username --view-radius`, which
+    performs the same flow and then receives the chunk stream.
+  - `tools/client-bot/tests/dev_join.rs` (ignored, pack + loopback UDP).
+- **Verified:**
+  - Manual dev join: handshake packet ids `[364, 14, 20, 223, 21, 22]`, 21 chunk
+    packets; server `handshake ok: RustBot view_radius=0 chunks=1`.
+  - Ignored `dev_join` loopback test passes.
+  - `cargo test --workspace` (1110 passed, 7 ignored), clippy and fmt green.
+- **Deviations:**
+  - Insecure/dev mode only; no OAuth/JWT and no certificate binding check.
+  - No common/config asset streaming (`WorldSettings.requiredAssets` empty,
+    `RequestAssets` answered with progress/finished only).
+  - No translations, player add/spawn/game packets or game loop; chunks start
+    right after SetupFinalize.
+  - ServerDisconnect is only sent on CRC mismatch; other violations close.
+  - The world-thread player UUID is independent of the InsecurePlayerOptions
+    UUID; the dev flow only reports the latter.
+  - One client/connection per demo process.
+- **Follow-ups:**
+  - Add authentication and the JWT `cnf.x5t#S256` binding.
+  - Encode the remaining asset packets and stream common/config assets.
+  - Send player add/spawn/world settings after SetupFinalize.
+  - Add the game packet loop and movement-driven view updates.

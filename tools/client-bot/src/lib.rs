@@ -4,17 +4,26 @@
 //! packets until the server disconnects or the timeout expires. Packet handlers
 //! and the full join flow land in later tasks.
 
-use hytale_net::{ChunkFrame, ChunkStreamError, ChunkStreamReader, ClientSession};
+use hytale_net::{
+    ChunkFrame, ChunkStreamError, ChunkStreamReader, ClientSession, FrameReader, FrameStreamError,
+    FrameWriter,
+};
 use hytale_protocol::frame::{decode_frame, encode_frame, MAX_PACKET_SIZE};
+use hytale_protocol::generated::auth::ConnectAccept;
+use hytale_protocol::generated::common::PongType;
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
     RequestInsecurePlayerOptions, ServerDisconnect,
+};
+use hytale_protocol::generated::setup::{
+    RequestAssets, SetupFinalize, ViewRadius, WorldLoadFinished, WorldSettings,
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::{
     SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids, UnloadChunk,
 };
-use hytale_protocol::io::{ProtocolError, Reader, Writer};
+use hytale_protocol::io::{ProtocolError, Reader, Uuid, Writer};
+use thiserror::Error;
 
 /// Java `ProtocolSettings.PROTOCOL_CRC`.
 pub const DEFAULT_PROTOCOL_CRC: i32 = -386_561_135;
@@ -245,6 +254,138 @@ pub fn summarize_chunk_packet(
         );
     }
     None
+}
+
+/// Options for the dev/insecure join flow.
+#[derive(Debug, Clone)]
+pub struct DevJoinOptions {
+    /// Player UUID sent in `InsecurePlayerOptions`.
+    pub uuid: Uuid,
+    /// Username sent in `InsecurePlayerOptions`.
+    pub username: String,
+    /// Requested view radius, in chunks.
+    pub view_radius_chunks: u32,
+}
+
+/// What the dev join produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DevJoinReport {
+    /// Server packets seen during the handshake, in order.
+    pub handshake_packets: Vec<u32>,
+    /// Decoded chunk packets received after setup.
+    pub chunks: Vec<ChunkPacketSummary>,
+}
+
+/// Errors from the dev join.
+#[derive(Debug, Error)]
+pub enum DevJoinError {
+    /// Opening the setup stream failed.
+    #[error("opening the setup stream failed: {0}")]
+    Connect(String),
+    /// A framed packet failed.
+    #[error(transparent)]
+    Frame(#[from] FrameStreamError),
+    /// The chunk stream failed.
+    #[error(transparent)]
+    Chunk(#[from] ChunkStreamError),
+    /// The server disconnected or closed the stream.
+    #[error("server closed the connection during setup")]
+    Closed,
+    /// The server sent a disconnect.
+    #[error("server disconnected: {0}")]
+    Disconnected(String),
+}
+
+/// Run the dev/insecure `Connect` → `SetupFinalize` handshake, then receive the
+/// server's chunk stream. This mirrors the Java insecure-mode branch; it does
+/// not authenticate.
+pub async fn dev_join(
+    session: &ClientSession,
+    options: &DevJoinOptions,
+) -> Result<DevJoinReport, DevJoinError> {
+    let (send, recv) = session
+        .connection()
+        .open_bi()
+        .await
+        .map_err(|error| DevJoinError::Connect(error.to_string()))?;
+    let mut writer = FrameWriter::new(send);
+    let mut reader = FrameReader::new(recv);
+    let connect = build_connect(
+        DEFAULT_PROTOCOL_CRC,
+        DEFAULT_PROTOCOL_BUILD,
+        "2026.01.01",
+        "en-US",
+        None,
+    );
+    writer.write_packet(&connect, 3).await?;
+
+    let mut handshake_packets = Vec::new();
+    loop {
+        let frame = reader.next_frame().await?.ok_or(DevJoinError::Closed)?;
+        handshake_packets.push(frame.packet_id);
+        match frame.packet_id {
+            RequestInsecurePlayerOptions::ID => {
+                writer
+                    .write_packet(
+                        &InsecurePlayerOptions {
+                            uuid: options.uuid,
+                            username: options.username.clone(),
+                            skin: None,
+                        },
+                        3,
+                    )
+                    .await?;
+            }
+            ConnectAccept::ID => {
+                writer
+                    .write_packet(
+                        &ViewRadius {
+                            value: (options.view_radius_chunks * 32) as i32,
+                        },
+                        3,
+                    )
+                    .await?;
+            }
+            WorldSettings::ID => {
+                writer
+                    .write_packet(&RequestAssets { assets: None }, 3)
+                    .await?;
+            }
+            WorldLoadFinished::ID => {
+                writer.write_packet(&SetupFinalize {}, 3).await?;
+                break;
+            }
+            ServerDisconnect::ID => {
+                let disconnect: ServerDisconnect = frame.decode()?;
+                let reason = disconnect
+                    .reason
+                    .and_then(|message| message.raw_text)
+                    .unwrap_or_else(|| "disconnect".to_string());
+                return Err(DevJoinError::Disconnected(reason));
+            }
+            Ping::ID => {
+                let ping: Ping = frame.decode()?;
+                writer
+                    .write_packet(
+                        &Pong {
+                            id: ping.id,
+                            time: ping.time,
+                            r#type: PongType::Raw,
+                            packet_queue_size: 0,
+                        },
+                        3,
+                    )
+                    .await?;
+            }
+            _ => {}
+        }
+    }
+
+    let chunks = receive_chunk_stream(session).await?;
+    Ok(DevJoinReport {
+        handshake_packets,
+        chunks,
+    })
 }
 
 /// Read the `Chunks` stream until the server finishes it and decode every chunk

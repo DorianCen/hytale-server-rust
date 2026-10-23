@@ -41,6 +41,7 @@ task done until its acceptance section is satisfied.
 | [T26](T26-live-chunk-session.md) | Live chunk session bridge + client-bot stream mode | T23, T24, T25 | medium | done (session 16) |
 | [T27](T27-incremental-view-updates.md) | Incremental view updates + unload packets | T26 | medium | done (session 17) |
 | [T28](T28-p0-asset-packets.md) | P0 asset packet encoders (PhysicalMaterial + BlockHitboxes) | T15 | medium | done (session 18) |
+| [T29](T29-dev-join.md) | Dev/insecure handshake + first bot join | T25, T26 | medium | done (session 19) |
 
 ## Rules
 

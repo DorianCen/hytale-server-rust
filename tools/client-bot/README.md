@@ -46,6 +46,23 @@ cargo run -p client-bot -- --host 127.0.0.1:5521 --chunks --timeout 60
 
 It prints one `ChunkPacketSummary` per packet and exits 0 when the stream
 finishes. With `chunk-serve --move-demo` it prints 43 summaries: the initial
-21-packet chunk, one `Unload { x, z }`, and the moved-to chunk (21 packets). The
-demo server skips auth/setup; the real session state machine will attach the same
-receiver after `Setup`/`Game`.
+21-packet chunk, one `Unload { x, z }`, and the moved-to chunk (21 packets).
+
+## Dev join
+
+`--dev-join` performs the insecure-mode join and then receives the chunk stream:
+
+```sh
+# terminal 1
+cargo run -p hytale-server -- chunk-serve --handshake \
+    --save target/dev-join-smoke --bind 127.0.0.1:5523 --view-radius 0
+# terminal 2
+cargo run -p client-bot -- --host 127.0.0.1:5523 --dev-join \
+    --view-radius 0 --timeout 60
+```
+
+The bot sends `Connect`, answers `RequestInsecurePlayerOptions` with
+`InsecurePlayerOptions`, requests assets, and sends `SetupFinalize` after
+`WorldLoadFinished`. It prints the handshake packet ids
+(`[364, 14, 20, 223, 21, 22]`) and the 21 chunk summaries. Authentication, real
+asset streaming and the game-state loop are not implemented yet.

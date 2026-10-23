@@ -100,6 +100,11 @@ For the server, “exact” also applies to:
   the world queue, then send the loaded view nearest-first) and
   `send_updates` (forward later `ChunkLoaded`/`ChunkUnloaded` events). Do not
   tick or read chunks from the network task directly.
+- Connection control packets use `hytale-net::frame_stream`; the setup stream is
+  the client-opened bidirectional stream. Keep the state transitions in
+  `hytale-server::session` and preserve the Java insecure-mode order
+  (`RequestInsecurePlayerOptions` before `InsecurePlayerOptions`, setup only
+  after `ConnectAccept`). Do not send chunks before `SetupFinalize`.
 - A view change cancels queued loads and unloads chunks outside the view; the
   client gets one `UnloadChunk` per chunk. Do not add section/`ClearChunks`
   variants without a Java trace showing when the server sends them.

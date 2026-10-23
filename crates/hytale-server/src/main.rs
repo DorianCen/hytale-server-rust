@@ -219,6 +219,21 @@ struct ChunkServeArgs {
     /// After the snapshot, move the view one chunk and stream the update.
     #[arg(long)]
     move_demo: bool,
+    /// Run the dev/insecure Connect → Setup handshake before streaming.
+    #[arg(long)]
+    handshake: bool,
+    /// `ServerInfo.serverName`.
+    #[arg(long, default_value = "Rust CoreServer")]
+    server_name: String,
+    /// `ServerInfo.motd`.
+    #[arg(long, default_value = "dev")]
+    motd: String,
+    /// `ServerInfo.maxPlayers`.
+    #[arg(long, default_value_t = 20)]
+    max_players: i32,
+    /// Seconds allowed for the whole handshake.
+    #[arg(long, default_value_t = 30)]
+    handshake_timeout: u64,
     /// Seconds to wait for the client to close after the stream ends.
     #[arg(long, default_value_t = 5)]
     close_timeout: u64,
@@ -362,6 +377,15 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
         center: None,
         compression_level: args.compression_level,
         move_demo: args.move_demo,
+        handshake: args.handshake,
+        session: hytale_server::SessionOptions {
+            server_name: args.server_name,
+            motd: args.motd,
+            max_players: args.max_players,
+            default_view_radius: args.view_radius,
+            chunk_compression_level: args.compression_level,
+            handshake_timeout: std::time::Duration::from_secs(args.handshake_timeout),
+        },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };
     match run_chunk_serve(&options) {
@@ -378,6 +402,12 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
                 "world {} player {} at chunk ({}, {})",
                 report.world_uuid, report.player_uuid, report.player_chunk.0, report.player_chunk.1
             );
+            if let Some(session) = report.session {
+                println!(
+                    "handshake ok: {} view_radius={} chunks={}",
+                    session.username, session.view_radius, session.stream.chunks
+                );
+            }
             ExitCode::SUCCESS
         }
         Err(error) => {

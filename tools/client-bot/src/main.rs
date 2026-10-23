@@ -11,11 +11,12 @@ use std::time::Duration;
 
 use clap::Parser;
 use client_bot::{
-    build_connect, build_connect_frame, drain_frames, hex, receive_chunk_stream,
-    DEFAULT_PROTOCOL_BUILD, DEFAULT_PROTOCOL_CRC,
+    build_connect, build_connect_frame, dev_join, drain_frames, hex, receive_chunk_stream,
+    DevJoinOptions, DEFAULT_PROTOCOL_BUILD, DEFAULT_PROTOCOL_CRC,
 };
 use hytale_net::{ClientEndpoint, TlsIdentity};
 use hytale_protocol::generated::wire::Packet;
+use hytale_protocol::io::Uuid;
 use tokio::time::timeout;
 
 #[derive(Debug, Parser)]
@@ -48,6 +49,15 @@ struct Cli {
     /// After Connect, read the server's `Chunks` stream and summarize it.
     #[arg(long)]
     chunks: bool,
+    /// Run the dev/insecure Connect → Setup handshake, then receive chunks.
+    #[arg(long)]
+    dev_join: bool,
+    /// Username for the dev/insecure `InsecurePlayerOptions`.
+    #[arg(long, default_value = "RustBot")]
+    username: String,
+    /// Requested view radius, in chunks, for the dev join.
+    #[arg(long, default_value_t = 1)]
+    view_radius: u32,
     /// Seconds to wait for a reply before exiting successfully.
     #[arg(long, default_value_t = 5)]
     timeout: u64,
@@ -91,6 +101,30 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(peer) = session.peer_identity() {
         println!("server certificate sha256: {}", peer.fingerprint_hex());
+    }
+
+    if cli.dev_join {
+        let report = dev_join(
+            &session,
+            &DevJoinOptions {
+                uuid: Uuid::new(
+                    0x1234_5678_1234_5678u64 as i64,
+                    0x9abc_def0_1234_5678u64 as i64,
+                ),
+                username: cli.username.clone(),
+                view_radius_chunks: cli.view_radius,
+            },
+        )
+        .await?;
+        println!("handshake packets: {:?}", report.handshake_packets);
+        println!("chunk packets: {}", report.chunks.len());
+        for packet in &report.chunks {
+            println!("{packet:?}");
+        }
+        session
+            .connection()
+            .close(0u32.into(), b"client-bot dev join complete");
+        return Ok(());
     }
 
     let (mut send, mut recv) = session.connection().open_bi().await?;

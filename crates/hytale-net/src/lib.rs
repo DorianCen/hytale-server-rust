@@ -56,12 +56,17 @@
 #![deny(clippy::all)]
 
 pub mod chunk_stream;
+pub mod frame_stream;
 pub mod identity;
 pub mod tls;
 pub mod transport;
 pub mod verify;
 
 pub use chunk_stream::{ChunkFrame, ChunkStreamError, ChunkStreamReader, ChunkStreamWriter};
+pub use frame_stream::{
+    Frame, FrameReader, FrameStreamError, FrameWriter,
+    DEFAULT_COMPRESSION_LEVEL as FRAME_COMPRESSION_LEVEL,
+};
 pub use identity::PeerIdentity;
 pub use tls::{TlsIdentity, ALPN_HYTALE_V3};
 pub use transport::{

@@ -359,6 +359,8 @@ dependencies = [
  "clap",
  "hytale-net",
  "hytale-protocol",
+ "hytale-server",
+ "thiserror",
  "tokio",
 ]
 

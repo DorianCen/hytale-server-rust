@@ -13,6 +13,9 @@ use thiserror::Error;
 use tokio::runtime::Runtime;
 
 use crate::chunk_streamer::{send_updates, send_view, ChunkSessionError, ChunkStreamReport};
+use crate::session::{
+    serve_connection as serve_session, SessionError, SessionOptions, SessionReport,
+};
 use crate::world_thread::{WorldThread, WorldThreadError, WorldThreadOptions};
 
 /// Options for the demo chunk server.
@@ -28,6 +31,10 @@ pub struct ChunkServeOptions {
     pub compression_level: i32,
     /// Send one view move after the initial snapshot (unload + new chunk).
     pub move_demo: bool,
+    /// Run the dev/insecure Connect → Setup handshake before streaming.
+    pub handshake: bool,
+    /// Handshake settings when `handshake` is set.
+    pub session: SessionOptions,
     /// How long to wait for the client to close after the stream finishes.
     pub close_timeout: Duration,
 }
@@ -45,6 +52,8 @@ pub struct ChunkServeReport {
     pub player_chunk: (i32, i32),
     /// Stream counts.
     pub stream: ChunkStreamReport,
+    /// Handshake result when the dev session flow ran.
+    pub session: Option<SessionReport>,
 }
 
 /// Errors from the demo server.
@@ -62,6 +71,9 @@ pub enum ChunkServeError {
     /// The chunk session failed.
     #[error(transparent)]
     Session(#[from] ChunkSessionError),
+    /// The handshake failed.
+    #[error(transparent)]
+    Handshake(#[from] SessionError),
 }
 
 /// Run the demo server on a fresh tokio runtime.
@@ -82,15 +94,21 @@ async fn serve_async(options: &ChunkServeOptions) -> Result<ChunkServeReport, Ch
 
     let accepted = server.accept().await?;
     let center = options.center.unwrap_or(start.player_chunk);
-    let stream = serve_connection(
-        &thread,
-        accepted.connection(),
-        center,
-        options.world.view_radius,
-        options.compression_level,
-        options.move_demo,
-    )
-    .await?;
+    let (stream, session) = if options.handshake {
+        let session = serve_session(accepted.connection(), &thread, &options.session).await?;
+        (session.stream, Some(session))
+    } else {
+        let stream = serve_connection(
+            &thread,
+            accepted.connection(),
+            center,
+            options.world.view_radius,
+            options.compression_level,
+            options.move_demo,
+        )
+        .await?;
+        (stream, None)
+    };
 
     // Let the client read the FIN and close before the endpoint goes away.
     let _ = tokio::time::timeout(options.close_timeout, accepted.connection().closed()).await;
@@ -103,6 +121,7 @@ async fn serve_async(options: &ChunkServeOptions) -> Result<ChunkServeReport, Ch
         player_uuid: start.player_uuid,
         player_chunk: start.player_chunk,
         stream,
+        session,
     })
 }
 

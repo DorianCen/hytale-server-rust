@@ -10,6 +10,7 @@ pub mod chunk_streamer;
 pub mod generation;
 pub mod headless;
 pub mod player_data_tool;
+pub mod session;
 pub mod world_boot;
 pub mod world_config_tool;
 pub mod world_thread;
@@ -26,6 +27,9 @@ pub use generation::{GenerationError, GeneratorOptions, WorldGenerator};
 pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, HeadlessReport};
 pub use player_data_tool::{
     run as run_player_data_tool, PlayerDataToolError, PlayerDataToolOptions, PlayerDataToolReport,
+};
+pub use session::{
+    serve_connection as serve_session_connection, SessionError, SessionOptions, SessionReport,
 };
 pub use world_boot::{run as run_world_boot, WorldBootError, WorldBootOptions, WorldBootReport};
 pub use world_config_tool::{

@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 19
+# Next steps — CoreServer rewrite, session 20
 
-**Status:** sessions 1–18 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–19 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -34,8 +34,11 @@ added incremental updates: a view move sends the new chunk batch and
 `UnloadChunk` events (`chunk-serve --move-demo` streams 43 packets), so only the
 session state machine remains before a real join. Session 18 started the asset
 packet encoders: `PhysicalMaterial` (87) and `BlockBoundingBoxes` (41) now match
-the Java payloads byte-for-byte. See [`PORTING_HISTORY.md`](PORTING_HISTORY.md)
-and the status board in [`tasks/README.md`](tasks/README.md).
+the Java payloads byte-for-byte. Session 19 completed the first dev/insecure
+join: the server and `client-bot` now run Connect → insecure options →
+ConnectAccept → WorldSettings/ServerInfo → setup → 21 chunk packets. See
+[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
+[`tasks/README.md`](tasks/README.md).
 
 **Try it:**
 
@@ -60,6 +63,12 @@ tools/java-dumper/run-save-check.sh target/headless-world 4 -5 129 250 -159 Debu
 cargo run -p hytale-server -- chunk-serve \
   --save target/chunk-serve-move --bind 127.0.0.1:5522 --view-radius 0 --move-demo
 cargo run -p client-bot -- --host 127.0.0.1:5522 --chunks --timeout 60
+
+# dev/insecure first join (handshake + chunks):
+cargo run -p hytale-server -- chunk-serve --handshake \
+  --save target/dev-join-smoke --bind 127.0.0.1:5523 --view-radius 0
+cargo run -p client-bot -- --host 127.0.0.1:5523 --dev-join \
+  --view-radius 0 --timeout 60
 ```
 
 **Next up:** finish the first vertical slice.
@@ -91,11 +100,10 @@ cargo run -p client-bot -- --host 127.0.0.1:5522 --chunks --timeout 60
    world, generates one chunk, converts it to a runtime chunk, and saves a
    region blob.~~ Done in session 7. The boot loads the asset pack once, uses
    its registry ids for generation/storage and verifies the decoded save.
-5. Extend `client-bot` from the connection handshake into auth/setup/game with
-   the packet-trace fixture. The chunk-stream transport, world-thread bridge,
-   incremental updates and bot receiver are in place; the server still needs the
-   real session state machine to open the stream after `Setup`/`Game`, which is
-   blocked on the P0/P1 asset packet encoders and the trace fixture.
+5. ~~Extend `client-bot` from the connection handshake into auth/setup/game with
+   the packet-trace fixture.~~ The dev/insecure Connect → Setup flow and chunk
+   stream landed in session 19. Remaining: real authentication, common/config
+   asset streaming, player add/spawn/game packets and a real-client trace.
 6. ~~Load saved chunks back into a world runtime (region → `ChunkColumn`) and
    add the mutate → Rust save → Java reload compatibility gate.~~ Done in
    session 8 (`World`/`WorldStorage`, `load-chunk`, `WorldStorageProbe`).
