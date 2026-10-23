@@ -1149,3 +1149,65 @@ Format:
     packets and the `ClientReady(readyForGameplay)`/teleport exchange (T31).
   - Feed movement packets into `WorldThread::set_view` and stream updates.
   - Add a real vanilla-client trace for the authenticated branch.
+
+---
+
+## Session 21 — spawn payloads, teleport exchange and the live game loop (2026-10-23)
+
+- **Goal:** complete the client's spawn/join burst and make the session usable
+  for gameplay input: world time/gameplay config, `readyForGameplay` teleport,
+  an open chunk stream, and movement-driven view updates.
+- **Landed:**
+  - `WorldThread`: `WorldTimeState` and `WorldThread::world_time`, derived from
+    the world config's daytime/nighttime durations and pause flag (Java defaults
+    when unset).
+  - `hytale-server::session`:
+    - `SetGameMode`, `WorldGameplayConfig` (protocol defaults with block
+      breaking/gathering/placement enabled), `UpdateTimeSettings`, `UpdateTime`
+      after the self entity spawn;
+    - `ClientReady(readyForGameplay)` handling and `ClientTeleport` using the
+      saved transform;
+    - a persistent game loop that keeps the `Chunks` stream open, ticks the
+      world thread at 50 ms, forwards `ChunkLoaded`/`ChunkUnloaded` events, and
+      processes `ClientMovement`, `ViewRadius`, `ClientDisconnect` and `Ping`;
+    - movement computes the new chunk, calls `WorldThread::set_view`, and streams
+      the resulting unload/new-chunk batches;
+    - `GameLoopReport` (teleport sent/acked, movement packets, view changes,
+      loop chunk counters, disconnect) merged into `SessionReport`.
+  - `client-bot`:
+    - reads the initial snapshot by packet count instead of waiting for FIN (the
+      stream now stays open);
+    - sends `ClientReady(readyForGameplay)`, receives `ClientTeleport`, sends a
+      `ClientMovement` teleport ack + position, and collects the view-update
+      packets;
+    - `--move-chunk x,z`.
+  - `auth_join` loopback test now exercises the teleport ack and a movement to
+    the adjacent chunk, asserting `UnloadChunk(0,0)` and `SetColumn(1,0)`.
+- **Verified:**
+  - Manual auth join with `--move-chunk 1,0`:
+    - teleport sent and acked, `movement=1`, `view_changes=1`, loop streamed the
+      new chunk (43 packets total);
+    - self spawn, gameplay config, time, player list and Game transition all
+      reported.
+  - Ignored `auth_join` (2 tests) and `dev_join` pass.
+  - `cargo test --workspace` (1120 passed, 0 failed, 9 ignored), clippy and fmt
+    green.
+- **Deviations:**
+  - Self spawn uses Java's empty model/skin/equipment forms; cosmetics and
+    inventory payloads are not decoded from the player save.
+  - `WorldGameplayConfig` uses protocol defaults; the `GameplayConfig` asset is
+    not loaded.
+  - World time is sent once and does not advance yet.
+  - Movement only changes the view; there is no physics, collision, anti-cheat
+    or teleport position validation.
+  - The game loop ticks the world inline on the connection task; a chunk load
+    can briefly block the async loop.
+  - World map settings, other players and entity tracking are still absent.
+  - One connection/player per `chunk-serve` process; no universe or real
+    listener loop yet.
+- **Follow-ups:**
+  - Load cosmetics/equipment and send the real self-spawn components.
+  - Add world clock progression and `GameplayConfig` asset data.
+  - Add other-player tracking and broadcast movement/entity updates.
+  - Wire block place/break and the persistent multi-connection server runtime.
+  - Capture a real vanilla-client trace to validate the packet/channel order.

@@ -118,6 +118,14 @@ For the server, “exact” also applies to:
 - A view change cancels queued loads and unloads chunks outside the view; the
   client gets one `UnloadChunk` per chunk. Do not add section/`ClearChunks`
   variants without a Java trace showing when the server sends them.
+- The `Game` loop owns the persistent `Chunks` stream: do not finish it after
+  the initial snapshot. Tick `WorldThread` and forward `ChunkLoaded`/
+  `ChunkUnloaded` events; `ClientMovement.absolutePosition` updates the view
+  chunk and must go through `WorldThread::set_view`, never touch loaded chunks
+  directly.
+- After `ClientReady(readyForGameplay)` send `ClientTeleport` for the saved
+  transform. Until the client acks, ignore movement positions (the current demo
+  accepts the ack by id; position validation is a follow-up).
 
 ---
 

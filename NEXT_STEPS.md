@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 21
+# Next steps — CoreServer rewrite, session 22
 
-**Status:** sessions 1–20 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–21 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -80,7 +80,7 @@ cargo run -p hytale-server -- chunk-serve --handshake --auth-mode local \
   --save target/auth-join-smoke --bind 127.0.0.1:5531 --view-radius 0
 cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
   --auth-key "<pkcs8 base64 printed by the server>" --username AuthBot \
-  --view-radius 0 --asset-limit 2 --timeout 60
+  --view-radius 0 --asset-limit 2 --move-chunk 1,0 --timeout 60
 ```
 
 **Next up:** finish the first vertical slice.
@@ -104,9 +104,11 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
    world-thread → QUIC → bot streaming done in session 16; incremental view
    updates and `UnloadChunk` done in session 17; the local-auth setup flow,
    common/config asset streaming and the `Game` transition done in session 20.
-   Remaining: populated model/skin/equipment updates and other-player entity
-   tracking, world time/gameplay config, the `readyForGameplay` teleport
-   exchange, the game packet loop and player-movement-driven view changes.
+   Session 21 added the initial world time/gameplay packets, the
+   `readyForGameplay` teleport exchange, a persistent chunk stream and
+   movement-driven view updates. Remaining: populated cosmetics/equipment,
+   other-player entity tracking, world time progression, block interactions and
+   real multiplayer/universe management.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
    `hytale-assets` packet encoders still need their `assets/*.bin` comparison.
@@ -118,8 +120,9 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
    the packet-trace fixture.~~ The dev/insecure Connect → Setup flow and chunk
    stream landed in session 19; local EdDSA authentication, common/config asset
    streaming, the Game transition and the joining player's list/self-spawn
-   landed in session 20. Remaining: world time/gameplay config, other-player
-   entity tracking, the gameplay loop and a real-client trace.
+   landed in session 20; the teleport exchange and movement-driven view loop
+   landed in session 21. Remaining: other-player entity tracking, block
+   interactions, multiplayer/universe management and a real-client trace.
 6. ~~Load saved chunks back into a world runtime (region → `ChunkColumn`) and
    add the mutate → Rust save → Java reload compatibility gate.~~ Done in
    session 8 (`World`/`WorldStorage`, `load-chunk`, `WorldStorageProbe`).

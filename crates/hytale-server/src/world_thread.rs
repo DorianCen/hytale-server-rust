@@ -59,6 +59,37 @@ impl WorldThreadOptions {
     }
 }
 
+/// Snapshot of the world clock used by the join packet burst.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldTimeState {
+    /// Game time, seconds since the Unix epoch (Java `WorldTimeResource`).
+    pub game_time_seconds: i64,
+    /// Game time sub-second nanos.
+    pub game_time_nanos: i32,
+    /// Configured daytime duration.
+    pub daytime_duration_seconds: i32,
+    /// Configured nighttime duration.
+    pub nighttime_duration_seconds: i32,
+    /// Total moon phases (Java `WorldConfig` default 5).
+    pub total_moon_phases: i8,
+    /// Whether world time is paused.
+    pub time_paused: bool,
+}
+
+impl Default for WorldTimeState {
+    fn default() -> Self {
+        Self {
+            // `WorldTimeResource.ZERO_YEAR` (0001-01-01T00:00:00Z).
+            game_time_seconds: -62_135_596_800,
+            game_time_nanos: 0,
+            daytime_duration_seconds: 51_840,
+            nighttime_duration_seconds: 34_560,
+            total_moon_phases: 5,
+            time_paused: false,
+        }
+    }
+}
+
 /// What the thread opened at startup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldStartReport {
@@ -212,6 +243,9 @@ enum Command {
     },
     PlayerTransform {
         reply: SyncSender<Result<Option<PlayerTransform>, String>>,
+    },
+    WorldTime {
+        reply: SyncSender<Result<WorldTimeState, String>>,
     },
     Shutdown {
         reply: SyncSender<Result<usize, String>>,
@@ -431,6 +465,18 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// The world clock snapshot sent on join.
+    pub fn world_time(&self) -> Result<WorldTimeState, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::WorldTime { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Save, stop the generator and join the thread.
     pub fn shutdown(mut self) -> Result<usize, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -473,6 +519,7 @@ fn run(
             mut pending,
             start,
             player_transform,
+            world_time,
         }) => {
             if ready.send(Ok(start)).is_err() {
                 generator.shutdown();
@@ -549,6 +596,9 @@ fn run(
                     Command::PlayerTransform { reply } => {
                         let _ = reply.send(Ok(player_transform));
                     }
+                    Command::WorldTime { reply } => {
+                        let _ = reply.send(Ok(world_time));
+                    }
                     Command::Shutdown { reply } => {
                         let result = save
                             .save_all(&ChunkCodec::new(generator.assets()))
@@ -572,6 +622,7 @@ struct Started {
     pending: VecDeque<(i32, i32)>,
     start: WorldStartReport,
     player_transform: Option<PlayerTransform>,
+    world_time: WorldTimeState,
 }
 
 fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
@@ -611,6 +662,12 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let (player, player_created) = save.load_or_create_player(player_uuid)?;
     let player_transform = player.transform();
     save.save_player(player_uuid, &player)?;
+    let world_time = WorldTimeState {
+        daytime_duration_seconds: save.config().daytime_duration_seconds.unwrap_or(51_840),
+        nighttime_duration_seconds: save.config().nighttime_duration_seconds.unwrap_or(34_560),
+        time_paused: save.config().is_game_time_paused,
+        ..WorldTimeState::default()
+    };
 
     let stored_chunks = save.world().storage().stored_chunk_coordinates()?.len();
     let player_chunk = player
@@ -644,6 +701,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         pending,
         start,
         player_transform,
+        world_time,
     })
 }
 

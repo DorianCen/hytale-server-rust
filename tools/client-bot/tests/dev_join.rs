@@ -119,6 +119,8 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     assert_eq!(server_report.stream.chunks, 1);
     assert!(server_report.game.player_list);
     assert!(server_report.game.self_spawn);
+    assert!(server_report.game.gameplay_config);
+    assert!(server_report.game.time);
 
     std::fs::remove_dir_all(save_dir).ok();
 }

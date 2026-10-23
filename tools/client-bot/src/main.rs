@@ -69,6 +69,9 @@ struct Cli {
     /// Number of advertised common assets to request (default: all).
     #[arg(long)]
     asset_limit: Option<usize>,
+    /// Move to this chunk after the teleport ack to exercise a view update.
+    #[arg(long, value_parser = parse_chunk)]
+    move_chunk: Option<(i32, i32)>,
     /// Username for the dev/insecure `InsecurePlayerOptions`.
     #[arg(long, default_value = "RustBot")]
     username: String,
@@ -78,6 +81,20 @@ struct Cli {
     /// Seconds to wait for a reply before exiting successfully.
     #[arg(long, default_value_t = 5)]
     timeout: u64,
+}
+
+fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
+    let (x, z) = value
+        .split_once(',')
+        .ok_or_else(|| "expected `x,z`".to_string())?;
+    Ok((
+        x.trim()
+            .parse()
+            .map_err(|_| format!("invalid chunk x: {x}"))?,
+        z.trim()
+            .parse()
+            .map_err(|_| format!("invalid chunk z: {z}"))?,
+    ))
 }
 
 #[tokio::main]
@@ -164,6 +181,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 auth,
                 certificate_fingerprint: identity.fingerprint_base64url(),
                 asset_limit: cli.asset_limit,
+                movement_chunk: cli.move_chunk,
             },
         )
         .await?;
@@ -188,9 +206,16 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             report.config_packets, report.translations, report.rebuild_requested
         );
         println!("game: {:?}", report.game);
+        println!("teleport: {}", report.teleport);
         println!("chunk packets: {}", report.chunks.len());
         for packet in &report.chunks {
             println!("{packet:?}");
+        }
+        if !report.view_update_chunks.is_empty() {
+            println!("view update packets: {}", report.view_update_chunks.len());
+            for packet in &report.view_update_chunks {
+                println!("{packet:?}");
+            }
         }
         session
             .connection()

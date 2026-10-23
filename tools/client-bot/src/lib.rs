@@ -12,14 +12,16 @@ use hytale_net::{
 use hytale_protocol::frame::{decode_frame, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
-use hytale_protocol::generated::common::{Asset, PongType};
+use hytale_protocol::generated::common::{Asset, PongType, Position, TeleportAck};
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::entities::SetEntitySeed;
 use hytale_protocol::generated::interface_::AddToServerPlayerList;
-use hytale_protocol::generated::player::{ClientReady, JoinWorld, SetClientId};
+use hytale_protocol::generated::player::{
+    ClientMovement, ClientReady, ClientTeleport, JoinWorld, SetClientId,
+};
 use hytale_protocol::generated::setup::{
     AssetFinalize, AssetInitialize, AssetPart, RequestAssets, RequestCommonAssetsRebuild,
     ServerTags, SetTimeDilation, SetUpdateRate, SetupFinalize, UpdateFeatures, ViewRadius,
@@ -427,7 +429,7 @@ pub async fn dev_join(
     let (game, mut chunks, mut pending) = enter_game_client(session, &mut reader, &mut writer)
         .await
         .map_err(|error| DevJoinError::Game(error.to_string()))?;
-    let chunks = receive_chunks_from(&mut chunks, &mut pending)
+    let chunks = receive_initial_snapshot(&mut chunks, &mut pending, options.view_radius_chunks)
         .await
         .map_err(|error| DevJoinError::Game(error.to_string()))?;
     Ok(DevJoinReport {
@@ -463,6 +465,8 @@ pub struct AuthJoinOptions {
     pub certificate_fingerprint: String,
     /// How many advertised common assets to request (`None` = all).
     pub asset_limit: Option<usize>,
+    /// Move to this chunk after the teleport ack to exercise a view update.
+    pub movement_chunk: Option<(i32, i32)>,
 }
 
 /// What the authenticated join produced.
@@ -492,7 +496,11 @@ pub struct AuthJoinReport {
     pub rebuild_requested: bool,
     /// World-join state.
     pub game: GameJoinReport,
-    /// Decoded chunk packets.
+    /// The server sent a `ClientTeleport` after `readyForGameplay`.
+    pub teleport: bool,
+    /// Chunk packets received after the movement-driven view change.
+    pub view_update_chunks: Vec<ChunkPacketSummary>,
+    /// Decoded chunk packets from the initial snapshot.
     pub chunks: Vec<ChunkPacketSummary>,
 }
 
@@ -602,6 +610,8 @@ pub async fn auth_join(
         translations: false,
         rebuild_requested: false,
         game: GameJoinReport::default(),
+        teleport: false,
+        view_update_chunks: Vec::new(),
         chunks: Vec::new(),
     };
     let mut current: Option<(Asset, i32, Vec<u8>)> = None;
@@ -744,7 +754,15 @@ pub async fn auth_join(
     let (game, mut chunks, mut pending) =
         enter_game_client(session, &mut reader, &mut writer).await?;
     report.game = game;
-    report.chunks = receive_chunks_from(&mut chunks, &mut pending).await?;
+    report.chunks =
+        receive_initial_snapshot(&mut chunks, &mut pending, options.view_radius_chunks).await?;
+
+    let (teleport, teleport_id) = finish_game(&mut reader, &mut writer).await?;
+    report.teleport = teleport;
+    if let (Some(target), Some(teleport_id)) = (options.movement_chunk, teleport_id) {
+        report.view_update_chunks =
+            exercise_movement(&mut reader, &mut writer, &mut chunks, target, teleport_id).await?;
+    }
     Ok(report)
 }
 
@@ -880,22 +898,114 @@ async fn enter_game_client(
     Ok((game, chunks, pending))
 }
 
-async fn receive_chunks_from(
+/// Number of packets the initial snapshot contains for a view radius.
+///
+/// One `SetColumn` plus ten `SetChunk` and ten `SetChunkEnvironments` packets
+/// per chunk.
+fn expected_snapshot_packets(radius: u32) -> usize {
+    let side = (radius as usize) * 2 + 1;
+    side * side * 21
+}
+
+async fn receive_initial_snapshot(
     reader: &mut ChunkStreamReader,
     pending: &mut Vec<ChunkFrame>,
+    radius: u32,
 ) -> Result<Vec<ChunkPacketSummary>, AuthJoinError> {
-    let mut packets = Vec::new();
+    let expected = expected_snapshot_packets(radius);
+    let mut packets = Vec::with_capacity(expected);
     for frame in pending.drain(..) {
         if let Some(summary) = summarize_chunk_packet(&frame) {
             packets.push(summary?);
         }
     }
-    while let Some(frame) = reader.next_frame().await? {
+    while packets.len() < expected {
+        let frame = reader.next_frame().await?.ok_or(AuthJoinError::Closed)?;
         if let Some(summary) = summarize_chunk_packet(&frame) {
             packets.push(summary?);
         }
     }
     Ok(packets)
+}
+
+async fn finish_game(
+    reader: &mut FrameReader,
+    writer: &mut FrameWriter,
+) -> Result<(bool, Option<i8>), AuthJoinError> {
+    writer
+        .write_packet(
+            &ClientReady {
+                ready_for_chunks: false,
+                ready_for_gameplay: true,
+            },
+            3,
+        )
+        .await?;
+    loop {
+        let frame = reader.next_frame().await?.ok_or(AuthJoinError::Closed)?;
+        match frame.packet_id {
+            ClientTeleport::ID => {
+                let teleport: ClientTeleport = frame.decode()?;
+                return Ok((true, Some(teleport.teleport_id)));
+            }
+            Ping::ID => answer_ping(writer, &frame).await?,
+            ServerDisconnect::ID => {
+                let disconnect: ServerDisconnect = frame.decode()?;
+                let reason = disconnect
+                    .reason
+                    .and_then(|message| message.raw_text)
+                    .unwrap_or_else(|| "disconnect".to_string());
+                return Err(AuthJoinError::Disconnected(reason));
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn exercise_movement(
+    reader: &mut FrameReader,
+    writer: &mut FrameWriter,
+    chunks: &mut ChunkStreamReader,
+    target: (i32, i32),
+    teleport_id: i8,
+) -> Result<Vec<ChunkPacketSummary>, AuthJoinError> {
+    let position = Position {
+        x: f64::from(target.0) * 32.0 + 16.0,
+        y: 0.0,
+        z: f64::from(target.1) * 32.0 + 16.0,
+    };
+    writer
+        .write_packet(
+            &ClientMovement {
+                absolute_position: Some(position),
+                teleport_ack: Some(TeleportAck { teleport_id }),
+                ..ClientMovement::default()
+            },
+            3,
+        )
+        .await?;
+
+    // The view change sends one UnloadChunk for the old chunk and the 21-packet
+    // batch for the new one. Stop once the new column arrives, or after a
+    // timeout so an empty target chunk cannot hang the bot.
+    let while_reading = async {
+        let mut frames = Vec::new();
+        loop {
+            let frame = chunks.next_frame().await?.ok_or(AuthJoinError::Closed)?;
+            let is_column = frame.packet_id == hytale_protocol::generated::world::SetColumn::ID;
+            if let Some(summary) = summarize_chunk_packet(&frame) {
+                frames.push(summary?);
+            }
+            if is_column {
+                return Ok::<Vec<ChunkPacketSummary>, AuthJoinError>(frames);
+            }
+            let _ = reader;
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(30), while_reading).await {
+        Ok(result) => result,
+        Err(_) => Ok(Vec::new()),
+    }
 }
 
 pub async fn receive_chunk_stream(

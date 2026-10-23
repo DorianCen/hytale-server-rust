@@ -1,6 +1,6 @@
 # T31 — Player add/spawn, entity tracker and the game packet loop
 
-**Status:** planned
+**Status:** done (session 21)
 **Package:** `hytale-server`, `hytale-world`, `hytale-entities`, `client-bot`
 **Depends on:** T30 (Game transition), T23 (world thread)
 **Agent fit:** low/medium
@@ -43,10 +43,23 @@ cargo fmt --all -- --check
 - No packet is sent before its Java-order predecessor (player list before
   entity spawn, entity spawn before `readyForGameplay` teleport).
 
+## Deviations
+
+- The self-spawn uses Java's empty model/skin/equipment forms; cosmetics and
+  inventory components are not decoded from the player save yet.
+- `WorldGameplayConfig` uses the protocol defaults with block breaking,
+  gathering and placement enabled; the `GameplayConfig` asset is not loaded.
+- World time sends one initial `UpdateTimeSettings`/`UpdateTime` at the
+  configured durations and pause flag, but the clock does not advance yet.
+- `ClientMovement` only drives the view centre; there is no physics, collision
+  or anti-cheat. The teleport ack is accepted by id without position validation.
+- The world tick runs inline on the connection task; chunk generation can block
+  the async loop while a new view loads.
+- World map settings, other players and entity tracking are still absent.
+
 ## Open questions
 
-- The exact `EquipmentUpdate` payload needs a packet trace from a vanilla
-  client; the Java `InventoryUtils.createEquipmentUpdate` path should be
-  ported or stubbed with an empty update.
-- `ClientTeleport` ack tracking is currently out of scope; if the client requires
-  an ack before gameplay input, add `TeleportAck`.
+- The exact `EquipmentUpdate`/cosmetics payload needs a packet trace from a
+  vanilla client.
+- Whether the client requires `UpdateWorldMapSettings` before accepting gameplay
+  input needs a real-client trace.

@@ -32,16 +32,19 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    ComponentUpdate, Direction, DisconnectType, EntityUpdate, EquipmentUpdate, FormattedMessage,
-    ModelTransform, ModelUpdate, PlayerSkinUpdate, PongType, Position, TransformUpdate, UpdateType,
+    CombatConfig, ComponentUpdate, Direction, DisconnectType, EntityUpdate, EquipmentUpdate,
+    FormattedMessage, GameMode, InstantData, ModelTransform, ModelUpdate, PlayerConfig,
+    PlayerSkinUpdate, PongType, Position, TransformUpdate, UpdateType,
 };
 use hytale_protocol::generated::connection::{
-    ClientType, Connect, InsecurePlayerOptions, Ping, Pong, RequestInsecurePlayerOptions,
-    ServerDisconnect,
+    ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
+    RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo};
-use hytale_protocol::generated::player::{ClientReady, JoinWorld, SetClientId};
+use hytale_protocol::generated::player::{
+    ClientMovement, ClientReady, ClientTeleport, JoinWorld, SetClientId, SetGameMode,
+};
 use hytale_protocol::generated::registry::settings;
 use hytale_protocol::generated::setup::{
     AssetFinalize, AssetInitialize, AssetPart, RequestAssets, RequestCommonAssetsRebuild,
@@ -50,13 +53,14 @@ use hytale_protocol::generated::setup::{
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::ClearChunks;
+use hytale_protocol::generated::world::{UpdateTime, UpdateTimeSettings, WorldGameplayConfig};
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 use hytale_world::player_data::PlayerTransform;
 use thiserror::Error;
 
-use crate::chunk_streamer::{send_view, ChunkSessionError, ChunkStreamReport};
-use crate::world_thread::{WorldThread, WorldThreadError};
+use crate::chunk_streamer::{send_updates, send_view, ChunkSessionError, ChunkStreamReport};
+use crate::world_thread::{WorldThread, WorldThreadError, WorldTimeState};
 
 /// Java `CommonAssetModule.MAX_FRAME`: maximum bytes in one `AssetPart`.
 pub const MAX_COMMON_ASSET_FRAME: usize = 2_621_440;
@@ -167,6 +171,39 @@ pub struct GameReport {
     pub player_list: bool,
     /// The joining player's self `EntityUpdates` spawn was written.
     pub self_spawn: bool,
+    /// `WorldGameplayConfig` was written.
+    pub gameplay_config: bool,
+    /// `UpdateTimeSettings`/`UpdateTime` were written.
+    pub time: bool,
+    /// `SetGameMode` was written.
+    pub game_mode: bool,
+}
+
+/// What the live game loop produced.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameLoopReport {
+    /// The client sent `ClientReady(readyForGameplay)`.
+    pub ready_for_gameplay: bool,
+    /// `ClientTeleport` was written after `ClientReady(readyForGameplay)`.
+    pub teleport_sent: bool,
+    /// The client acknowledged the teleport.
+    pub teleport_acked: bool,
+    /// `ClientMovement` packets processed.
+    pub movement_packets: usize,
+    /// Movement caused a view change.
+    pub view_changes: usize,
+    /// Chunks streamed during the loop.
+    pub chunks: usize,
+    /// Chunk packets streamed during the loop.
+    pub packets: usize,
+    /// Frames streamed during the loop.
+    pub frames: usize,
+    /// Uncompressed chunk payload bytes during the loop.
+    pub payload_bytes: usize,
+    /// Chunks unloaded during the loop.
+    pub unloaded: usize,
+    /// The client disconnected (or the connection closed) cleanly.
+    pub disconnected: bool,
 }
 
 /// What the session produced.
@@ -184,6 +221,8 @@ pub struct SessionReport {
     pub assets: AssetStreamReport,
     /// World-join state.
     pub game: GameReport,
+    /// Live game-loop counters.
+    pub game_loop: GameLoopReport,
     /// Chunks sent after setup.
     pub stream: ChunkStreamReport,
 }
@@ -251,6 +290,20 @@ struct Handshake {
     assets: AssetStreamReport,
 }
 
+struct EnterGame {
+    world_uuid: Uuid,
+    radius: u32,
+    player_transform: PlayerTransform,
+    world_time: WorldTimeState,
+}
+
+struct LiveGame {
+    center: (i32, i32),
+    radius: u32,
+    transform: PlayerTransform,
+    ready_for_gameplay: bool,
+}
+
 /// Run authentication + setup on an accepted connection, transition to `Game`,
 /// then stream the player view.
 pub async fn serve_connection(
@@ -288,7 +341,10 @@ pub async fn serve_connection(
         handshake.view_radius
     };
 
-    let player_transform = thread.player_transform()?;
+    let player_transform = thread
+        .player_transform()?
+        .unwrap_or_else(default_player_transform);
+    let world_time = thread.world_time()?;
     let world_uuid: Uuid = start
         .world_uuid
         .parse()
@@ -306,15 +362,18 @@ pub async fn serve_connection(
         connection,
         &mut reader,
         &mut writer,
-        world_uuid,
-        radius,
-        player_transform,
+        EnterGame {
+            world_uuid,
+            radius,
+            player_transform,
+            world_time,
+        },
         options,
     )
     .await?;
     game.player_list = true;
 
-    let stream = send_view(
+    let mut stream = send_view(
         thread,
         &mut chunks,
         start.player_chunk.0,
@@ -323,7 +382,29 @@ pub async fn serve_connection(
         options.chunk_compression_level,
     )
     .await?;
+
+    let game_loop = run_game_loop(
+        connection,
+        thread,
+        &mut reader,
+        &mut writer,
+        &mut chunks,
+        LiveGame {
+            center: start.player_chunk,
+            radius,
+            transform: player_transform,
+            ready_for_gameplay: game.client_ready_for_gameplay,
+        },
+        options,
+    )
+    .await?;
+    game.client_ready_for_gameplay |= game_loop.ready_for_gameplay;
     chunks.finish()?;
+    stream.chunks += game_loop.chunks;
+    stream.packets += game_loop.packets;
+    stream.frames += game_loop.frames;
+    stream.payload_bytes += game_loop.payload_bytes;
+    stream.unloaded += game_loop.unloaded;
 
     Ok(SessionReport {
         uuid: handshake.uuid,
@@ -332,6 +413,7 @@ pub async fn serve_connection(
         auth_mode: handshake.auth_mode,
         assets: handshake.assets,
         game,
+        game_loop,
         stream,
     })
 }
@@ -731,11 +813,15 @@ async fn enter_game(
     connection: &quinn::Connection,
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
-    world_uuid: Uuid,
-    radius: u32,
-    player_transform: Option<PlayerTransform>,
+    start: EnterGame,
     options: &SessionOptions,
 ) -> Result<(GameReport, ChunkStreamWriter), SessionError> {
+    let EnterGame {
+        world_uuid,
+        radius,
+        player_transform,
+        world_time,
+    } = start;
     let mut chunks = ChunkStreamWriter::open(connection).await?;
     chunks
         .write_packet(&ClearChunks {}, options.chunk_compression_level)
@@ -839,27 +925,62 @@ async fn enter_game(
             options.chunk_compression_level,
         )
         .await?;
-    let transform = player_transform.unwrap_or_else(|| {
-        PlayerTransform::new(
-            hytale_world::player_data::Position {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            hytale_world::player_data::Rotation {
-                pitch: 0.0,
-                yaw: 0.0,
-                roll: 0.0,
-            },
-        )
-    });
     writer
         .write_packet(
-            &self_spawn_packet(transform),
+            &self_spawn_packet(player_transform),
             options.chunk_compression_level,
         )
         .await?;
     game.self_spawn = true;
+
+    writer
+        .write_packet(
+            &WorldGameplayConfig {
+                world_config: hytale_protocol::generated::common::WorldConfig {
+                    allow_block_breaking: true,
+                    allow_block_gathering: true,
+                    allow_block_placement: true,
+                    ..Default::default()
+                },
+                combat_config: CombatConfig::default(),
+                player_config: PlayerConfig::default(),
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    game.gameplay_config = true;
+    writer
+        .write_packet(
+            &UpdateTimeSettings {
+                daytime_duration_seconds: world_time.daytime_duration_seconds,
+                nighttime_duration_seconds: world_time.nighttime_duration_seconds,
+                total_moon_phases: world_time.total_moon_phases,
+                time_paused: world_time.time_paused,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &UpdateTime {
+                game_time: Some(InstantData {
+                    seconds: world_time.game_time_seconds,
+                    nanos: world_time.game_time_nanos,
+                }),
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &SetGameMode {
+                game_mode: GameMode::Adventure,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    game.time = true;
+    game.game_mode = true;
     // This stream stays open for the chunk snapshot.
     Ok((game, chunks))
 }
@@ -897,7 +1018,22 @@ async fn send_player_list(
     Ok(())
 }
 
-fn self_spawn_packet(transform: PlayerTransform) -> EntityUpdates {
+fn default_player_transform() -> PlayerTransform {
+    PlayerTransform::new(
+        hytale_world::player_data::Position {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        hytale_world::player_data::Rotation {
+            pitch: 0.0,
+            yaw: 0.0,
+            roll: 0.0,
+        },
+    )
+}
+
+fn model_transform(transform: PlayerTransform) -> ModelTransform {
     let position = Position {
         x: transform.position.x,
         y: transform.position.y,
@@ -913,6 +1049,14 @@ fn self_spawn_packet(transform: PlayerTransform) -> EntityUpdates {
         pitch: transform.rotation.pitch,
         roll: transform.rotation.roll,
     };
+    ModelTransform {
+        position: Some(position),
+        body_orientation: Some(body),
+        look_orientation: Some(look),
+    }
+}
+
+fn self_spawn_packet(transform: PlayerTransform) -> EntityUpdates {
     EntityUpdates {
         removed: None,
         updates: Some(vec![EntityUpdate {
@@ -930,15 +1074,158 @@ fn self_spawn_packet(transform: PlayerTransform) -> EntityUpdates {
                     left_hand_item_id: None,
                 }),
                 ComponentUpdate::TransformUpdate(TransformUpdate {
-                    transform: ModelTransform {
-                        position: Some(position),
-                        body_orientation: Some(body),
-                        look_orientation: Some(look),
-                    },
+                    transform: model_transform(transform),
                 }),
             ]),
         }]),
     }
+}
+
+async fn run_game_loop(
+    connection: &quinn::Connection,
+    thread: &WorldThread,
+    reader: &mut FrameReader,
+    writer: &mut FrameWriter,
+    chunks: &mut ChunkStreamWriter,
+    live: LiveGame,
+    options: &SessionOptions,
+) -> Result<GameLoopReport, SessionError> {
+    let LiveGame {
+        mut center,
+        mut radius,
+        transform,
+        ready_for_gameplay,
+    } = live;
+    let mut report = GameLoopReport::default();
+    let mut ticker = std::time::Instant::now();
+    let interval = Duration::from_millis(50);
+    let mut teleport_sent = false;
+
+    if ready_for_gameplay {
+        report.ready_for_gameplay = true;
+        send_client_teleport(writer, transform, options).await?;
+        teleport_sent = true;
+        report.teleport_sent = true;
+    }
+
+    loop {
+        if connection.close_reason().is_some() {
+            report.disconnected = true;
+            break;
+        }
+
+        let wait = interval.saturating_sub(ticker.elapsed());
+        match tokio::time::timeout(wait, reader.next_frame()).await {
+            Ok(Ok(Some(frame))) => match frame.packet_id {
+                ClientReady::ID => {
+                    let ready: ClientReady = frame.decode()?;
+                    if ready.ready_for_gameplay {
+                        report.ready_for_gameplay = true;
+                    }
+                    if ready.ready_for_gameplay && !teleport_sent {
+                        send_client_teleport(writer, transform, options).await?;
+                        teleport_sent = true;
+                        report.teleport_sent = true;
+                    }
+                }
+                ClientMovement::ID => {
+                    let movement: ClientMovement = frame.decode()?;
+                    report.movement_packets += 1;
+                    if movement.teleport_ack.is_some() {
+                        report.teleport_acked = true;
+                    }
+                    if let Some(position) = movement.absolute_position {
+                        if position.x.is_finite() && position.z.is_finite() {
+                            let next = (block_to_chunk(position.x), block_to_chunk(position.z));
+                            if next != center && report.teleport_acked {
+                                thread.set_view(next.0, next.1, radius)?;
+                                center = next;
+                                report.view_changes += 1;
+                            }
+                        }
+                    }
+                }
+                ViewRadius::ID => {
+                    let packet: ViewRadius = frame.decode()?;
+                    if packet.value > 0 {
+                        let next = ((packet.value as f32) / 32.0).ceil() as u32;
+                        if next != radius {
+                            radius = next;
+                            thread.set_view(center.0, center.1, radius)?;
+                        }
+                    }
+                }
+                Ping::ID => {
+                    let ping: Ping = frame.decode()?;
+                    writer
+                        .write_packet(
+                            &Pong {
+                                id: ping.id,
+                                time: ping.time,
+                                r#type: PongType::Raw,
+                                packet_queue_size: 0,
+                            },
+                            DEFAULT_COMPRESSION_LEVEL,
+                        )
+                        .await?;
+                }
+                ClientDisconnect::ID => {
+                    report.disconnected = true;
+                    break;
+                }
+                _ => {}
+            },
+            Ok(Ok(None)) => {
+                report.disconnected = true;
+                break;
+            }
+            Ok(Err(error)) => {
+                if connection.close_reason().is_some() {
+                    report.disconnected = true;
+                    break;
+                }
+                return Err(SessionError::Frame(error));
+            }
+            Err(_) => {}
+        }
+
+        if ticker.elapsed() >= interval {
+            thread.tick()?;
+            let updates = send_updates(thread, chunks, options.chunk_compression_level).await?;
+            report.chunks += updates.chunks;
+            report.packets += updates.packets;
+            report.frames += updates.frames;
+            report.payload_bytes += updates.payload_bytes;
+            report.unloaded += updates.unloaded;
+            ticker = std::time::Instant::now();
+        }
+    }
+
+    Ok(report)
+}
+
+async fn send_client_teleport(
+    writer: &mut FrameWriter,
+    transform: PlayerTransform,
+    options: &SessionOptions,
+) -> Result<(), SessionError> {
+    writer
+        .write_packet(
+            &ClientTeleport {
+                teleport_id: 0,
+                ignored_transform_fields: 0,
+                relative_transform_fields: 0,
+                model_transform: model_transform(transform),
+                reset_velocity: true,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
+fn block_to_chunk(value: f64) -> i32 {
+    (value.floor() as i32) >> 5
 }
 
 async fn send_disconnect(writer: &mut FrameWriter, text: &str) -> Result<(), SessionError> {

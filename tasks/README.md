@@ -43,7 +43,7 @@ task done until its acceptance section is satisfied.
 | [T28](T28-p0-asset-packets.md) | P0 asset packet encoders (PhysicalMaterial + BlockHitboxes) | T15 | medium | done (session 18) |
 | [T29](T29-dev-join.md) | Dev/insecure handshake + first bot join | T25, T26 | medium | done (session 19) |
 | [T30](T30-auth-assets-game.md) | Local EdDSA auth, common/config assets, Game transition | T28, T29 | low/medium | done (session 20) |
-| [T31](T31-player-spawn-game-loop.md) | Player add/spawn, entity tracker and game loop | T30 | low/medium | planned |
+| [T31](T31-player-spawn-game-loop.md) | Player add/spawn, entity tracker and game loop | T30 | low/medium | done (session 21) |
 
 ## Rules
 

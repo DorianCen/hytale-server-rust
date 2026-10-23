@@ -473,13 +473,23 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
                     session.assets.config_packets
                 );
                 println!(
-                    "game: clear_chunks={} join_world={} player_list={} self_spawn={} ready_chunks={} ready_gameplay={}",
+                    "game: clear_chunks={} join_world={} player_list={} self_spawn={} gameplay={} time={} ready_chunks={} ready_gameplay={}",
                     session.game.clear_chunks,
                     session.game.join_world,
                     session.game.player_list,
                     session.game.self_spawn,
+                    session.game.gameplay_config,
+                    session.game.time,
                     session.game.client_ready_for_chunks,
                     session.game.client_ready_for_gameplay
+                );
+                println!(
+                    "game loop: teleport={} acked={} movement={} view_changes={} loop_chunks={}",
+                    session.game_loop.teleport_sent,
+                    session.game_loop.teleport_acked,
+                    session.game_loop.movement_packets,
+                    session.game_loop.view_changes,
+                    session.game_loop.chunks
                 );
             }
             ExitCode::SUCCESS

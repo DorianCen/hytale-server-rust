@@ -11,7 +11,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use client_bot::{auth_join, AuthJoinOptions};
+use client_bot::{auth_join, AuthJoinOptions, ChunkPacketSummary};
 use hytale_auth::{AuthKey, AuthService};
 use hytale_net::{connect, ServerEndpointBuilder, TlsIdentity};
 use hytale_protocol::io::Uuid;
@@ -105,6 +105,7 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
             auth: client_auth,
             certificate_fingerprint: client_fingerprint,
             asset_limit: Some(1),
+            movement_chunk: Some((1, 0)),
         },
     )
     .await
@@ -129,6 +130,23 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     assert_eq!(report.game.client_id, Some(1));
     assert!(report.game.sent_ready_for_chunks);
     assert_eq!(report.chunks.len(), 21);
+    assert!(report.teleport);
+    assert!(
+        report
+            .view_update_chunks
+            .iter()
+            .any(|packet| matches!(packet, ChunkPacketSummary::Unload { x: 0, z: 0 })),
+        "expected the old chunk to unload: {:?}",
+        report.view_update_chunks
+    );
+    assert!(
+        report
+            .view_update_chunks
+            .iter()
+            .any(|packet| matches!(packet, ChunkPacketSummary::Column { x: 1, z: 0, .. })),
+        "expected the new chunk column: {:?}",
+        report.view_update_chunks
+    );
 
     session
         .connection()
@@ -138,10 +156,18 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     assert_eq!(server_report.auth_mode, "local");
     assert_eq!(server_report.assets.requested, 1);
     assert_eq!(server_report.assets.sent, 1);
-    assert_eq!(server_report.stream.chunks, 1);
+    assert!(server_report.stream.chunks >= 2); // snapshot + movement target
     assert!(server_report.game.client_ready_for_chunks);
     assert!(server_report.game.player_list);
     assert!(server_report.game.self_spawn);
+    assert!(server_report.game.gameplay_config);
+    assert!(server_report.game.time);
+    assert!(server_report.game.client_ready_for_gameplay);
+    assert!(server_report.game_loop.ready_for_gameplay);
+    assert!(server_report.game_loop.teleport_sent);
+    assert!(server_report.game_loop.teleport_acked);
+    assert!(server_report.game_loop.movement_packets >= 1);
+    assert!(server_report.game_loop.view_changes >= 1);
 
     std::fs::remove_dir_all(save_dir).ok();
 }
@@ -210,6 +236,7 @@ async fn the_server_rejects_a_token_bound_to_another_certificate() {
             auth: client_auth,
             certificate_fingerprint: "not-the-client-certificate".to_string(),
             asset_limit: Some(0),
+            movement_chunk: None,
         },
     )
     .await;

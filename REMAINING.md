@@ -15,6 +15,9 @@ Deferred to M5:
 - Full inventory containers/transactions/UI.
 - Interaction graph beyond basic block place/break.
 - Block physics/ticking/fluids beyond the minimum needed for a stable world.
+- Player movement physics, collision, anti-cheat and server-authoritative
+  positions: the current join loop uses `ClientMovement.absolutePosition` only
+  to change the streamed view chunk.
 - Instances, encounters, portals, adventure plugins.
 - World map UI, markers, live map rendering.
 

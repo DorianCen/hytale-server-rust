@@ -82,13 +82,17 @@ cargo run -p hytale-server -- chunk-serve --handshake --auth-mode local \
 # terminal 2
 cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
     --auth-key "<pkcs8 base64 from the server>" --username AuthBot \
-    --view-radius 0 --asset-limit 2 --timeout 60
+    --view-radius 0 --asset-limit 2 --move-chunk 1,0 --timeout 60
 ```
 
 `--asset-limit N` requests only the first `N` advertised assets (omit it to
 request all 28k+/45 MB). `--auth-issuer`/`--auth-audience` must match the
-server. The bot prints the token exchange, per-asset hashes/bytes, config packet
-ids, the Game state and the chunk summaries. The loopback test is `#[ignore]`d:
+server. After the initial snapshot the bot sends
+`ClientReady(readyForGameplay)`, receives `ClientTeleport`, and (with
+`--move-chunk x,z`) sends a `ClientMovement` teleport ack + position so the
+server streams the unload/new-chunk batch. It prints the token exchange,
+per-asset hashes/bytes, config packet ids, the Game state, the initial chunk
+summaries and the view-update packets. The loopback test is `#[ignore]`d:
 
 ```sh
 cargo test -p client-bot --test auth_join -- --ignored

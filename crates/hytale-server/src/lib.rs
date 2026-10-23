@@ -29,8 +29,8 @@ pub use player_data_tool::{
     run as run_player_data_tool, PlayerDataToolError, PlayerDataToolOptions, PlayerDataToolReport,
 };
 pub use session::{
-    serve_connection as serve_session_connection, AssetStreamReport, AuthMode, GameReport,
-    SessionError, SessionOptions, SessionReport,
+    serve_connection as serve_session_connection, AssetStreamReport, AuthMode, GameLoopReport,
+    GameReport, SessionError, SessionOptions, SessionReport,
 };
 pub use world_boot::{run as run_world_boot, WorldBootError, WorldBootOptions, WorldBootReport};
 pub use world_config_tool::{
@@ -39,6 +39,6 @@ pub use world_config_tool::{
 };
 pub use world_thread::{
     LoadOutcome, TickReport, ViewReport, WorldEvent, WorldStartReport, WorldThread,
-    WorldThreadError, WorldThreadOptions,
+    WorldThreadError, WorldThreadOptions, WorldTimeState,
 };
 pub use world_tool::{run as run_chunk_tool, ChunkToolError, ChunkToolOptions, ChunkToolReport};
