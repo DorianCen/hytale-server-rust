@@ -16,6 +16,7 @@
 
 mod block_type;
 mod item;
+mod tag_pattern;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,7 +32,7 @@ use hytale_protocol::io::{ProtocolError, Writer};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::registry::{AssetCollection, AssetRegistry};
+use crate::registry::{AssetCollection, AssetRegistry, TagPatternNode};
 
 /// Errors from the asset packet encoders.
 #[derive(Debug, Error)]
@@ -68,14 +69,16 @@ pub type Result<T> = std::result::Result<T, AssetPacketError>;
 /// initializes. The Rust snapshot owns its block/item ids and its tag indexes
 /// for the same reason: the client only needs the `ServerTags` map and every
 /// asset packet to agree. Indexes are assigned alphabetically over every tag,
-/// value and `key=value` composite found in the P0 documents.
+/// value, `key=value` composite and `TagPattern` `Equals` tag found in the
+/// loaded documents. This differs from Java's creation order but is
+/// deterministic and identical for repeated calls.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TagRegistry {
     indexes: BTreeMap<String, i32>,
 }
 
 impl TagRegistry {
-    /// Collect tags from every P0 asset document.
+    /// Collect tags from every loaded asset document and tag pattern.
     pub fn from_assets(registry: &AssetRegistry) -> Self {
         let mut names = BTreeSet::new();
         for record in registry.environments.iter() {
@@ -97,6 +100,11 @@ impl TagRegistry {
             }
             collect_support_tags(json.get("Support"), &mut names);
             collect_support_tags(json.get("Supporting"), &mut names);
+        }
+        // `EqualsTagOp.afterDecode` calls `getOrCreateTagIndex`, so a tag used
+        // only by a pattern still receives a deterministic client index.
+        for record in registry.tag_patterns.iter() {
+            collect_pattern_tags(&record.value.pattern, &mut names);
         }
         let indexes = names
             .into_iter()
@@ -154,6 +162,20 @@ fn collect_tags(value: &Value, names: &mut BTreeSet<String>) {
     }
 }
 
+fn collect_pattern_tags(pattern: &TagPatternNode, names: &mut BTreeSet<String>) {
+    match pattern {
+        TagPatternNode::Equals { tag } => {
+            names.insert(tag.clone());
+        }
+        TagPatternNode::And { operands } | TagPatternNode::Or { operands } => {
+            for operand in operands {
+                collect_pattern_tags(operand, names);
+            }
+        }
+        TagPatternNode::Not { pattern } => collect_pattern_tags(pattern, names),
+    }
+}
+
 fn collect_support_tags(value: Option<&Value>, names: &mut BTreeSet<String>) {
     let Some(map) = value.and_then(Value::as_object) else {
         return;
@@ -195,18 +217,22 @@ impl AssetRegistry {
     ///
     /// Java sends one init packet per store with a packet generator. This port
     /// encodes `BlockBoundingBoxes`, `PhysicalMaterial`, `Fluid`, `Environment`,
-    /// `BlockType` and `Item`. The dependencies are sent first so `BlockType`
-    /// can resolve hitbox/physical-material ids and `Item` block ids. Tag
-    /// indexes are owned by the Rust snapshot, so every packet and
+    /// `TagPattern`, `BlockType` and `Item`. The dependencies are sent first so
+    /// `BlockType` can resolve hitbox/physical-material ids and `Item` block
+    /// ids, and tag patterns arrive before the packets whose tags they describe.
+    /// Tag indexes are owned by the Rust snapshot, so every packet and
     /// `ServerTags` agree.
     pub fn config_assets(&self) -> Result<ConfigAssets> {
         let tags = TagRegistry::from_assets(self);
         Ok(ConfigAssets {
+            // T38 owns this order. Add future tag-dependent packets after
+            // `tag_pattern` and before `block_type`/`item`.
             packets: vec![
                 self.block_hitbox_packet()?,
                 self.physical_material_packet()?,
                 self.fluid_packet(&tags)?,
                 self.environment_packet(&tags)?,
+                self.tag_pattern_packet(&tags)?,
                 self.block_type_packet(&tags)?,
                 self.item_packet(&tags)?,
             ],
@@ -217,6 +243,11 @@ impl AssetRegistry {
     /// The config-asset packets without the tag map.
     pub fn config_packets(&self) -> Result<Vec<AssetPacket>> {
         Ok(self.config_assets()?.packets)
+    }
+
+    /// `UpdateTagPatterns` (id 84) from the `TagPattern` store.
+    pub fn tag_pattern_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
+        tag_pattern::tag_pattern_packet(self, tags)
     }
 
     /// `UpdateBlockTypes` (id 40) from the P0 `BlockType` store.

@@ -112,6 +112,20 @@ const ITEM: StoreSpec = P0_STORES[5];
 const PHYSICAL_MATERIAL: StoreSpec = P0_STORES[6];
 const PREFAB_LIST: StoreSpec = P0_STORES[7];
 
+/// The `TagPattern` store (Java `TagPatterns`, `IndexedLookupTableAssetMap`).
+///
+/// This store is not part of P0 because item/block decoding does not depend on
+/// it. [`AssetRegistry::load_phase2`] loads it together with the P0 snapshot.
+pub const TAG_PATTERN_STORE: StoreSpec = StoreSpec {
+    name: "TagPattern",
+    path: "Server/TagPatterns",
+    map: MapKind::IndexedLookupTable,
+};
+
+/// Stores whose documents contain `TagPattern.CHILD_ASSET_CODEC` fields.
+const AMBIENCE_FX_PATH: &str = "Server/Audio/AmbienceFX";
+const MUSIC_TRANSITION_PATH: &str = "Server/Audio/MusicTransitions";
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -259,6 +273,44 @@ pub struct FluidAsset {
     /// Maximum fluid level (`0..=15`).
     pub max_fluid_level: i8,
     /// Merged asset document.
+    pub json: Value,
+}
+
+/// One decoded `TagPattern` op node.
+///
+/// Mirrors Java's `EqualsTagOp`, `AndPatternOp`, `OrPatternOp` and
+/// `NotPatternOp`. `tagIndex` is resolved lazily from the shared
+/// [`crate::TagRegistry`] so patterns and ServerTags always agree.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TagPatternNode {
+    /// Java `EqualsTagOp` (`Op: "Equals"`, `Tag: "<name>"`).
+    Equals {
+        /// Raw tag key (`Tag`), including composites such as `Void=Tier2`.
+        tag: String,
+    },
+    /// Java `AndPatternOp` (`Op: "And"`, `Patterns: [...]`).
+    And {
+        /// Operands in source order.
+        operands: Vec<TagPatternNode>,
+    },
+    /// Java `OrPatternOp` (`Op: "Or"`, `Patterns: [...]`).
+    Or {
+        /// Operands in source order.
+        operands: Vec<TagPatternNode>,
+    },
+    /// Java `NotPatternOp` (`Op: "Not"`, `Pattern: {...}`).
+    Not {
+        /// Nested pattern.
+        pattern: Box<TagPatternNode>,
+    },
+}
+
+/// A loaded `TagPattern` asset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TagPatternAsset {
+    /// Decoded op tree.
+    pub pattern: TagPatternNode,
+    /// Raw source document.
     pub json: Value,
 }
 
@@ -535,6 +587,8 @@ pub struct AssetRegistry {
     pub block_type_lists: AssetCollection<Value>,
     /// `PrefabListAsset`.
     pub prefab_lists: AssetCollection<Value>,
+    /// `TagPattern` (loaded by [`AssetRegistry::load_phase2`]).
+    pub tag_patterns: AssetCollection<TagPatternAsset>,
 }
 
 impl AssetRegistry {
@@ -569,7 +623,22 @@ impl AssetRegistry {
             block_bounding_boxes,
             block_type_lists,
             prefab_lists,
+            tag_patterns: AssetCollection::new(TAG_PATTERN_STORE.name, Vec::new())?,
         })
+    }
+
+    /// Load P0 plus the `TagPattern` store and its contained assets.
+    ///
+    /// Java loads `TagPatterns` after the stores that own file-backed patterns
+    /// and before `AmbienceFX`, then appends patterns contained in Fluid,
+    /// AmbienceFX, MusicTransition and BlockType documents. This loader
+    /// reproduces the committed Java id order for the vanilla pack. `load_p0`
+    /// is intentionally left unchanged: callers that only need world
+    /// generation keep the smaller snapshot.
+    pub fn load_phase2(pack: &AssetPack) -> Result<Self, AssetError> {
+        let mut registry = Self::load_p0(pack)?;
+        registry.tag_patterns = load_tag_patterns(pack)?;
+        Ok(registry)
     }
 
     /// Java `BlockType.getAssetMap().getAsset(key)`.
@@ -1128,6 +1197,290 @@ fn extract_block_type_definitions(
             value: value.clone(),
         });
         extract_block_type_definitions(value, &definition_key, container_item, source, out);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TagPattern loading and containment extraction
+// ---------------------------------------------------------------------------
+
+fn load_tag_patterns(pack: &AssetPack) -> Result<AssetCollection<TagPatternAsset>, AssetError> {
+    // Java loads the file-backed TagPatterns first (reverse zip order), then
+    // the patterns contained in Fluid, AmbienceFX, MusicTransition and
+    // BlockType/Item documents. The order matters: ids are assigned in load
+    // order and the committed golden ids follow it.
+    let mut raw = read_store_files(pack, TAG_PATTERN_STORE.path)?;
+    raw.extend(load_contained_tag_patterns(pack)?);
+
+    let records = raw
+        .into_iter()
+        .enumerate()
+        .map(|(index, asset)| {
+            let id = i32::try_from(index).map_err(|_| AssetError::InvalidAsset {
+                store: TAG_PATTERN_STORE.name.to_string(),
+                key: asset.key.clone(),
+                message: "asset id exceeds i32".to_string(),
+            })?;
+            let pattern =
+                parse_tag_pattern(&asset.value).map_err(|message| AssetError::InvalidAsset {
+                    store: TAG_PATTERN_STORE.name.to_string(),
+                    key: asset.key.clone(),
+                    message,
+                })?;
+            Ok(AssetRecord {
+                key: asset.key,
+                id: Some(id),
+                parent: asset.parent,
+                source: asset.source,
+                preloaded: asset.preloaded,
+                value: TagPatternAsset {
+                    pattern,
+                    json: asset.value,
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, AssetError>>()?;
+    AssetCollection::new(TAG_PATTERN_STORE.name, records)
+}
+
+fn load_contained_tag_patterns(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetError> {
+    let mut out = Vec::new();
+    out.extend(load_fluid_tag_patterns(pack)?);
+    out.extend(load_ambiencefx_tag_patterns(pack)?);
+    out.extend(load_store_tag_patterns(pack, MUSIC_TRANSITION_PATH)?);
+    // ConnectedBlockTagShape lives inside BlockType documents, including the
+    // block types contained in item documents.
+    out.extend(load_store_tag_patterns(pack, BLOCK_TYPE.path)?);
+    out.extend(load_store_tag_patterns(pack, ITEM.path)?);
+    Ok(out)
+}
+
+fn load_fluid_tag_patterns(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetError> {
+    let mut groups = Vec::new();
+    for asset in read_store_files(pack, FLUID.path)? {
+        let mut patterns = Vec::new();
+        extract_fluid_tag_patterns(&asset.key, &asset.value, &asset.source, &mut patterns);
+        if !patterns.is_empty() {
+            groups.push((asset.key, patterns));
+        }
+    }
+    Ok(flatten_java_hash_map(groups))
+}
+
+fn extract_fluid_tag_patterns(key: &str, value: &Value, source: &str, out: &mut Vec<RawAsset>) {
+    let Some(ticker) = value.get("Ticker").and_then(Value::as_object) else {
+        return;
+    };
+    // Only `FireFluidTicker` declares the `TagPattern` child codec.
+    if ticker.get("Type").and_then(Value::as_str) != Some("Fire") {
+        return;
+    }
+    let Some(flammability) = ticker.get("Flammability").and_then(Value::as_array) else {
+        return;
+    };
+    for (index, entry) in flammability.iter().enumerate() {
+        let Some(pattern) = entry.get("TagPattern").filter(|value| value.is_object()) else {
+            continue;
+        };
+        out.push(contained_tag_pattern(
+            format!("*{key}_Ticker_Flammability_{index}_TagPattern"),
+            source,
+            pattern.clone(),
+        ));
+    }
+}
+
+fn load_ambiencefx_tag_patterns(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetError> {
+    let prefix = format!("{AMBIENCE_FX_PATH}/");
+    let files: Vec<String> = pack
+        .list_in_storage_order()?
+        .into_iter()
+        .filter(|file| file.starts_with(&prefix) && file.ends_with(".json"))
+        .collect();
+    let contents = pack.read_many(&files)?;
+
+    let mut groups = Vec::new();
+    for (path, bytes) in files.into_iter().zip(contents) {
+        let key = asset_key(&path);
+        let value: Value = serde_json::from_slice(&bytes).map_err(|source| AssetError::Json {
+            key: path.clone(),
+            source,
+        })?;
+        let mut patterns = Vec::new();
+        extract_ambiencefx_tag_patterns(&key, &value, &path, &mut patterns);
+        if !patterns.is_empty() {
+            groups.push((key, patterns));
+        }
+    }
+    Ok(flatten_java_hash_map(groups))
+}
+
+fn extract_ambiencefx_tag_patterns(
+    key: &str,
+    value: &Value,
+    source: &str,
+    out: &mut Vec<RawAsset>,
+) {
+    let Some(conditions) = value.get("Conditions").and_then(Value::as_object) else {
+        return;
+    };
+    // `BuilderCodec` order, not JSON key order.
+    for field in [
+        "EnvironmentTagPattern",
+        "WeatherTagPattern",
+        "RoofMaterialTagPattern",
+    ] {
+        let Some(pattern) = conditions.get(field).filter(|value| value.is_object()) else {
+            continue;
+        };
+        out.push(contained_tag_pattern(
+            format!("*{key}_Conditions_{field}"),
+            source,
+            pattern.clone(),
+        ));
+    }
+}
+
+fn load_store_tag_patterns(pack: &AssetPack, path: &str) -> Result<Vec<RawAsset>, AssetError> {
+    let mut groups = Vec::new();
+    for asset in read_store_files(pack, path)? {
+        let mut patterns = Vec::new();
+        let mut child_path = Vec::new();
+        walk_tag_patterns(
+            &asset.value,
+            &asset.key,
+            &asset.source,
+            &mut child_path,
+            &mut patterns,
+        );
+        if !patterns.is_empty() {
+            groups.push((asset.key, patterns));
+        }
+    }
+    Ok(flatten_java_hash_map(groups))
+}
+
+fn walk_tag_patterns(
+    value: &Value,
+    root: &str,
+    source: &str,
+    path: &mut Vec<String>,
+    out: &mut Vec<RawAsset>,
+) {
+    match value {
+        Value::Object(object) => {
+            for (name, child) in object {
+                path.push(name.clone());
+                if name == "TagPattern" && child.is_object() {
+                    out.push(contained_tag_pattern(
+                        format!("*{root}_{}", path.join("_")),
+                        source,
+                        child.clone(),
+                    ));
+                } else {
+                    walk_tag_patterns(child, root, source, path, out);
+                }
+                path.pop();
+            }
+        }
+        Value::Array(values) => {
+            for (index, child) in values.iter().enumerate() {
+                path.push(index.to_string());
+                walk_tag_patterns(child, root, source, path, out);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn contained_tag_pattern(key: String, source: &str, value: Value) -> RawAsset {
+    RawAsset {
+        key,
+        parent: None,
+        container_item: None,
+        source: source.to_string(),
+        preloaded: false,
+        value,
+    }
+}
+
+/// Flatten Java `HashMap` groups in the map's iteration order.
+///
+/// `loadContainedAssets` groups contained assets by parent key in a `HashMap`.
+/// The hash map's final iteration order is bucket order, with insertion order
+/// preserved inside a bucket (no bucket is treeified at this size).
+fn flatten_java_hash_map(mut groups: Vec<(String, Vec<RawAsset>)>) -> Vec<RawAsset> {
+    let capacity = java_hash_map_capacity(groups.len());
+    let mut order: Vec<(u32, usize)> = groups
+        .iter()
+        .enumerate()
+        .map(|(index, (key, _))| (chm_slot(key, capacity), index))
+        .collect();
+    order.sort_unstable();
+
+    let mut out = Vec::new();
+    for (_, index) in order {
+        out.append(&mut groups[index].1);
+    }
+    out
+}
+
+fn java_hash_map_capacity(size: usize) -> u32 {
+    let mut capacity = 16u32;
+    while size > (capacity * 3 / 4) as usize {
+        capacity <<= 1;
+    }
+    capacity
+}
+
+fn parse_tag_pattern(value: &Value) -> Result<TagPatternNode, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "TagPattern must be an object".to_string())?;
+    let op = object
+        .get("Op")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "TagPattern `Op` must be a string".to_string())?;
+    match op {
+        "Equals" => {
+            let tag = object
+                .get("Tag")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Equals pattern requires a `Tag` string".to_string())?;
+            Ok(TagPatternNode::Equals {
+                tag: tag.to_string(),
+            })
+        }
+        "And" | "Or" => {
+            let patterns = object
+                .get("Patterns")
+                .and_then(Value::as_array)
+                .ok_or_else(|| format!("{op} pattern requires a `Patterns` array"))?;
+            if patterns.is_empty() {
+                return Err(format!(
+                    "{op} pattern requires a non-empty `Patterns` array"
+                ));
+            }
+            let operands = patterns
+                .iter()
+                .map(parse_tag_pattern)
+                .collect::<Result<Vec<_>, _>>()?;
+            if op == "And" {
+                Ok(TagPatternNode::And { operands })
+            } else {
+                Ok(TagPatternNode::Or { operands })
+            }
+        }
+        "Not" => {
+            let pattern = object
+                .get("Pattern")
+                .ok_or_else(|| "Not pattern requires a `Pattern` object".to_string())?;
+            Ok(TagPatternNode::Not {
+                pattern: Box::new(parse_tag_pattern(pattern)?),
+            })
+        }
+        other => Err(format!("unknown TagPattern `Op` `{other}`")),
     }
 }
 

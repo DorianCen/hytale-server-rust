@@ -22,5 +22,6 @@ pub use packets::{AssetPacket, AssetPacketError, ConfigAssets, TagRegistry};
 pub use parent::{merge_shallow, merge_values, ArrayMerge, MergeHook, ParentResolver};
 pub use registry::{
     AssetCollection, AssetRecord, AssetRegistry, BlockSupport, BlockTypeAsset, BlockTypeSupport,
-    Face, FluidAsset, MapKind, StoreSpec, SupportRequirement, P0_STORES,
+    Face, FluidAsset, MapKind, StoreSpec, SupportRequirement, TagPatternAsset, TagPatternNode,
+    P0_STORES, TAG_PATTERN_STORE,
 };

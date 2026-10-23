@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use hytale_assets::{AssetPack, AssetRegistry, TagRegistry};
 use hytale_protocol::generated::assets::{
     UpdateBlockHitboxes, UpdateBlockTypes, UpdateEnvironments, UpdateFluids, UpdateItems,
-    UpdatePhysicalMaterials,
+    UpdatePhysicalMaterials, UpdateTagPatterns,
 };
 use hytale_protocol::generated::common::{BlockNeighbor, BlockType, RequiredBlockFaceSupport};
 use hytale_protocol::generated::wire::{Packet, Wire};
@@ -79,10 +79,12 @@ fn config_packets_are_sent_in_dependency_order() {
             UpdatePhysicalMaterials::ID,
             UpdateFluids::ID,
             UpdateEnvironments::ID,
+            UpdateTagPatterns::ID,
             UpdateBlockTypes::ID,
             UpdateItems::ID,
         ]
     );
+    assert_eq!(packet(&packets, UpdateTagPatterns::ID).store, "TagPattern");
     assert_eq!(packet(&packets, UpdateBlockTypes::ID).store, "BlockType");
     assert_eq!(packet(&packets, UpdateItems::ID).store, "Item");
 }
