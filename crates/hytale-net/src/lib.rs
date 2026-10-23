@@ -55,11 +55,13 @@
 
 #![deny(clippy::all)]
 
+pub mod chunk_stream;
 pub mod identity;
 pub mod tls;
 pub mod transport;
 pub mod verify;
 
+pub use chunk_stream::{ChunkFrame, ChunkStreamError, ChunkStreamReader, ChunkStreamWriter};
 pub use identity::PeerIdentity;
 pub use tls::{TlsIdentity, ALPN_HYTALE_V3};
 pub use transport::{

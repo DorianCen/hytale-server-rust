@@ -37,6 +37,7 @@ task done until its acceptance section is satisfied.
 | [T22](T22-demand-chunks.md) | Generate missing chunks + demand-load | T21 | medium | done (session 12) |
 | [T23](T23-world-thread.md) | World thread + view tracking + demand queue | T22 | medium | done (session 13) |
 | [T24](T24-chunk-stream.md) | Chunk packet stream from world events | T23, T12 | medium | done (session 14) |
+| [T25](T25-chunk-stream-transport.md) | Chunks QUIC transport + client-bot receiver | T24, T06 | medium | done (session 15) |
 
 ## Rules
 

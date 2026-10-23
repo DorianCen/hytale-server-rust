@@ -818,6 +818,7 @@ dependencies = [
  "rcgen",
  "rustls",
  "sha2",
+ "thiserror",
  "tokio",
 ]
 
@@ -845,6 +846,7 @@ dependencies = [
  "hytale-storage",
  "hytale-world",
  "thiserror",
+ "tokio",
  "worldgen-hytale",
  "worldgen-model",
  "worldgen-server",

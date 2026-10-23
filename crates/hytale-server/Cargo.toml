@@ -23,3 +23,6 @@ worldgen-model = { path = "../worldgen-model" }
 worldgen-server = { path = "../worldgen-server" }
 clap = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

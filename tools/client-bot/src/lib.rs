@@ -4,12 +4,16 @@
 //! packets until the server disconnects or the timeout expires. Packet handlers
 //! and the full join flow land in later tasks.
 
+use hytale_net::{ChunkFrame, ChunkStreamError, ChunkStreamReader, ClientSession};
 use hytale_protocol::frame::{decode_frame, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
+use hytale_protocol::generated::world::{
+    SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
+};
 use hytale_protocol::io::{ProtocolError, Reader, Writer};
 
 /// Java `ProtocolSettings.PROTOCOL_CRC`.
@@ -94,6 +98,151 @@ pub fn drain_frames(buffer: &mut Vec<u8>) -> Result<Vec<FrameRecord>, ProtocolEr
         buffer.drain(..consumed);
     }
     Ok(frames)
+}
+
+/// A decoded chunk packet, summarized for the bot's log/assertions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChunkPacketSummary {
+    /// `SetColumn`: heightmap + tint.
+    Column {
+        /// Chunk x.
+        x: i32,
+        /// Chunk z.
+        z: i32,
+        /// Number of heightmap entries (Java sends 1024).
+        heightmap_entries: usize,
+        /// Tint palette bytes.
+        tintmap_bytes: usize,
+    },
+    /// `SetChunkTintmap`.
+    Tintmap {
+        /// Chunk x.
+        x: i32,
+        /// Chunk z.
+        z: i32,
+        /// Tint palette bytes.
+        tintmap_bytes: usize,
+    },
+    /// `SetChunk`.
+    Chunk {
+        /// Chunk x.
+        x: i32,
+        /// Section y.
+        y: i32,
+        /// Chunk z.
+        z: i32,
+        /// Block palette bytes (0 for an all-air section).
+        data_bytes: usize,
+        /// Local light bytes.
+        local_light_bytes: usize,
+        /// Global light bytes.
+        global_light_bytes: usize,
+    },
+    /// `SetChunkEnvironments`.
+    Environments {
+        /// Chunk x.
+        x: i32,
+        /// Section y.
+        y: i32,
+        /// Chunk z.
+        z: i32,
+        /// Environment bytes.
+        data_bytes: usize,
+    },
+    /// `SetFluids`.
+    Fluids {
+        /// Chunk x.
+        x: i32,
+        /// Section y.
+        y: i32,
+        /// Chunk z.
+        z: i32,
+        /// Fluid bytes.
+        data_bytes: usize,
+    },
+}
+
+/// Summarize one chunk-stream frame, or `None` for a non-chunk packet.
+pub fn summarize_chunk_packet(
+    frame: &ChunkFrame,
+) -> Option<Result<ChunkPacketSummary, ProtocolError>> {
+    if frame.packet_id == SetColumn::ID {
+        return Some(
+            SetColumn::decode(&mut Reader::new(&frame.payload)).map(|packet| {
+                ChunkPacketSummary::Column {
+                    x: packet.x,
+                    z: packet.z,
+                    heightmap_entries: packet.heightmap.len(),
+                    tintmap_bytes: packet.tintmap.len(),
+                }
+            }),
+        );
+    }
+    if frame.packet_id == SetChunkTintmap::ID {
+        return Some(
+            SetChunkTintmap::decode(&mut Reader::new(&frame.payload)).map(|packet| {
+                ChunkPacketSummary::Tintmap {
+                    x: packet.x,
+                    z: packet.z,
+                    tintmap_bytes: packet.tintmap.len(),
+                }
+            }),
+        );
+    }
+    if frame.packet_id == SetChunk::ID {
+        return Some(
+            SetChunk::decode(&mut Reader::new(&frame.payload)).map(|packet| {
+                ChunkPacketSummary::Chunk {
+                    x: packet.x,
+                    y: packet.y,
+                    z: packet.z,
+                    data_bytes: packet.data.as_ref().map_or(0, Vec::len),
+                    local_light_bytes: packet.local_light.as_ref().map_or(0, Vec::len),
+                    global_light_bytes: packet.global_light.as_ref().map_or(0, Vec::len),
+                }
+            }),
+        );
+    }
+    if frame.packet_id == SetChunkEnvironments::ID {
+        return Some(
+            SetChunkEnvironments::decode(&mut Reader::new(&frame.payload)).map(|packet| {
+                ChunkPacketSummary::Environments {
+                    x: packet.x,
+                    y: packet.y,
+                    z: packet.z,
+                    data_bytes: packet.environments.len(),
+                }
+            }),
+        );
+    }
+    if frame.packet_id == SetFluids::ID {
+        return Some(
+            SetFluids::decode(&mut Reader::new(&frame.payload)).map(|packet| {
+                ChunkPacketSummary::Fluids {
+                    x: packet.x,
+                    y: packet.y,
+                    z: packet.z,
+                    data_bytes: packet.data.as_ref().map_or(0, Vec::len),
+                }
+            }),
+        );
+    }
+    None
+}
+
+/// Read the `Chunks` stream until the server finishes it and decode every chunk
+/// packet. Non-chunk packets are skipped.
+pub async fn receive_chunk_stream(
+    session: &ClientSession,
+) -> Result<Vec<ChunkPacketSummary>, ChunkStreamError> {
+    let mut reader = ChunkStreamReader::accept(session.connection()).await?;
+    let mut packets = Vec::new();
+    while let Some(frame) = reader.next_frame().await? {
+        if let Some(summary) = summarize_chunk_packet(&frame) {
+            packets.push(summary?);
+        }
+    }
+    Ok(packets)
 }
 
 /// Name of a connection-family packet.

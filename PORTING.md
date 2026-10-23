@@ -89,6 +89,13 @@ For the server, “exact” also applies to:
   direction/channel, oversized payload.
 - Treat all client input as untrusted. Bound every string and array before
   allocation.
+- Chunk frames go through `hytale-net::chunk_stream`. The writer opens the
+  server→client uni stream; the reader validates the registry id/max size and
+  decompresses packets whose registry entry is compressed. Do not read raw
+  chunk frames in the connection state machine.
+- The exact Java channel/stream mapping is not confirmed yet; keep it isolated
+  in `chunk_stream` so a packet trace can correct it without touching packet
+  construction.
 
 ---
 

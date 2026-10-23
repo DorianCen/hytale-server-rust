@@ -865,3 +865,45 @@ Format:
   - Teach `client-bot` to receive/decode chunks.
   - Add block/section update packets.
   - Client-bot auth/setup/game join path.
+
+---
+
+## Session 15 — Chunks QUIC stream and client-bot receiver (2026-10-23)
+
+- **Goal:** carry the chunk packet frames across a real QUIC `Chunks` stream and
+  teach the client bot to receive and decode them.
+- **Landed:**
+  - `hytale-net::chunk_stream`:
+    - `ChunkStreamWriter::open` opens a server→client unidirectional stream and
+      writes frames (`write_frame`/`write_frames`/`finish`).
+    - `ChunkStreamReader::accept` reads frames incrementally (`read_exact`
+      header + payload), validates id/max size against the registry, and
+      zstd-decompresses packets whose registry entry is compressed.
+    - `ChunkFrame`, `ChunkStreamError`, and truncated/unknown-packet errors.
+  - `client-bot`:
+    - `ChunkPacketSummary` and `summarize_chunk_packet` decode `SetColumn`,
+      `SetChunkTintmap`, `SetChunk`, `SetChunkEnvironments` and `SetFluids` with
+      the generated `Wire` codecs.
+    - `receive_chunk_stream(&ClientSession)` reads to FIN and returns summaries.
+  - Three `#[ignore]`d loopback tests:
+    - `hytale-net/tests/chunk_stream.rs` — two compressed frames over mTLS QUIC,
+      decoded back with `SetColumn`/`SetChunk`;
+    - `tools/client-bot/tests/chunk_stream.rs` — the bot receives summaries;
+    - `crates/hytale-server/tests/chunk_transport.rs` — a real
+      `ChunkPacketBatch::full` crosses the stream with identical ids/payloads.
+- **Verified:**
+  - All three loopback tests pass with `--ignored`.
+  - `cargo test --workspace` (1107 passed, 5 ignored), clippy and fmt green.
+- **Deviations:**
+  - The stream is a server→client unidirectional stream; the exact Java
+    channel/stream mapping still needs a packet trace.
+  - One chunk stream per connection, no stream ids or multiplexing.
+  - No server session/connection task yet; tests wire the endpoints directly.
+  - `client-bot`'s live CLI does not wait for chunks yet.
+  - Flow control/batching across chunks use quinn defaults.
+- **Follow-ups:**
+  - Open the chunk stream from the server state machine and feed it from
+    `WorldThread::chunk_packets`.
+  - Add chunk reception to the client-bot join flow.
+  - Confirm the Java stream/channel mapping with a packet trace.
+  - Add block/section update packets on the same stream.

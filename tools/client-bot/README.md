@@ -22,3 +22,17 @@ cargo test -p client-bot -- --ignored
 
 Exit code 0 means a clean disconnect or timeout, 1 means a protocol/transport
 error.
+
+## Chunk stream receiver
+
+`client_bot::receive_chunk_stream(&ClientSession)` accepts the server's
+`Chunks` uni stream, reads it to FIN, and returns `ChunkPacketSummary` values for
+`SetColumn`, `SetChunkTintmap`, `SetChunk`, `SetChunkEnvironments` and
+`SetFluids` (decoded with the generated protocol types). The loopback test:
+
+```sh
+cargo test -p client-bot --test chunk_stream -- --ignored
+```
+
+The live CLI does not wait for a stream yet; the server session that opens it
+lands with the join-flow task.
