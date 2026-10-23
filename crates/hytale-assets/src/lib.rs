@@ -8,12 +8,14 @@
 
 #![deny(clippy::all)]
 
+pub mod common;
 pub mod order;
 pub mod pack;
 pub mod packets;
 pub mod parent;
 pub mod registry;
 
+pub use common::{CommonAssetError, CommonAssetInfo, CommonAssetRegistry};
 pub use order::{order_stores, StoreNode};
 pub use pack::{AssetError, AssetKey, AssetPack, ParentProvider};
 pub use packets::{AssetPacket, AssetPacketError};

@@ -11,7 +11,8 @@ cargo run -p client-bot -- --dry-run
 
 Defaults match the checked-in protocol constants
 (`PROTOCOL_CRC = -386561135`, build `258`, client type `Game`, language
-`en-US`). `--token` adds an identity token; auth is otherwise out of scope.
+`en-US`). `--token` adds a raw identity token; use `--auth-join` for the full
+authenticated flow.
 
 `--dry-run` prints the Connect payload and frame bytes without creating a
 socket. The mock-server test is `#[ignore]`d because it binds loopback UDP:
@@ -62,7 +63,33 @@ cargo run -p client-bot -- --host 127.0.0.1:5523 --dev-join \
 ```
 
 The bot sends `Connect`, answers `RequestInsecurePlayerOptions` with
-`InsecurePlayerOptions`, requests assets, and sends `SetupFinalize` after
-`WorldLoadFinished`. It prints the handshake packet ids
-(`[364, 14, 20, 223, 21, 22]`) and the 21 chunk summaries. Authentication, real
-asset streaming and the game-state loop are not implemented yet.
+`InsecurePlayerOptions`, requests no common assets, and sends `SetupFinalize`
+after `WorldLoadFinished`. It then `ClearChunks`/`JoinWorld` handshakes with
+`ClientReady`, receives the player list entry and self entity spawn, prints the
+handshake packet ids, the Game state and the 21 chunk summaries.
+
+## Authenticated join
+
+`--auth-join` runs the local EdDSA flow: it signs a certificate-bound identity
+token, answers `AuthGrant` with a matching access token, accepts
+`ServerAuthToken`, requests the advertised common assets and verifies every
+blob's SHA-256. Use the PKCS#8 key printed by the server:
+
+```sh
+# terminal 1 — prints a generated key when --auth-key is omitted
+cargo run -p hytale-server -- chunk-serve --handshake --auth-mode local \
+    --save target/auth-join-smoke --bind 127.0.0.1:5531 --view-radius 0
+# terminal 2
+cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
+    --auth-key "<pkcs8 base64 from the server>" --username AuthBot \
+    --view-radius 0 --asset-limit 2 --timeout 60
+```
+
+`--asset-limit N` requests only the first `N` advertised assets (omit it to
+request all 28k+/45 MB). `--auth-issuer`/`--auth-audience` must match the
+server. The bot prints the token exchange, per-asset hashes/bytes, config packet
+ids, the Game state and the chunk summaries. The loopback test is `#[ignore]`d:
+
+```sh
+cargo test -p client-bot --test auth_join -- --ignored
+```

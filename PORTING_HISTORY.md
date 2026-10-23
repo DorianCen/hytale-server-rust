@@ -1077,3 +1077,75 @@ Format:
   - Encode the remaining asset packets and stream common/config assets.
   - Send player add/spawn/world settings after SetupFinalize.
   - Add the game packet loop and movement-driven view updates.
+
+---
+
+## Session 20 — local EdDSA auth, common assets and the Game transition (2026-10-23)
+
+- **Goal:** add real authentication to the join flow, stream the common/config
+  assets, and drive the control flow into `Game` before the chunk stream.
+- **Landed:**
+  - `hytale-auth`: Ed25519 key generation/PKCS#8 load, EdDSA JWT
+    encode/decode, `iss`/`aud`/`sub`/`username`/`scope`/`iat`/`nbf`/`exp`/
+    `cnf.x5t#S256` validation, local token-use separation, and an `AuthService`
+    that issues identity/access/grant/server tokens.
+  - `hytale-net`: `TlsIdentity::fingerprint_base64url` and
+    `PeerIdentity::fingerprint_base64url` for the RFC 8705 binding; raw-packet
+    writes on `FrameWriter` and `ChunkStreamWriter`.
+  - `hytale-assets::common`: `CommonAssetsIndex.hashes` parser, name/hash
+    lookup, deduplicated advertised list, lazy verified blob loading
+    (`CommonAssetRegistry`).
+  - `hytale-assets::packets::config_packets`: the encodable P0 config packets
+    (`UpdateBlockHitboxes` 41 and `UpdatePhysicalMaterials` 87).
+  - `hytale-server::session`:
+    - `AuthMode::{Insecure, Local}`; the local branch runs
+      `Connect(identityToken)` → `AuthGrant` → `AuthToken` →
+      `ServerAuthToken` and enforces `cnf.x5t#S256` against the client
+      certificate;
+    - `WorldSettings.requiredAssets` from the common index;
+    - `RequestAssets` subset handling with per-asset `AssetInitialize` +
+      `WorldLoadProgress` + `AssetPart` + `AssetFinalize`, then
+      `RequestCommonAssetsRebuild`;
+    - config asset packets + `UpdateTranslations(Init)` + world progress;
+    - `ClearChunks` on the chunks stream, `ServerTags`, `JoinWorld`, a
+      `ClientReady(readyForChunks)` gate, and the post-join `ViewRadius`,
+      `SetEntitySeed`, `SetClientId`, `SetTimeDilation`, `UpdateFeatures`,
+      `SetUpdateRate` burst before the chunk snapshot;
+    - `AddToServerPlayerList` and the joining player's self `EntityUpdates`
+      (default model/skin/equipment plus the saved transform);
+    - `AssetStreamReport` and `GameReport` in `SessionReport`.
+  - `WorldThread::config_asset_packets`, `WorldThread::common_assets` and
+    `WorldThread::player_transform` expose the already-loaded registry, pack
+    index and saved transform without loading either twice.
+  - `client-bot`: `auth_join` (identity/access token minting, grant exchange,
+    asset reassembly and SHA-256 verification, Game transition) and
+    `--auth-join`/`--auth-key`/`--auth-issuer`/`--auth-audience`/
+    `--asset-limit`; `--dev-join` now also sends `ClientReady`.
+  - New ignored loopback test `tools/client-bot/tests/auth_join.rs`.
+- **Verified:**
+  - Manual local-auth join: handshake ids
+    `[11, 13, 20, 223, 24, 21, 25, 26, 24, 21, 25, 26, 28, 41, 87, 64, 21, 22]`,
+    2 verified common assets (3441 bytes), config packets `[41, 87]`,
+    `clear_chunks/join_world/ready_chunks = true`, 21 chunk packets.
+  - `cargo test --workspace` (1120 passed, 0 failed, 9 ignored), clippy and fmt
+    green.
+- **Deviations:**
+  - Authentication is a local EdDSA profile, not the live Hytale OAuth/session
+    service (no device/browser flow, JWKS fetch, session registration or
+    referral handling).
+  - Config asset streaming only covers the stores the Rust registry can encode
+    (`PhysicalMaterial`, `BlockHitboxes`); `Environment`, `Fluid`, `BlockType`
+    and `Item` remain follow-ups.
+  - No password challenge, no `readyForGameplay` teleport, no world
+    time/gameplay config, and no gameplay/movement loop.
+  - The self-spawn entity uses default (empty) model/skin/equipment payloads;
+    other-player entity tracking is not implemented.
+  - Common-asset blobs are loaded together on a blocking pool per request; no
+    per-asset streaming/backpressure.
+  - `ServerTags` and translations are empty init packets.
+- **Follow-ups:**
+  - Add the remaining P0 config asset packets.
+  - Add `AddToServerPlayerList`, the self `EntityUpdates` spawn, time/gameplay
+    packets and the `ClientReady(readyForGameplay)`/teleport exchange (T31).
+  - Feed movement packets into `WorldThread::set_view` and stream updates.
+  - Add a real vanilla-client trace for the authenticated branch.

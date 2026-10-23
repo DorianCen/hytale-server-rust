@@ -8,10 +8,12 @@
 //!
 //! # Current scope
 //!
-//! This crate currently implements the transport spike (T06): a QUIC endpoint
-//! pair with mutual TLS, ALPN [`ALPN_HYTALE_V3`], and access to the peer
-//! certificate chain through [`PeerIdentity`]. There is no Hytale packet
-//! decoding, authentication, or session state yet.
+//! The crate implements the QUIC endpoint pair with mutual TLS, ALPN
+//! [`ALPN_HYTALE_V3`], peer certificate capture through [`PeerIdentity`], the
+//! generic framed setup/chunk streams, and the base64url certificate
+//! fingerprints used by the JWT `cnf.x5t#S256` binding. Authentication and the
+//! `Initial` → `Setup` → `Game` state machine live in
+//! `hytale-server::session`/`hytale-auth`; this crate only moves frames.
 //!
 //! ```no_run
 //! use std::net::SocketAddr;
@@ -47,11 +49,12 @@
 //!
 //! # Certificate verification
 //!
-//! The spike accepts any self-signed peer certificate, mirroring the Java
-//! server's `ClientAuth.REQUIRE` plus `InsecureTrustManagerFactory` setup. That
-//! policy lives entirely in [`verify`] so a real verifier (checking the JWT
-//! `cnf.x5t#S256` binding against [`PeerIdentity`]) can replace it without
-//! touching [`transport`].
+//! The transport accepts any self-signed peer certificate, mirroring the Java
+//! server's `ClientAuth.REQUIRE` plus `InsecureTrustManagerFactory` setup. The
+//! identity check is the JWT `cnf.x5t#S256` binding performed by
+//! `hytale-auth`/`hytale-server::session` against [`PeerIdentity`]; the
+//! certificate policy lives entirely in [`verify`] so a CA verifier can replace
+//! it without touching [`transport`].
 
 #![deny(clippy::all)]
 

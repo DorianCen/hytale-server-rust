@@ -216,6 +216,68 @@ impl Uuid {
     }
 }
 
+impl std::str::FromStr for Uuid {
+    type Err = ();
+
+    /// Parse a hyphenated UUID (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        let bytes = value.as_bytes();
+        if bytes.len() != 36 {
+            return Err(());
+        }
+        let mut compact = [0u8; 16];
+        let mut index = 0usize;
+        let mut digits = 0usize;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if matches!(index, 8 | 13 | 18 | 23) {
+                if byte != b'-' {
+                    return Err(());
+                }
+                index += 1;
+                continue;
+            }
+            let high = hex_value(byte).ok_or(())?;
+            index += 1;
+            if index >= bytes.len() {
+                return Err(());
+            }
+            let low = hex_value(bytes[index]).ok_or(())?;
+            index += 1;
+            if digits >= compact.len() {
+                return Err(());
+            }
+            compact[digits] = (high << 4) | low;
+            digits += 1;
+        }
+        if digits != compact.len() {
+            return Err(());
+        }
+        Ok(Self::from_bytes(&compact))
+    }
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+impl fmt::Display for Uuid {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes = self.to_bytes();
+        write!(
+            formatter,
+            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        )
+    }
+}
+
 impl fmt::Debug for Uuid {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let bytes = self.to_bytes();

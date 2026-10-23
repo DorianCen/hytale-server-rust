@@ -102,9 +102,19 @@ For the server, “exact” also applies to:
   tick or read chunks from the network task directly.
 - Connection control packets use `hytale-net::frame_stream`; the setup stream is
   the client-opened bidirectional stream. Keep the state transitions in
-  `hytale-server::session` and preserve the Java insecure-mode order
-  (`RequestInsecurePlayerOptions` before `InsecurePlayerOptions`, setup only
-  after `ConnectAccept`). Do not send chunks before `SetupFinalize`.
+  `hytale-server::session` and preserve the Java order:
+  - insecure: `RequestInsecurePlayerOptions` before `InsecurePlayerOptions`,
+    setup only after `ConnectAccept`;
+  - authenticated: `AuthGrant` → `AuthToken` → `ServerAuthToken`, with the
+    `cnf.x5t#S256` check against the mTLS certificate and matching
+    identity/access claims;
+  - both: assets only after `WorldSettings`, chunks only after
+    `SetupFinalize`, and `JoinWorld` only after `ClearChunks`.
+- Authentication tokens are EdDSA JWTs. Validate algorithm, signature, issuer,
+  audience, `exp`/`nbf`/`iat` with the Java 300-second skew, scope, UUID subject
+  and certificate binding. Never accept a token without `cnf.x5t#S256`; the
+  local authority is a test/private-server seam, not a reason to weaken the
+  claim checks.
 - A view change cancels queued loads and unloads chunks outside the view; the
   client gets one `UnloadChunk` per chunk. Do not add section/`ClearChunks`
   variants without a Java trace showing when the server sends them.
@@ -127,6 +137,12 @@ For the server, “exact” also applies to:
   field, out-of-range index, duplicate key.
 - Do not read the 3.7 GB pack in unit tests. Use tiny fixtures; reserve full-pack
   tests for the golden suite.
+- Common assets are indexed by `CommonAssetsIndex.hashes` at the pack root.
+  Advertise hash/name pairs in `WorldSettings.requiredAssets`, stream only the
+  hashes the client requests, split blobs at Java `MAX_FRAME` (2,621,440 bytes),
+  and verify SHA-256 before sending. Unknown hashes are a protocol error.
+  `AssetPart` payloads are raw bytes on the wire; the generated `i8` array is a
+  bit-preserving representation only.
 
 ---
 

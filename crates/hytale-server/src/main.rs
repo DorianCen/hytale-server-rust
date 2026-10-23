@@ -8,11 +8,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use hytale_auth::{AuthKey, AuthService};
 use hytale_server::GeneratorOptions;
 use hytale_server::{
     run_chunk_serve, run_chunk_tool, run_headless, run_player_data_tool, run_world_boot,
-    run_world_config_tool, ChunkServeOptions, ChunkToolOptions, HeadlessOptions,
-    PlayerDataToolOptions, WorldBootOptions, WorldConfigToolOptions, WorldThreadOptions,
+    run_world_config_tool, AuthMode, ChunkServeOptions, ChunkToolOptions, HeadlessOptions,
+    PlayerDataToolOptions, SessionOptions, WorldBootOptions, WorldConfigToolOptions,
+    WorldThreadOptions,
 };
 use hytale_world::player_data::{Position, Rotation};
 
@@ -234,6 +236,21 @@ struct ChunkServeArgs {
     /// Seconds allowed for the whole handshake.
     #[arg(long, default_value_t = 30)]
     handshake_timeout: u64,
+    /// Seconds to wait for the client's `ClientReady` after `JoinWorld`.
+    #[arg(long, default_value_t = 30)]
+    world_join_timeout: u64,
+    /// Authentication mode: `insecure` or `local`.
+    #[arg(long, default_value = "insecure")]
+    auth_mode: String,
+    /// Base64 PKCS#8 Ed25519 key for `--auth-mode local` (generated when absent).
+    #[arg(long)]
+    auth_key: Option<String>,
+    /// Expected/granted JWT issuer for `--auth-mode local`.
+    #[arg(long, default_value = "rust-local")]
+    auth_issuer: String,
+    /// Expected/granted JWT audience for `--auth-mode local`.
+    #[arg(long, default_value = "rust-server")]
+    auth_audience: String,
     /// Seconds to wait for the client to close after the stream ends.
     #[arg(long, default_value_t = 5)]
     close_timeout: u64,
@@ -357,6 +374,43 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
 }
 
 fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
+    let auth = match args.auth_mode.as_str() {
+        "insecure" => AuthMode::Insecure,
+        "local" => {
+            let key = match args.auth_key.as_deref() {
+                Some(encoded) => match AuthKey::from_pkcs8_base64(encoded) {
+                    Ok(key) => key,
+                    Err(error) => {
+                        eprintln!("invalid --auth-key: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                },
+                None => match AuthKey::generate() {
+                    Ok(key) => {
+                        println!(
+                            "generated local auth key (pkcs8 base64): {}",
+                            key.pkcs8_base64()
+                        );
+                        println!("local auth key id: {}", key.key_id());
+                        key
+                    }
+                    Err(error) => {
+                        eprintln!("could not generate an auth key: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                },
+            };
+            AuthMode::local(AuthService::new(
+                key,
+                args.auth_issuer.clone(),
+                args.auth_audience.clone(),
+            ))
+        }
+        other => {
+            eprintln!("unknown --auth-mode `{other}` (expected `insecure` or `local`)");
+            return ExitCode::FAILURE;
+        }
+    };
     let options = ChunkServeOptions {
         world: WorldThreadOptions {
             generator: GeneratorOptions {
@@ -378,13 +432,15 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
         compression_level: args.compression_level,
         move_demo: args.move_demo,
         handshake: args.handshake,
-        session: hytale_server::SessionOptions {
+        session: SessionOptions {
             server_name: args.server_name,
             motd: args.motd,
             max_players: args.max_players,
             default_view_radius: args.view_radius,
             chunk_compression_level: args.compression_level,
             handshake_timeout: std::time::Duration::from_secs(args.handshake_timeout),
+            world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
+            auth,
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };
@@ -404,8 +460,26 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
             );
             if let Some(session) = report.session {
                 println!(
-                    "handshake ok: {} view_radius={} chunks={}",
-                    session.username, session.view_radius, session.stream.chunks
+                    "handshake ok: {} view_radius={} auth={} chunks={}",
+                    session.username, session.view_radius, session.auth_mode, session.stream.chunks
+                );
+                println!(
+                    "assets: required={} requested={} sent={} bytes={} parts={} config={}",
+                    session.assets.required,
+                    session.assets.requested,
+                    session.assets.sent,
+                    session.assets.bytes,
+                    session.assets.parts,
+                    session.assets.config_packets
+                );
+                println!(
+                    "game: clear_chunks={} join_world={} player_list={} self_spawn={} ready_chunks={} ready_gameplay={}",
+                    session.game.clear_chunks,
+                    session.game.join_world,
+                    session.game.player_list,
+                    session.game.self_spawn,
+                    session.game.client_ready_for_chunks,
+                    session.game.client_ready_for_gameplay
                 );
             }
             ExitCode::SUCCESS

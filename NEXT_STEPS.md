@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 20
+# Next steps — CoreServer rewrite, session 21
 
-**Status:** sessions 1–19 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–20 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -36,8 +36,13 @@ session state machine remains before a real join. Session 18 started the asset
 packet encoders: `PhysicalMaterial` (87) and `BlockBoundingBoxes` (41) now match
 the Java payloads byte-for-byte. Session 19 completed the first dev/insecure
 join: the server and `client-bot` now run Connect → insecure options →
-ConnectAccept → WorldSettings/ServerInfo → setup → 21 chunk packets. See
-[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
+ConnectAccept → WorldSettings/ServerInfo → setup → 21 chunk packets. Session 20
+added the local EdDSA authentication profile (`AuthGrant` → `AuthToken` →
+`ServerAuthToken`, `cnf.x5t#S256` mTLS binding), common-asset index streaming
+(`WorldSettings.requiredAssets` → `AssetInitialize`/`AssetPart`/`AssetFinalize`),
+the encodable config asset packets, translations, and the Game transition
+(`ClearChunks` + `JoinWorld` → `ClientReady` → world/entity identity packets,
+`AddToServerPlayerList` and the self `EntityUpdates` spawn → chunks). See [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
 [`tasks/README.md`](tasks/README.md).
 
 **Try it:**
@@ -69,6 +74,13 @@ cargo run -p hytale-server -- chunk-serve --handshake \
   --save target/dev-join-smoke --bind 127.0.0.1:5523 --view-radius 0
 cargo run -p client-bot -- --host 127.0.0.1:5523 --dev-join \
   --view-radius 0 --timeout 60
+
+# authenticated join (the server prints the generated PKCS#8 key):
+cargo run -p hytale-server -- chunk-serve --handshake --auth-mode local \
+  --save target/auth-join-smoke --bind 127.0.0.1:5531 --view-radius 0
+cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
+  --auth-key "<pkcs8 base64 printed by the server>" --username AuthBot \
+  --view-radius 0 --asset-limit 2 --timeout 60
 ```
 
 **Next up:** finish the first vertical slice.
@@ -90,9 +102,11 @@ cargo run -p client-bot -- --host 127.0.0.1:5523 --dev-join \
    in session 13; Java-ordered chunk packet batches + frames done in session 14;
    QUIC chunk-stream transport and the bot receiver done in session 15;
    world-thread → QUIC → bot streaming done in session 16; incremental view
-   updates and `UnloadChunk` done in session 17. Remaining: the real
-   auth/setup/game session state machine (needs the asset packet encoders and a
-   packet trace) and player-movement-driven view changes.
+   updates and `UnloadChunk` done in session 17; the local-auth setup flow,
+   common/config asset streaming and the `Game` transition done in session 20.
+   Remaining: populated model/skin/equipment updates and other-player entity
+   tracking, world time/gameplay config, the `readyForGameplay` teleport
+   exchange, the game packet loop and player-movement-driven view changes.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
    `hytale-assets` packet encoders still need their `assets/*.bin` comparison.
@@ -102,8 +116,10 @@ cargo run -p client-bot -- --host 127.0.0.1:5523 --dev-join \
    its registry ids for generation/storage and verifies the decoded save.
 5. ~~Extend `client-bot` from the connection handshake into auth/setup/game with
    the packet-trace fixture.~~ The dev/insecure Connect → Setup flow and chunk
-   stream landed in session 19. Remaining: real authentication, common/config
-   asset streaming, player add/spawn/game packets and a real-client trace.
+   stream landed in session 19; local EdDSA authentication, common/config asset
+   streaming, the Game transition and the joining player's list/self-spawn
+   landed in session 20. Remaining: world time/gameplay config, other-player
+   entity tracking, the gameplay loop and a real-client trace.
 6. ~~Load saved chunks back into a world runtime (region → `ChunkColumn`) and
    add the mutate → Rust save → Java reload compatibility gate.~~ Done in
    session 8 (`World`/`WorldStorage`, `load-chunk`, `WorldStorageProbe`).

@@ -9,9 +9,10 @@
 //! payloads for compressed packet ids are zstd-decompressed by [`ChunkStreamReader`]
 //! so callers see the same payload bytes the generated packet decoder expects.
 
-use hytale_protocol::frame::{decompress_payload, MAX_PACKET_SIZE};
+use hytale_protocol::frame::{compress_payload, decompress_payload, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::registry::packet_info;
-use hytale_protocol::io::ProtocolError;
+use hytale_protocol::generated::wire::{Packet, Wire};
+use hytale_protocol::io::{ProtocolError, Writer};
 use quinn::{Connection, ReadExactError, RecvStream, SendStream};
 use thiserror::Error;
 
@@ -57,6 +58,25 @@ impl ChunkStreamWriter {
         Ok(Self {
             send: connection.open_uni().await?,
         })
+    }
+
+    /// Encode, compress (when required) and frame a packet.
+    pub async fn write_packet<T: Packet + Wire>(
+        &mut self,
+        packet: &T,
+        compression_level: i32,
+    ) -> Result<(), ChunkStreamError> {
+        let mut payload = Writer::new();
+        packet.encode(&mut payload)?;
+        let payload = if T::COMPRESSED {
+            compress_payload(&payload.into_inner(), compression_level)?
+        } else {
+            payload.into_inner()
+        };
+        let mut frame = Vec::with_capacity(payload.len() + 8);
+        encode_frame(T::ID, &payload, &mut frame)?;
+        self.write_frame(&frame).await?;
+        Ok(())
     }
 
     /// Write one complete frame (`[length][packet id][payload]`).

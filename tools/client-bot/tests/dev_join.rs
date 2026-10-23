@@ -102,6 +102,12 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     assert!(report.handshake_packets.contains(&14)); // ConnectAccept
     assert!(report.handshake_packets.contains(&20)); // WorldSettings
     assert!(report.handshake_packets.contains(&22)); // WorldLoadFinished
+    assert!(report.game.clear_chunks);
+    assert!(report.game.join_world);
+    assert!(report.game.player_list);
+    assert!(report.game.self_spawn);
+    assert_eq!(report.game.client_id, Some(1));
+    assert!(report.game.sent_ready_for_chunks);
     assert_eq!(report.chunks.len(), 21);
 
     session
@@ -111,6 +117,8 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     assert_eq!(server_report.username, "TestBot");
     assert_eq!(server_report.view_radius, 0);
     assert_eq!(server_report.stream.chunks, 1);
+    assert!(server_report.game.player_list);
+    assert!(server_report.game.self_spawn);
 
     std::fs::remove_dir_all(save_dir).ok();
 }

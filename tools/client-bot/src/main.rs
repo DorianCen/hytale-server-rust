@@ -11,9 +11,11 @@ use std::time::Duration;
 
 use clap::Parser;
 use client_bot::{
-    build_connect, build_connect_frame, dev_join, drain_frames, hex, receive_chunk_stream,
-    DevJoinOptions, DEFAULT_PROTOCOL_BUILD, DEFAULT_PROTOCOL_CRC,
+    auth_join, build_connect, build_connect_frame, dev_join, drain_frames, hex,
+    receive_chunk_stream, AuthJoinOptions, DevJoinOptions, DEFAULT_PROTOCOL_BUILD,
+    DEFAULT_PROTOCOL_CRC,
 };
+use hytale_auth::{AuthKey, AuthService};
 use hytale_net::{ClientEndpoint, TlsIdentity};
 use hytale_protocol::generated::wire::Packet;
 use hytale_protocol::io::Uuid;
@@ -52,6 +54,21 @@ struct Cli {
     /// Run the dev/insecure Connect → Setup handshake, then receive chunks.
     #[arg(long)]
     dev_join: bool,
+    /// Run the authenticated Connect → AuthGrant → setup flow, then chunks.
+    #[arg(long)]
+    auth_join: bool,
+    /// Base64 PKCS#8 Ed25519 key shared with the server (required for `--auth-join`).
+    #[arg(long)]
+    auth_key: Option<String>,
+    /// JWT issuer used by `--auth-join`.
+    #[arg(long, default_value = "rust-local")]
+    auth_issuer: String,
+    /// JWT audience used by `--auth-join`.
+    #[arg(long, default_value = "rust-server")]
+    auth_audience: String,
+    /// Number of advertised common assets to request (default: all).
+    #[arg(long)]
+    asset_limit: Option<usize>,
     /// Username for the dev/insecure `InsecurePlayerOptions`.
     #[arg(long, default_value = "RustBot")]
     username: String,
@@ -117,6 +134,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
         println!("handshake packets: {:?}", report.handshake_packets);
+        println!("game: {:?}", report.game);
         println!("chunk packets: {}", report.chunks.len());
         for packet in &report.chunks {
             println!("{packet:?}");
@@ -124,6 +142,59 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         session
             .connection()
             .close(0u32.into(), b"client-bot dev join complete");
+        return Ok(());
+    }
+
+    if cli.auth_join {
+        let encoded = cli
+            .auth_key
+            .as_deref()
+            .ok_or("--auth-join needs --auth-key with the server's PKCS#8 Ed25519 key")?;
+        let key = AuthKey::from_pkcs8_base64(encoded)?;
+        let auth = AuthService::new(key, cli.auth_issuer.clone(), cli.auth_audience.clone());
+        let report = auth_join(
+            &session,
+            &AuthJoinOptions {
+                uuid: Uuid::new(
+                    0x1234_5678_1234_5678u64 as i64,
+                    0x9abc_def0_1234_5678u64 as i64,
+                ),
+                username: cli.username.clone(),
+                view_radius_chunks: cli.view_radius,
+                auth,
+                certificate_fingerprint: identity.fingerprint_base64url(),
+                asset_limit: cli.asset_limit,
+            },
+        )
+        .await?;
+        println!("handshake packets: {:?}", report.handshake_packets);
+        println!(
+            "auth: grant={} server_token={}",
+            report.auth_grant, report.server_auth_token
+        );
+        println!(
+            "assets: advertised={} requested={} received={} parts={} bytes={}",
+            report.advertised_assets,
+            report.requested_assets,
+            report.assets.len(),
+            report.asset_parts,
+            report.asset_bytes
+        );
+        for asset in &report.assets {
+            println!("  {} {} {} bytes", asset.hash, asset.name, asset.bytes);
+        }
+        println!(
+            "config packets: {:?} translations={} rebuild={}",
+            report.config_packets, report.translations, report.rebuild_requested
+        );
+        println!("game: {:?}", report.game);
+        println!("chunk packets: {}", report.chunks.len());
+        for packet in &report.chunks {
+            println!("{packet:?}");
+        }
+        session
+            .connection()
+            .close(0u32.into(), b"client-bot auth join complete");
         return Ok(());
     }
 

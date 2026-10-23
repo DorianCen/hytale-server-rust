@@ -79,6 +79,14 @@ impl TlsIdentity {
         crate::identity::hex_digest(&self.fingerprint())
     }
 
+    /// Base64url (no padding) SHA-256 fingerprint, matching the JWT
+    /// `cnf.x5t#S256` claim.
+    pub fn fingerprint_base64url(&self) -> String {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+        URL_SAFE_NO_PAD.encode(self.fingerprint())
+    }
+
     /// The DER-encoded leaf certificate.
     pub fn leaf(&self) -> &CertificateDer<'static> {
         &self.chain[0]

@@ -357,9 +357,11 @@ name = "client-bot"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hytale-auth",
  "hytale-net",
  "hytale-protocol",
  "hytale-server",
+ "sha2",
  "thiserror",
  "tokio",
 ]
@@ -773,6 +775,7 @@ dependencies = [
  "hytale-core",
  "hytale-protocol",
  "serde_json",
+ "sha2",
  "thiserror",
  "zip",
 ]
@@ -781,7 +784,12 @@ dependencies = [
 name = "hytale-auth"
 version = "0.1.0"
 dependencies = [
- "hytale-core",
+ "base64",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -814,6 +822,7 @@ dependencies = [
 name = "hytale-net"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "hytale-core",
  "hytale-protocol",
  "quinn",

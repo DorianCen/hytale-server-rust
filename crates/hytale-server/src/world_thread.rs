@@ -11,9 +11,10 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread::{self, JoinHandle};
 
+use hytale_assets::{AssetPack, CommonAssetRegistry};
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
-use hytale_world::player_data::PlayerDataError;
+use hytale_world::player_data::{PlayerDataError, PlayerTransform};
 use hytale_world::view::{ChunkPlan, ChunkView};
 use hytale_world::world::{WorldError, WorldSave};
 use hytale_world::world_config::{WorldConfigError, WorldUuid};
@@ -152,6 +153,12 @@ pub enum WorldThreadError {
     /// A player file failed.
     #[error(transparent)]
     Player(#[from] PlayerDataError),
+    /// Common-asset index loading failed.
+    #[error(transparent)]
+    CommonAssets(#[from] hytale_assets::CommonAssetError),
+    /// Config asset packet encoding failed.
+    #[error(transparent)]
+    AssetPackets(#[from] hytale_assets::AssetPacketError),
     /// A UUID argument is malformed.
     #[error("invalid UUID `{0}`")]
     InvalidUuid(String),
@@ -196,6 +203,15 @@ enum Command {
     },
     Save {
         reply: SyncSender<Result<usize, String>>,
+    },
+    ConfigAssetPackets {
+        reply: SyncSender<Result<Vec<hytale_assets::AssetPacket>, String>>,
+    },
+    CommonAssets {
+        reply: SyncSender<Result<CommonAssetRegistry, String>>,
+    },
+    PlayerTransform {
+        reply: SyncSender<Result<Option<PlayerTransform>, String>>,
     },
     Shutdown {
         reply: SyncSender<Result<usize, String>>,
@@ -376,6 +392,45 @@ impl WorldThread {
             .ok()
     }
 
+    /// Encode the config asset packets the session sends during setup.
+    pub fn config_asset_packets(
+        &self,
+    ) -> Result<Vec<hytale_assets::AssetPacket>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ConfigAssetPackets { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Load the pack's common-asset index (metadata only; blobs stay lazy).
+    pub fn common_assets(&self) -> Result<CommonAssetRegistry, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::CommonAssets { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// The loaded player's position/rotation, or `None` when the save has no
+    /// transform component.
+    pub fn player_transform(&self) -> Result<Option<PlayerTransform>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlayerTransform { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Save, stop the generator and join the thread.
     pub fn shutdown(mut self) -> Result<usize, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -417,6 +472,7 @@ fn run(
             generator,
             mut pending,
             start,
+            player_transform,
         }) => {
             if ready.send(Ok(start)).is_err() {
                 generator.shutdown();
@@ -475,6 +531,24 @@ fn run(
                             .map_err(|error| error.to_string());
                         let _ = reply.send(result);
                     }
+                    Command::ConfigAssetPackets { reply } => {
+                        let result = generator
+                            .assets()
+                            .config_packets()
+                            .map_err(|error| error.to_string());
+                        let _ = reply.send(result);
+                    }
+                    Command::CommonAssets { reply } => {
+                        let result = AssetPack::open(&options.generator.assets_pack)
+                            .map_err(|error| error.to_string())
+                            .and_then(|pack| {
+                                CommonAssetRegistry::load(&pack).map_err(|error| error.to_string())
+                            });
+                        let _ = reply.send(result);
+                    }
+                    Command::PlayerTransform { reply } => {
+                        let _ = reply.send(Ok(player_transform));
+                    }
                     Command::Shutdown { reply } => {
                         let result = save
                             .save_all(&ChunkCodec::new(generator.assets()))
@@ -497,6 +571,7 @@ struct Started {
     generator: WorldGenerator,
     pending: VecDeque<(i32, i32)>,
     start: WorldStartReport,
+    player_transform: Option<PlayerTransform>,
 }
 
 fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
@@ -534,6 +609,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         }
     };
     let (player, player_created) = save.load_or_create_player(player_uuid)?;
+    let player_transform = player.transform();
     save.save_player(player_uuid, &player)?;
 
     let stored_chunks = save.world().storage().stored_chunk_coordinates()?.len();
@@ -567,6 +643,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         generator,
         pending,
         start,
+        player_transform,
     })
 }
 

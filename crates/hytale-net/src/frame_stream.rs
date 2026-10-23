@@ -90,6 +90,34 @@ impl FrameWriter {
         self.write_frame(&frame).await
     }
 
+    /// Write an already-encoded packet, applying the registry's compression
+    /// policy.
+    pub async fn write_raw_packet(
+        &mut self,
+        packet_id: u32,
+        payload: &[u8],
+        compression_level: i32,
+    ) -> Result<(), FrameStreamError> {
+        let info = packet_info(packet_id).ok_or(FrameStreamError::Protocol(
+            ProtocolError::UnknownPacket { packet_id },
+        ))?;
+        if payload.len() as u32 > info.max_size {
+            return Err(FrameStreamError::Protocol(ProtocolError::PayloadTooLarge {
+                packet_id,
+                length: payload.len() as u32,
+                max: info.max_size,
+            }));
+        }
+        let payload = if info.compressed {
+            compress_payload(payload, compression_level)?
+        } else {
+            payload.to_vec()
+        };
+        let mut frame = Vec::with_capacity(payload.len() + 8);
+        encode_frame(packet_id, &payload, &mut frame)?;
+        self.write_frame(&frame).await
+    }
+
     /// Write an already-framed packet.
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<(), FrameStreamError> {
         self.send.write_all(frame).await?;

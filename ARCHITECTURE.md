@@ -44,10 +44,14 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   completed the first dev/insecure join: a generic frame stream, the
   Connect → insecure options → ConnectAccept → setup handshake in
   `hytale-server::session`, and `client-bot --dev-join` receiving 21 chunk
-  packets. Real authentication, common/config asset streaming, the player
-  add/spawn/game packets, movement-driven views and the live tick loop are still
-  open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
-  [`tasks/README.md`](tasks/README.md).
+  packets. Session 20 added the local EdDSA authentication profile
+  (`AuthGrant` → `AuthToken` → `ServerAuthToken`, `cnf.x5t#S256` certificate
+  binding), common-asset index streaming, the encodable config asset packets,
+  translations, and the `ClearChunks`/`JoinWorld`/`ClientReady` Game transition
+  before the chunk snapshot, plus `AddToServerPlayerList` and the joining
+  player's self `EntityUpdates` spawn. Other-player tracking, world time/gameplay
+  config, movement-driven views and the live tick loop are still open; see
+  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
@@ -72,7 +76,8 @@ crates/
   hytale-world/      universe, world, runtime chunks, heightmaps, lighting, player data
   hytale-entities/   ECS wrapper, components, systems, player/entity lifecycle
   hytale-net/        QUIC transport, streams, sessions, packet state machine
-  hytale-auth/       OAuth device/browser, session service, JWT, credential store
+  hytale-auth/       EdDSA JWT keys/claims, certificate binding, local authority;
+                     OAuth/session-service adapters planned
   hytale-commands/   command framework, argument parsing, built-in commands
   hytale-server/     binary, startup wiring, module registration
 
@@ -220,6 +225,11 @@ Components:
   `PhysicalMaterial` (87) and `BlockBoundingBoxes` (41); the rest are pending
   (Environment/Fluid need child-store indexes and tags; BlockType/Item need the
   contained-asset order or decode/size-only validation).
+- **Common assets**: `hytale-assets::common` reads the pack-root
+  `CommonAssetsIndex.hashes`, advertises the hash/name pairs in
+  `WorldSettings.requiredAssets`, and lazily loads + SHA-256-verifies the files
+  under `Common/` when the client asks for them. Blob bytes never enter the
+  registry snapshot; only the index metadata is kept at boot.
 
 Asset ids must be assigned once at boot and used by worldgen, network packets,
 and storage. The registry snapshot is the server's own; it is never re-derived
@@ -351,9 +361,23 @@ not part of v1.
   certificate binding (`cnf.x5t#S256`) is the actual identity check.
 - Connection states: `Initial` → `Authentication` → `Setup` → `Game`.
   The exact packet order is part of the client contract and is covered by
-  packet-trace fixtures. The dev/insecure flow (`Initial` → `Setup` → chunk
-  stream) is implemented in `hytale-server::session`; real authentication and
-  the game-state packet stream are still pending.
+  packet-trace fixtures. `hytale-server::session` implements both the
+  development branch (`RequestInsecurePlayerOptions` → `InsecurePlayerOptions`
+  → `ConnectAccept`) and the local authenticated branch
+  (`Connect(identityToken)` → `AuthGrant` → `AuthToken` → `ServerAuthToken`).
+  Both converge on `WorldSettings`/`ServerInfo` → assets → `SetupFinalize`, then
+  `ClearChunks`/`JoinWorld`/`ClientReady` and the chunk stream.
+- Local authentication (`hytale-auth`): Ed25519 EdDSA JWTs with the Java claim
+  names, issuer/audience/scope checks, clock skew and mandatory
+  `cnf.x5t#S256` binding to the client certificate. The signing authority is
+  local (PKCS#8 key) so the flow works without the live session service; the
+  validator/issuer seam is isolated so OAuth/JWKS can replace it.
+- Setup assets: common assets are streamed as `AssetInitialize` +
+  `WorldLoadProgress` + `AssetPart` + `AssetFinalize` per asset (2,621,440-byte
+  parts, matching Java `MAX_FRAME`), followed by
+  `RequestCommonAssetsRebuild`; config asset packets and an
+  `UpdateTranslations(Init)` follow, then world progress/finished. Unknown
+  requested hashes are rejected.
 - Generic framed streams live in `hytale-net::frame_stream`; both the setup
   stream and the `Chunks` stream use it. The setup stream is the client-opened
   bidirectional QUIC stream; the chunk stream is server-opened unidirectional.
@@ -369,8 +393,10 @@ not part of v1.
   `chunk_serve` wires this to an accepted QUIC connection for the transport
   demo; the real session state machine will call the same functions after
   `Setup`/`Game`.
-- Auth providers: OAuth browser, OAuth device, external session, singleplayer
-  token, offline/dev. All behind a trait so service changes are isolated.
+- Auth providers: the current `AuthService` is the local EdDSA authority used by
+  the private/offline profile. OAuth browser/device, external session and
+  singleplayer token providers remain planned adapters behind the same
+  issuer/validator seam.
 
 ---
 
@@ -402,15 +428,15 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `Protocol/**` generated | `hytale-protocol` | full codegen landed (M1): 389 packets, registry, `ProtocolSettings`, round-trip gate |
 | `Protocol/.../io/*` wire helpers | `hytale-protocol::io` | varint/fixed/UUID/strings/bitsets/framing/zstd + big-endian storage accessors landed (M1) |
 | `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); P0 registry/typed stores and the `worldgen-model` bridge landed (M2); `PhysicalMaterial`/`BlockHitboxes` packet encoders byte-match Java (M2) |
-| `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2) |
+| `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2); common-asset index + verified blob loading landed and stream in setup (M4) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
 | `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette, the packet builders and the `chunk::stream` batch/framer landed (M3/M4); all 46 `chunks-pkts` payloads and the batch order match Java |
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading, the `WorldThread` view/scheduling loop and the chunk packet batch/framer landed (M3); universe lifecycle, per-player views and writing frames on a connection pending |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates and the dev/insecure Connect → Setup join (M4) landed; real authentication, asset streaming and the game-state packet loop pending |
-| `CoreServer/.../auth/**` | `hytale-auth` | planned (M4) |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming, the `Game` transition and the joining player's list/self-spawn (M4) landed; other-player tracking, time/gameplay config and the movement loop pending |
+| `CoreServer/.../auth/**` | `hytale-auth` | Ed25519 keys, EdDSA JWT claims/signature/time/scope validation, `cnf.x5t#S256` certificate binding and the local issuer/validator authority landed (M4); OAuth device/browser, session-service JWKS and credential-store adapters pending |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |
 | `CoreServer/modules/**` | `hytale-world` (core subset), later module crates | planned (M5) |

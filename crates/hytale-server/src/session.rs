@@ -1,46 +1,105 @@
-//! Development/insecure connection handshake.
+//! Connection authentication, setup and the transition into `Game`.
 //!
-//! This follows the Java `InitialPacketHandler` → `SetupPacketHandler` control
-//! flow without authentication services:
+//! The control flow follows the Java handlers:
 //!
 //! ```text
-//! client → Connect
-//! server → RequestInsecurePlayerOptions
-//! client → InsecurePlayerOptions
-//! server → ConnectAccept, WorldSettings, ServerInfo
-//! client → ViewRadius, RequestAssets
-//! server → WorldLoadProgress, WorldLoadFinished
-//! client → SetupFinalize
-//! server → (Chunks stream from WorldThread)
+//! insecure:  Connect → RequestInsecurePlayerOptions → InsecurePlayerOptions
+//!            → ConnectAccept → WorldSettings/ServerInfo
+//! local:     Connect(identityToken) → AuthGrant → AuthToken
+//!            → ServerAuthToken → WorldSettings/ServerInfo
+//! both:      RequestAssets → common asset blobs + config asset packets
+//!            → WorldLoadProgress/WorldLoadFinished → SetupFinalize
+//! game:      ClearChunks + JoinWorld → ClientReady(readyForChunks)
+//!            → world/entity identity packets → chunk stream
 //! ```
 //!
-//! Authentication and real common/config asset streaming are out of scope. The
-//! packet order and the insecure-mode branch are ported from
-//! `CoreServer/.../io/handlers/{InitialPacketHandler,SetupPacketHandler}.java`.
+//! Authentication uses the local EdDSA profile from [`hytale_auth`]: tokens are
+//! Ed25519 JWTs with the Java issuer/audience/scope claims and an
+//! `cnf.x5t#S256` binding to the client certificate. The packet flow and claim
+//! rules are the same as the live session service; only the key authority is
+//! local.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use hytale_net::{ChunkStreamError, FrameReader, FrameStreamError, FrameWriter, TransportError};
-use hytale_protocol::generated::auth::ConnectAccept;
-use hytale_protocol::generated::common::{DisconnectType, FormattedMessage, PongType};
-use hytale_protocol::generated::connection::{
-    Connect, InsecurePlayerOptions, Ping, Pong, RequestInsecurePlayerOptions, ServerDisconnect,
+use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry};
+use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
+use hytale_net::{
+    ChunkStreamError, ChunkStreamWriter, FrameReader, FrameStreamError, FrameWriter, PeerIdentity,
+    TransportError,
 };
-use hytale_protocol::generated::interface_::ServerInfo;
+use hytale_protocol::generated::assets::UpdateTranslations;
+use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
+use hytale_protocol::generated::common::ServerPlayerListPlayer;
+use hytale_protocol::generated::common::{
+    ComponentUpdate, Direction, DisconnectType, EntityUpdate, EquipmentUpdate, FormattedMessage,
+    ModelTransform, ModelUpdate, PlayerSkinUpdate, PongType, Position, TransformUpdate, UpdateType,
+};
+use hytale_protocol::generated::connection::{
+    ClientType, Connect, InsecurePlayerOptions, Ping, Pong, RequestInsecurePlayerOptions,
+    ServerDisconnect,
+};
+use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
+use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo};
+use hytale_protocol::generated::player::{ClientReady, JoinWorld, SetClientId};
 use hytale_protocol::generated::registry::settings;
 use hytale_protocol::generated::setup::{
-    RequestAssets, SetupFinalize, ViewRadius, WorldLoadFinished, WorldLoadProgress, WorldSettings,
+    AssetFinalize, AssetInitialize, AssetPart, RequestAssets, RequestCommonAssetsRebuild,
+    ServerTags, SetTimeDilation, SetUpdateRate, SetupFinalize, UpdateFeatures, ViewRadius,
+    WorldLoadFinished, WorldLoadProgress, WorldSettings,
 };
-use hytale_protocol::generated::wire::Packet;
+use hytale_protocol::generated::wire::{Packet, Wire};
+use hytale_protocol::generated::world::ClearChunks;
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
+use hytale_world::player_data::PlayerTransform;
 use thiserror::Error;
 
-use crate::chunk_serve::serve_connection as serve_chunk_connection;
-use crate::chunk_streamer::{ChunkSessionError, ChunkStreamReport};
+use crate::chunk_streamer::{send_view, ChunkSessionError, ChunkStreamReport};
 use crate::world_thread::{WorldThread, WorldThreadError};
 
-/// Server identity / handshake settings for the dev flow.
+/// Java `CommonAssetModule.MAX_FRAME`: maximum bytes in one `AssetPart`.
+pub const MAX_COMMON_ASSET_FRAME: usize = 2_621_440;
+/// Local server identity subject used for the local authority's server tokens.
+const LOCAL_SERVER_SUBJECT: &str = "00000000-0000-0000-0000-000000000000";
+/// Token lifetime for the short-lived handshake tokens.
+const HANDSHAKE_TOKEN_TTL_SECS: i64 = 300;
+
+/// Authentication mode for a connection.
+#[derive(Debug, Clone, Default)]
+pub enum AuthMode {
+    /// Java's development branch: `RequestInsecurePlayerOptions` and
+    /// `InsecurePlayerOptions`, no token validation.
+    #[default]
+    Insecure,
+    /// Local EdDSA JWT authority with mTLS certificate binding.
+    Local {
+        /// Issuer/audience and signing key.
+        service: AuthService,
+        /// Lifetime for tokens the server issues during the exchange.
+        token_ttl_secs: i64,
+    },
+}
+
+impl AuthMode {
+    /// A local authority using `service` and the default handshake token TTL.
+    pub fn local(service: AuthService) -> Self {
+        Self::Local {
+            service,
+            token_ttl_secs: HANDSHAKE_TOKEN_TTL_SECS,
+        }
+    }
+
+    /// Short label for reports/logging.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Insecure => "insecure",
+            Self::Local { .. } => "local",
+        }
+    }
+}
+
+/// Server identity / handshake settings.
 #[derive(Debug, Clone)]
 pub struct SessionOptions {
     /// `ServerInfo.serverName`.
@@ -55,6 +114,10 @@ pub struct SessionOptions {
     pub chunk_compression_level: i32,
     /// Timeout for the whole handshake.
     pub handshake_timeout: Duration,
+    /// Timeout for the client's `ClientReady(readyForChunks)`.
+    pub world_join_timeout: Duration,
+    /// Authentication mode.
+    pub auth: AuthMode,
 }
 
 impl Default for SessionOptions {
@@ -66,24 +129,66 @@ impl Default for SessionOptions {
             default_view_radius: 1,
             chunk_compression_level: DEFAULT_COMPRESSION_LEVEL,
             handshake_timeout: Duration::from_secs(30),
+            world_join_timeout: Duration::from_secs(30),
+            auth: AuthMode::Insecure,
         }
     }
 }
 
-/// What the dev handshake produced.
+/// Common-asset streaming counters.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AssetStreamReport {
+    /// Assets advertised in `WorldSettings.requiredAssets`.
+    pub required: usize,
+    /// Assets the client asked for.
+    pub requested: usize,
+    /// Assets actually streamed.
+    pub sent: usize,
+    /// Blob bytes streamed.
+    pub bytes: usize,
+    /// `AssetPart` packets written.
+    pub parts: usize,
+    /// Config asset packets written after the common assets.
+    pub config_packets: usize,
+}
+
+/// What the post-setup world join produced.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameReport {
+    /// The client sent `ClientReady(readyForChunks)`.
+    pub client_ready_for_chunks: bool,
+    /// The client sent `ClientReady(readyForGameplay)` before the chunk stream.
+    pub client_ready_for_gameplay: bool,
+    /// `ClearChunks` was written on the chunks stream.
+    pub clear_chunks: bool,
+    /// `JoinWorld` was written.
+    pub join_world: bool,
+    /// `AddToServerPlayerList` contained the joining player.
+    pub player_list: bool,
+    /// The joining player's self `EntityUpdates` spawn was written.
+    pub self_spawn: bool,
+}
+
+/// What the session produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionReport {
-    /// Player UUID from `InsecurePlayerOptions`.
+    /// Player UUID (from `InsecurePlayerOptions` or the access token).
     pub uuid: Uuid,
-    /// Username from `InsecurePlayerOptions`.
+    /// Player username.
     pub username: String,
     /// View radius used for the chunk stream.
     pub view_radius: u32,
+    /// `insecure` or `local`.
+    pub auth_mode: &'static str,
+    /// Common/config asset counters.
+    pub assets: AssetStreamReport,
+    /// World-join state.
+    pub game: GameReport,
     /// Chunks sent after setup.
     pub stream: ChunkStreamReport,
 }
 
-/// Errors from the dev handshake.
+/// Errors from the session.
 #[derive(Debug, Error)]
 pub enum SessionError {
     /// The QUIC stream/connection failed.
@@ -104,9 +209,21 @@ pub enum SessionError {
     /// The world thread failed.
     #[error(transparent)]
     World(#[from] WorldThreadError),
+    /// Token validation/issue failed.
+    #[error(transparent)]
+    Auth(#[from] hytale_auth::AuthError),
+    /// Common-asset loading failed.
+    #[error(transparent)]
+    CommonAssets(#[from] hytale_assets::CommonAssetError),
+    /// The blocking asset load task failed.
+    #[error("common-asset load task failed: {0}")]
+    AssetTask(String),
     /// The handshake timed out.
     #[error("connection handshake timed out")]
     Timeout,
+    /// Waiting for `ClientReady` timed out.
+    #[error("client did not become ready for chunks")]
+    WorldJoinTimeout,
     /// The client sent a packet that is invalid in the current state.
     #[error("unexpected packet {packet_id} during {state}")]
     UnexpectedPacket {
@@ -115,15 +232,27 @@ pub enum SessionError {
         /// State name.
         state: &'static str,
     },
+    /// A token subject was valid JWT-wise but not a protocol UUID.
+    #[error("invalid player UUID `{0}`")]
+    InvalidUuid(String),
+    /// The access token and identity token describe different players.
+    #[error("authentication tokens describe different players")]
+    TokenMismatch,
+    /// The client disconnected.
+    #[error("client disconnected during setup")]
+    Disconnected,
 }
 
 struct Handshake {
     uuid: Uuid,
     username: String,
     view_radius: u32,
+    auth_mode: &'static str,
+    assets: AssetStreamReport,
 }
 
-/// Run the dev handshake on an accepted connection, then stream the player view.
+/// Run authentication + setup on an accepted connection, transition to `Game`,
+/// then stream the player view.
 pub async fn serve_connection(
     connection: &quinn::Connection,
     thread: &WorldThread,
@@ -133,9 +262,21 @@ pub async fn serve_connection(
     let mut writer = FrameWriter::new(send);
     let mut reader = FrameReader::new(recv);
 
+    let config_packets = thread.config_asset_packets()?;
+    let common_assets = thread.common_assets()?;
+    let client_fingerprint =
+        PeerIdentity::from_connection(connection).map(|identity| identity.fingerprint_base64url());
+
     let handshake = tokio::time::timeout(
         options.handshake_timeout,
-        perform_handshake(&mut reader, &mut writer, options),
+        perform_handshake(
+            &mut reader,
+            &mut writer,
+            options,
+            client_fingerprint.as_deref(),
+            &config_packets,
+            &common_assets,
+        ),
     )
     .await
     .map_err(|_| SessionError::Timeout)??;
@@ -146,20 +287,51 @@ pub async fn serve_connection(
     } else {
         handshake.view_radius
     };
-    let stream = serve_chunk_connection(
-        thread,
-        connection,
-        start.player_chunk,
-        radius,
+
+    let player_transform = thread.player_transform()?;
+    let world_uuid: Uuid = start
+        .world_uuid
+        .parse()
+        .map_err(|_| SessionError::InvalidUuid(start.world_uuid.clone()))?;
+    send_player_list(
+        &mut writer,
+        handshake.uuid,
+        &handshake.username,
+        world_uuid,
         options.chunk_compression_level,
-        false,
     )
     .await?;
+
+    let (mut game, mut chunks) = enter_game(
+        connection,
+        &mut reader,
+        &mut writer,
+        world_uuid,
+        radius,
+        player_transform,
+        options,
+    )
+    .await?;
+    game.player_list = true;
+
+    let stream = send_view(
+        thread,
+        &mut chunks,
+        start.player_chunk.0,
+        start.player_chunk.1,
+        radius,
+        options.chunk_compression_level,
+    )
+    .await?;
+    chunks.finish()?;
 
     Ok(SessionReport {
         uuid: handshake.uuid,
         username: handshake.username,
         view_radius: radius,
+        auth_mode: handshake.auth_mode,
+        assets: handshake.assets,
+        game,
         stream,
     })
 }
@@ -168,46 +340,173 @@ async fn perform_handshake(
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
     options: &SessionOptions,
+    client_fingerprint: Option<&str>,
+    config_packets: &[AssetPacket],
+    common_assets: &CommonAssetRegistry,
 ) -> Result<Handshake, SessionError> {
-    // Initial: Connect.
     let connect: Connect = expect(reader, Connect::ID).await?;
     if connect.protocol_crc != settings::CRC {
-        let reason = FormattedMessage {
-            raw_text: Some("protocol mismatch".to_string()),
-            ..FormattedMessage::default()
-        };
-        writer
-            .write_packet(
-                &ServerDisconnect {
-                    reason: Some(reason),
-                    r#type: DisconnectType::Disconnect,
-                },
-                DEFAULT_COMPRESSION_LEVEL,
-            )
-            .await?;
+        send_disconnect(writer, "protocol mismatch").await?;
         return Err(SessionError::UnexpectedPacket {
             packet_id: Connect::ID,
             state: "protocol-crc",
         });
     }
-    writer
-        .write_packet(&RequestInsecurePlayerOptions {}, DEFAULT_COMPRESSION_LEVEL)
-        .await?;
 
-    // Wait for the insecure options (the dev branch of InitialPacketHandler).
-    let player: InsecurePlayerOptions = expect(reader, InsecurePlayerOptions::ID).await?;
-    writer
-        .write_packet(
-            &ConnectAccept {
-                password_challenge: None,
-            },
-            DEFAULT_COMPRESSION_LEVEL,
-        )
-        .await?;
+    let (identity, auth_mode) = match &options.auth {
+        AuthMode::Insecure => {
+            writer
+                .write_packet(&RequestInsecurePlayerOptions {}, DEFAULT_COMPRESSION_LEVEL)
+                .await?;
+            let player: InsecurePlayerOptions = expect(reader, InsecurePlayerOptions::ID).await?;
+            writer
+                .write_packet(
+                    &ConnectAccept {
+                        password_challenge: None,
+                    },
+                    DEFAULT_COMPRESSION_LEVEL,
+                )
+                .await?;
+            (
+                Identity {
+                    uuid: player.uuid,
+                    username: player.username,
+                },
+                "insecure",
+            )
+        }
+        AuthMode::Local {
+            service,
+            token_ttl_secs,
+        } => {
+            if connect.client_type == ClientType::Editor {
+                send_disconnect(writer, "editor connections are not supported").await?;
+                return Err(SessionError::UnexpectedPacket {
+                    packet_id: Connect::ID,
+                    state: "auth:editor",
+                });
+            }
+            let identity_token = match connect.identity_token.clone() {
+                Some(token) => token,
+                None => {
+                    send_disconnect(writer, "server requires authentication").await?;
+                    return Err(SessionError::Auth(hytale_auth::AuthError::InvalidClaim {
+                        claim: "identityToken",
+                        message: "server requires authentication".to_string(),
+                    }));
+                }
+            };
+            let claims = match service.validate(
+                &identity_token,
+                "identity",
+                Some(SCOPE_CLIENT),
+                client_fingerprint,
+            ) {
+                Ok(claims) => claims,
+                Err(error) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::Auth(error));
+                }
+            };
+            let subject = claims.subject.clone().unwrap_or_default();
+            let username = claims.username.clone().unwrap_or_default();
+            let uuid: Uuid = subject
+                .parse()
+                .map_err(|_| SessionError::InvalidUuid(subject.clone()))?;
+
+            let grant =
+                service.issue_grant(&subject, &username, client_fingerprint, *token_ttl_secs)?;
+            let server_identity = service.issue_server_token(
+                LOCAL_SERVER_SUBJECT,
+                "server",
+                client_fingerprint,
+                *token_ttl_secs,
+            )?;
+            writer
+                .write_packet(
+                    &AuthGrant {
+                        authorization_grant: Some(grant),
+                        server_identity_token: Some(server_identity),
+                    },
+                    DEFAULT_COMPRESSION_LEVEL,
+                )
+                .await?;
+
+            let auth_token: AuthToken = expect(reader, AuthToken::ID).await?;
+            let access_token = auth_token.access_token.clone().ok_or_else(|| {
+                SessionError::Auth(hytale_auth::AuthError::InvalidClaim {
+                    claim: "accessToken",
+                    message: "missing access token".to_string(),
+                })
+            })?;
+            let access_claims = match service.validate(
+                &access_token,
+                "access",
+                Some(SCOPE_CLIENT),
+                client_fingerprint,
+            ) {
+                Ok(claims) => claims,
+                Err(error) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::Auth(error));
+                }
+            };
+            if access_claims.subject.as_deref() != Some(subject.as_str())
+                || access_claims.username.as_deref() != Some(username.as_str())
+            {
+                send_disconnect(writer, "authentication failed").await?;
+                return Err(SessionError::TokenMismatch);
+            }
+            let grant_token = auth_token
+                .server_authorization_grant
+                .clone()
+                .ok_or_else(|| {
+                    SessionError::Auth(hytale_auth::AuthError::InvalidClaim {
+                        claim: "serverAuthorizationGrant",
+                        message: "missing mutual-auth grant".to_string(),
+                    })
+                })?;
+            let grant_claims = match service.validate(
+                &grant_token,
+                "grant",
+                Some(SCOPE_SERVER),
+                client_fingerprint,
+            ) {
+                Ok(claims) => claims,
+                Err(error) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::Auth(error));
+                }
+            };
+            if grant_claims.subject.as_deref() != Some(subject.as_str()) {
+                send_disconnect(writer, "authentication failed").await?;
+                return Err(SessionError::TokenMismatch);
+            }
+
+            let server_access = service.issue_server_token(
+                LOCAL_SERVER_SUBJECT,
+                "server",
+                client_fingerprint,
+                *token_ttl_secs,
+            )?;
+            writer
+                .write_packet(
+                    &ServerAuthToken {
+                        server_access_token: Some(server_access),
+                        password_challenge: None,
+                    },
+                    DEFAULT_COMPRESSION_LEVEL,
+                )
+                .await?;
+            (Identity { uuid, username }, "local")
+        }
+    };
+
+    let required_assets = common_assets.required_assets();
     writer
         .write_packet(
             &WorldSettings {
-                required_assets: None,
+                required_assets: Some(required_assets.clone()),
             },
             DEFAULT_COMPRESSION_LEVEL,
         )
@@ -224,10 +523,12 @@ async fn perform_handshake(
         )
         .await?;
 
-    // Setup: the client may send ViewRadius at any time, then RequestAssets,
-    // then SetupFinalize.
     let mut view_radius = 0u32;
     let mut assets_requested = false;
+    let mut assets = AssetStreamReport {
+        required: required_assets.len(),
+        ..AssetStreamReport::default()
+    };
     loop {
         let frame = reader
             .next_frame()
@@ -251,19 +552,16 @@ async fn perform_handshake(
                     });
                 }
                 assets_requested = true;
-                writer
-                    .write_packet(
-                        &WorldLoadProgress {
-                            status: None,
-                            percent_complete: 0,
-                            percent_complete_subitem: 0,
-                        },
-                        DEFAULT_COMPRESSION_LEVEL,
-                    )
-                    .await?;
-                writer
-                    .write_packet(&WorldLoadFinished {}, DEFAULT_COMPRESSION_LEVEL)
-                    .await?;
+                let packet: RequestAssets = frame.decode()?;
+                assets = send_common_assets(
+                    writer,
+                    common_assets,
+                    packet.assets.as_deref(),
+                    config_packets,
+                    options.chunk_compression_level,
+                )
+                .await?;
+                assets.required = required_assets.len();
             }
             SetupFinalize::ID => {
                 if !assets_requested {
@@ -295,13 +593,371 @@ async fn perform_handshake(
     }
 
     Ok(Handshake {
-        uuid: player.uuid,
-        username: player.username,
+        uuid: identity.uuid,
+        username: identity.username,
         view_radius,
+        auth_mode,
+        assets,
     })
 }
 
-async fn expect<T: Packet + hytale_protocol::generated::wire::Wire>(
+struct Identity {
+    uuid: Uuid,
+    username: String,
+}
+
+async fn send_common_assets(
+    writer: &mut FrameWriter,
+    common_assets: &CommonAssetRegistry,
+    requested: Option<&[hytale_protocol::generated::common::Asset]>,
+    config_packets: &[AssetPacket],
+    compression_level: i32,
+) -> Result<AssetStreamReport, SessionError> {
+    let to_send: Vec<CommonAssetInfo> = common_assets
+        .requested(requested)?
+        .into_iter()
+        .cloned()
+        .collect();
+    let requested_count = to_send.len();
+    let total = to_send.len().max(1);
+
+    let registry = common_assets.clone();
+    let load = to_send.clone();
+    let blobs = tokio::task::spawn_blocking(move || {
+        let refs: Vec<&CommonAssetInfo> = load.iter().collect();
+        registry.load_blobs(&refs)
+    })
+    .await
+    .map_err(|error| SessionError::AssetTask(error.to_string()))??;
+
+    let mut report = AssetStreamReport {
+        requested: requested_count,
+        ..AssetStreamReport::default()
+    };
+    for (index, (asset, blob)) in to_send.iter().zip(blobs).enumerate() {
+        let percent = (index * 100 / total) as i32;
+        writer
+            .write_packet(
+                &AssetInitialize {
+                    asset: asset.to_packet(),
+                    size: blob.len() as i32,
+                },
+                compression_level,
+            )
+            .await?;
+
+        let parts = blob.len().div_ceil(MAX_COMMON_ASSET_FRAME).max(1);
+        for part_index in 0..parts {
+            let start = part_index * MAX_COMMON_ASSET_FRAME;
+            let end = (start + MAX_COMMON_ASSET_FRAME).min(blob.len());
+            let bytes = &blob[start..end];
+            writer
+                .write_packet(
+                    &WorldLoadProgress {
+                        status: Some(loading_message(&asset.name)),
+                        percent_complete: percent,
+                        percent_complete_subitem: (part_index * 100 / parts) as i32,
+                    },
+                    compression_level,
+                )
+                .await?;
+            writer
+                .write_packet(
+                    &AssetPart {
+                        part: Some(bytes.iter().map(|byte| *byte as i8).collect()),
+                    },
+                    compression_level,
+                )
+                .await?;
+            report.parts += 1;
+        }
+        writer
+            .write_packet(&AssetFinalize {}, compression_level)
+            .await?;
+        report.sent += 1;
+        report.bytes += blob.len();
+    }
+
+    if !to_send.is_empty() {
+        writer
+            .write_packet(&RequestCommonAssetsRebuild {}, compression_level)
+            .await?;
+    }
+
+    for packet in config_packets {
+        writer
+            .write_raw_packet(packet.id, &packet.payload, compression_level)
+            .await?;
+        report.config_packets += 1;
+    }
+
+    writer
+        .write_packet(
+            &UpdateTranslations {
+                r#type: UpdateType::Init,
+                translations: Some(BTreeMap::new()),
+            },
+            compression_level,
+        )
+        .await?;
+
+    writer
+        .write_packet(
+            &WorldLoadProgress {
+                status: Some(FormattedMessage {
+                    raw_text: Some("loading world".to_string()),
+                    ..FormattedMessage::default()
+                }),
+                percent_complete: 0,
+                percent_complete_subitem: 0,
+            },
+            compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(&WorldLoadFinished {}, compression_level)
+        .await?;
+    Ok(report)
+}
+
+fn loading_message(name: &str) -> FormattedMessage {
+    FormattedMessage {
+        raw_text: Some(format!("loading {name}")),
+        ..FormattedMessage::default()
+    }
+}
+
+async fn enter_game(
+    connection: &quinn::Connection,
+    reader: &mut FrameReader,
+    writer: &mut FrameWriter,
+    world_uuid: Uuid,
+    radius: u32,
+    player_transform: Option<PlayerTransform>,
+    options: &SessionOptions,
+) -> Result<(GameReport, ChunkStreamWriter), SessionError> {
+    let mut chunks = ChunkStreamWriter::open(connection).await?;
+    chunks
+        .write_packet(&ClearChunks {}, options.chunk_compression_level)
+        .await?;
+    writer
+        .write_packet(
+            &JoinWorld {
+                clear_world: true,
+                fade_in_out: true,
+                world_uuid,
+                min_section_y: Some(0),
+                max_section_y: Some(9),
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+
+    let mut game = GameReport {
+        clear_chunks: true,
+        join_world: true,
+        ..GameReport::default()
+    };
+    let wait = async {
+        loop {
+            let frame = reader
+                .next_frame()
+                .await?
+                .ok_or(SessionError::Disconnected)?;
+            match frame.packet_id {
+                ClientReady::ID => {
+                    let ready: ClientReady = frame.decode()?;
+                    game.client_ready_for_chunks |= ready.ready_for_chunks;
+                    game.client_ready_for_gameplay |= ready.ready_for_gameplay;
+                    if ready.ready_for_chunks {
+                        return Ok::<(), SessionError>(());
+                    }
+                }
+                Ping::ID => {
+                    let ping: Ping = frame.decode()?;
+                    writer
+                        .write_packet(
+                            &Pong {
+                                id: ping.id,
+                                time: ping.time,
+                                r#type: PongType::Raw,
+                                packet_queue_size: 0,
+                            },
+                            DEFAULT_COMPRESSION_LEVEL,
+                        )
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+    };
+    tokio::time::timeout(options.world_join_timeout, wait)
+        .await
+        .map_err(|_| SessionError::WorldJoinTimeout)??;
+
+    // Java `World.onFinishPlayerJoining`: world radius and entity identity
+    // first, then the chunk tracker starts streaming.
+    chunks
+        .write_packet(
+            &ViewRadius {
+                value: (radius * 32) as i32,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &SetEntitySeed { entity_seed: 0 },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &SetClientId { client_id: 1 },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &SetTimeDilation { time_dilation: 1.0 },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &UpdateFeatures {
+                features: Some(BTreeMap::new()),
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &SetUpdateRate {
+                updates_per_second: 30,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    let transform = player_transform.unwrap_or_else(|| {
+        PlayerTransform::new(
+            hytale_world::player_data::Position {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            hytale_world::player_data::Rotation {
+                pitch: 0.0,
+                yaw: 0.0,
+                roll: 0.0,
+            },
+        )
+    });
+    writer
+        .write_packet(
+            &self_spawn_packet(transform),
+            options.chunk_compression_level,
+        )
+        .await?;
+    game.self_spawn = true;
+    // This stream stays open for the chunk snapshot.
+    Ok((game, chunks))
+}
+
+async fn send_player_list(
+    writer: &mut FrameWriter,
+    uuid: Uuid,
+    username: &str,
+    world_uuid: Uuid,
+    compression_level: i32,
+) -> Result<(), SessionError> {
+    writer
+        .write_packet(
+            &ServerTags {
+                tags: Some(BTreeMap::new()),
+            },
+            compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &AddToServerPlayerList {
+                players: vec![ServerPlayerListPlayer {
+                    uuid,
+                    username: Some(username.to_string()),
+                    world_uuid: Some(world_uuid),
+                    ping: 0,
+                    spectating: false,
+                    lives_remaining: None,
+                }],
+            },
+            compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
+fn self_spawn_packet(transform: PlayerTransform) -> EntityUpdates {
+    let position = Position {
+        x: transform.position.x,
+        y: transform.position.y,
+        z: transform.position.z,
+    };
+    let body = Direction {
+        yaw: transform.rotation.yaw,
+        pitch: 0.0,
+        roll: 0.0,
+    };
+    let look = Direction {
+        yaw: transform.rotation.yaw,
+        pitch: transform.rotation.pitch,
+        roll: transform.rotation.roll,
+    };
+    EntityUpdates {
+        removed: None,
+        updates: Some(vec![EntityUpdate {
+            network_id: 1,
+            removed: None,
+            updates: Some(vec![
+                ComponentUpdate::ModelUpdate(ModelUpdate {
+                    model: None,
+                    entity_scale: 1.0,
+                }),
+                ComponentUpdate::PlayerSkinUpdate(PlayerSkinUpdate { skin: None }),
+                ComponentUpdate::EquipmentUpdate(EquipmentUpdate {
+                    armor_ids: Some(Vec::new()),
+                    right_hand_item_id: None,
+                    left_hand_item_id: None,
+                }),
+                ComponentUpdate::TransformUpdate(TransformUpdate {
+                    transform: ModelTransform {
+                        position: Some(position),
+                        body_orientation: Some(body),
+                        look_orientation: Some(look),
+                    },
+                }),
+            ]),
+        }]),
+    }
+}
+
+async fn send_disconnect(writer: &mut FrameWriter, text: &str) -> Result<(), SessionError> {
+    writer
+        .write_packet(
+            &ServerDisconnect {
+                reason: Some(FormattedMessage {
+                    raw_text: Some(text.to_string()),
+                    ..FormattedMessage::default()
+                }),
+                r#type: DisconnectType::Disconnect,
+            },
+            DEFAULT_COMPRESSION_LEVEL,
+        )
+        .await?;
+    Ok(())
+}
+
+async fn expect<T: Packet + Wire>(
     reader: &mut FrameReader,
     expected_id: u32,
 ) -> Result<T, SessionError> {

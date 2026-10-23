@@ -77,6 +77,14 @@ impl PeerIdentity {
         hex_digest(&self.leaf_sha256())
     }
 
+    /// Base64url (no padding) SHA-256 fingerprint, as used by the JWT
+    /// `cnf.x5t#S256` certificate binding (RFC 8705).
+    pub fn fingerprint_base64url(&self) -> String {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+        URL_SAFE_NO_PAD.encode(self.leaf_sha256())
+    }
+
     /// Returns whether the leaf certificate's SHA-256 digest equals `expected`.
     ///
     /// This is the hook for the future `cnf.x5t#S256` check. The comparison is

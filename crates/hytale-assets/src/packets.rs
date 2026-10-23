@@ -78,6 +78,20 @@ impl AssetPacket {
 }
 
 impl AssetRegistry {
+    /// The config-asset packets the server can currently encode, in Java's
+    /// store order.
+    ///
+    /// Java sends one init packet per store with a packet generator. This port
+    /// currently encodes the two stores whose payloads need no child-store
+    /// indexes (`PhysicalMaterial`, `BlockBoundingBoxes`); the remaining P0
+    /// stores are documented follow-ups.
+    pub fn config_packets(&self) -> Result<Vec<AssetPacket>> {
+        Ok(vec![
+            self.block_hitbox_packet()?,
+            self.physical_material_packet()?,
+        ])
+    }
+
     /// `UpdatePhysicalMaterials` (id 87) from the P0 `PhysicalMaterial` store.
     pub fn physical_material_packet(&self) -> Result<AssetPacket> {
         let mut materials = BTreeMap::new();
