@@ -33,9 +33,13 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   zstd/frame layer via `WorldThread::chunk_packets`. Session 15 added
   `hytale-net::chunk_stream`: a server-opened uni stream writes those frames and
   the client reader validates/decompresses them; `client-bot` decodes the chunk
-  packets into summaries. Opening/feeding that stream from the session task, the
-  join path and the live server loop are still open; see
-  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
+  packets into summaries. Session 16 bridged the live world thread to the
+  stream: `chunk_streamer::send_view` ticks the `WorldThread`, builds the
+  Java-ordered batches and writes them, and `hytale-server chunk-serve` +
+  `client-bot --chunks` exercise it end to end over QUIC. The auth/setup/game
+  session state machine, incremental view streaming and the live tick loop are
+  still open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
@@ -342,6 +346,11 @@ not part of v1.
   the registry id/max size and zstd-decompresses compressed packets. The exact
   Java stream/channel mapping still needs a packet trace; one stream per
   connection is the current model.
+- Session bridge: `hytale-server::chunk_streamer::send_view` sets the player
+  view on `WorldThread`, ticks until the demand queue drains, and writes the
+  loaded view as nearest-first initial batches. `chunk_serve` wires this to an
+  accepted QUIC connection for the transport demo; the real session state
+  machine will call the same function after `Setup`/`Game`.
 - Auth providers: OAuth browser, OAuth device, external session, singleplayer
   token, offline/dev. All behind a trait so service changes are isolated.
 
@@ -382,7 +391,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` | QUIC mTLS spike + `PeerIdentity` (M4) and the framed `Chunks` stream writer/reader (M4) landed; packet/session state machine and opening the stream from the connection task pending |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::chunk_streamer` | QUIC mTLS spike + `PeerIdentity`, the framed `Chunks` writer/reader, and the live world-thread → stream bridge (M4) landed; packet/session state machine and incremental view streaming pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | planned (M4) |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |
@@ -417,7 +426,7 @@ Assets.zip ── hytale-assets ── registries ──┬─ hytale-world/worl
                                              └─ hytale-storage (block ids)
 
 worldgen-hytale ── GeneratedChunk ── from_generated_chunk ── runtime ChunkColumn
-                                                               ├─ ChunkPacketBatch → zstd frames → hytale-net Chunks stream
+                                                               ├─ ChunkPacketBatch → zstd frames → Chunks stream → client-bot
                                                                └─ BlockSection.Data → IndexedStorage
 
 client ── QUIC frames ── hytale-protocol decode ── hytale-net session

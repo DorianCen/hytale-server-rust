@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use clap::Parser;
 use client_bot::{
-    build_connect, build_connect_frame, drain_frames, hex, DEFAULT_PROTOCOL_BUILD,
-    DEFAULT_PROTOCOL_CRC,
+    build_connect, build_connect_frame, drain_frames, hex, receive_chunk_stream,
+    DEFAULT_PROTOCOL_BUILD, DEFAULT_PROTOCOL_CRC,
 };
 use hytale_net::{ClientEndpoint, TlsIdentity};
 use hytale_protocol::generated::wire::Packet;
@@ -45,6 +45,9 @@ struct Cli {
     /// Print the Connect payload/frame without connecting.
     #[arg(long)]
     dry_run: bool,
+    /// After Connect, read the server's `Chunks` stream and summarize it.
+    #[arg(long)]
+    chunks: bool,
     /// Seconds to wait for a reply before exiting successfully.
     #[arg(long, default_value_t = 5)]
     timeout: u64,
@@ -93,6 +96,33 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let (mut send, mut recv) = session.connection().open_bi().await?;
     send.write_all(&frame).await?;
     send.finish()?;
+
+    if cli.chunks {
+        let received = timeout(
+            Duration::from_secs(cli.timeout),
+            receive_chunk_stream(&session),
+        )
+        .await;
+        match received {
+            Ok(Ok(packets)) => {
+                println!("chunk packets: {}", packets.len());
+                for packet in &packets {
+                    println!("{packet:?}");
+                }
+            }
+            Ok(Err(error)) => {
+                session
+                    .connection()
+                    .close(0u32.into(), b"chunk stream error");
+                return Err(error.into());
+            }
+            Err(_) => println!("chunk stream timeout after {}s", cli.timeout),
+        }
+        session
+            .connection()
+            .close(0u32.into(), b"client-bot chunks complete");
+        return Ok(());
+    }
 
     let mut buffer = Vec::new();
     let mut chunk = vec![0u8; 64 * 1024];

@@ -907,3 +907,52 @@ Format:
   - Add chunk reception to the client-bot join flow.
   - Confirm the Java stream/channel mapping with a packet trace.
   - Add block/section update packets on the same stream.
+
+---
+
+## Session 16 — live chunk session and client-bot stream mode (2026-10-23)
+
+- **Goal:** connect the real world thread to a real QUIC `Chunks` stream and
+  drive it from `client-bot` end to end.
+- **Landed:**
+  - `hytale-server::chunk_streamer`:
+    - `send_view` sets the view, ticks the world thread until the queue is
+      empty, then sends every loaded chunk in the view nearest-first as an
+      initial `ChunkPacketBatch`.
+    - `send_chunk`, `ChunkStreamReport` and `ChunkSessionError`.
+  - `WorldThread::loaded_chunks()` and a `Sync` event receiver (mutex), so a
+    connection task can hold `&WorldThread` across `.await`.
+  - `hytale-server::chunk_serve`:
+    - `serve_connection` opens the writer, sends one view and finishes the
+      stream.
+    - `run` builds a tokio runtime, spawns the world thread, binds a QUIC
+      endpoint, accepts one client and streams the player view.
+  - CLI `hytale-server chunk-serve` with `--bind`, view radius, tick budget and
+    compression level (transport demo, no auth).
+  - `client-bot --chunks` receives the stream after `Connect` and prints
+    `ChunkPacketSummary` lines.
+  - `crates/hytale-server/tests/chunk_serve.rs` (`#[ignore]`, pack required)
+    asserts the live stream has 1 `SetColumn`, 10 `SetChunk` and 10
+    `SetChunkEnvironments` for a radius-0 view.
+- **Verified:**
+  - Manual end-to-end:
+    `chunk-serve --save target/chunk-serve-smoke --bind 127.0.0.1:5521` and
+    `client-bot --host 127.0.0.1:5521 --chunks` printed 21 summaries; the server
+    reported `streamed 1 chunks (21 packets, 21 frames, 283481 bytes)`.
+  - The ignored `chunk_serve` test passes.
+  - `cargo test --workspace` (1107 passed, 6 ignored), clippy and fmt green.
+- **Deviations:**
+  - No Initial/Authentication/Setup/Game exchange: the demo accepts the first
+    QUIC connection and opens the stream immediately.
+  - One client/connection/view per process; no incremental view updates after
+    the snapshot (the event path exists for that).
+  - The snapshot is read from the loaded set after the queue drains; demand
+    events are drained to avoid double-sending preloaded chunks.
+  - `chunk_serve::run` builds its own tokio runtime and cannot run inside one.
+  - Certificates are still accepted unconditionally (spike policy).
+  - No unload/`ClearChunks` packets; square view only.
+- **Follow-ups:**
+  - Add the connection state machine and open the stream after `Setup`/`Game`.
+  - Stream incremental `ChunkLoaded` events and unloads after movement.
+  - Drive the bot through auth/setup with the trace fixture.
+  - Confirm the Java stream/channel mapping with a packet trace.

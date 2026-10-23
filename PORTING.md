@@ -96,6 +96,9 @@ For the server, “exact” also applies to:
 - The exact Java channel/stream mapping is not confirmed yet; keep it isolated
   in `chunk_stream` so a packet trace can correct it without touching packet
   construction.
+- The connection task streams views through `chunk_streamer::send_view` (tick
+  the world queue, then send the loaded view nearest-first). Do not tick or read
+  chunks from the network task directly.
 
 ---
 

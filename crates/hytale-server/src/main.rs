@@ -8,10 +8,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use hytale_server::GeneratorOptions;
 use hytale_server::{
-    run_chunk_tool, run_headless, run_player_data_tool, run_world_boot, run_world_config_tool,
-    ChunkToolOptions, HeadlessOptions, PlayerDataToolOptions, WorldBootOptions,
-    WorldConfigToolOptions,
+    run_chunk_serve, run_chunk_tool, run_headless, run_player_data_tool, run_world_boot,
+    run_world_config_tool, ChunkServeOptions, ChunkToolOptions, HeadlessOptions,
+    PlayerDataToolOptions, WorldBootOptions, WorldConfigToolOptions, WorldThreadOptions,
 };
 use hytale_world::player_data::{Position, Rotation};
 
@@ -36,6 +37,8 @@ enum Command {
     PlayerData(PlayerDataArgs),
     /// Boot a complete save: config, player and stored chunks.
     WorldBoot(WorldBootArgs),
+    /// Serve one client's chunk stream over QUIC (transport demo, no auth).
+    ChunkServe(ChunkServeArgs),
 }
 
 #[derive(Debug, Args)]
@@ -172,6 +175,52 @@ struct WorldBootArgs {
     set_block: Option<(i32, i32, i32, i32)>,
 }
 
+#[derive(Debug, Args)]
+struct ChunkServeArgs {
+    /// Asset pack (zip or unpacked directory).
+    #[arg(long, default_value = "Assets/Assets.zip")]
+    assets_pack: PathBuf,
+    /// Unpacked asset tree for prefabs, environments and tint gradients.
+    #[arg(long, default_value = "Assets/extracted")]
+    assets_root: PathBuf,
+    /// World-gen data folder (`World.json`).
+    #[arg(long, default_value = "testdata/Default")]
+    world: PathBuf,
+    /// World save root.
+    #[arg(long, default_value = "target/headless-world")]
+    save: PathBuf,
+    /// QUIC bind address.
+    #[arg(long, default_value = "127.0.0.1:5520")]
+    bind: std::net::SocketAddr,
+    /// Seed used only when a new config is created.
+    #[arg(long, default_value_t = 0)]
+    seed: i64,
+    /// Display name used only when a new config is created.
+    #[arg(long)]
+    name: Option<String>,
+    /// World UUID used only when a new config is created.
+    #[arg(long)]
+    uuid: Option<String>,
+    /// Player to load or create.
+    #[arg(long)]
+    player_uuid: Option<String>,
+    /// Worldgen worker count.
+    #[arg(long, default_value_t = 1)]
+    workers: usize,
+    /// Chunk radius sent to the client.
+    #[arg(long, default_value_t = 0)]
+    view_radius: u32,
+    /// Maximum chunks loaded/generated per world-thread tick.
+    #[arg(long, default_value_t = 8)]
+    chunks_per_tick: usize,
+    /// zstd compression level for chunk frames.
+    #[arg(long, default_value_t = 3)]
+    compression_level: i32,
+    /// Seconds to wait for the client to close after the stream ends.
+    #[arg(long, default_value_t = 5)]
+    close_timeout: u64,
+}
+
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
     let (x, z) = value
         .split_once(',')
@@ -213,6 +262,7 @@ fn main() -> ExitCode {
         Some(Command::WorldConfig(args)) => run_world_config_command(args),
         Some(Command::PlayerData(args)) => run_player_data_command(args),
         Some(Command::WorldBoot(args)) => run_world_boot_command(args),
+        Some(Command::ChunkServe(args)) => run_chunk_serve_command(args),
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -283,6 +333,51 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
         }
         Err(error) => {
             eprintln!("load-chunk failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
+    let options = ChunkServeOptions {
+        world: WorldThreadOptions {
+            generator: GeneratorOptions {
+                assets_pack: args.assets_pack,
+                assets_root: args.assets_root,
+                world_dir: args.world,
+                workers: args.workers,
+            },
+            save_dir: args.save,
+            seed: args.seed,
+            display_name: args.name,
+            world_uuid: args.uuid,
+            player_uuid: args.player_uuid,
+            view_radius: args.view_radius,
+            chunks_per_tick: args.chunks_per_tick,
+        },
+        bind_addr: args.bind,
+        center: None,
+        compression_level: args.compression_level,
+        close_timeout: std::time::Duration::from_secs(args.close_timeout),
+    };
+    match run_chunk_serve(&options) {
+        Ok(report) => {
+            println!(
+                "streamed {} chunks ({} packets, {} frames, {} bytes) to {}",
+                report.stream.chunks,
+                report.stream.packets,
+                report.stream.frames,
+                report.stream.payload_bytes,
+                report.bound_addr
+            );
+            println!(
+                "world {} player {} at chunk ({}, {})",
+                report.world_uuid, report.player_uuid, report.player_chunk.0, report.player_chunk.1
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("chunk-serve failed: {error}");
             ExitCode::FAILURE
         }
     }

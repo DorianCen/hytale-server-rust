@@ -184,6 +184,9 @@ enum Command {
         full: bool,
         reply: SyncSender<Result<ChunkPacketBatch, String>>,
     },
+    LoadedChunks {
+        reply: SyncSender<Result<Vec<(i32, i32)>, String>>,
+    },
     SetBlock {
         x: i32,
         y: i32,
@@ -202,7 +205,9 @@ enum Command {
 /// Handle to one world thread.
 pub struct WorldThread {
     commands: Sender<Command>,
-    events: Receiver<WorldEvent>,
+    // `std::sync::mpsc::Receiver` is `Send` but not `Sync`; the mutex keeps
+    // `&WorldThread` usable from async connection tasks.
+    events: std::sync::Mutex<Receiver<WorldEvent>>,
     join: Option<JoinHandle<()>>,
     start: WorldStartReport,
 }
@@ -225,7 +230,7 @@ impl WorldThread {
             Ok(Ok(start)) => Ok((
                 Self {
                     commands: command_tx,
-                    events: event_rx,
+                    events: std::sync::Mutex::new(event_rx),
                     join: Some(handle),
                     start: start.clone(),
                 },
@@ -314,6 +319,18 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Coordinates of every chunk currently in memory.
+    pub fn loaded_chunks(&self) -> Result<Vec<(i32, i32)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::LoadedChunks { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Set a block in a loaded chunk; returns `(before, after)`.
     pub fn set_block(
         &self,
@@ -352,7 +369,11 @@ impl WorldThread {
 
     /// Take one queued event, if any.
     pub fn try_event(&self) -> Option<WorldEvent> {
-        self.events.try_recv().ok()
+        self.events
+            .lock()
+            .expect("world thread event receiver poisoned")
+            .try_recv()
+            .ok()
     }
 
     /// Save, stop the generator and join the thread.
@@ -434,6 +455,9 @@ fn run(
                     Command::ChunkPackets { x, z, full, reply } => {
                         let result = chunk_packets(&save, x, z, full);
                         let _ = reply.send(result);
+                    }
+                    Command::LoadedChunks { reply } => {
+                        let _ = reply.send(Ok(save.world().loaded_chunk_coordinates()));
                     }
                     Command::SetBlock {
                         x,

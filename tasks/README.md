@@ -38,6 +38,7 @@ task done until its acceptance section is satisfied.
 | [T23](T23-world-thread.md) | World thread + view tracking + demand queue | T22 | medium | done (session 13) |
 | [T24](T24-chunk-stream.md) | Chunk packet stream from world events | T23, T12 | medium | done (session 14) |
 | [T25](T25-chunk-stream-transport.md) | Chunks QUIC transport + client-bot receiver | T24, T06 | medium | done (session 15) |
+| [T26](T26-live-chunk-session.md) | Live chunk session bridge + client-bot stream mode | T23, T24, T25 | medium | done (session 16) |
 
 ## Rules
 

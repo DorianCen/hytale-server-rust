@@ -34,5 +34,16 @@ error.
 cargo test -p client-bot --test chunk_stream -- --ignored
 ```
 
-The live CLI does not wait for a stream yet; the server session that opens it
-lands with the join-flow task.
+`--chunks` attaches the receiver to a live server. With the transport demo:
+
+```sh
+# terminal 1
+cargo run -p hytale-server -- chunk-serve \
+    --save target/chunk-serve-smoke --bind 127.0.0.1:5521 --view-radius 0
+# terminal 2
+cargo run -p client-bot -- --host 127.0.0.1:5521 --chunks --timeout 60
+```
+
+It prints one `ChunkPacketSummary` per packet (21 for a radius-0 view) and exits
+0 when the stream finishes. The demo server skips auth/setup; the real session
+state machine will attach the same receiver after `Setup`/`Game`.

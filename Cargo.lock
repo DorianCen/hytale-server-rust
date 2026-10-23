@@ -845,6 +845,7 @@ dependencies = [
  "hytale-protocol",
  "hytale-storage",
  "hytale-world",
+ "quinn",
  "thiserror",
  "tokio",
  "worldgen-hytale",
