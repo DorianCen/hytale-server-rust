@@ -119,3 +119,16 @@ gaps:
 
 `loadFailures.failedPaths` are relative to the pack root; no absolute path or
 timestamp is written anywhere.
+
+## Rust consumers
+
+- `crates/hytale-assets/tests/registry.rs` checks the file-backed store ids and
+  block semantics against `index.json` / `registries.json`.
+- `crates/hytale-assets/tests/asset_packets.rs` encodes
+  `PhysicalMaterial.bin` and `BlockBoundingBoxes.bin` from the real registry and
+  compares them byte-for-byte. Maps use ascending integer keys, matching
+  `AssetDumper.canonicalizeMaps`; `Hitbox` components are double→float.
+
+`Environment`/`Fluid` and `BlockType`/`Item` packets are still pending: the first
+two need expanded tag and child-store indexes, the last two use Rust-owned
+contained-asset ids.

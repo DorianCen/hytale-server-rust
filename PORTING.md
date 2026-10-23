@@ -115,6 +115,9 @@ For the server, “exact” also applies to:
 - Keep asset ids deterministic. Assign once, record the registry snapshot, use
   the same ids for worldgen, packets, and storage.
 - Asset packet encoders must match Java byte-for-byte for the default pack.
+  Serialize protocol maps in ascending integer-key order (`AssetDumper`
+  canonicalizes them before writing the goldens) and cast Java doubles to
+  `f32` only where the packet field is `float` (for example `Hitbox`).
 - Validation mode must fail closed: unknown parent, cycle, missing required
   field, out-of-range index, duplicate key.
 - Do not read the 3.7 GB pack in unit tests. Use tiny fixtures; reserve full-pack

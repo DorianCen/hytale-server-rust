@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 18
+# Next steps — CoreServer rewrite, session 19
 
-**Status:** sessions 1–17 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–18 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -32,9 +32,10 @@ receive and decode them. Session 16 bridged the real `WorldThread` to the stream
 over QUIC, with a loopback test asserting the 21-packet join set. Session 17
 added incremental updates: a view move sends the new chunk batch and
 `UnloadChunk` events (`chunk-serve --move-demo` streams 43 packets), so only the
-session state machine remains before a real join. See
-[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
-[`tasks/README.md`](tasks/README.md).
+session state machine remains before a real join. Session 18 started the asset
+packet encoders: `PhysicalMaterial` (87) and `BlockBoundingBoxes` (41) now match
+the Java payloads byte-for-byte. See [`PORTING_HISTORY.md`](PORTING_HISTORY.md)
+and the status board in [`tasks/README.md`](tasks/README.md).
 
 **Try it:**
 
@@ -64,9 +65,11 @@ cargo run -p client-bot -- --host 127.0.0.1:5522 --chunks --timeout 60
 **Next up:** finish the first vertical slice.
 
 1. ~~P0 asset registry and typed stores (`BlockType`, `Fluid`, `Environment`,
-   `Item`, …) with deterministic id assignment.~~ Done in session 5. P1 stores
-   and the asset packet encoders are the remaining asset work; `BlockType`
-   packet bytes still need the Java contained-asset load order.
+   `Item`, …) with deterministic id assignment.~~ Done in session 5. Session 18
+   added byte-exact `PhysicalMaterial`/`BlockBoundingBoxes` packets. Remaining:
+   `Environment`/`Fluid` packets (need tags and child-store indexes) and
+   `BlockType`/`Item` (need the Java contained-asset order or decode/size-only
+   validation).
 2. ~~Runtime world storage: BSON chunk codecs on top of `IndexedStorageFile`,
    validated by a Java-written world fixture.~~ Chunks done in session 6;
    region → runtime `World` load/mutate/save and the Java reload gate done in

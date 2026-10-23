@@ -10,11 +10,13 @@
 
 pub mod order;
 pub mod pack;
+pub mod packets;
 pub mod parent;
 pub mod registry;
 
 pub use order::{order_stores, StoreNode};
 pub use pack::{AssetError, AssetKey, AssetPack, ParentProvider};
+pub use packets::{AssetPacket, AssetPacketError};
 pub use parent::{merge_shallow, merge_values, ArrayMerge, MergeHook, ParentResolver};
 pub use registry::{
     AssetCollection, AssetRecord, AssetRegistry, BlockSupport, BlockTypeAsset, BlockTypeSupport,

@@ -996,3 +996,40 @@ Format:
   - Feed view changes from player movement and stream `send_updates`.
   - Add section unloads / `ClearChunks` where appropriate.
   - Drive `client-bot` through the real handshake.
+
+---
+
+## Session 18 — P0 asset packet encoders, part 1 (2026-10-23)
+
+- **Goal:** start the asset packet encoders required by the setup/join flow,
+  with byte parity against the Java `AssetDumper` payloads.
+- **Landed:**
+  - `hytale-assets::packets`: `AssetPacket { store, id, payload }`,
+    `AssetPacketError`.
+  - `AssetRegistry::physical_material_packet()` → `UpdatePhysicalMaterials`
+    (id 87, 12 materials) and `block_hitbox_packet()` → `UpdateBlockHitboxes`
+    (id 41, 259 assets), both `UpdateType::Init` with `maxId = max + 1`.
+  - Maps are `BTreeMap` (ascending id), matching Java
+    `AssetDumper.canonicalizeMaps`.
+  - Box components are double→float; missing `Min`/`Max`/axis fields decode as
+    Java's zero vector (found with `GoblinLab_Fence`).
+  - `crates/hytale-assets/tests/asset_packets.rs` compares both payloads
+    byte-for-byte with `PhysicalMaterial.bin` / `BlockBoundingBoxes.bin` and
+    decodes them with the generated codec.
+- **Verified:**
+  - `cargo test -p hytale-assets --test asset_packets` (2 tests) passes against
+    the real pack.
+  - `cargo test --workspace` (1110 passed, 6 ignored), clippy and fmt green.
+- **Deviations:**
+  - Only the two stores that need no child indexes are encoded.
+  - `Environment` needs TagPattern-expanded indexes; `Fluid` needs FluidFX,
+    sound-set, particle/texture and tag indexes.
+  - `BlockType`/`Item` are not encoded; their contained-asset ids are Rust-owned.
+  - Only the init envelopes exist; no `AddOrUpdate`/`Remove`.
+  - Not wired into the session/setup flow yet.
+- **Follow-ups:**
+  - Add `Environment`/`Fluid` with their child stores and tags.
+  - Encode `BlockType`/`Item` from the Rust snapshot (decode/size validation until
+    the Java order is modelled).
+  - Build the `WorldSettings`/asset-init sequence and the connection state
+    machine on top.

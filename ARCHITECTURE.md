@@ -38,10 +38,13 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   Java-ordered batches and writes them, and `hytale-server chunk-serve` +
   `client-bot --chunks` exercise it end to end over QUIC. Session 17 added
   incremental updates: `send_updates` forwards `ChunkLoaded` batches and
-  `UnloadChunk` packets after a view change (`chunk-serve --move-demo`).
-  The auth/setup/game session state machine (blocked on asset packet encoders and
-  a packet trace), movement-driven views and the live tick loop are still open;
-  see [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
+  `UnloadChunk` packets after a view change (`chunk-serve --move-demo`). Session
+  18 started the asset packet encoders: `PhysicalMaterial` and
+  `BlockBoundingBoxes` now match the Java payloads byte-for-byte. The
+  auth/setup/game session state machine (still blocked on the remaining asset
+  packets and a packet trace), movement-driven views and the live tick loop are
+  still open; see [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
@@ -210,7 +213,10 @@ Components:
   block files.
 - **Packet encoders**: one per store, matching the Java `toPacket()` output; the
   39 asset packet types are golden-tested byte-for-byte (one per store that has
-  a packet generator).
+  a packet generator). `hytale-assets::packets` currently covers
+  `PhysicalMaterial` (87) and `BlockBoundingBoxes` (41); the rest are pending
+  (Environment/Fluid need child-store indexes and tags; BlockType/Item need the
+  contained-asset order or decode/size-only validation).
 
 Asset ids must be assigned once at boot and used by worldgen, network packets,
 and storage. The registry snapshot is the server's own; it is never re-derived
@@ -387,7 +393,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../world/worldgen/IWorldGen` | `worldgen-server` adapter | ported |
 | `Protocol/**` generated | `hytale-protocol` | full codegen landed (M1): 389 packets, registry, `ProtocolSettings`, round-trip gate |
 | `Protocol/.../io/*` wire helpers | `hytale-protocol::io` | varint/fixed/UUID/strings/bitsets/framing/zstd + big-endian storage accessors landed (M1) |
-| `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); P0 registry/typed stores and the `worldgen-model` bridge landed (M2) |
+| `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); P0 registry/typed stores and the `worldgen-model` bridge landed (M2); `PhysicalMaterial`/`BlockHitboxes` packet encoders byte-match Java (M2) |
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
 | `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette, the packet builders and the `chunk::stream` batch/framer landed (M3/M4); all 46 `chunks-pkts` payloads and the batch order match Java |
