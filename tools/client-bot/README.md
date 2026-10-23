@@ -87,7 +87,9 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
 
 `--asset-limit N` requests only the first `N` advertised assets (omit it to
 request all 28k+/45 MB). `--auth-issuer`/`--auth-audience` must match the
-server. After the initial snapshot the bot sends
+server. Config asset packets currently include `BlockHitboxes` (41),
+`PhysicalMaterials` (87), `Fluids` (83) and `Environments` (61), with the
+matching `ServerTags` map. After the initial snapshot the bot sends
 `ClientReady(readyForGameplay)`, receives `ClientTeleport`, and (with
 `--move-chunk x,z`) sends a `ClientMovement` teleport ack + position so the
 server streams the unload/new-chunk batch. It prints the token exchange,

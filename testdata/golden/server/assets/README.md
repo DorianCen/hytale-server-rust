@@ -128,7 +128,11 @@ timestamp is written anywhere.
   `PhysicalMaterial.bin` and `BlockBoundingBoxes.bin` from the real registry and
   compares them byte-for-byte. Maps use ascending integer keys, matching
   `AssetDumper.canonicalizeMaps`; `Hitbox` components are double→float.
+- The same test encodes `Environment.bin` and `Fluid.bin` and compares every
+  non-tag/non-child-index field. Java's tag indexes are global across all 54
+  stores; the Rust registry assigns its own deterministic indexes and publishes
+  them in `ServerTags`, so tag arrays intentionally differ. `fluidFXIndex` and
+  `blockSoundSetIndex` are 0 until those child stores are streamed.
 
-`Environment`/`Fluid` and `BlockType`/`Item` packets are still pending: the first
-two need expanded tag and child-store indexes, the last two use Rust-owned
-contained-asset ids.
+`BlockType`/`Item` packets are still pending; they use Rust-owned contained-asset
+ids and the same Rust-owned tag registry.

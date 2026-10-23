@@ -1190,7 +1190,7 @@ fn fluid_preloads() -> Vec<(&'static str, Value)> {
 }
 
 fn environment_preloads() -> Vec<(&'static str, Value)> {
-    vec![("Unknown", json!({}))]
+    vec![("Unknown", json!({"WaterTint": "#0a3355"}))]
 }
 
 fn physical_material_preloads() -> Vec<(&'static str, Value)> {

@@ -1211,3 +1211,52 @@ Format:
   - Add other-player tracking and broadcast movement/entity updates.
   - Wire block place/break and the persistent multi-connection server runtime.
   - Capture a real vanilla-client trace to validate the packet/channel order.
+
+---
+
+## Session 22 — Environment/Fluid config packets and Rust-owned tags (2026-10-23)
+
+- **Goal:** stream the remaining self-contained world-content stores,
+  `Environment` (61) and `Fluid` (83), with a consistent tag-index model.
+- **Landed:**
+  - `hytale-assets::packets::TagRegistry`: deterministic alphabetical indexes
+    for every tag key, value and `key=value` composite in the P0 documents;
+    `ServerTags` map and per-asset expanded index sets.
+  - `ConfigAssets { packets, tags }`; `config_assets` returns the four packets
+    and the tag map; `WorldThread::config_asset_packets` and the session now
+    carry both.
+  - `AssetRegistry::environment_packet`: id, water tint, tags,
+    `rebuildMapGeometry = true`, `maxId`.
+  - `AssetRegistry::fluid_packet`: id, max level, textures with normalized
+    weights, opacity, shader effects, Java `ColorLight` parsing (3-digit
+    nibbles / 6-digit `/17`), particles, draw type, particle color, tags.
+  - `ServerTags` now sends the matching non-empty tag map, so the client can
+    resolve the Rust-owned indexes.
+  - `hytale-assets/tests/asset_packets.rs` adds Environment/Fluid decode tests:
+    135 environments and 19 fluids, max ids, all non-tag fields compared with
+    the Java goldens, and every used tag index present in `ServerTags`.
+  - `client-bot` recognises `UpdateFluids` and `UpdateEnvironments`; the auth
+    test expects config packets `[41, 87, 83, 61]`.
+- **Verified:**
+  - `cargo test -p hytale-assets --test asset_packets` (3 tests).
+  - Manual auth join: handshake ids `[11, 13, 20, 223, 24, 21, 25, 26, 28, 41,
+    87, 83, 61, 64, 21, 22]`, config packets `[41, 87, 83, 61]`, 21 chunk
+    packets, Game/teleport loop unchanged.
+  - `cargo test --workspace` (1121 passed, 0 failed, 9 ignored), clippy and fmt
+    green.
+- **Deviations:**
+  - Tag indexes are Rust-owned, not Java's global assignment order. Every
+    packet and `ServerTags` share one registry, matching the existing
+    Rust-owned block/item id policy.
+  - `fluidFXIndex`/`blockSoundSetIndex` are 0 because `FluidFX` and
+    `BlockSoundSet` are not loaded/streamed yet.
+  - Environment `fluidParticles` is always `None` (the P0 pack has none and the
+    FluidFX indexes are unavailable).
+  - Environment/Fluid payloads are not byte-identical to Java because of tags
+    and the missing child-store indexes; non-tag fields are golden-checked.
+  - `BlockType` (40) and `Item` (54) packets remain pending.
+- **Follow-ups:**
+  - Encode `BlockType`/`Item` from the Rust registry.
+  - Add `FluidFX`, `BlockSoundSet` and `BlockParticleSet` for real child indexes.
+  - Add `UpdateTagPatterns` for tag-pattern assets.
+  - Keep `ServerTags` in sync when block/item/contained tags are added.

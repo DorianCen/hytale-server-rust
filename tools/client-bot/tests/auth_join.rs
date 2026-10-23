@@ -121,6 +121,8 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     assert_eq!(report.asset_bytes, report.assets[0].bytes);
     assert!(report.config_packets.contains(&41)); // UpdateBlockHitboxes
     assert!(report.config_packets.contains(&87)); // UpdatePhysicalMaterials
+    assert!(report.config_packets.contains(&83)); // UpdateFluids
+    assert!(report.config_packets.contains(&61)); // UpdateEnvironments
     assert!(report.translations);
     assert!(report.rebuild_requested);
     assert!(report.game.clear_chunks);

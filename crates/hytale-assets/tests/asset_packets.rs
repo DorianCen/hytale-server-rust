@@ -8,7 +8,9 @@
 use std::path::PathBuf;
 
 use hytale_assets::{AssetPack, AssetRegistry};
-use hytale_protocol::generated::assets::{UpdateBlockHitboxes, UpdatePhysicalMaterials};
+use hytale_protocol::generated::assets::{
+    UpdateBlockHitboxes, UpdateEnvironments, UpdateFluids, UpdatePhysicalMaterials,
+};
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::Reader;
 
@@ -103,4 +105,84 @@ fn block_hitbox_packet_matches_java() {
         .expect("at least one single-box asset");
     assert_eq!(machine[0].min_x, 0.0);
     assert_eq!(machine[0].max_x, 1.0);
+}
+
+#[test]
+fn environment_and_fluid_packets_decode_and_agree_with_server_tags() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let registry = load_registry();
+    let config = registry.config_assets().expect("encode config assets");
+    let environment = config
+        .packets
+        .iter()
+        .find(|packet| packet.id == UpdateEnvironments::ID)
+        .expect("environment packet");
+    let fluid = config
+        .packets
+        .iter()
+        .find(|packet| packet.id == UpdateFluids::ID)
+        .expect("fluid packet");
+
+    let environments =
+        UpdateEnvironments::decode(&mut Reader::new(&environment.payload)).expect("decode env");
+    let environments = environments.environments.expect("environment map");
+    assert_eq!(environments.len(), registry.environments.len());
+    assert_eq!(environments.len(), 135);
+
+    let golden_environments = UpdateEnvironments::decode(&mut Reader::new(&golden("Environment")))
+        .expect("decode golden env")
+        .environments
+        .expect("golden env map");
+    for (id, expected) in golden_environments {
+        let actual = environments.get(&id).expect("matching environment id");
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.water_tint, expected.water_tint);
+        assert_eq!(actual.fluid_particles, expected.fluid_particles);
+        for index in actual.tag_indexes.as_deref().unwrap_or_default() {
+            assert!(
+                config.tags.values().any(|value| value == index),
+                "environment tag index {index} is missing from ServerTags"
+            );
+        }
+    }
+
+    let fluids = UpdateFluids::decode(&mut Reader::new(&fluid.payload))
+        .expect("decode fluids")
+        .fluids
+        .expect("fluid map");
+    assert_eq!(fluids.len(), registry.fluids.len());
+    assert_eq!(fluids.len(), 19);
+
+    let golden_fluids = UpdateFluids::decode(&mut Reader::new(&golden("Fluid")))
+        .expect("decode golden fluids")
+        .fluids
+        .expect("golden fluid map");
+    for (id, expected) in golden_fluids {
+        let actual = fluids.get(&id).expect("matching fluid id");
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.max_fluid_level, expected.max_fluid_level);
+        assert_eq!(actual.cube_textures, expected.cube_textures);
+        assert_eq!(
+            actual.requires_alpha_blending,
+            expected.requires_alpha_blending
+        );
+        assert_eq!(actual.opacity, expected.opacity);
+        assert_eq!(actual.shader_effect, expected.shader_effect);
+        assert_eq!(actual.light, expected.light);
+        assert_eq!(actual.particles, expected.particles);
+        assert_eq!(actual.draw_type, expected.draw_type);
+        assert_eq!(actual.block_particle_set_id, expected.block_particle_set_id);
+        assert_eq!(actual.particle_color, expected.particle_color);
+        // `fluidFXIndex` and `blockSoundSetIndex` point at non-P0 stores that
+        // are not streamed yet; tag indexes are Rust-owned.
+        for index in actual.tag_indexes.as_deref().unwrap_or_default() {
+            assert!(
+                config.tags.values().any(|value| value == index),
+                "fluid tag index {index} is missing from ServerTags"
+            );
+        }
+    }
 }

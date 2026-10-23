@@ -10,7 +10,10 @@ use hytale_net::{
     FrameWriter,
 };
 use hytale_protocol::frame::{decode_frame, encode_frame, MAX_PACKET_SIZE};
-use hytale_protocol::generated::assets::UpdateTranslations;
+use hytale_protocol::generated::assets::{
+    UpdateBlockHitboxes, UpdateEnvironments, UpdateFluids, UpdatePhysicalMaterials,
+    UpdateTranslations,
+};
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{Asset, PongType, Position, TeleportAck};
 use hytale_protocol::generated::connection::{
@@ -720,8 +723,10 @@ pub async fn auth_join(
             UpdateTranslations::ID => {
                 report.translations = true;
             }
-            hytale_protocol::generated::assets::UpdatePhysicalMaterials::ID
-            | hytale_protocol::generated::assets::UpdateBlockHitboxes::ID => {
+            UpdatePhysicalMaterials::ID
+            | UpdateBlockHitboxes::ID
+            | UpdateFluids::ID
+            | UpdateEnvironments::ID => {
                 report.config_packets.push(frame.packet_id);
             }
             WorldLoadFinished::ID => {

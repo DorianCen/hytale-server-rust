@@ -141,6 +141,12 @@ For the server, “exact” also applies to:
   Serialize protocol maps in ascending integer-key order (`AssetDumper`
   canonicalizes them before writing the goldens) and cast Java doubles to
   `f32` only where the packet field is `float` (for example `Hitbox`).
+- Two categories are deliberately Rust-owned because Java assigns them from
+  schedule/implementation order: block/item contained ids and the global tag
+  indexes. Tag indexes are assigned once by `TagRegistry`, used by every asset
+  packet, and published in `ServerTags`; never mix Java and Rust indexes.
+  Goldens validate every non-owned field, and decode/size checks validate the
+  owned ones.
 - Validation mode must fail closed: unknown parent, cycle, missing required
   field, out-of-range index, duplicate key.
 - Do not read the 3.7 GB pack in unit tests. Use tiny fixtures; reserve full-pack

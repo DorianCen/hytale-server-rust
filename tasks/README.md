@@ -44,6 +44,7 @@ task done until its acceptance section is satisfied.
 | [T29](T29-dev-join.md) | Dev/insecure handshake + first bot join | T25, T26 | medium | done (session 19) |
 | [T30](T30-auth-assets-game.md) | Local EdDSA auth, common/config assets, Game transition | T28, T29 | low/medium | done (session 20) |
 | [T31](T31-player-spawn-game-loop.md) | Player add/spawn, entity tracker and game loop | T30 | low/medium | done (session 21) |
+| [T32](T32-environment-fluid-packets.md) | Environment/Fluid packets + Rust-owned tags | T30 | medium | done (session 22) |
 
 ## Rules
 

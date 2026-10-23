@@ -777,9 +777,10 @@ mod tests {
     #[test]
     fn rejects_tampering_and_wrong_issuer() {
         let (service, identity, _, _) = tokens();
-        let mut tampered = identity.clone();
-        let last = tampered.pop().unwrap();
-        tampered.push(if last == 'A' { 'B' } else { 'A' });
+        let (signing_input, signature) = identity.rsplit_once('.').expect("signature segment");
+        let mut bytes = base64url_decode(signature).expect("signature bytes");
+        bytes[0] ^= 1;
+        let tampered = format!("{signing_input}.{}", base64url(&bytes));
         assert!(matches!(
             service.validate(&tampered, "identity", Some(SCOPE_CLIENT), Some(FINGERPRINT)),
             Err(AuthError::BadSignature)

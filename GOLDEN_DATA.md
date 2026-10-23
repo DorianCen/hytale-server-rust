@@ -93,11 +93,14 @@ checks every `registries.json` block's draw type, opacity and all 64 support
 probes against `hytale-assets::registry`. Block-type ids contained in item
 documents are Rust-owned; only the key set and semantics are compared.
 
-Session 18 consumer: `crates/hytale-assets/tests/asset_packets.rs` encodes
+Sessions 18/22 consumer: `crates/hytale-assets/tests/asset_packets.rs` encodes
 `PhysicalMaterial.bin` and `BlockBoundingBoxes.bin` from the real registry and
-compares them byte-for-byte. Those two stores need no child-store indexes, so
-the packet payloads are fully deterministic. `Environment`/`Fluid` tags and
-indexes and the Rust-owned `BlockType`/`Item` order are the remaining packet
+compares them byte-for-byte, then encodes `Environment.bin` and `Fluid.bin` and
+compares every non-tag/non-child-index field. Java's tag indexes are global
+across all 54 stores; the Rust registry assigns deterministic indexes and
+publishes them in `ServerTags`, so tag arrays intentionally differ.
+`FluidFX`/`BlockSoundSet` indexes are 0 until those child stores are streamed.
+The Rust-owned `BlockType`/`Item` order and payloads are the remaining packet
 work.
 
 ### 3.3 `chunks-pkts/`

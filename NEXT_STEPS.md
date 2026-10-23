@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 22
+# Next steps — CoreServer rewrite, session 23
 
-**Status:** sessions 1–21 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–22 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -42,7 +42,12 @@ added the local EdDSA authentication profile (`AuthGrant` → `AuthToken` →
 (`WorldSettings.requiredAssets` → `AssetInitialize`/`AssetPart`/`AssetFinalize`),
 the encodable config asset packets, translations, and the Game transition
 (`ClearChunks` + `JoinWorld` → `ClientReady` → world/entity identity packets,
-`AddToServerPlayerList` and the self `EntityUpdates` spawn → chunks). See [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
+`AddToServerPlayerList` and the self `EntityUpdates` spawn → chunks). Session 21
+added the initial world time/gameplay packets, the `readyForGameplay` teleport
+exchange, a persistent chunk stream and movement-driven view updates. Session
+22 added `Environment` (61) and `Fluid` (83) config packets with a Rust-owned
+tag registry and matching `ServerTags`. See
+[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
 [`tasks/README.md`](tasks/README.md).
 
 **Try it:**
@@ -87,10 +92,10 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
 
 1. ~~P0 asset registry and typed stores (`BlockType`, `Fluid`, `Environment`,
    `Item`, …) with deterministic id assignment.~~ Done in session 5. Session 18
-   added byte-exact `PhysicalMaterial`/`BlockBoundingBoxes` packets. Remaining:
-   `Environment`/`Fluid` packets (need tags and child-store indexes) and
-   `BlockType`/`Item` (need the Java contained-asset order or decode/size-only
-   validation).
+   added byte-exact `PhysicalMaterial`/`BlockBoundingBoxes` packets; session 22
+   added `Environment`/`Fluid` with Rust-owned tag indexes and `ServerTags`.
+   Remaining: `BlockType`/`Item`, the child stores (`FluidFX`,
+   `BlockSoundSet`, `BlockParticleSet`) and `UpdateTagPatterns`.
 2. ~~Runtime world storage: BSON chunk codecs on top of `IndexedStorageFile`,
    validated by a Java-written world fixture.~~ Chunks done in session 6;
    region → runtime `World` load/mutate/save and the Java reload gate done in

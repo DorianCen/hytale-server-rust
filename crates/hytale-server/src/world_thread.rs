@@ -236,7 +236,7 @@ enum Command {
         reply: SyncSender<Result<usize, String>>,
     },
     ConfigAssetPackets {
-        reply: SyncSender<Result<Vec<hytale_assets::AssetPacket>, String>>,
+        reply: SyncSender<Result<hytale_assets::ConfigAssets, String>>,
     },
     CommonAssets {
         reply: SyncSender<Result<CommonAssetRegistry, String>>,
@@ -426,10 +426,8 @@ impl WorldThread {
             .ok()
     }
 
-    /// Encode the config asset packets the session sends during setup.
-    pub fn config_asset_packets(
-        &self,
-    ) -> Result<Vec<hytale_assets::AssetPacket>, WorldThreadError> {
+    /// Encode the config asset packets and tag map the session sends during setup.
+    pub fn config_asset_packets(&self) -> Result<hytale_assets::ConfigAssets, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::ConfigAssetPackets { reply })
@@ -581,7 +579,7 @@ fn run(
                     Command::ConfigAssetPackets { reply } => {
                         let result = generator
                             .assets()
-                            .config_packets()
+                            .config_assets()
                             .map_err(|error| error.to_string());
                         let _ = reply.send(result);
                     }

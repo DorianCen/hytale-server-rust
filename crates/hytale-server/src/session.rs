@@ -22,7 +22,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry};
+use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets};
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
 use hytale_net::{
     ChunkStreamError, ChunkStreamWriter, FrameReader, FrameStreamError, FrameWriter, PeerIdentity,
@@ -315,7 +315,7 @@ pub async fn serve_connection(
     let mut writer = FrameWriter::new(send);
     let mut reader = FrameReader::new(recv);
 
-    let config_packets = thread.config_asset_packets()?;
+    let config_assets = thread.config_asset_packets()?;
     let common_assets = thread.common_assets()?;
     let client_fingerprint =
         PeerIdentity::from_connection(connection).map(|identity| identity.fingerprint_base64url());
@@ -327,7 +327,7 @@ pub async fn serve_connection(
             &mut writer,
             options,
             client_fingerprint.as_deref(),
-            &config_packets,
+            &config_assets,
             &common_assets,
         ),
     )
@@ -354,6 +354,7 @@ pub async fn serve_connection(
         handshake.uuid,
         &handshake.username,
         world_uuid,
+        &config_assets.tags,
         options.chunk_compression_level,
     )
     .await?;
@@ -423,7 +424,7 @@ async fn perform_handshake(
     writer: &mut FrameWriter,
     options: &SessionOptions,
     client_fingerprint: Option<&str>,
-    config_packets: &[AssetPacket],
+    config_assets: &ConfigAssets,
     common_assets: &CommonAssetRegistry,
 ) -> Result<Handshake, SessionError> {
     let connect: Connect = expect(reader, Connect::ID).await?;
@@ -639,7 +640,7 @@ async fn perform_handshake(
                     writer,
                     common_assets,
                     packet.assets.as_deref(),
-                    config_packets,
+                    &config_assets.packets,
                     options.chunk_compression_level,
                 )
                 .await?;
@@ -990,12 +991,13 @@ async fn send_player_list(
     uuid: Uuid,
     username: &str,
     world_uuid: Uuid,
+    tags: &BTreeMap<String, i32>,
     compression_level: i32,
 ) -> Result<(), SessionError> {
     writer
         .write_packet(
             &ServerTags {
-                tags: Some(BTreeMap::new()),
+                tags: (!tags.is_empty()).then(|| tags.clone()),
             },
             compression_level,
         )
