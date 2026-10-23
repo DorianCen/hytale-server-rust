@@ -2,7 +2,9 @@
 
 This file records what the Rust server deliberately does **not** implement in
 v1 and where each deferred item should land. It is a scope guard, not a bug list.
-The v1 contract is in [`plan.md`](plan.md) §3.
+The v1 contract is the M4 exit in [`plan.md`](plan.md); later deferred scope is
+tracked by M5–M7 there. Phase-2 child-store work (T35–T39) is **not** deferred;
+it is part of M2 and listed in [`tasks/README.md`](tasks/README.md).
 
 ## 1. Gameplay systems
 

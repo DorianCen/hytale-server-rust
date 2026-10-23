@@ -4,8 +4,10 @@ These files document the completed WorldGenerator → Rust port. They are kept
 for reference and for the existing crates' design history, not as the current
 plan.
 
-The current CoreServer rewrite starts at [`../plan.md`](../plan.md) and
-[`../NEXT_STEPS.md`](../NEXT_STEPS.md).
+The current CoreServer rewrite starts at [`../../plan.md`](../../plan.md) and
+[`../../NEXT_STEPS.md`](../../NEXT_STEPS.md). The completed first CoreServer
+vertical slice is archived next door in
+[`../coreserver-vertical-slice/README.md`](../coreserver-vertical-slice/README.md).
 
 | File | Contents |
 |---|---|

@@ -277,6 +277,13 @@ and the fixture schema. The Java tools must not modify `.hytale-source/`.
 
 ## 5. Adding a new fixture
 
+Phase-2 child-store fixtures (T35) add `BlockBreakingDecal`,
+`BlockParticleSet`, `BlockSoundSet`, `FluidFX`, `SoundEvent`, `ItemSoundSet`,
+`ItemQuality`, `ItemReticleConfig`, `ItemPlayerAnimations` and `TagPattern` with
+their dependency closure. They use the same `<Store>.bin` + `index.json` layout;
+stores without packet generators still get keys/counts. Regenerate with the
+dumper’s P1/closure selector once T35 lands.
+
 1. Write the Java dumper first. Make it deterministic.
 2. Generate the fixture, inspect it, commit it with a short README/schema note.
 3. Write the Rust test that reads it and fails with a useful diff.

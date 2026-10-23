@@ -20,7 +20,7 @@ Java golden chunks.
 
 ### 1a. Ready-made plugin (recommended)
 
-[`tools/live-snapshot-plugin`](../tools/live-snapshot-plugin/README.md) is a
+[`tools/live-snapshot-plugin`](../../tools/live-snapshot-plugin/README.md) is a
 minimal server plugin that dumps in `start()` (after the asset load,
 including mods):
 

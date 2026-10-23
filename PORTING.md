@@ -2,7 +2,7 @@
 
 Read this before writing any Rust for the server. The goal is **observable
 parity** with the Java server, not a line-by-line translation. Worldgen has its
-own archived conventions in [`done/PORTING.md`](done/PORTING.md); they still
+own archived conventions in [`done/PORTING.md`](done/world-generation/PORTING.md); they still
 apply to the existing crates.
 
 ---

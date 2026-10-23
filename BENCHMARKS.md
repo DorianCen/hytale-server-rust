@@ -2,7 +2,7 @@
 
 No Rust CoreServer measurements exist yet. This file defines what to measure so
 the first numbers are comparable and not cherry-picked. The worldgen baseline is
-archived in [`done/BENCHMARKS.md`](done/BENCHMARKS.md).
+archived in [`done/BENCHMARKS.md`](done/world-generation/BENCHMARKS.md).
 
 ---
 

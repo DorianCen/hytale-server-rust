@@ -1,524 +1,749 @@
-# CoreServer → Rust rewrite plan
+# CoreServer → Rust rewrite plan — phase 2 (session 24+)
 
-**Status:** proposed; v1 scope frozen as "vanilla client join + world streaming".
-**Starting point:** the world-generation port is complete and golden-verified
-(archived notes in [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
-[`done/PORTING_HISTORY.md`](done/PORTING_HISTORY.md),
-[`done/REMAINING.md`](done/REMAINING.md)).
+This is the active plan for the work after the first vertical slice. The
+completed slice is archived in
+[`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md);
+the worldgen port remains archived in
+[`done/world-generation/`](done/world-generation/README.md).
 
-**Session docs:** [`NEXT_STEPS.md`](NEXT_STEPS.md) (immediate work),
-[`ARCHITECTURE.md`](ARCHITECTURE.md) (crate/runtime design),
-[`PORTING.md`](PORTING.md) (porting and subagent rules),
-[`GOLDEN_DATA.md`](GOLDEN_DATA.md) (Java oracle and fixtures),
-[`REMAINING.md`](REMAINING.md) (deferred scope),
-[`BENCHMARKS.md`](BENCHMARKS.md) (measurement matrix),
-[`PORTING_HISTORY.md`](PORTING_HISTORY.md) (session log).
+The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
+is **T35 — child-store golden dumper extension**.
 
-This is not a file-by-file translation. The previous port succeeded because it
-reproduced observable behavior and proved it with golden data. CoreServer should
-be built the same way: port behavior, keep the Java server only as an oracle,
-never embed a JVM in the runtime.
+## 0. Baseline
 
----
+Completed and not to be redone:
 
-## 1. Decisions this plan is built on
+- M1: protocol codegen, framing, QUIC/mTLS, transport.
+- M2 partial: P0 asset loader, deterministic ids, common assets, and the six
+  self-contained config packets (`41`, `87`, `83`, `61`, `40`, `54`).
+- M3 partial: runtime chunks, BSON region/world/player storage, world config,
+  save boot, demand loading, world thread, chunk packets.
+- M4 partial: dev/insecure join, local EdDSA auth, asset streaming, Game
+  transition, player list/self-spawn, time/gameplay packets, teleport exchange,
+  persistent chunk stream and movement-driven view updates.
+- M0 of this phase: T34 archived the slice and re-baselined these docs.
 
-- **v1 target:** a vanilla client can connect to the Rust server, authenticate,
-  receive assets, spawn into a world, stream chunks, move, place/break blocks,
-  disconnect/reconnect, and reload the world from disk.
-- **Plugins:** Rust-native code plugins plus unmodified Hytale asset packs.
-  No Java plugin runtime.
-- **Storage:** read/write the vanilla `IndexedStorage` world format, so existing
-  worlds are drop-in.
-- **Estimates:** omitted; milestones are ordered by dependency and exit criteria.
+Current gates (must stay green throughout):
 
----
-
-## 2. What "CoreServer" actually includes
-
-`CoreServer/` is 1,843 files / ~303k lines, but it cannot be ported in
-isolation. The real dependency closure is:
-
-| Java area | Files | Role in the Rust server |
-|---|---:|---|
-| `CoreServer/` | 1,843 | server runtime, universe/world, chunks, storage, network, commands, assets, UI |
-| `AssetStore/` | 40 | asset pack loading, inheritance, index maps, load-order graph |
-| `Codec/` | 135 | JSON/BSON codecs, validation, schema generation |
-| `Component/` | 93 | custom archetype ECS |
-| `Common/`, `Event/`, `Logger/`, `Metrics/`, `Registry/`, `Storage/` | ~90 | shared infrastructure, event bus, `IndexedStorageFile` |
-| `Protocol/` generated sources | 389 packets, 445 structs, 177 enums | wire protocol and asset packets |
-
-The reusable Rust base is solid:
-
-- `crates/hytale-math`, `crates/procedural` — unchanged.
-- `crates/worldgen-model` — generation chunk, priority grid, registry seam.
-- `crates/worldgen-hytale` — world generation.
-- `crates/worldgen-server` — server-facing chunk provider.
-- `tools/java-dumper` — golden oracle harness.
-- `Assets/` plus `HytaleAssets/Schema/` (120 JSON schemas) — the content contract.
-
-**Important boundary:** `worldgen_model::chunk::GeneratedChunk` is a full-height
-flat generation buffer. It is not the runtime chunk and must not become the
-storage/network chunk. v1 needs a separate runtime `ChunkColumn` with palettes,
-lighting, heightmaps, entities, and block components, with a cheap
-`from_generated_chunk` conversion.
-
----
-
-## 3. v1 definition (the acceptance contract)
-
-A single `hytale-server` binary that:
-
-1. Boots from an unmodified `Assets/Assets.zip` and optional `--assets`/`--mods`
-   directories.
-2. Loads a universe from `universe/`, loads/creates worlds, and supports
-   `Default`, `Flat`, `Void`, and `Dummy` world-gen providers.
-3. Produces the same block/fluid/environment registries and asset packet
-   payloads as Java for the default pack.
-4. Generates chunks through the existing `worldgen-hytale` service and converts
-   them into runtime chunks.
-5. Serves the matching protocol version over QUIC + mTLS, authenticates through
-   the Hytale session/OAuth services, sends setup/assets, spawns the player,
-   streams view-radius chunks, and accepts movement/block packets.
-6. Saves/loads chunks and player data in Java-compatible `IndexedStorage` + BSON.
-7. Exposes console commands (`stop`, `save`, `world`, `tp`, `give`, `help`) and
-   basic permissions.
-8. Runs headless on Linux with no JVM.
-
-**Explicitly out of v1:** NPC/AI/pathfinding, combat, crafting, projectiles,
-full inventory UI, instances, world-map UI, block entities beyond the minimum,
-and Java plugins. Those are post-v1 milestones.
-
----
-
-## 4. Target workspace
-
-```text
-crates/
-  hytale-protocol/     generated packets/structs/enums, registry, encode/decode
-  hytale-assets/       pack VFS, store framework, parent/inheritance, typed assets,
-                       index maps, asset packet encoders
-  hytale-core/         config/options, logging, event bus, registry, task scheduler,
-                       plugin kernel, module manifests
-  hytale-storage/      IndexedStorageFile v1, BSON component codecs, backups
-  hytale-world/        universe, world, runtime chunk store, heightmaps, lighting,
-                       world map data, player data
-  hytale-entities/     ECS wrapper, components, systems, player/entity lifecycle
-  hytale-net/          QUIC transport, streams, sessions, packet state machine
-  hytale-auth/         OAuth device/browser, session service, JWT, credential store
-  hytale-commands/     command framework, argument parsing, built-in commands
-  hytale-server/       binary, startup wiring, module registration
-
-  hytale-math/         existing
-  procedural/          existing
-  worldgen-model/      existing
-  worldgen-hytale/     existing
-  worldgen-cli/        existing
-  worldgen-server/     existing
-tools/
-  protocol-dumper/     Java: generated protocol source → protocol IR
-  protocol-gen/        Rust: protocol IR → Rust code
-  asset-golden-dumper/ Java: per-store decoded assets + packet bytes
-  packet-trace/        Java: capture handshake/join packet sequences
-  client-bot/          Rust: scripted client for join/stream tests
+```sh
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
 ```
 
-Layering: `hytale-protocol` ← `hytale-assets` ← `hytale-world` ←
-`hytale-net`/`hytale-server`. `hytale-core` is shared infrastructure; no crate
-reaches into another's internals.
+The v1 gate remains the M4 exit below: a matching vanilla client connects,
+spawns, sees terrain, moves, edits blocks, disconnects, reconnects, and the world
+persists.
 
 ---
 
-## 5. Technical strategy
+## 1. Milestones at a glance
 
-### 5.1 Protocol: generate it, do not hand-port it
-
-There are 389 packets, 445 structs, and 177 enums. Hand-writing these is the
-single largest avoidable risk. Use a two-stage generator:
-
-1. **`tools/protocol-dumper` (Java)** reads the auto-generated sources under
-   `Protocol/target/generated-sources/java/com/hypixel/hytale/protocol/` and
-   emits a machine-readable `protocol.json` IR containing:
-   - packet id, class name, direction, channel, compression flag, max size;
-   - nullable-bitfield size, fixed-block size, variable-field count/start;
-   - fields in wire order with fixed offsets, types, array/string bounds, unions.
-2. **`tools/protocol-gen` (Rust)** emits:
-   - `Packet` trait with `compute_size`, `encode`, `decode`;
-   - all packet/struct/enum types;
-   - `PacketRegistry` with ids, channels, directions, max sizes;
-   - `ProtocolSettings` constants (CRC `-386561135`, version `3`, build `258`).
-
-Wire rules to preserve exactly:
-
-- framing `[u32 LE payload length][u32 LE packet id][payload]`;
-- fixed fields little-endian; UUID longs big-endian;
-- LEB128-style varints;
-- nullable bitfields, fixed ASCII/UTF-8 strings, variable arrays, unions;
-- zstd compression for `IS_COMPRESSED` packets, with the zstd frame carrying
-  the uncompressed size;
-- channel enforcement (`Default`, `Chunks`, `WorldMap`, `Voice`).
-
-The IR is the contract. `protocol-gen` is checked in and CI runs `--check` so
-protocol updates produce reviewable diffs. Every packet gets a round-trip test;
-every field layout is additionally validated against Java-produced golden bytes.
-
-### 5.2 Asset pipeline: schemas first, hand-written codecs only where necessary
-
-`HytaleAssets/Schema/` already contains 120 JSON schemas, including `Item.json`,
-`BlockType.json`, `Environment.json`, `Fluid.json`, and the rest. Do **not**
-port the 15k-line Java `Codec` library. Instead:
-
-- Build a VFS over `Assets.zip` and directories.
-- Implement the `AssetStore` semantics that matter: load-order graph, pre-added
-  assets, `Parent` inheritance, per-field merge rules, index maps, validation,
-  and `loadsBefore`/`loadsAfter`.
-- Decode through an intermediate `serde_json::Value`/`bson::Document`, resolve
-  inheritance and merges, then deserialize into typed Rust structs. This mirrors
-  Java's "merge, then decode" behavior and keeps the 120 schemas authoritative.
-- Generate typed structs from the schemas where practical; keep manual types for
-  computed/discriminated assets (`BlockType`, `Item`, `BlockBoundingBoxes`,
-  `PrefabListAsset`, etc.).
-- Port the 54 asset stores in priority order, not alphabetically:
-
-| Priority | Stores | Why |
-|---|---|---|
-| P0 | `BlockType`, `Fluid`, `Environment`, `Item`, `BlockBoundingBoxes`, `PhysicalMaterial`, `BlockTypeListAsset`, `PrefabListAsset` | world generation, collision, client join |
-| P1 | `BlockSet`, `BlockSoundSet`, `BlockParticleSet`, `BlockBreakingDecal`, `ItemCategory`, `ItemQuality`, `ModelAsset`, `GameplayConfig` | asset packets, rendering, gameplay config |
-| P2 | audio, particles, weather, camera, trails, VFX, response curves, tags | full asset streaming |
-| P3 | editor/UI/buildertool/misc stores | parity, not join-critical |
-
-- Each store gets a golden dump from Java (`asset-golden-dumper`) containing its
-  final asset map and its protocol packet bytes. Rust must match the bytes
-  exactly.
-- Asset ids: the Java pipeline's id assignment is schedule-dependent for sibling
-  blocks (already documented in `done/REMAINING.md`). The Rust server must assign
-  one deterministic order, use it consistently for worldgen and client packets,
-  and record its own registry snapshot. Bit-exactness against the committed
-  golden dump is a test target; matching a *live* server's arbitrary sibling
-  order is not required.
-
-### 5.3 Runtime chunk model: sections with palettes, not the generation buffer
-
-Port the Java runtime layout rather than flattening it:
-
-- `ChunkColumn`: 32×32 columns over height sections.
-- Per-section components:
-  - `BlockSection`: block palette (`Empty`/`Byte`/`HalfByte`/`Short`), filler
-    palette, rotation palette, ticking bitsets, local/global light, change
-    counters, sky-lit stamp.
-  - `FluidSection`: fluid palette + nibble level data.
-  - `EnvironmentSection`: run-based environment data.
-  - `EntitySection`, `BlockComponentSection`: sparse holder maps.
-- `HeightmapColumn` (`Legacy` and `Tree`), tint, world chunk flags/keep-alive.
-- `from_generated_chunk`: copy blocks/rotation/filler/tint/environment/fluid
-  into sections, choosing palettes.
-- Network and storage serialization must operate on the same section bytes Java
-  writes:
-  - network: `SetChunk`, `SetColumn`, `SetChunkTintmap`,
-    `SetChunkEnvironments`, `SetFluids`, `SetBlock`, etc.;
-  - storage: `BlockSection.Data`, `FluidSection.Data`,
-    `EnvironmentSection.Data`, `EntityChunk.Entities`,
-    `BlockComponentChunk.BlockComponents`, `HeightmapColumn.Heightmap`,
-    `ChunkColumn.Sections`.
-- Golden fixtures: generate chunk packets and saved region blobs in Java for the
-  existing 21 golden chunks; Rust must match byte-for-byte.
-
-### 5.4 ECS: hybrid, not a 14k-line custom ECS port
-
-- Use **`bevy_ecs`** for the entity store (players, entities, block entities,
-  future NPCs): components, resources, queries, schedules, change detection,
-  serialization via a thin registration wrapper.
-- Use a **custom chunk store** (slot map keyed by chunk index) for chunks and
-  sections. Chunk data is fixed-layout, hot, and network/storage-critical;
-  routing 32³ arrays through archetypes adds indirection for no benefit.
-- Provide a shared `ComponentRegistry` facade over both stores for module
-  registration and save/load, so game modules look uniform.
-- Keep a `Holder`-like serializable bundle for load/save/transfer, matching
-  Java's "AoS holder, SoA store" model where it matters.
-- Do not promise Java ECS API parity. Preserve observable behavior; expose a
-  Rust-native component/system API.
-
-### 5.5 Server runtime and threading
-
-- **Tokio** for network, auth, asset loading, and storage IO.
-- **One dedicated OS thread per world** for the tick loop, matching Java's
-  single-threaded world semantics and avoiding chunk/entity data races.
-- Worldgen stays on the existing `WorldGenService` worker pool; results are
-  delivered to the world thread.
-- Storage reads/writes run on a blocking pool; chunk load/save completions return
-  to the world thread.
-- The asset registry is immutable after load and shared as `Arc`; hot reload is a
-  later copy-on-write feature.
-- World tasks, commands, and events are queued onto the owning world thread.
-
-### 5.6 World generation integration
-
-`worldgen-server` currently exposes a blocking `ChunkProvider` with per-worker
-`Rc` generators. The server needs more than chunks:
-
-- Add a **query handle** for `get_zone_biome_result_at`, height, spawn points,
-  and unique-prefab data. The current per-worker `Rc` generators cannot be
-  shared across threads; give the world a dedicated read-only query instance (or
-  make the generator cache shareable) and document the memory cost.
-- Add `WorldGenRuntime` in `hytale-world` that owns the worker pool, the query
-  handle, chunk priority/cancellation, and conversion to runtime chunks.
-- Close the deferred worldgen integration gaps needed by CoreServer:
-  - port `WorldGenerator/builtin/worldgen/modifier` (34 files) and its
-    `ModifyEvents` dispatch, or at minimum define the modifier/event seam and
-    port the content ops;
-  - port `BiomeDataSystem` behavior for player zone/biome tracking;
-  - prefab entities/block components remain deferred, but the prefab spawner
-    path must be designed so they can be added without changing storage.
-
-### 5.7 Storage: exact `IndexedStorage` compatibility
-
-The default Java storage provider is `IndexedStorage`, not RocksDB. It is
-tractable to match:
-
-- Port `Storage/IndexedStorageFile` v1:
-  - magic `"HytaleIndexedStorage"`, version `1`, blob count `1024`, segment
-    size `4096`;
-  - zstd-compressed blobs, per-blob index table, segment chain;
-  - atomic write/flush behavior and recovery semantics.
-- Region files: `<regionX>.<regionZ>.region.bin`; blob index
-  `ChunkUtil.indexColumn(localX, localZ)`.
-- Chunk payload: BSON document of ECS components using the Java names and `Data`
-  byte arrays. Use the `bson` crate and explicit serde field names; no need to
-  port the Java `Codec` library.
-- Player data: match `DiskPlayerStorageProvider` layout and BSON/JSON shape.
-- World config: match `World.json`/`config` fields used by `WorldConfig` (seed,
-  uuid, generator, storage, spawn, time, gameplay config).
-- Add a compatibility test: load a Java-created world fixture, mutate a block,
-  save, reload in Rust, then load the same save in Java and compare.
-- RocksDB support is out of scope for v1; add a migration tool later if needed.
-
-### 5.8 Auth and transport
-
-- `quinn` + `rustls` QUIC server. ALPN `hytale/<protocol version>` (and previous
-  version for graceful rejection).
-- mTLS required. Accept self-signed client certificates, extract the
-  certificate, and validate the JWT certificate binding (`cnf.x5t#S256`),
-  mirroring `QUICTransport`/`ServerAuthManager`.
-- Port:
-  - `InitialPacketHandler` → `AuthenticationPacketHandler` →
-    `SetupPacketHandler` → `GamePacketHandler`;
-  - OAuth browser/device flows, session service, token refresh, encrypted
-    credential store;
-  - `--auth-mode`, `--session-token`, `--identity-token`, singleplayer token
-    path;
-  - offline/dev mode for local testing.
-- Abstract the Hytale services behind traits so a service change does not stall
-  development.
-- Keep the exact packet-order state machine; it is part of the client contract.
-
-### 5.9 Plugins, modules, events
-
-- Core modules become Rust crates registered in a startup manifest with explicit
-  dependencies, mirroring `PluginManifest` ordering.
-- Third-party code plugins: a versioned Rust plugin trait/registry for v1; a
-  dynamic-library or WASM ABI is a later decision. Asset packs (`mods/` with
-  `manifest.json`) are supported from the start.
-- Typed event bus with priorities and cancellable events, modeled on
-  `EventBus`/`EventRegistry`.
-- Java plugins are not loadable. Provide asset-mod compatibility and a migration
-  guide; do not build a JVM bridge unless the scope explicitly changes.
-
----
-
-## 6. Verification: Java remains the oracle
-
-Every subsystem gets a golden-data gate before it is considered done.
-
-| Layer | Java oracle | Rust gate |
-|---|---|---|
-| Registries | existing `tools/java-dumper` | already passed; keep green |
-| Assets | new per-store decoded dump + packet bytes | byte-identical asset packets |
-| Chunk generation | existing golden chunks | already passed; keep green |
-| Chunk network packets | `SetChunk`/`SetColumn`/`SetChunkTintmap` for golden chunks | byte-identical payloads |
-| Chunk storage | Java-written region files + BSON | read → write → Java reads back |
-| Protocol | every packet serialized from Java | round-trip + byte-identical |
-| Handshake/join | packet trace from Java/bot client | same packet sequence and deterministic fields |
-| World behavior | scripted Java scenarios | same blocks/entities/positions after replay |
-
-Additional test layers:
-
-- `cargo-fuzz` on the protocol decoder and asset parser.
-- `client-bot` (Rust) for join/stream/soak tests without a human client.
-- Differential harness: same seed/assets, Java vs Rust, compare chunks and
-  packet payloads.
-- Performance budgets: boot time, asset load, chunk generation, tick time, join
-  time, memory.
-- CI: `cargo test`, `clippy -D warnings`, `fmt --check`, `protocol-gen --check`,
-  golden diffs.
-
----
-
-## 7. Milestones
-
-### M0 — Scope and scaffolding
-
-- Freeze the v1 contract and non-goals above.
-- Create crate skeletons and CI.
-- Audit the 120 asset schemas against the 54 stores; list manual codecs.
-- Spike protocol IR extraction and `IndexedStorageFile` decoding.
-- Add golden-fixture directories and naming conventions.
-
-**Exit:** every v1 subsystem has a crate, an owner, and a golden-data plan.
-
-### M1 — Protocol and transport
-
-- `protocol-dumper` + `protocol-gen`; all 389 packets/445 structs/177 enums
-  generated.
-- Framing, varints, nullable fields, zstd, channels, registry.
-- `hytale-net`: quinn server, ALPN, mTLS, client-cert capture, stream/channel
-  mapping.
-- Handshake state machine skeleton; bot sends `Connect` and reaches auth/setup.
-
-**Exit:** all packets round-trip; bot completes the protocol handshake; protocol
-golden tests pass.
-
-### M2 — Asset foundation
-
-- Asset pack VFS, load-order graph, `Parent` inheritance, index maps, validation.
-- Schema-driven typed assets and P0/P1 stores.
-- Asset packet encoders for P0/P1; golden byte comparison.
-- `--validate-assets` CLI.
-
-**Exit:** Rust produces Java-identical `UpdateBlockTypes`/`UpdateItems`/etc. for
-the default pack; registries match the live/golden snapshot.
-
-### M3 — Runtime, world, storage, worldgen
-
-- `hytale-core` runtime: config, logging, events, tasks, module manifests.
-- `hytale-world`: universe/world lifecycle, runtime chunk sections/palettes,
-  heightmaps, lighting, player data.
-- `hytale-storage`: `IndexedStorageFile`, BSON chunk/player codecs,
-  backup/recovery.
-- Integrate `worldgen-server`, add the query handle and `WorldGenRuntime`.
-- Implement `Default`/`Flat`/`Void`/`Dummy` providers.
-- Headless CLI boots, creates/loads a world, generates chunks, saves/reloads.
-
-**Exit:** headless server round-trips a Java world; generated chunks convert to
-runtime chunks; save/load matches Java.
-
-### M4 — Client join and streaming
-
-- `hytale-auth` and the full connection state machine.
-- Setup, asset streaming, world settings, player spawn.
-- Chunk tracker/view radius, chunk packet streaming, lighting packets, unload.
-- Player movement and basic block place/break.
-- Reconnect and clean disconnect.
-
-**Exit:** matching vanilla client connects, spawns, sees terrain, moves, edits
-blocks, disconnects, reconnects, and the world persists. This is **v1**.
-
-### M5 — Core gameplay parity
-
-- Inventory/items, interactions, block physics/ticks/fluids, collision/physics,
-  entity stats/effects, time/weather, projectiles, prefab spawner, block health,
-  UI basics.
-- Port the core `modules/` subset (entity, interaction, collision, physics,
-  block, item, time, weather, etc.).
-
-**Exit:** scripted gameplay scenarios match Java; no regressions in v1 gates.
-
-### M6 — Builtin modules and NPC
-
-- `hytale-builtin` feature-gated modules and `hytale-npc`: AI, pathfinding,
-  flocking, spawning, combat, encounters, instances, adventure plugins, world
-  map/UI/editor.
-- `builtin/HytaleGenerator` (the density/assignment worldgen engine, 783 files)
-  is a separate project; do not fold it into CoreServer v1.
-
-**Exit:** selected builtin modules run with parity tests; Java plugin support
-remains out of scope.
-
-### M7 — Production hardening
-
-- Security review, fuzzing, rate limits, auth failure handling.
-- Performance tuning and memory ceilings.
-- Cross-platform builds, packaging, docs, plugin/mod API.
-- Long-running soak tests and crash recovery.
-
----
-
-## 8. Workstreams and dependency order
-
-| Workstream | Starts | Depends on | Critical path |
+| Milestone | Purpose | Tasks | Exit |
 |---|---|---|---|
-| Protocol + transport | M1 | — | yes |
-| Asset pipeline | M2 | protocol types for asset packets | yes |
-| Runtime/ECS | M3 | — | yes |
-| World/chunk/storage | M3 | assets (registries), runtime | yes |
-| Auth/join/streaming | M4 | protocol, assets, world, runtime | yes |
-| Gameplay modules | M5 | join/streaming | no |
-| Builtin/NPC | M6 | gameplay | no |
-| Plugin API | M6/M7 | runtime | no |
+| M0 | Archive the completed slice and re-baseline the docs | T34 | Archive is self-contained; root docs describe phase 2 |
+| M2 | Finish the asset foundation | T35–T39 | All P0/P1 asset packets and child indexes are golden-checked; `--validate-assets` passes |
+| M3 | Runtime, universe, world lifecycle | T40–T42 | A persistent multi-world/multi-connection server runtime exists |
+| M4 | v1 client join, multiplayer, edits | T43–T48 | The v1 gate in `plan.md` is satisfied and trace-tested |
+| M5 | Core gameplay parity | T49–T57 | Scripted gameplay scenarios match Java |
+| M6 | Builtins and NPC | T58–T61 | Selected builtin modules and NPC systems run with parity tests |
+| M7 | Production hardening | T62–T64 | Security, performance, packaging, plugin API and soak gates pass |
 
-Parallel tracks: protocol/net and runtime/ECS can start immediately; asset work
-can start once protocol types exist; world/chunk can start with a
-`Registries::empty` stub and swap in the real asset pipeline later.
+Dependency spine:
 
----
+```text
+T34
+ ├─ T35 → T36 ─┐
+ ├─ T35 → T37 ─┼─ T39
+ └─ T35 → T38 ─┘
+ └─ T40 → T41 → T42 → T43 → T44 → T45 → T46 → T47 → T48
+                                                   └─ M5 → M6 → M7
+```
 
-## 9. Main risks and mitigations
-
-1. **Protocol codegen fidelity.** Nullable bitfields, unions, bit-packed fields,
-   and per-field string bounds are easy to get subtly wrong. Mitigation: IR
-   generated once, every packet round-tripped and byte-compared, property tests,
-   fuzzing.
-2. **Asset codec semantics.** `Parent` inheritance and per-codec merge rules are
-   the most under-documented part. Mitigation: schema-driven intermediate
-   representation, golden dumps per store, port stores in dependency order, fail
-   closed with validation.
-3. **Chunk serialization.** Palette layouts and block-migration versions must
-   match. Mitigation: port `BlockSection`/`FluidSection`/`EnvironmentSection`
-   serialization directly from Java, binary fixtures, Java-read-back test.
-4. **IndexedStorage compatibility.** Header, zstd blobs, segment chains, and BSON
-   component names must match exactly. Mitigation: port `IndexedStorageFile`
-   first, then chunk/player codecs; use Java-written fixtures.
-5. **Auth service dependence.** OAuth/session endpoints can change or be
-   unavailable. Mitigation: trait-based auth, offline/dev mode, test against a
-   real client early.
-6. **World tick/ECS semantic drift.** A hybrid ECS changes component lifecycle
-   details. Mitigation: unit and scenario tests around load/save/transfer, keep
-   chunk data outside archetypes, avoid promising Java ECS API parity.
-7. **Scope creep.** `builtin/` and `NPC/` together are larger than CoreServer.
-   Mitigation: freeze v1 at join + streaming + block edits; gate everything else
-   behind M5/M6.
-8. **Performance.** Asset loading and chunk streaming are the likely
-   bottlenecks. Mitigation: parallel pack decode, `Arc` registries, pre-encoded
-   `CachedPacket` equivalents, chunk packet batching, benchmarks from M2 onward.
-9. **Mod ecosystem expectations.** Java plugins will not run. Mitigation:
-   asset-pack compatibility, clear migration docs, and a Rust plugin API; no
-   silent promises of Java compatibility.
+Asset work (T35–T39) and runtime work (T40–T42) can run in parallel after T34.
+T43–T47 all land against the persistent runtime from T42.
 
 ---
 
-## 10. Immediate next steps
+## M0 — Archive and re-baseline
 
-1. **Protocol IR spike:** add `tools/protocol-dumper`, parse
-   `Protocol/target/generated-sources/...`, emit `protocol.json`, and confirm the
-   counts (389/445/177) against `ProtocolSettings`.
-2. **Protocol codegen prototype:** add `crates/hytale-protocol`; generate
-   `Connect`, `Ping`, `Disconnect`, `ServerDisconnect`; prove encode/decode
-   round-trip and framing.
-3. **QUIC transport spike:** add `crates/hytale-net` with `quinn`, ALPN
-   `hytale/3`, mTLS, client-cert extraction, and the length/id framer.
-4. **Asset golden dump:** extend `tools/java-dumper` to emit `UpdateBlockTypes`,
-   `UpdateItems`, `UpdateEnvironments`, `AssetInitialize`/`AssetPart`, and
-   per-store decoded maps for the default pack.
-5. **Asset loader spike:** implement `hytale-assets` for `BlockType`, `Item`,
-   `Fluid`, `Environment`; compare against `testdata/golden/registries.json` and
-   the new asset golden.
-6. **Runtime chunk spike:** define `ChunkColumn`/sections with palettes; implement
-   `from_generated_chunk`; produce a Java `SetChunk` golden fixture and match it.
-7. **Storage spike:** port `IndexedStorageFile` and read one Java region file;
-   decode `WorldChunk`/`BlockChunk` BSON.
-8. **Client bot skeleton:** send `Connect`, log the handshake, and use it as the
-   first end-to-end gate.
+### T34 — Archive the completed vertical slice
 
-The first real proof point is not "CoreServer compiles"; it is **a Rust binary
-that loads the vanilla asset pack, writes a Java-compatible region file, and
-serves one matching client through spawn and chunk streaming**. Everything else
-in this plan is built to make that proof point reliable and then widen it.
+**Status:** done (session 24)
+**Package:** docs, `done/`, `tasks/`
+**Depends on:** T33 (done)
+**Agent fit:** high
+
+Completed in [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md).
+
+**Goal**
+
+Move the completed slice’s documentation and task list into
+`done/coreserver-vertical-slice/`, leaving fresh root docs for phase 2.
+
+**Deliverables**
+
+- Create `done/coreserver-vertical-slice/` with:
+  - `README.md` archive index (mirror `done/world-generation/README.md`).
+  - `plan.md`, `NEXT_STEPS.md`, `ARCHITECTURE.md`, `PORTING_HISTORY.md`,
+    `PORTING.md`, `REMAINING.md`, `GOLDEN_DATA.md`, `BENCHMARKS.md` snapshots.
+  - `tasks/` containing T01–T33 exactly as completed.
+- Use `git mv` so history is preserved. Do not copy code, fixtures, tools, or
+  testdata.
+- On the archive README, state:
+  - what the slice covers (protocol → join → assets → chunks → auth → spawn);
+  - that `PORTING.md` is a snapshot while the root copy remains the living
+    convention guide;
+  - which testdata and Java tools still apply.
+- Update `done/world-generation/README.md` so its “current rewrite” links point
+  at the new root docs, and add a link to the new archive.
+- Create new root docs for phase 2:
+  - `plan.md`: this milestone/task plan (adapted from this file).
+  - `NEXT_STEPS.md`: status, gates, “start at T35”.
+  - `PORTING_HISTORY.md`: empty phase-2 log starting at session 24.
+  - `ARCHITECTURE.md`: current architecture with phase-1 details retained,
+    phase-2 sections marked pending.
+  - `REMAINING.md`: deferred scope, carried forward with milestone references.
+  - `GOLDEN_DATA.md`: oracle rules plus new child-store fixture layout.
+  - `BENCHMARKS.md`: measurement plan; reset “no numbers yet” only if true.
+  - `tasks/README.md`: task board for T34–T64; individual task files created as
+    each milestone starts.
+- Keep `PORTING.md` at the root as the living guide; archive a snapshot.
+
+**Acceptance**
+
+```sh
+find done/coreserver-vertical-slice -maxdepth 2 -type f | sort
+rg -n '\]\([^)]*\.md\)' done/coreserver-vertical-slice done/world-generation
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
+- No Markdown link in either `done/` tree is broken.
+- `git status` shows only documentation/task moves.
+- Root `NEXT_STEPS.md` names T35 as the next task.
+
+---
+
+## M2 — Asset foundation completion
+
+### T35 — Child-store golden dumper extension
+
+**Package:** `tools/asset-golden-dumper`, `testdata/golden/server/assets`, Java dumper
+**Depends on:** T34
+**Agent fit:** medium
+
+**Goal**
+
+Extend the Java oracle from P0 to the P1 stores and the P2 stores that feed
+their indexes, so child-store packet work is golden-first.
+
+**Deliverables**
+
+- Add a documented store selector to `tools/asset-golden-dumper` (for example
+  `--priority P0,P1 --closure`) that dumps a store plus its dependency closure.
+- Dump, with packet metadata and deterministic map ordering:
+  - P1: `BlockBreakingDecal`, `BlockParticleSet`, `BlockSet`, `BlockSoundSet`,
+    `ItemCategory`, `ItemQuality`.
+  - Selected P2: `FluidFX`, `ItemSoundSet`, `SoundEvent`, `TagPattern`,
+    `ParticleSystem`, `ParticleSpawner`, `ItemReticleConfig`,
+    `ItemPlayerAnimations`.
+  - Non-packet dependencies needed to decode the above (for example audio
+    categories/sets) may be dumped as `index.json` entries without `.bin`.
+- Add `<Store>.bin` for every selected store with a packet generator and keep
+  `index.json` schema-compatible.
+- Record in `testdata/golden/server/assets/README.md` how to regenerate and
+  which stores are included.
+
+**Acceptance**
+
+```sh
+tools/java-dumper/run-assets.sh --check
+# two isolated runs are byte-identical
+```
+
+- New payloads decode with the generated Rust codecs.
+- Existing P0 `.bin` files and `index.json` entries are unchanged.
+- Store counts and `packetId`/`packetSize` match the Java inventory.
+
+---
+
+### T36 — Block/fluid child stores and packet encoders
+
+**Package:** `hytale-assets`
+**Depends on:** T35
+**Agent fit:** medium
+
+**Goal**
+
+Load and stream the stores that resolve `BlockType`, `Fluid` and `Environment`
+child indexes, so those packets can carry real ids instead of `0`.
+
+**Deliverables**
+
+- Registry collections for `BlockBreakingDecal`, `BlockParticleSet`,
+  `BlockSoundSet`, `FluidFX`, `SoundEvent`, plus their decode dependencies.
+- Java-compatible id assignment for file-backed stores and the parent rules
+  those stores use; preloads where Java has code-defined entries.
+- Packet encoders for the generated packet types of those stores
+  (breaking decals, block particles, block sounds, fluid FX, sound events).
+- Deterministic tag/index handling for any tag references in those stores.
+- Golden tests: byte comparison where ids match Java, semantic comparison where
+  Rust-owned ids/child indexes differ.
+
+**Acceptance**
+
+```sh
+cargo test -p hytale-assets
+cargo test --workspace
+```
+
+- Store counts/ids match the Java index.
+- Every emitted packet decodes.
+- `BlockType.blockSoundSetIndex`, `Fluid.fluidFxIndex`,
+  `Fluid.blockSoundSetIndex` resolve to real ids where Java has them.
+- Environment `fluidParticles` is populated when the pack defines it.
+
+---
+
+### T37 — Item child stores and packet encoders
+
+**Package:** `hytale-assets`
+**Depends on:** T35
+**Agent fit:** medium
+
+**Goal**
+
+Resolve the item-side child stores: quality, sound set, reticle, categories and
+generated player animations.
+
+**Deliverables**
+
+- Registry collections for `ItemSoundSet`, `ItemQuality`, `ItemReticleConfig`,
+  `ItemCategory`, `ItemPlayerAnimations`.
+- Packet encoders for the stores that have generators.
+- Item encoder updates:
+  - `qualityIndex` and quality-driven `ItemEntity`;
+  - `itemSoundSetIndex`;
+  - `reticleIndex`;
+  - generated `ItemPlayerAnimations` ids for contained item states;
+  - category ids where the protocol wants them.
+- Golden tests for each new packet and for the previously divergent item fields.
+
+**Acceptance**
+
+```sh
+cargo test -p hytale-assets
+cargo test --workspace
+```
+
+- The 818 `itemEntity`, 61 `playerAnimationsId` and `qualityIndex` differences
+  are explained by real stores or closed.
+- Item packet keys still cover all 3971 Java items.
+
+---
+
+### T38 — TagPattern store and `UpdateTagPatterns`
+
+**Package:** `hytale-assets`, `hytale-server`
+**Depends on:** T35
+**Agent fit:** medium
+
+**Goal**
+
+Stream tag patterns and make pattern-expanded tags part of the same Rust-owned
+tag registry as `ServerTags`.
+
+**Deliverables**
+
+- `TagPattern` registry, parent handling and id assignment.
+- Java pattern expansion into tag indexes; assets that use a pattern see the
+  expanded indexes in `BlockType`/`Item`/`Fluid`/`Environment`.
+- `UpdateTagPatterns` encoder and ordering before the block/item packets.
+- Golden test with the Java pattern payload and `ServerTags` consistency.
+
+**Acceptance**
+
+- Every tag index emitted by any asset packet resolves through `ServerTags`.
+- Pattern store packet decodes and matches the Java payload semantically.
+- No index drift between `config_assets()` calls.
+
+---
+
+### T39 — Wire child packets, cache config assets, add `--validate-assets`
+
+**Package:** `hytale-assets`, `hytale-server`, `client-bot`
+**Depends on:** T36, T37, T38
+**Agent fit:** medium
+
+**Goal**
+
+Make the full config packet set part of the join, cache it for multi-connection
+use, and expose an asset validation command.
+
+**Deliverables**
+
+- Final dependency order, roughly:
+  `BlockBoundingBoxes` → `PhysicalMaterial` → `SoundEvent`/`BlockSoundSet` →
+  `FluidFX` → `Fluid` → `Environment` → `TagPattern` → `BlockType` →
+  `BlockParticleSet` / decals → `ItemSoundSet`/`ItemQuality`/`ItemCategory` →
+  `Item`.
+  Exact order is constraint-driven: every index reference arrives before its
+  consumer.
+- Cache encoded `ConfigAssets` once per loaded registry and share it across
+  sessions (no per-connection 8–10 MB re-encode).
+- Add `hytale-server --validate-assets [--pack PATH]`:
+  - loads every enabled store;
+  - reports counts, failures, ids, tag indexes and encoded packet sizes;
+  - exits non-zero on validation drift.
+- Update `client-bot` for the new packet ids and config-order test.
+- Re-run the semantic goldens and update the residual list; remove the
+  exceptions that closed.
+
+**Acceptance**
+
+```sh
+cargo test -p hytale-assets
+cargo test -p client-bot --test auth_join -- --ignored
+cargo test --workspace
+cargo run -p hytale-server -- --validate-assets
+```
+
+- The auth join sends all P0/P1 config packets in dependency order.
+- Asset validation is deterministic and reports no failures for the default
+  pack.
+- Config packet encoding happens once per process/world.
+
+---
+
+## M3 — Runtime, universe and world lifecycle
+
+### T40 — `hytale-core` runtime
+
+**Package:** `hytale-core`
+**Depends on:** T34
+**Agent fit:** medium
+
+**Goal**
+
+Create the shared runtime services every later task needs.
+
+**Deliverables**
+
+- Config loading with typed defaults and environment/CLI overrides.
+- Structured logging/tracing initialization.
+- Async task scheduler/shutdown token.
+- Typed event bus with per-subscriber ordering.
+- Module manifest/registry seam (feature-gated modules can register).
+- Unit tests for config precedence, event ordering and graceful shutdown.
+
+**Acceptance**
+
+- `cargo test -p hytale-core` passes.
+- Existing binaries boot with defaults unchanged.
+- No global mutable singletons beyond process-level handles.
+
+---
+
+### T41 — Universe and world lifecycle
+
+**Package:** `hytale-world`, `hytale-server`, `worldgen-server`
+**Depends on:** T40
+**Agent fit:** low/medium
+
+**Goal**
+
+Own multiple worlds for the process lifetime instead of one scripted save.
+
+**Deliverables**
+
+- `Universe`: create/load/list/unload/save worlds; default world selection;
+  world UUID/name resolution.
+- Per-world `WorldThread` lifecycle, spawn point, view registry and save-on-
+  unload/shutdown.
+- World provider seam: `Default`, `Flat`, `Void`, `Dummy` (at minimum Default;
+  others may return empty chunks until M5).
+- Player save load/save on world join/leave.
+- CLI: a small `world`/`universe` surface for create/load/list/save/delete used
+  by tests and operations.
+
+**Acceptance**
+
+- Two worlds can be created, edited and saved concurrently, then reloaded.
+- Java save/read gates still pass.
+- Shutdown flushes dirty chunks and player data once.
+- A missing/corrupt world fails closed with a clear error.
+
+---
+
+### T42 — Persistent listener and multi-session runtime
+
+**Package:** `hytale-server`, `hytale-net`, `client-bot`
+**Depends on:** T41, T39 (for cached config packets)
+**Agent fit:** low/medium
+
+**Goal**
+
+Replace the one-connection demo with the real server loop.
+
+**Deliverables**
+
+- `hytale-server serve` (or equivalent) that owns the QUIC listener, universe
+  and shared asset registry for the process lifetime.
+- One independent session task per connection, with the existing join state
+  machine, auth modes and view tracking.
+- Connection limits, idle/timeout handling, clean disconnect and graceful
+  shutdown.
+- Shared/cached config assets; per-session tag/config handoff.
+- Keep `chunk-serve` as a debug transport demo or fold it into `serve --demo`.
+- Loopback test with two or more clients joining the same world concurrently.
+
+**Acceptance**
+
+```sh
+cargo test -p hytale-server
+cargo test -p client-bot --test auth_join -- --ignored
+```
+
+- Two bots join concurrently, each receives its own 21-chunk view.
+- Disconnecting one does not unload the other’s chunks or stop the listener.
+- A new connection can join after a disconnect without restarting the process.
+- Shutdown closes sessions and flushes world state.
+
+---
+
+## M4 — v1 client join, multiplayer and edits
+
+### T43 — World clock and `GameplayConfig`
+
+**Package:** `hytale-server`, `hytale-world`, `hytale-assets`
+**Depends on:** T42
+**Agent fit:** medium
+
+**Goal**
+
+Make time advance and stop using protocol defaults for gameplay rules.
+
+**Deliverables**
+
+- World clock state derived from `WorldConfig` day/night durations and pause.
+- Tick progression, periodic `UpdateTime`, pause/resume behavior.
+- Load `GameplayConfig` (internal store; no packet) and encode
+  `WorldGameplayConfig` from it with protocol-default fallback.
+- Tests for clock wrap, pause, duration overrides and config fallback.
+
+**Acceptance**
+
+- A client sees time advance after joining and after an hour rollover.
+- Gameplay flags match the loaded config.
+- Clock state survives save/reload via the world config/time source.
+
+---
+
+### T44 — Self-spawn equipment and cosmetics from the player save
+
+**Package:** `hytale-server`, `hytale-world`
+**Depends on:** T42
+**Goal:** replace the empty self-spawn model/skin/equipment payloads.
+
+**Deliverables**
+
+- Decode/preserve the player save components needed for appearance and
+  equipment (model, skin, equipment, selected item).
+- Build the self `EntityUpdates` components from those values.
+- Safe defaults when a component is absent or an item id is unknown.
+- Java player-save read-back remains green.
+
+**Acceptance**
+
+- A saved player with equipment spawns with those items/components.
+- An empty/default save still spawns with Java-compatible defaults.
+- Unknown ids fall back without failing the join.
+
+---
+
+### T45 — Other-player entity tracking and broadcast
+
+**Package:** `hytale-server`, `hytale-entities`
+**Depends on:** T42, T44
+**Goal:** make multiplayer observable.
+
+**Deliverables**
+
+- Per-world player entity registry (id, transform, appearance, view).
+- Add/remove/update broadcasts as players join, leave, move or change view.
+- Player list updates for all sessions.
+- Movement throttling/interest filtering by view radius.
+- Loopback test with two bots seeing each other’s spawn and movement.
+
+**Acceptance**
+
+- Two clients see each other spawn, move and disconnect.
+- No entity update leaks after a player leaves.
+- Player list and self identity remain correct.
+
+---
+
+### T46 — Block place/break
+
+**Package:** `hytale-server`, `hytale-world`
+**Depends on:** T42
+**Goal:** complete the v1 edit loop.
+
+**Deliverables**
+
+- Decode client block place/break packets (or the equivalent interaction
+  packets used by the client).
+- Validate target, block id and reach; apply through `WorldThread`.
+- Mark chunks dirty, stream block/section updates to interested sessions.
+- Persist the edit through the existing region save path.
+- Minimal inventory/held-item consistency needed by the edit flow (do not port
+  the full inventory yet).
+
+**Acceptance**
+
+- A bot places and breaks a block; another client sees the change.
+- The edit survives save/reload and the Java reload gate.
+- Invalid targets/ids are rejected without killing the session.
+
+---
+
+### T47 — Disconnect, reconnect and session teardown
+
+**Package:** `hytale-server`, `client-bot`
+**Depends on:** T43–T46
+**Goal:** make the v1 lifecycle reliable.
+
+**Deliverables**
+
+- Graceful `ClientDisconnect` and server-initiated disconnect paths.
+- Session teardown: chunk view unload, player save, entity removal, broadcast.
+- Reconnect with the same identity and saved position/state.
+- Timeouts and half-closed QUIC stream handling.
+- Loopback test: join → move → edit → disconnect → reconnect.
+
+**Acceptance**
+
+- No task/thread/memory leak across repeated join/leave cycles.
+- Reconnect restores saved transform and world edits.
+- A failed disconnect does not block the world thread or listener.
+
+---
+
+### T48 — Real-client trace and v1 compatibility gate
+
+**Package:** `tools/client-bot`, `testdata/golden/server`, docs
+**Depends on:** T47
+**Goal:** prove the join against a real client trace, not only the bot.
+
+**Deliverables**
+
+- A trace-capture note/tool for the real client (packet id, channel, order,
+  payload hashes; no proprietary payloads beyond what the project already
+  commits).
+- A committed trace fixture or a documented manual runbook if capture cannot be
+  redistributed.
+- A gate test that replays the trace order/state transitions against the
+  server.
+- Update `REMAINING.md`/`PORTING_HISTORY.md` with any client-required packets
+  discovered.
+
+**Acceptance**
+
+- A vanilla client connects, spawns, sees terrain and another player, moves,
+  edits blocks, disconnects and reconnects.
+- The recorded trace gate is repeatable in CI (or the manual runbook is
+  verified and linked).
+- This closes `plan.md` M4 / v1.
+
+---
+
+## M5 — Core gameplay parity
+
+These are roadmap-sized work packets; create each `tasks/Txx-*.md` when the
+milestone starts. Each task must name its Java oracle and scripted scenario.
+
+### T49 — Inventory, containers and transactions
+
+**Package:** new `hytale-inventory` (or `hytale-entities` modules) + server/world
+**Goal:** item stacks, held item, inventory containers, pickup/drop, atomic
+transactions and save integration.
+**Acceptance:** scripted item move/split/merge/drop/pickup scenarios match Java;
+save/reload preserves inventory.
+
+### T50 — Interaction graph and block interactions
+
+**Package:** `hytale-entities`, `hytale-world`, `hytale-server`
+**Goal:** root/interaction chains, interaction vars, block interaction dispatch,
+doors/benches/containers as the first consumers.
+**Acceptance:** scripted primary/secondary/use interactions match Java; block
+edit path from T46 remains green.
+
+### T51 — Player movement physics and collision authority
+
+**Package:** `hytale-world`, `hytale-entities`
+**Goal:** server-authoritative movement, collision, gravity, step/climb basics,
+anti-cheat bounds.
+**Acceptance:** scripted walk/jump/fall/collide scenarios match Java within
+documented tolerance; no rubber-banding in the bot loop.
+
+### T52 — Block simulation: ticks, fluids and support
+
+**Package:** `hytale-world`, `hytale-entities`
+**Goal:** random/block ticks, fluid flow, support propagation, falling blocks,
+block health and drops.
+**Acceptance:** scripted tick/fluid/support scenarios match Java; regions
+remain Java-readable.
+
+### T53 — Entity stats, effects and combat basics
+
+**Package:** `hytale-entities`
+**Goal:** entity stat maps, effects, damage causes, health/death, basic combat.
+Also load the `EntityStatType` module store for item utility/stat HUD payloads.
+**Acceptance:** scripted damage/effect/death scenarios match Java; item stat
+indexes resolve.
+
+### T54 — Time and weather
+
+**Package:** `hytale-world`, `hytale-server`
+**Goal:** weather state/assets and transitions; completed time integration.
+**Acceptance:** scripted weather transition and time scenario match Java.
+
+### T55 — Projectiles and traversal
+
+**Package:** `hytale-entities`
+**Goal:** projectile spawn/flight/hit, basic mounts, parkour/mantling/crouch-slide
+as scoped in `REMAINING.md`.
+**Acceptance:** scripted projectile hit/miss and traversal scenarios.
+
+### T56 — Prefab spawner and runtime entities
+
+**Package:** `hytale-world`, `hytale-entities`
+**Goal:** prefab block/fluid/environment paste (already), prefab entities and
+block components, spawn/despawn lifecycle.
+**Acceptance:** prefab scenario matches Java; save/reload preserves entities.
+
+### T57 — UI basics and block health presentation
+
+**Package:** `hytale-server`, protocol
+**Goal:** the minimal UI/world-map/compass/marker packets needed by M5 scenarios;
+block health/breaking presentation.
+**Acceptance:** client-visible state matches the server state in scripted runs.
+
+---
+
+## M6 — Builtins and NPC
+
+### T58 — NPC core: AI, pathfinding and flocking
+
+**Package:** new `hytale-npc`
+**Goal:** NPC archetypes, navigation/pathfinding, flocking/steering, perception.
+**Acceptance:** scripted NPC navigation/flocking scenarios match Java.
+
+### T59 — NPC spawning, combat and encounters
+
+**Package:** `hytale-npc`, `hytale-world`
+**Goal:** spawn rules, combat, encounters/instances/portals.
+**Acceptance:** scripted encounter/combat scenario matches Java.
+
+### T60 — Builtin module runtime and selected modules
+
+**Package:** `hytale-builtin` feature crates
+**Goal:** module manifest/lifecycle and the selected `builtin/` modules needed
+by M5/M6 (not all 62 at once).
+**Acceptance:** each enabled module has a parity test; disabled modules add no
+runtime cost.
+
+### T61 — Editor, builder tools, machinima, voice, cosmetics; HytaleGenerator
+
+**Package:** separate/deferred
+**Goal:** scope explicitly after M6; keep `builtin/HytaleGenerator` as a separate
+engine project.
+**Acceptance:** documented scope decision and, if implemented, parity smoke
+tests.
+
+---
+
+## M7 — Production hardening
+
+### T62 — Security, fuzzing and rate limits
+
+- Protocol/asset fuzzing, malformed packet handling, auth failure paths, rate
+  limits, resource ceilings, dependency audit.
+- Acceptance: fuzz targets run clean for the defined budget; abuse tests fail
+  closed.
+
+### T63 — Performance, memory and soak
+
+- Benchmark boot, asset decode, config packet cache, chunk stream, world tick and
+  save; memory ceilings; long-running soak with repeated joins/edits.
+- Acceptance: published numbers against Java where comparable; no leaks in the
+  soak budget.
+
+### T64 — Packaging, docs and plugin/mod API
+
+- Cross-platform release builds, service/package docs, asset-mod compatibility
+  docs, Rust plugin API and migration guide.
+- Acceptance: reproducible release artifact; documented plugin/asset-mod
+  workflow; no Java-plugin compatibility claims.
+
+---
+
+## 2. Sequencing rules
+
+1. T34 must land before creating phase-2 task files or touching root docs.
+2. T35 must land before T36–T38: child-store work is golden-first.
+3. T39 depends on T36–T38; do not wire partial indexes into the join.
+4. T40–T42 can run in parallel with T35–T39 after T34, but T42 needs T39’s
+   cached config packets.
+5. T43–T47 are serialized by shared session/world state; T48 is the final M4
+   gate.
+6. M5 starts only after T48; M6 after M5; M7 after M6.
+7. Every task keeps the workspace gates green before handoff.
+
+## 3. Definition of done for phase 2
+
+- M2 exit: all P0/P1 asset packets are golden-checked, child indexes are real,
+  `--validate-assets` is deterministic, and the config cache is shared.
+- M3 exit: the universe owns multiple worlds and the listener owns multiple
+  sessions for the process lifetime.
+- M4 exit: the `plan.md` v1 gate passes with a real-client trace.
+- M5/M6 exit: the scripted parity suites for the enabled gameplay/NPC/builtin
+  scope pass.
+- M7 exit: security, soak, performance and packaging gates pass.
+- `done/coreserver-vertical-slice/` remains a self-contained archive; new root
+  docs and `tasks/` describe only remaining work.
+
+## 4. Task-file template for phase 2
+
+Each `tasks/Txx-*.md` should use the existing format:
+
+```markdown
+# Txx — Title
+
+**Status:** planned | in progress | done (session N)
+**Package:** crates/tools
+**Depends on:** Tyy, Tzz
+**Agent fit:** high | medium | low
+
+## Goal
+One paragraph tying the task to the milestone exit.
+
+## Deliverables
+- Concrete files/types/commands.
+
+## Acceptance
+```sh
+cargo test -p <crate>
+cargo clippy -p <crate> --all-targets -- -D warnings
+cargo fmt -p <crate> -- --check
+```
+- Observable results and golden/Java gates.
+
+## Deviations
+- Filled in when the task lands.
+
+## Follow-ups
+- Explicitly out of scope for this task.
+```

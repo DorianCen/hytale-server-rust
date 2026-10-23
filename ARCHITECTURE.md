@@ -54,14 +54,19 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   persistent `Chunks` stream and a 50 ms game loop that turns `ClientMovement`
   into `WorldThread::set_view` updates. Session 22 added the `Environment` and
   `Fluid` config packets with a Rust-owned tag registry and matching
-  `ServerTags`. Other-player tracking, real world-clock progression, block
-  interactions, a universe and a multi-connection listener are still open; see
+  `ServerTags`. Session 23 added `BlockType`/`Item`, including item `State`
+  contained assets and the Rust-owned group registry, so all six self-contained
+  P0 config packets stream during setup. The first vertical slice is archived in
+  [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md).
+  Phase 2 covers child asset stores, the persistent universe/listener,
+  multiplayer tracking, block edits, the world clock, a real-client trace and
+  then gameplay/NPC/hardening; see [`plan.md`](plan.md),
   [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
-- **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
-  [`done/PORTING.md`](done/PORTING.md),
-  [`done/PORTING_HISTORY.md`](done/PORTING_HISTORY.md).
+- **Archived worldgen docs:** [`done/world-generation/ARCHITECTURE.md`](done/world-generation/ARCHITECTURE.md),
+  [`done/world-generation/PORTING.md`](done/world-generation/PORTING.md),
+  [`done/world-generation/PORTING_HISTORY.md`](done/world-generation/PORTING_HISTORY.md).
 
 Paths are relative to the repository root unless noted.
 

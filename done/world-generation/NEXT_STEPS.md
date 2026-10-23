@@ -15,7 +15,7 @@ changes.
   (archived; **do not read unless debugging or verifying a regression**).
 - Architecture / Java→Rust mapping: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - Deliberately deferred scope: [`REMAINING.md`](REMAINING.md).
-- Golden-data formats / regeneration: [`testdata/golden/README.md`](../testdata/golden/README.md).
+- Golden-data formats / regeneration: [`testdata/golden/README.md`](../../testdata/golden/README.md).
 - Live server registry snapshot: [`LIVE_SNAPSHOT.md`](LIVE_SNAPSHOT.md).
 - Release-mode performance baseline: [`BENCHMARKS.md`](BENCHMARKS.md).
 
