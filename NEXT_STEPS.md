@@ -1,13 +1,13 @@
-# Next steps — CoreServer rewrite, phase 2 (session 24)
+# Next steps — CoreServer rewrite, phase 2 (session 25)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** [`T35`](tasks/T35-child-store-goldens.md) — extend the Java asset
-golden dumper to the P1 stores and the P2 dependency closure needed for child
-indexes.
+**Next tasks:** T36, T37 and T38 can run in parallel now that the child-store
+goldens exist. T36 adds the block/fluid child stores and their packets; T37 does
+the item child stores; T38 adds `TagPattern`. T39 wires them into the join.
 
 ## Current state
 
@@ -16,6 +16,8 @@ Landed and green:
 - Protocol codegen, framing, QUIC/mTLS transport.
 - P0 asset registry + deterministic ids; config packets `41`, `87`, `83`, `61`,
   `40`, `54`.
+- T35 child-store goldens (26 stores, 21 payloads) with selector/closure support
+  in `AssetDumper`; `BlockSet` and `GameplayConfig` gaps are recorded.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset

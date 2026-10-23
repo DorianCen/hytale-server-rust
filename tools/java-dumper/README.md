@@ -48,22 +48,28 @@ resolves it relative to the repository root — the pack is not part of the sour
 store iteration order depends on class-initialization order; moving it later changes
 block ids and invalidates the committed chunk goldens.
 
-## Asset-store dump (P0)
+## Asset-store dump (P0 + child stores)
 
-`AssetDumper` reuses the registry boot and writes the P0 asset packets to
+`AssetDumper` reuses the registry boot and writes the phase-2 asset packets to
 `testdata/golden/server/assets/`:
 
 ```sh
-tools/java-dumper/run-assets.sh                     # write the committed directory
+tools/java-dumper/run-assets.sh                     # default phase-2 set
 tools/java-dumper/run-assets.sh /tmp/assets-golden   # arbitrary output directory
 tools/java-dumper/run-assets.sh --check             # two isolated runs + diff
+
+# narrower selections
+tools/java-dumper/run-assets.sh --priority P0 /tmp/assets-p0
+tools/java-dumper/run-assets.sh --priority P0,P1 --closure /tmp/assets-p01
+tools/java-dumper/run-assets.sh --stores FluidFX,ParticleSystem --closure /tmp/assets-fx
 ```
 
 `ASSET_PACK=<path>` overrides the pack (relative to the repository root or
 absolute). See
 [`../asset-golden-dumper/README.md`](../asset-golden-dumper/README.md) and
 [`../../testdata/golden/server/assets/README.md`](../../testdata/golden/server/assets/README.md)
-for the schema, sizes and the deterministic map-order canonicalization.
+for the default selection, schema, sizes, known gaps and the deterministic
+map-order canonicalization.
 
 ## Chunk-packet dump
 
@@ -232,8 +238,9 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
 
 - `pom.xml` – build and dependencies.
 - `run.sh` – build + run entry point.
-- `run-assets.sh` – build + run entry point for the P0 asset-store dump
-  (wraps `run.sh` with `AssetDumper`; `--check` runs the determinism gate).
+- `run-assets.sh` – build + run entry point for the asset-store dump
+  (wraps `run.sh` with `AssetDumper`; `--check` runs the determinism gate;
+  `--priority`/`--stores`/`--closure` select a subset).
 - `run-chunks.sh` – build + run entry point for the chunk-packet dump
   (wraps `run.sh` with `ChunkPacketDumper`; `--check` runs the determinism gate).
 - `run-storage.sh` – build + run entry point for the Java world-storage dump
@@ -257,10 +264,12 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   dump (`registries.json`): the real block / fluid / environment registries of the
   base-game asset pack, produced by running the vanilla CoreServer asset pipeline
   (`AssetRegistryLoader`) over `Assets/Assets.zip`.
-- `src/main/java/com/hypixel/hytale/tools/golden/AssetDumper.java` – the P0
+- `src/main/java/com/hypixel/hytale/tools/golden/AssetDumper.java` – the
   asset-store dump (`testdata/golden/server/assets/`): the real
   `generateInitPacket` payloads (uncompressed, unframed) and the key/id index,
-  booting the same pipeline as `RegistryDumper`.
+  booting the same pipeline as `RegistryDumper`. The default set is P0 + P1 +
+  the child-store dependency roots; `--priority`/`--stores`/`--closure` narrow
+  it.
 - `src/main/java/com/hypixel/hytale/tools/golden/ChunkPacketDumper.java` – the
   chunk-packet dump (`testdata/golden/server/chunks-pkts/`): real Java packets
   for seed 0 chunks `(0,0)` and `(4,-5)` from the same world boot as

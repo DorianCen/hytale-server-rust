@@ -1,7 +1,7 @@
-# Asset-store golden data (P0)
+# Asset-store golden data (P0 + child stores)
 
-Reference output of the real Java CoreServer asset pipeline for the **P0**
-stores of [`tools/asset-golden-dumper/asset-stores.json`](../../../../tools/asset-golden-dumper/asset-stores.json).
+Reference output of the real Java CoreServer asset pipeline for the phase-2
+store set: P0, P1, and the P2/P3 dependency roots that feed their indexes.
 Produced by `com.hypixel.hytale.tools.golden.AssetDumper`; regenerate, never
 hand-edit.
 
@@ -12,7 +12,7 @@ Prerequisites: JDK 25, Maven 3.10+, the read-only Java source tree under
 base-game pack at `Assets/Assets.zip` (3.7 GB, not part of the source tree).
 
 ```sh
-# write testdata/golden/server/assets/
+# write the default phase-2 set into testdata/golden/server/assets/
 tools/java-dumper/run-assets.sh
 
 # write an arbitrary directory
@@ -20,6 +20,11 @@ tools/java-dumper/run-assets.sh /tmp/assets-golden
 
 # determinism gate: two isolated runs + diff against this directory
 tools/java-dumper/run-assets.sh --check
+
+# narrower selections (for local investigation)
+tools/java-dumper/run-assets.sh --priority P0 /tmp/assets-p0
+tools/java-dumper/run-assets.sh --priority P0,P1 --closure /tmp/assets-p01
+tools/java-dumper/run-assets.sh --stores FluidFX,ParticleSystem --closure /tmp/assets-fx
 ```
 
 `ASSET_PACK=<path>` overrides the pack (relative to the repository root or
@@ -30,21 +35,59 @@ registry dump: `Options.parse([])`, inert `HytaleServer`/`Universe` stubs, the
 variants, the pack's `CommonAssetsIndex.hashes`, and `Assets/Assets.zip` mounted
 as a zip `FileSystem`.
 
+### Store selection
+
+Without a selector, the dumper emits:
+
+- every P0 and P1 store;
+- the explicit P2/P3 roots `FluidFX`, `ItemSoundSet`, `SoundEvent`,
+  `TagPattern`, `ParticleSystem`, `ParticleSpawner`, `ItemReticleConfig`,
+  `ItemPlayerAnimations`;
+- the transitive `loadsAfter` closure of those extra roots
+  (`AudioCategory`, `AudioState`, for example).
+
+`--priority P0` reproduces the old P0-only set. `--stores A,B --closure` selects
+explicit stores and their `loadsAfter` dependencies. The closure follows the
+`loadsAfter` edges in `tools/asset-golden-dumper/asset-stores.json`; names that
+are not part of the 54-store inventory (for example `EntityStatType`) are
+recorded as `meta.missingDependencies`, never invented.
+
 ## Files
 
 | File | Contents | Size |
 |---|---|---:|
-| `index.json` | meta + per-store keys, numeric ids, counts, packet metadata | 1,081,229 B |
+| `index.json` | meta + per-store keys, numeric ids, counts, packet metadata | 1,405,521 B |
 | `BlockBoundingBoxes.bin` | `UpdateBlockHitboxes` init payload | 12,079 B |
 | `BlockType.bin` | `UpdateBlockTypes` init payload | 5,872,115 B |
 | `Environment.bin` | `UpdateEnvironments` init payload | 7,514 B |
 | `Fluid.bin` | `UpdateFluids` init payload | 5,580 B |
 | `Item.bin` | `UpdateItems` init payload | 2,628,479 B |
 | `PhysicalMaterial.bin` | `UpdatePhysicalMaterials` init payload | 325 B |
+| `BlockBreakingDecal.bin` | `UpdateBlockBreakingDecals` init payload | 1,253 B |
+| `BlockParticleSet.bin` | `UpdateBlockParticleSets` init payload | 5,132 B |
+| `BlockSoundSet.bin` | `UpdateBlockSoundSets` init payload | 3,112 B |
+| `ItemCategory.bin` | `UpdateItemCategories` init payload | 6,570 B |
+| `ItemQuality.bin` | `UpdateItemQualities` init payload | 3,545 B |
+| `AudioCategory.bin` | `UpdateAudioCategories` init payload | 6,144 B |
+| `AudioState.bin` | `UpdateAudioStates` init payload | 1,378 B |
+| `FluidFX.bin` | `UpdateFluidFX` init payload | 426 B |
+| `ItemSoundSet.bin` | `UpdateItemSoundSets` init payload | 1,529 B |
+| `ParticleSpawner.bin` | `UpdateParticleSpawners` init payload | 1,887,288 B |
+| `ParticleSystem.bin` | `UpdateParticleSystems` init payload | 517,716 B |
+| `SoundEvent.bin` | `UpdateSoundEvents` init payload | 759,615 B |
+| `TagPattern.bin` | `UpdateTagPatterns` init payload | 7,289 B |
+| `ItemPlayerAnimations.bin` | `UpdateItemPlayerAnimations` init payload | 1,509,718 B |
+| `ItemReticleConfig.bin` | `UpdateItemReticles` init payload | 758 B |
 
-Total: 9,607,321 B (9.2 MiB). `BlockTypeListAsset` and `PrefabListAsset` have
-no packet generator in the Java server, so they have no `.bin`; their keys are
-in `index.json`.
+Total: 13,237,565 B of payloads (12.6 MiB) plus the 1.4 MiB index.
+`BlockTypeListAsset`, `PrefabListAsset`, `GameplayConfig` and `ModelAsset` have
+no packet generator in the Java server, so they only appear in `index.json`.
+`BlockSet` has a generator, but it needs a server module that the asset-only boot
+does not install; its index entry records `packetError` and has no `.bin`.
+
+The phase-2 regeneration re-baselined the `BlockType`, `Environment`, `Fluid`
+and `Item` payload hashes. Their sizes are unchanged and the Rust semantic gates
+still pass; the committed hashes follow the canonical single-worker output.
 
 ## Payload format
 
@@ -80,11 +123,11 @@ differ between runs.
 
 ```text
 meta:
-  producer, inventory, storeFilter, pack, packFormat, packKey
-  protocolVersion, protocolCrc, protocolBuildNumber   (ProtocolSettings)
-  parallelism, boot, payload, indexOrder, missingPackets, loadFailures,
-  deterministic
-stores[]:                       (in P0 inventory order)
+  producer, inventory, storeFilter, selectedStoreCount, pack, packFormat,
+  packKey, protocolVersion, protocolCrc, protocolBuildNumber, parallelism,
+  boot, payload, indexOrder, missingPackets, packetErrors,
+  missingDependencies, loadFailures, deterministic
+stores[]:                       (in selected-store inventory order)
   store, class, path, map, keyType, priority, packKey
   count                         loaded asset count (includes preloaded assets)
   maxId                         next index of indexed maps (absent for DefaultAssetMap)
@@ -92,28 +135,36 @@ stores[]:                       (in P0 inventory order)
   keys                          sorted key array
   packetGenerator, packetClass, packetId, packetSize
   bin, sha256                   empty for stores without a packet generator
+  packetError                   only when the generator needs an un-booted server module
   loadFailures                  only when decode failures were recorded
 ```
 
 Numeric ids are the ids of the store's `AssetMap` (`BlockTypeAssetMap` /
 `IndexedLookupTableAssetMap`), i.e. the ids the server sends. They match
-`../registries.json` exactly (6135 blocks, 19 fluids, 135 environments).
+`../registries.json` exactly for the P0 stores (6135 blocks, 19 fluids, 135
+environments).
 
 ## Known gaps (recorded in `index.json`)
 
 The boot is the same canonical one as the registry dump, so it inherits its
 gaps:
 
-- `PrefabListAsset` (78 lists) fails to decode: `PrefabReference.processPrefabPath`
-  calls `PrefabStore.getAssetPrefabsPath()` → `AssetModule.getBaseAssetPack()`,
-  and the dumper does not boot `AssetModule`, so every list throws
+- `PrefabListAsset` fails to decode: `PrefabReference.processPrefabPath` calls
+  `PrefabStore.getAssetPrefabsPath()` → `AssetModule.getBaseAssetPack()`, and
+  the dumper does not boot `AssetModule`, so every list throws
   `NullPointerException: Cannot invoke "AssetModule.getBaseAssetPack()" because
   the return value of "AssetModule.get()" is null`. Consequently the one block
   type that references such a list (`ExamplePrefabPlacementBlock_Tree`) is
-  missing from `BlockType` (as in `registries.json`).
-- Non-P0 child stores (the interaction and camera stores) report decode
-  failures because their plugin codec variants are not registered. They do not
-  change the block/fluid/environment ids.
+  missing from `BlockType` (as in `registries.json`). The store count is 0.
+- `GameplayConfig` count is 0: its `Default` asset fails validation because
+  `CameraEffects.DamageEffects` references `Damage_Fall`, and the camera-effect
+  child store is not registered in the canonical boot.
+- `BlockSet` (80 assets) has no payload: `BlockSetPacketGenerator` calls
+  `BlockSetModule.getInstance().getBlockSets()`, and the asset-only boot does
+  not install that module. The index entry is complete and carries
+  `packetError`.
+- Interaction/camera child stores report decode failures because their plugin
+  codec variants are not registered.
 - 37 `Item` assets fail to decode for the same reason (their interaction
   references are unresolved); the item packet contains the 3971 loaded items.
 
@@ -131,13 +182,15 @@ timestamp is written anywhere.
 - The same test encodes `Environment.bin` and `Fluid.bin` and compares every
   non-tag/non-child-index field. Java's tag indexes are global across all 54
   stores; the Rust registry assigns its own deterministic indexes and publishes
-  them in `ServerTags`, so tag arrays intentionally differ. `fluidFXIndex` and
-  `blockSoundSetIndex` are 0 until those child stores are streamed.
+  them in `ServerTags`, so tag arrays intentionally differ.
 - `crates/hytale-assets/tests/block_item_packets.rs` decodes `BlockType.bin` and
   `Item.bin` and compares the implemented fields by block name/item key. Block
   ids, group ids and tag indexes are Rust-owned, so id references are
   normalized through the Rust registries; the item map uses string keys and is
-  compared directly (`blockId` by block name). The test documents the small set
-  of fields inherited from Java's already-`processConfig`-ed parents and the
-  child-store indexes (`BlockSoundSet`, `ItemSoundSet`, `ItemQuality`) that stay
-  `0` until those stores are streamed.
+  compared directly (`blockId` by block name).
+- `crates/hytale-assets/tests/child_store_packets.rs` decodes every new
+  child-store payload and verifies each `index.json` size/hash against the
+  committed file.
+- T36/T37/T38 consume the new child-store payloads and replace the temporary
+  `0` child indexes (`BlockSoundSet`, `FluidFX`, `ItemSoundSet`, `ItemQuality`,
+  `ItemReticleConfig`, `TagPattern`).

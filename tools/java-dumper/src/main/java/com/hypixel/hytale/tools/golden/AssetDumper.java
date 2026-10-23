@@ -28,19 +28,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.TreeSet;
 
 /**
- * Emits the P0 asset-store golden data of the real CoreServer asset pipeline.
+ * Emits the asset-store golden data of the real CoreServer asset pipeline.
  *
- * <p>For every store whose {@code priority} is {@code P0} in
+ * <p>For every selected store in
  * {@code tools/asset-golden-dumper/asset-stores.json} the dumper:
  *
  * <ol>
@@ -60,14 +64,28 @@ import java.util.TreeSet;
  *       pack.</li>
  * </ol>
  *
+ * <p>The default set is P0 + P1 + {@link #DEFAULT_EXTRA_ROOTS} and their
+ * {@code loadsAfter} dependency closure. The selector can be narrowed from the
+ * command line:
+ *
+ * <pre>
+ *   --priority P0[,P1,...]   select stores by priority
+ *   --stores A,B,C           select explicit stores by class simple name
+ *   --closure                also include the transitive loadsAfter closure
+ * </pre>
+ *
+ * <p>Without a selector the phase-2 default is emitted. Passing
+ * {@code --priority P0} reproduces the old P0-only dump.
+ *
  * <p>Stores without a packet generator (the Java server has none for
  * {@code BlockTypeListAsset} and {@code PrefabListAsset}) produce no
  * {@code .bin}; they are still listed in {@code index.json} and any decode
  * failures are recorded there.
  *
- * <p>Usage: {@code AssetDumper <output-directory> [world-directory] [repo-root]}
- * (the same argument order as {@link GoldenDumper}, so {@code run.sh} can
- * invoke it with {@code DUMPER_MAIN=...}). The world directory is ignored.
+ * <p>Usage: {@code AssetDumper <output-directory> [world-directory] [repo-root]
+ * [selector...]} (the same argument order as {@link GoldenDumper}, so
+ * {@code run.sh} can invoke it with {@code DUMPER_MAIN=...}). The world
+ * directory is ignored.
  */
 public final class AssetDumper {
 
@@ -80,8 +98,21 @@ public final class AssetDumper {
     /** The asset-store inventory produced by T08. */
     private static final String STORE_INVENTORY = "tools/asset-golden-dumper/asset-stores.json";
 
-    /** The priority the dumper emits. */
-    private static final String PRIORITY = "P0";
+    /**
+     * The phase-2 default also dumps these P2/P3 stores, and the transitive
+     * {@code loadsAfter} closure of this list. They are the indexes referenced
+     * by the P0/P1 packets.
+     */
+    private static final List<String> DEFAULT_EXTRA_ROOTS = List.of(
+        "FluidFX",
+        "ItemSoundSet",
+        "SoundEvent",
+        "TagPattern",
+        "ParticleSystem",
+        "ParticleSpawner",
+        "ItemReticleConfig",
+        "ItemPlayerAnimations"
+    );
 
     /** The package of the generated protocol objects (the only ones walked). */
     private static final String PROTOCOL_PACKAGE = "com.hypixel.hytale.protocol";
@@ -106,7 +137,8 @@ public final class AssetDumper {
 
     private static void run(String[] args) throws Exception {
         if (args.length < 1) {
-            System.err.println("usage: AssetDumper <output-directory> [world-directory] [repo-root]");
+            System.err.println("usage: AssetDumper <output-directory> [world-directory] [repo-root] "
+                + "[--priority P0,P1] [--stores A,B] [--closure]");
             System.exit(2);
         }
 
@@ -117,22 +149,33 @@ public final class AssetDumper {
         final String packPath = System.getenv().getOrDefault("ASSET_PACK", RegistryDumper.PACK_PATH);
 
         final List<JsonObject> specs = loadStoreSpecs(repoRoot);
+        final String[] selectorArgs = args.length > 3
+            ? Arrays.copyOfRange(args, 3, args.length)
+            : new String[0];
+        final Selection selection = selectStores(specs, selectorArgs);
         final Path packRoot = RegistryDumper.boot(repoRoot, packPath);
 
         Files.createDirectories(outDir);
         removeStalePayloads(outDir);
 
         final JsonArray stores = new JsonArray();
+        final JsonArray missingPackets = new JsonArray();
+        final JsonArray packetErrors = new JsonArray();
         long totalBytes = 0;
         int withPacket = 0;
 
         for (JsonObject spec : specs) {
-            if (!PRIORITY.equals(string(spec, "priority"))) continue;
+            final String storeName = string(spec, "class");
+            if (!selection.includes(storeName)) continue;
             final StoreDump dump = dumpStore(spec, packRoot, outDir);
             stores.add(dump.index());
             if (dump.packetSize() >= 0) {
                 withPacket++;
                 totalBytes += dump.packetSize();
+            } else if ("none".equals(string(dump.index(), "packetGenerator"))) {
+                missingPackets.add(storeName);
+            } else {
+                packetErrors.add(storeName);
             }
             System.out.printf("  %-24s count=%-6d packet=%-10s size=%d%n",
                 dump.storeName(),
@@ -142,13 +185,13 @@ public final class AssetDumper {
         }
 
         final JsonObject root = new JsonObject();
-        root.add("meta", meta(packPath));
+        root.add("meta", meta(packPath, selection, missingPackets, packetErrors));
         root.add("stores", stores);
 
         final Path index = outDir.resolve("index.json");
         Files.writeString(index, GSON.toJson(root) + "\n", StandardCharsets.UTF_8);
 
-        System.out.printf("AssetDumper: %d P0 stores, %d packets, %d payload bytes -> %s%n",
+        System.out.printf("AssetDumper: %d stores, %d packets, %d payload bytes -> %s%n",
             stores.size(), withPacket, totalBytes, outDir);
     }
 
@@ -156,7 +199,7 @@ public final class AssetDumper {
     // Inventory
     // ------------------------------------------------------------------
 
-    /** Reads the P0 store specifications from the T08 inventory. */
+    /** Reads the store specifications from the T08 inventory. */
     private static List<JsonObject> loadStoreSpecs(Path repoRoot) throws IOException {
         final Path inventory = repoRoot.resolve(STORE_INVENTORY).normalize();
         if (!Files.isRegularFile(inventory)) {
@@ -173,8 +216,132 @@ public final class AssetDumper {
     }
 
     // ------------------------------------------------------------------
-    // Dump
+    // Store selection
     // ------------------------------------------------------------------
+
+    /** The stores the dumper should emit. */
+    private record Selection(Set<String> stores, String description, Set<String> missingDependencies) {
+        boolean includes(String storeName) {
+            return stores.contains(storeName);
+        }
+    }
+
+    /**
+     * Parses {@code --priority}, {@code --stores} and {@code --closure}. With no
+     * selector, emits the phase-2 default: P0 + P1 + the P2/P3 roots above and
+     * the closure of those roots only (so a P0/P1 dependency such as
+     * {@code GameplayConfig -> Item} does not pull the whole P2 graph).
+     */
+    private static Selection selectStores(List<JsonObject> specs, String[] args) {
+        final Map<String, JsonObject> byName = new LinkedHashMap<>();
+        for (JsonObject spec : specs) {
+            byName.put(string(spec, "class"), spec);
+        }
+
+        final Set<String> priorities = new HashSet<>();
+        final Set<String> explicit = new HashSet<>();
+        boolean closure = false;
+        for (int i = 0; i < args.length; i++) {
+            final String arg = args[i];
+            if (arg.equals("--closure")) {
+                closure = true;
+            } else if (arg.equals("--priority") || arg.startsWith("--priority=")) {
+                final String value = arg.startsWith("--priority=")
+                    ? arg.substring("--priority=".length())
+                    : requireValue(args, ++i, "--priority");
+                for (String priority : value.split(",")) {
+                    if (!priority.isBlank()) priorities.add(priority.trim());
+                }
+            } else if (arg.equals("--stores") || arg.startsWith("--stores=")) {
+                final String value = arg.startsWith("--stores=")
+                    ? arg.substring("--stores=".length())
+                    : requireValue(args, ++i, "--stores");
+                for (String store : value.split(",")) {
+                    if (!store.isBlank()) explicit.add(store.trim());
+                }
+            } else {
+                throw new IllegalArgumentException("unknown AssetDumper selector `" + arg + "`");
+            }
+        }
+
+        for (String store : explicit) {
+            if (!byName.containsKey(store)) {
+                throw new IllegalArgumentException("unknown asset store `" + store + "`");
+            }
+        }
+
+        final boolean defaultSelection = priorities.isEmpty() && explicit.isEmpty();
+        final Set<String> base = new HashSet<>();
+        final Set<String> closureRoots = new HashSet<>();
+        final StringJoiner description = new StringJoiner(", ");
+
+        if (defaultSelection) {
+            for (JsonObject spec : specs) {
+                final String priority = string(spec, "priority");
+                if (priority.equals("P0") || priority.equals("P1")) {
+                    base.add(string(spec, "class"));
+                }
+            }
+            base.addAll(DEFAULT_EXTRA_ROOTS);
+            closureRoots.addAll(DEFAULT_EXTRA_ROOTS);
+            description.add("phase2: priority in {P0,P1} + extra roots");
+            description.add("closure of " + String.join(",", DEFAULT_EXTRA_ROOTS));
+        } else {
+            if (!priorities.isEmpty()) {
+                for (JsonObject spec : specs) {
+                    if (priorities.contains(string(spec, "priority"))) {
+                        base.add(string(spec, "class"));
+                    }
+                }
+                description.add("priority in " + new TreeSet<>(priorities));
+            }
+            if (!explicit.isEmpty()) {
+                base.addAll(explicit);
+                description.add("stores " + new TreeSet<>(explicit));
+            }
+            if (closure) {
+                closureRoots.addAll(base);
+                description.add("transitive loadsAfter closure");
+            }
+        }
+
+        final Set<String> missing = new TreeSet<>();
+        if (!closureRoots.isEmpty()) {
+            expandDependencies(base, closureRoots, byName, missing);
+        }
+
+        return new Selection(base, description.toString(), missing);
+    }
+
+    private static String requireValue(String[] args, int index, String flag) {
+        if (index >= args.length) {
+            throw new IllegalArgumentException("missing value for " + flag);
+        }
+        return args[index];
+    }
+
+    /** Adds the transitive {@code loadsAfter} dependencies of {@code roots}. */
+    private static void expandDependencies(Set<String> selected, Set<String> roots,
+                                           Map<String, JsonObject> byName, Set<String> missing) {
+        final ArrayDeque<String> queue = new ArrayDeque<>(roots);
+        final Set<String> visited = new HashSet<>();
+        while (!queue.isEmpty()) {
+            final String name = queue.removeFirst();
+            if (!visited.add(name)) continue;
+            final JsonObject spec = byName.get(name);
+            if (spec == null) {
+                missing.add(name);
+                continue;
+            }
+            selected.add(name);
+            final JsonElement deps = spec.get("loadsAfter");
+            if (deps == null || deps.isJsonNull()) continue;
+            for (JsonElement dep : deps.getAsJsonArray()) {
+                queue.addLast(dep.getAsString());
+            }
+        }
+    }
+
 
     /** The result of dumping one store. */
     private record StoreDump(String storeName, int count, int packetId, int packetSize, JsonObject index) {
@@ -186,10 +353,10 @@ public final class AssetDumper {
         final Class<?> assetClass = findStoreClass(storeName);
         final AssetStore store = AssetRegistry.getStoreMap().get(assetClass);
         if (store == null) {
-            throw new IllegalStateException("P0 store is not registered: " + storeName);
+            throw new IllegalStateException("selected store is not registered: " + storeName);
         }
         if (!"String".equals(string(spec, "key"))) {
-            throw new IllegalStateException("P0 store " + storeName + " has an unsupported key type: "
+            throw new IllegalStateException("selected store " + storeName + " has an unsupported key type: "
                 + string(spec, "key") + " (the dumper only supports String keys)");
         }
 
@@ -253,24 +420,40 @@ public final class AssetDumper {
             entry.addProperty("bin", "");
             entry.addProperty("sha256", "");
         } else {
-            final Packet packet = (Packet) generator.generateInitPacket(map, sortedAssets);
-            canonicalizeMaps(packet);
-            final int size = packet.computeSize();
-            final byte[] payload = new byte[size];
-            final int written = packet.serialize(MemorySegment.ofArray(payload), 0);
-            if (written != size) {
-                throw new IllegalStateException(storeName + ": packet.serialize wrote " + written
-                    + " bytes but computeSize() returned " + size);
-            }
-            final String bin = storeName + ".bin";
-            Files.write(outDir.resolve(bin), payload);
+            try {
+                final Packet packet = (Packet) generator.generateInitPacket(map, sortedAssets);
+                canonicalizeMaps(packet);
+                final int size = packet.computeSize();
+                final byte[] payload = new byte[size];
+                final int written = packet.serialize(MemorySegment.ofArray(payload), 0);
+                if (written != size) {
+                    throw new IllegalStateException(storeName + ": packet.serialize wrote " + written
+                        + " bytes but computeSize() returned " + size);
+                }
+                final String bin = storeName + ".bin";
+                Files.write(outDir.resolve(bin), payload);
 
-            entry.addProperty("packetGenerator", generator.getClass().getSimpleName());
-            entry.addProperty("packetClass", packet.getClass().getName());
-            entry.addProperty("packetId", packet.getId());
-            entry.addProperty("packetSize", size);
-            entry.addProperty("bin", bin);
-            entry.addProperty("sha256", sha256(payload));
+                entry.addProperty("packetGenerator", generator.getClass().getSimpleName());
+                entry.addProperty("packetClass", packet.getClass().getName());
+                entry.addProperty("packetId", packet.getId());
+                entry.addProperty("packetSize", size);
+                entry.addProperty("bin", bin);
+                entry.addProperty("sha256", sha256(payload));
+            } catch (Exception error) {
+                // Some P1 stores need a server module singleton that the
+                // canonical asset-only boot does not install (for example
+                // BlockSetModule). Record the store metadata and the failure
+                // instead of aborting the whole dump.
+                REAL_ERR.printf("  %-24s packet generation failed: %s%n",
+                    storeName, error);
+                entry.addProperty("packetGenerator", generator.getClass().getSimpleName());
+                entry.addProperty("packetClass", "");
+                entry.addProperty("packetId", -1);
+                entry.addProperty("packetSize", -1);
+                entry.addProperty("bin", "");
+                entry.addProperty("sha256", "");
+                entry.addProperty("packetError", error.toString());
+            }
         }
 
         final JsonObject failures = loadFailures(assetClass, packRoot);
@@ -288,13 +471,13 @@ public final class AssetDumper {
         for (Class<?> assetClass : AssetRegistry.getStoreMap().keySet()) {
             if (assetClass.getSimpleName().equals(simpleName)) {
                 if (found != null && found != assetClass) {
-                    throw new IllegalStateException("ambiguous P0 store class name: " + simpleName);
+                    throw new IllegalStateException("ambiguous selected store class name: " + simpleName);
                 }
                 found = assetClass;
             }
         }
         if (found == null) {
-            throw new IllegalStateException("P0 store is not registered: " + simpleName);
+            throw new IllegalStateException("selected store is not registered: " + simpleName);
         }
         return found;
     }
@@ -501,11 +684,13 @@ public final class AssetDumper {
     // index.json metadata
     // ------------------------------------------------------------------
 
-    private static JsonObject meta(String packPath) {
+    private static JsonObject meta(String packPath, Selection selection, JsonArray missingPackets,
+                                   JsonArray packetErrors) {
         final JsonObject meta = new JsonObject();
         meta.addProperty("producer", "com.hypixel.hytale.tools.golden.AssetDumper");
         meta.addProperty("inventory", STORE_INVENTORY);
-        meta.addProperty("storeFilter", "priority == P0");
+        meta.addProperty("storeFilter", selection.description());
+        meta.addProperty("selectedStoreCount", selection.stores().size());
         meta.addProperty("pack", packPath);
         meta.addProperty("packFormat", "zip");
         meta.addProperty("packKey", DefaultAssetMap.DEFAULT_PACK_KEY);
@@ -522,11 +707,21 @@ public final class AssetDumper {
             + "packetGenerator.generateInitPacket(assetMap, assets): a byte[packet.computeSize()] filled by "
             + "packet.serialize(MemorySegment.ofArray(bytes), 0). It is not framed (no packet id/length "
             + "header) and not zstd-compressed");
-        meta.addProperty("indexOrder", "stores follow the P0 order of the inventory; the keys array and the "
+        meta.addProperty("indexOrder", "stores follow the selected stores' inventory order; the keys array and the "
             + "ids object are sorted lexicographically by key; ids are the numeric ids of the store's map");
-        meta.addProperty("missingPackets", "BlockTypeListAsset and PrefabListAsset have no packet generator "
-            + "in the Java server (see the inventory), so they have no .bin; they are still listed with "
-            + "their keys/counts");
+        meta.addProperty("missingPackets", missingPackets.size() == 0
+            ? "no selected store is missing a packet generator"
+            : "selected stores without a packet generator in the Java server: " + missingPackets);
+        if (packetErrors.size() > 0) {
+            meta.addProperty("packetErrors",
+                "selected stores whose packet generator needs an un-booted server module; "
+                    + "the index entry carries packetError and has no .bin: " + packetErrors);
+        }
+        if (!selection.missingDependencies().isEmpty()) {
+            meta.addProperty("missingDependencies",
+                "selected loadsAfter dependencies that are not asset stores in the 54-store inventory: "
+                    + selection.missingDependencies());
+        }
         meta.addProperty("loadFailures", "when a store (or a child asset store) had decode failures, the store "
             + "entry carries loadFailures.failedKeys / failedPaths (pack-relative); child-store failures are "
             + "prefixed with '<ChildStore>:'. Known gaps of the canonical boot: PrefabListAsset references the "

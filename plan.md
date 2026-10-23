@@ -6,8 +6,9 @@ completed slice is archived in
 the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
-The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
-is **T35 — child-store golden dumper extension**.
+The task board is [`tasks/README.md`](tasks/README.md). The immediate next tasks
+are **T36, T37 and T38** (block/fluid child stores, item child stores, and
+`TagPattern`), which can run in parallel; T39 wires them into the join.
 
 ## 0. Baseline
 
@@ -130,6 +131,7 @@ cargo fmt --all -- --check
 
 ### T35 — Child-store golden dumper extension
 
+**Status:** done (session 25)
 **Package:** `tools/asset-golden-dumper`, `testdata/golden/server/assets`, Java dumper
 **Depends on:** T34
 **Agent fit:** medium

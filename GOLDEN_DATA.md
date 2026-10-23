@@ -105,6 +105,13 @@ indexes are 0 until those child stores are streamed. Item `State` contained
 assets (`*<item>_State_<name>`) are extracted so every Java item key has a
 packet entry.
 
+Session 25 consumer: `crates/hytale-assets/tests/child_store_packets.rs` decodes
+every phase-2 child-store payload and verifies each `index.json` size/hash
+against the committed file. The default dumper set is P0 + P1 + the child-store
+dependency roots; `BlockSet` records `packetError` because its generator needs
+an un-booted server module, and `GameplayConfig` has no loaded assets in the
+canonical boot.
+
 ### 3.3 `chunks-pkts/`
 
 Session 3 landed the fixture for seed `0`, chunks `(0,0)` and `(4,-5)`:
@@ -278,11 +285,15 @@ and the fixture schema. The Java tools must not modify `.hytale-source/`.
 ## 5. Adding a new fixture
 
 Phase-2 child-store fixtures (T35) add `BlockBreakingDecal`,
-`BlockParticleSet`, `BlockSoundSet`, `FluidFX`, `SoundEvent`, `ItemSoundSet`,
-`ItemQuality`, `ItemReticleConfig`, `ItemPlayerAnimations` and `TagPattern` with
-their dependency closure. They use the same `<Store>.bin` + `index.json` layout;
-stores without packet generators still get keys/counts. Regenerate with the
-dumper’s P1/closure selector once T35 lands.
+`BlockParticleSet`, `BlockSet`, `BlockSoundSet`, `ItemCategory`, `ItemQuality`,
+`FluidFX`, `ItemSoundSet`, `SoundEvent`, `TagPattern`, `ParticleSystem`,
+`ParticleSpawner`, `ItemReticleConfig`, `ItemPlayerAnimations`,
+`AudioCategory`, `AudioState`, `GameplayConfig` and `ModelAsset` with their
+dependency closure. They use the same `<Store>.bin` + `index.json` layout;
+stores without packet generators still get keys/counts. Regenerate with
+`tools/java-dumper/run-assets.sh`; `--priority`/`--stores`/`--closure` select a
+subset. `BlockSet` currently records `packetError` because its generator needs
+an un-booted server module.
 
 1. Write the Java dumper first. Make it deterministic.
 2. Generate the fixture, inspect it, commit it with a short README/schema note.

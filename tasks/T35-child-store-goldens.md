@@ -1,6 +1,6 @@
 # T35 — Child-store golden dumper extension
 
-**Status:** planned (session 25)
+**Status:** done (session 25)
 **Package:** `tools/asset-golden-dumper`, `tools/java-dumper`, `testdata/golden/server/assets`
 **Depends on:** T34
 **Agent fit:** medium
@@ -59,6 +59,16 @@ tools/java-dumper/run-assets.sh --check
 
 ## Deviations
 
+- The default set is 26 stores (21 payloads, ~12.6 MiB) rather than only the
+  literal P1 list; the extra roots and their closure are required by T36–T38.
+- `BlockSet` has a packet generator but needs `BlockSetModule`, which the
+  asset-only boot does not install. Its index entry is complete and carries
+  `packetError` instead of a `.bin`.
+- `GameplayConfig` has no loaded assets in the canonical boot (`Default` fails
+  validation on a missing camera effect); it is recorded with count 0.
+- The phase-2 regeneration re-baselined the `BlockType`/`Environment`/`Fluid`/
+  `Item` payload hashes. Sizes are unchanged and the Rust semantic gates pass;
+  the committed bytes are the canonical single-worker output.
 - Stores that cannot boot in the canonical dumper (missing plugin codec
   variants, prefab/AssetModule gaps) are recorded, not faked.
 - The dumper remains single-threaded for the committed data.

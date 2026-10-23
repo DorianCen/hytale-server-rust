@@ -21,7 +21,7 @@ The script is deterministic: it walks the registrations in source order and
 sorts the output by priority then class name. It never modifies
 `.hytale-source/`.
 
-## Dumper (T11)
+## Dumper (T11, extended in T35)
 
 The dumper lives in the existing Java golden-dumper project (it reuses the
 `RegistryDumper` boot of the vanilla asset pipeline):
@@ -33,9 +33,14 @@ The dumper lives in the existing Java golden-dumper project (it reuses the
   [`README.md`](../../testdata/golden/server/assets/README.md))
 
 ```sh
-tools/java-dumper/run-assets.sh                     # write the committed directory
+tools/java-dumper/run-assets.sh                     # default phase-2 set
 tools/java-dumper/run-assets.sh /tmp/assets-golden   # arbitrary output directory
-tools/java-dumper/run-assets.sh --check             # two runs + diff against the committed data
+tools/java-dumper/run-assets.sh --check              # two runs + diff committed
+
+# narrower selections
+tools/java-dumper/run-assets.sh --priority P0 /tmp/assets-p0
+tools/java-dumper/run-assets.sh --priority P0,P1 --closure /tmp/assets-p01
+tools/java-dumper/run-assets.sh --stores FluidFX,ParticleSystem --closure /tmp/assets-fx
 ```
 
 Prerequisites: JDK 25, Maven 3.10+, the compiled `.hytale-source/` tree, and
@@ -43,9 +48,16 @@ Prerequisites: JDK 25, Maven 3.10+, the compiled `.hytale-source/` tree, and
 repository root or absolute). `DUMPER_PARALLELISM=1` is the canonical setting
 and the default.
 
-The dumper reads the `priority: "P0"` entries of `asset-stores.json`, boots the
-real `AssetRegistryLoader` (single-threaded decode), calls each store's
-`generateInitPacket(assetMap, assets)` and writes:
+The default selection is P0 + P1 + the extra roots `FluidFX`, `ItemSoundSet`,
+`SoundEvent`, `TagPattern`, `ParticleSystem`, `ParticleSpawner`,
+`ItemReticleConfig`, `ItemPlayerAnimations`, plus the transitive `loadsAfter`
+closure of those roots. `--priority P0` reproduces the old P0-only output.
+`--closure` follows the `loadsBefore`/`loadsAfter` edges in
+`tools/asset-golden-dumper/asset-stores.json`; dependencies outside the 54-store
+inventory are recorded in `index.json` as `meta.missingDependencies`.
+
+The dumper boots the real `AssetRegistryLoader` (single-threaded decode), calls
+each selected store's `generateInitPacket(assetMap, assets)` and writes:
 
 ```text
 testdata/golden/server/assets/
@@ -53,10 +65,10 @@ testdata/golden/server/assets/
   <Store>.bin           exact uncompressed packet payload (computeSize + serialize)
 ```
 
-`BlockTypeListAsset` and `PrefabListAsset` have no packet generator in the Java
-server, so they only appear in `index.json`. The P0 output is 9.2 MiB total
-(`BlockType.bin` 5.7 MiB, `Item.bin` 2.6 MiB); it is committed because the
-existing worldgen goldens are of the same order of magnitude.
+Stores without a packet generator (`BlockTypeListAsset`, `PrefabListAsset`,
+`GameplayConfig`, `ModelAsset`) only appear in `index.json`. `BlockSet` has a
+generator but needs `BlockSetModule`, which the canonical asset-only boot does
+not install; its index entry carries `packetError` and no `.bin`.
 
 ### Determinism
 
@@ -79,6 +91,13 @@ map entries and values are unchanged; only dictionary order is normalized.
 report decode failures for missing plugin codec variants. They are recorded per
 store in `index.json` (`loadFailures`) with pack-relative paths; no bytes are
 invented.
+
+`GameplayConfig` has no loaded assets in the canonical boot: `Default` fails
+validation because `CameraEffects.DamageEffects` references `Damage_Fall` and
+the camera-effect store is not registered. `BlockSet` loads 80 assets but its
+packet generator needs `BlockSetModule`, which the asset-only boot does not
+install; the index entry carries `packetError` and no `.bin`. Both gaps are
+reported rather than worked around with fake data.
 
 Full-pack runs are not part of the fast `cargo test` tier. The committed
 inventory above is enough for store ordering, schema coverage, and the M2 work

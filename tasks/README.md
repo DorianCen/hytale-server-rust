@@ -9,7 +9,7 @@ context. The main agent owns sequencing and shared-file edits.
 | Task | Title | Depends on | Agent fit | Status |
 |---|---|---|---|---|
 | [T34](T34-archive-rebaseline.md) | Archive vertical slice and re-baseline docs | T33 | high | done (session 24) |
-| [T35](T35-child-store-goldens.md) | Child-store golden dumper extension | T34 | medium | planned |
+| [T35](T35-child-store-goldens.md) | Child-store golden dumper extension | T34 | medium | done (session 25) |
 | [T36](T36-block-fluid-child-stores.md) | Block/fluid child stores + packets | T35 | medium | planned |
 | [T37](T37-item-child-stores.md) | Item child stores + packets | T35 | medium | planned |
 | [T38](T38-tag-patterns.md) | TagPattern + `UpdateTagPatterns` | T35 | medium | planned |
