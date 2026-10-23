@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use hytale_net::{connect, ChunkStreamReader, ServerEndpointBuilder, TlsIdentity};
 use hytale_protocol::generated::wire::Packet;
-use hytale_protocol::generated::world::{SetChunk, SetChunkEnvironments, SetColumn};
+use hytale_protocol::generated::world::{SetChunk, SetChunkEnvironments, SetColumn, UnloadChunk};
 use hytale_server::{serve_chunk_connection, GeneratorOptions, WorldThread, WorldThreadOptions};
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 
@@ -73,6 +73,7 @@ async fn the_server_streams_a_generated_chunk_to_a_client() {
             start.player_chunk,
             0,
             DEFAULT_COMPRESSION_LEVEL,
+            true,
         )
         .await
         .expect("serve the chunk");
@@ -93,23 +94,25 @@ async fn the_server_streams_a_generated_chunk_to_a_client() {
     while let Some(frame) = reader.next_frame().await.expect("read the stream") {
         ids.push(frame.packet_id);
     }
-    assert_eq!(ids.iter().filter(|id| **id == SetColumn::ID).count(), 1);
-    assert_eq!(ids.iter().filter(|id| **id == SetChunk::ID).count(), 10);
+    assert_eq!(ids.iter().filter(|id| **id == SetColumn::ID).count(), 2);
+    assert_eq!(ids.iter().filter(|id| **id == SetChunk::ID).count(), 20);
     assert_eq!(
         ids.iter()
             .filter(|id| **id == SetChunkEnvironments::ID)
             .count(),
-        10
+        20
     );
-    assert_eq!(ids.len(), 21);
+    assert_eq!(ids.iter().filter(|id| **id == UnloadChunk::ID).count(), 1);
+    assert_eq!(ids.len(), 43);
 
     session
         .connection()
         .close(0u32.into(), b"chunk-serve test complete");
     let report = server_task.await.expect("server task");
-    assert_eq!(report.chunks, 1);
-    assert_eq!(report.packets, 21);
-    assert_eq!(report.frames, 21);
+    assert_eq!(report.chunks, 2);
+    assert_eq!(report.unloaded, 1);
+    assert_eq!(report.packets, 43);
+    assert_eq!(report.frames, 43);
 
     std::fs::remove_dir_all(save_dir).ok();
 }

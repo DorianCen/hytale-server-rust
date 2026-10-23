@@ -97,8 +97,12 @@ For the server, “exact” also applies to:
   in `chunk_stream` so a packet trace can correct it without touching packet
   construction.
 - The connection task streams views through `chunk_streamer::send_view` (tick
-  the world queue, then send the loaded view nearest-first). Do not tick or read
-  chunks from the network task directly.
+  the world queue, then send the loaded view nearest-first) and
+  `send_updates` (forward later `ChunkLoaded`/`ChunkUnloaded` events). Do not
+  tick or read chunks from the network task directly.
+- A view change cancels queued loads and unloads chunks outside the view; the
+  client gets one `UnloadChunk` per chunk. Do not add section/`ClearChunks`
+  variants without a Java trace showing when the server sends them.
 
 ---
 

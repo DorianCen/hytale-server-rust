@@ -15,7 +15,7 @@ use hytale_net::{
 };
 use hytale_protocol::frame::{compress_payload, encode_frame};
 use hytale_protocol::generated::wire::{Packet, Wire};
-use hytale_protocol::generated::world::{SetChunk, SetColumn};
+use hytale_protocol::generated::world::{SetChunk, SetColumn, UnloadChunk};
 use hytale_protocol::io::Writer;
 
 fn frame<T: Packet + Wire>(packet: &T) -> Vec<u8> {
@@ -53,12 +53,20 @@ async fn the_bot_decodes_a_chunk_stream() {
         };
         let column_frame = frame(&SetColumn::default());
         let chunk_frame = frame(&chunk);
+        let unload_frame = frame(&UnloadChunk {
+            chunk_x: 4,
+            chunk_z: -5,
+        });
 
         let server_task = tokio::spawn(async move {
             let accepted = server.accept().await?;
             let mut writer = ChunkStreamWriter::open(accepted.connection()).await?;
             writer
-                .write_frames([column_frame.as_slice(), chunk_frame.as_slice()])
+                .write_frames([
+                    column_frame.as_slice(),
+                    chunk_frame.as_slice(),
+                    unload_frame.as_slice(),
+                ])
                 .await?;
             writer.finish()?;
             let _ = accepted.connection().closed().await;
@@ -71,7 +79,7 @@ async fn the_bot_decodes_a_chunk_stream() {
         let packets = receive_chunk_stream(&session)
             .await
             .expect("receive the chunk stream");
-        assert_eq!(packets.len(), 2);
+        assert_eq!(packets.len(), 3);
         assert!(matches!(
             &packets[0],
             ChunkPacketSummary::Column {
@@ -91,6 +99,7 @@ async fn the_bot_decodes_a_chunk_stream() {
                 ..
             }
         ));
+        assert_eq!(packets[2], ChunkPacketSummary::Unload { x: 4, z: -5 });
 
         session.connection().close(0u32.into(), b"done");
         server_task.await.expect("server task").expect("server");

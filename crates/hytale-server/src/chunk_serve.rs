@@ -12,7 +12,7 @@ use hytale_net::{ServerEndpointBuilder, TlsIdentity, TransportError};
 use thiserror::Error;
 use tokio::runtime::Runtime;
 
-use crate::chunk_streamer::{send_view, ChunkSessionError, ChunkStreamReport};
+use crate::chunk_streamer::{send_updates, send_view, ChunkSessionError, ChunkStreamReport};
 use crate::world_thread::{WorldThread, WorldThreadError, WorldThreadOptions};
 
 /// Options for the demo chunk server.
@@ -26,6 +26,8 @@ pub struct ChunkServeOptions {
     pub center: Option<(i32, i32)>,
     /// zstd level for chunk frames.
     pub compression_level: i32,
+    /// Send one view move after the initial snapshot (unload + new chunk).
+    pub move_demo: bool,
     /// How long to wait for the client to close after the stream finishes.
     pub close_timeout: Duration,
 }
@@ -86,6 +88,7 @@ async fn serve_async(options: &ChunkServeOptions) -> Result<ChunkServeReport, Ch
         center,
         options.world.view_radius,
         options.compression_level,
+        options.move_demo,
     )
     .await?;
 
@@ -104,15 +107,19 @@ async fn serve_async(options: &ChunkServeOptions) -> Result<ChunkServeReport, Ch
 }
 
 /// Send one player's initial view on an accepted connection.
+///
+/// With `move_demo`, the view is moved one chunk afterwards and the resulting
+/// unload/new-chunk events are streamed before the stream finishes.
 pub async fn serve_connection(
     thread: &WorldThread,
     connection: &quinn::Connection,
     center: (i32, i32),
     radius: u32,
     compression_level: i32,
+    move_demo: bool,
 ) -> Result<ChunkStreamReport, ChunkSessionError> {
     let mut writer = hytale_net::ChunkStreamWriter::open(connection).await?;
-    let report = send_view(
+    let mut report = send_view(
         thread,
         &mut writer,
         center.0,
@@ -121,6 +128,24 @@ pub async fn serve_connection(
         compression_level,
     )
     .await?;
+
+    if move_demo {
+        let moved = (center.0 + 1, center.1);
+        thread.set_view(moved.0, moved.1, radius)?;
+        loop {
+            let tick = thread.tick()?;
+            if tick.remaining == 0 {
+                break;
+            }
+        }
+        let updates = send_updates(thread, &mut writer, compression_level).await?;
+        report.chunks += updates.chunks;
+        report.unloaded += updates.unloaded;
+        report.packets += updates.packets;
+        report.frames += updates.frames;
+        report.payload_bytes += updates.payload_bytes;
+    }
+
     writer.finish()?;
     Ok(report)
 }

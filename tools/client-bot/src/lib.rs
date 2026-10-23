@@ -12,7 +12,7 @@ use hytale_protocol::generated::connection::{
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::{
-    SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
+    SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids, UnloadChunk,
 };
 use hytale_protocol::io::{ProtocolError, Reader, Writer};
 
@@ -160,6 +160,13 @@ pub enum ChunkPacketSummary {
         /// Fluid bytes.
         data_bytes: usize,
     },
+    /// `UnloadChunk`.
+    Unload {
+        /// Chunk x.
+        x: i32,
+        /// Chunk z.
+        z: i32,
+    },
 }
 
 /// Summarize one chunk-stream frame, or `None` for a non-chunk packet.
@@ -223,6 +230,16 @@ pub fn summarize_chunk_packet(
                     y: packet.y,
                     z: packet.z,
                     data_bytes: packet.data.as_ref().map_or(0, Vec::len),
+                }
+            }),
+        );
+    }
+    if frame.packet_id == UnloadChunk::ID {
+        return Some(
+            UnloadChunk::decode(&mut Reader::new(&frame.payload)).map(|packet| {
+                ChunkPacketSummary::Unload {
+                    x: packet.chunk_x,
+                    z: packet.chunk_z,
                 }
             }),
         );

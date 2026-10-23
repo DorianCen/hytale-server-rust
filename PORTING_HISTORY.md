@@ -956,3 +956,43 @@ Format:
   - Stream incremental `ChunkLoaded` events and unloads after movement.
   - Drive the bot through auth/setup with the trace fixture.
   - Confirm the Java stream/channel mapping with a packet trace.
+
+---
+
+## Session 17 — incremental view updates and unloads (2026-10-23)
+
+- **Goal:** stream view changes after the initial snapshot: new chunk batches
+  and `UnloadChunk` packets. This is the streaming half the real session will
+  drive after reaching `Game`.
+- **Landed:**
+  - `chunk::stream::unload_chunk(x, z)` builds the 135 `UnloadChunk` packet
+    (Chunks channel) and frames it; unit test decodes it back.
+  - `ChunkStreamReport::unloaded`.
+  - `chunk_streamer::send_updates` drains `WorldEvent`s: `ChunkLoaded` sends the
+    batch, `ChunkUnloaded` sends `UnloadChunk`.
+  - `send_view` forwards unloads caused by the initial `SetView` before the
+    snapshot.
+  - `hytale-server chunk-serve --move-demo` moves the view one chunk after the
+    snapshot and streams the update.
+  - `client-bot` decodes `UnloadChunk` into `ChunkPacketSummary::Unload`.
+  - The `chunk_serve` loopback test now runs the move demo and asserts 2
+    `SetColumn`, 20 `SetChunk`, 20 `SetChunkEnvironments`, 1 `UnloadChunk`
+    (43 frames); the client-bot test asserts the unload summary.
+- **Verified:**
+  - Manual demo: `chunk-serve --move-demo --view-radius 0` + `client-bot
+    --chunks` printed 43 packets and `Unload { x: 0, z: 0 }`; the server reported
+    `streamed 2 chunks (43 packets, 43 frames, 552789 bytes)`.
+  - `cargo test --workspace` (1108 passed, 6 ignored), clippy and fmt green.
+- **Deviations:**
+  - Only the demo's single explicit move drives incremental updates; player
+    movement packets are not wired.
+  - Per-chunk `UnloadChunk` only; no `UnloadSection`/`ClearChunks`.
+  - The demo still opens the stream on accept (no auth/setup/game flow).
+  - The snapshot path discards demand `ChunkLoaded` events and reads the loaded
+    set; incremental updates use the event path.
+  - No backpressure between event draining and stream writes.
+- **Follow-ups:**
+  - Session state machine after the asset packet encoders + packet trace land.
+  - Feed view changes from player movement and stream `send_updates`.
+  - Add section unloads / `ClearChunks` where appropriate.
+  - Drive `client-bot` through the real handshake.

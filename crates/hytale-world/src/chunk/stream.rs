@@ -20,7 +20,7 @@
 use hytale_protocol::frame::{compress_payload, encode_frame};
 use hytale_protocol::generated::wire::{NetworkChannel, Packet, Wire};
 use hytale_protocol::generated::world::{
-    SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
+    SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids, UnloadChunk,
 };
 use hytale_protocol::io::{ProtocolError, Writer};
 use thiserror::Error;
@@ -153,6 +153,19 @@ fn push<T: Packet + Wire>(
     Ok(())
 }
 
+/// The `UnloadChunk` packet for a chunk that left the view.
+pub fn unload_chunk(x: i32, z: i32) -> Result<StreamPacket, ChunkStreamError> {
+    let mut packets = Vec::with_capacity(1);
+    push(
+        &UnloadChunk {
+            chunk_x: x,
+            chunk_z: z,
+        },
+        &mut packets,
+    )?;
+    Ok(packets.remove(0))
+}
+
 /// Packet ids covered by a batch, for diagnostics.
 pub fn chunk_packet_ids() -> [u32; 5] {
     [
@@ -189,6 +202,22 @@ mod tests {
             .iter()
             .any(|packet| packet.id == SetChunkTintmap::ID));
         assert!(full.packets.len() > initial.packets.len());
+    }
+
+    #[test]
+    fn unload_chunk_frames_a_chunks_channel_packet() {
+        let packet = unload_chunk(4, -5).expect("unload packet");
+        assert_eq!(packet.id, UnloadChunk::ID);
+        assert_eq!(packet.channel, NetworkChannel::Chunks);
+        assert!(!packet.compressed);
+        let frame = packet.frame(DEFAULT_COMPRESSION_LEVEL).expect("frame");
+        let (decoded, consumed) = decode_frame(&frame, packet.max_size)
+            .expect("decode frame")
+            .expect("complete");
+        assert_eq!(consumed, frame.len());
+        let unloaded =
+            UnloadChunk::decode(&mut Reader::new(decoded.payload)).expect("decode UnloadChunk");
+        assert_eq!((unloaded.chunk_x, unloaded.chunk_z), (4, -5));
     }
 
     #[test]

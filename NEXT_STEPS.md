@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 17
+# Next steps — CoreServer rewrite, session 18
 
-**Status:** sessions 1–16 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–17 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -29,7 +29,10 @@ framed with the protocol's zstd/frame layer and exposed through
 `Chunks` uni stream (`hytale-net::chunk_stream`) and taught `client-bot` to
 receive and decode them. Session 16 bridged the real `WorldThread` to the stream:
 `hytale-server chunk-serve` streams a generated view to `client-bot --chunks`
-over QUIC, with a loopback test asserting the 21-packet join set. See
+over QUIC, with a loopback test asserting the 21-packet join set. Session 17
+added incremental updates: a view move sends the new chunk batch and
+`UnloadChunk` events (`chunk-serve --move-demo` streams 43 packets), so only the
+session state machine remains before a real join. See
 [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
 [`tasks/README.md`](tasks/README.md).
 
@@ -54,8 +57,8 @@ tools/java-dumper/run-save-check.sh target/headless-world 4 -5 129 250 -159 Debu
 
 # chunk-stream demo (server, then bot in another terminal):
 cargo run -p hytale-server -- chunk-serve \
-  --save target/chunk-serve-smoke --bind 127.0.0.1:5521 --view-radius 0
-cargo run -p client-bot -- --host 127.0.0.1:5521 --chunks --timeout 60
+  --save target/chunk-serve-move --bind 127.0.0.1:5522 --view-radius 0 --move-demo
+cargo run -p client-bot -- --host 127.0.0.1:5522 --chunks --timeout 60
 ```
 
 **Next up:** finish the first vertical slice.
@@ -74,8 +77,10 @@ cargo run -p client-bot -- --host 127.0.0.1:5521 --chunks --timeout 60
    the world thread, view tracking, queued-cancellation and unload events done
    in session 13; Java-ordered chunk packet batches + frames done in session 14;
    QUIC chunk-stream transport and the bot receiver done in session 15;
-   world-thread → QUIC → bot streaming done in session 16. Remaining: the real
-   auth/setup/game session state machine and incremental view updates.
+   world-thread → QUIC → bot streaming done in session 16; incremental view
+   updates and `UnloadChunk` done in session 17. Remaining: the real
+   auth/setup/game session state machine (needs the asset packet encoders and a
+   packet trace) and player-movement-driven view changes.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
    `hytale-assets` packet encoders still need their `assets/*.bin` comparison.
@@ -84,9 +89,10 @@ cargo run -p client-bot -- --host 127.0.0.1:5521 --chunks --timeout 60
    region blob.~~ Done in session 7. The boot loads the asset pack once, uses
    its registry ids for generation/storage and verifies the decoded save.
 5. Extend `client-bot` from the connection handshake into auth/setup/game with
-   the packet-trace fixture. The chunk-stream transport, world-thread bridge and
-   bot receiver are in place; the server still needs the real session state
-   machine to open the stream after `Setup`/`Game`.
+   the packet-trace fixture. The chunk-stream transport, world-thread bridge,
+   incremental updates and bot receiver are in place; the server still needs the
+   real session state machine to open the stream after `Setup`/`Game`, which is
+   blocked on the P0/P1 asset packet encoders and the trace fixture.
 6. ~~Load saved chunks back into a world runtime (region → `ChunkColumn`) and
    add the mutate → Rust save → Java reload compatibility gate.~~ Done in
    session 8 (`World`/`WorldStorage`, `load-chunk`, `WorldStorageProbe`).

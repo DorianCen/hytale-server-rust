@@ -9,12 +9,13 @@ use std::collections::BTreeSet;
 
 use hytale_net::{ChunkStreamWriter, TransportError};
 use hytale_world::chunk::stream::{
-    ChunkPacketBatch, ChunkStreamError as PacketStreamError, DEFAULT_COMPRESSION_LEVEL,
+    unload_chunk, ChunkPacketBatch, ChunkStreamError as PacketStreamError,
+    DEFAULT_COMPRESSION_LEVEL,
 };
 use hytale_world::view::ChunkView;
 use thiserror::Error;
 
-use crate::world_thread::{WorldThread, WorldThreadError};
+use crate::world_thread::{WorldEvent, WorldThread, WorldThreadError};
 
 /// Errors from streaming a view to a client.
 #[derive(Debug, Error)]
@@ -35,6 +36,8 @@ pub enum ChunkSessionError {
 pub struct ChunkStreamReport {
     /// Chunks sent.
     pub chunks: usize,
+    /// Chunks unloaded on the client.
+    pub unloaded: usize,
     /// Packets sent.
     pub packets: usize,
     /// QUIC frames written.
@@ -57,25 +60,58 @@ pub async fn send_view(
     compression_level: i32,
 ) -> Result<ChunkStreamReport, ChunkSessionError> {
     thread.set_view(center_x, center_z, radius)?;
+    // Forward unloads caused by the view change before the snapshot.
+    let mut report = send_updates(thread, writer, compression_level).await?;
     loop {
         let tick = thread.tick()?;
         if tick.remaining == 0 {
             break;
         }
     }
-    // The initial snapshot is read from the loaded set, so events from the
-    // demand ticks are not needed (and would double-send preloaded chunks).
+    // The initial snapshot is read from the loaded set, so `ChunkLoaded` events
+    // from the demand ticks are not needed (and would double-send preloaded
+    // chunks). Unloads were already forwarded above.
     while thread.try_event().is_some() {}
 
     let loaded: BTreeSet<(i32, i32)> = thread.loaded_chunks()?.into_iter().collect();
     let view = ChunkView::new(center_x, center_z, radius);
     let desired = view.plan([]).loads;
-    let mut report = ChunkStreamReport::default();
     for (x, z) in desired {
         if !loaded.contains(&(x, z)) {
             continue;
         }
         send_chunk(thread, writer, x, z, compression_level, &mut report).await?;
+    }
+    Ok(report)
+}
+
+/// Forward every queued world event to the client.
+///
+/// `ChunkLoaded` sends the chunk's initial packet batch; `ChunkUnloaded` sends
+/// an `UnloadChunk` packet. The caller sets the view (or ticks the world thread)
+/// before calling this.
+pub async fn send_updates(
+    thread: &WorldThread,
+    writer: &mut ChunkStreamWriter,
+    compression_level: i32,
+) -> Result<ChunkStreamReport, ChunkSessionError> {
+    let mut report = ChunkStreamReport::default();
+    while let Some(event) = thread.try_event() {
+        match event {
+            WorldEvent::ChunkLoaded { x, z, .. } => {
+                send_chunk(thread, writer, x, z, compression_level, &mut report).await?;
+            }
+            WorldEvent::ChunkUnloaded { x, z } => {
+                let packet = unload_chunk(x, z)?;
+                let payload_bytes = packet.payload.len();
+                let frame = packet.frame(compression_level)?;
+                writer.write_frame(&frame).await?;
+                report.unloaded += 1;
+                report.packets += 1;
+                report.frames += 1;
+                report.payload_bytes += payload_bytes;
+            }
+        }
     }
     Ok(report)
 }

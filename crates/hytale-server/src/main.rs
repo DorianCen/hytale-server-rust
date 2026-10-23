@@ -216,6 +216,9 @@ struct ChunkServeArgs {
     /// zstd compression level for chunk frames.
     #[arg(long, default_value_t = 3)]
     compression_level: i32,
+    /// After the snapshot, move the view one chunk and stream the update.
+    #[arg(long)]
+    move_demo: bool,
     /// Seconds to wait for the client to close after the stream ends.
     #[arg(long, default_value_t = 5)]
     close_timeout: u64,
@@ -358,6 +361,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
         bind_addr: args.bind,
         center: None,
         compression_level: args.compression_level,
+        move_demo: args.move_demo,
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };
     match run_chunk_serve(&options) {

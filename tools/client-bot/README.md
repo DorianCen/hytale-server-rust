@@ -44,6 +44,8 @@ cargo run -p hytale-server -- chunk-serve \
 cargo run -p client-bot -- --host 127.0.0.1:5521 --chunks --timeout 60
 ```
 
-It prints one `ChunkPacketSummary` per packet (21 for a radius-0 view) and exits
-0 when the stream finishes. The demo server skips auth/setup; the real session
-state machine will attach the same receiver after `Setup`/`Game`.
+It prints one `ChunkPacketSummary` per packet and exits 0 when the stream
+finishes. With `chunk-serve --move-demo` it prints 43 summaries: the initial
+21-packet chunk, one `Unload { x, z }`, and the moved-to chunk (21 packets). The
+demo server skips auth/setup; the real session state machine will attach the same
+receiver after `Setup`/`Game`.
