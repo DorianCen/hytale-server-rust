@@ -8,6 +8,7 @@ pub mod packet;
 pub mod palette;
 pub mod section;
 pub mod storage;
+pub mod stream;
 pub mod tint;
 
 pub use column::{

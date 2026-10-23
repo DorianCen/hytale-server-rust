@@ -822,3 +822,46 @@ Format:
   - Stream `ChunkLoaded` events to a player as chunk packets.
   - Per-player views and a non-square view-distance shape.
   - Client-bot auth/setup/game with the packet-trace fixture.
+
+---
+
+## Session 14 — chunk packet stream from world events (2026-10-23)
+
+- **Goal:** turn a `ChunkLoaded` event into the exact packet batch a client
+  receives on join, framed for the QUIC chunk stream.
+- **Landed:**
+  - `hytale-world::chunk::stream`:
+    - `StreamPacket` carries id/channel/compressed/max-size/payload and
+      `frame(level)` compresses with zstd then calls `encode_frame`.
+    - `ChunkPacketBatch::initial` = `SetColumn` + per-section `SetChunk` and
+      `SetChunkEnvironments` (the Java join set).
+    - `ChunkPacketBatch::full` adds `SetChunkTintmap` and per-section
+      `SetFluids` in `ChunkPacketDumper` order.
+    - `frames`, `payload_bytes`, `chunk_packet_ids`.
+    - Unit tests cover initial/full membership and frame → decode-frame →
+      decompress → generated `Wire` decode.
+  - `WorldThread` command/method `chunk_packets(x, z, full)`, so a connection
+    task can answer a `ChunkLoaded` event without touching world state.
+  - The chunk-packet golden test now checks the full batch's packet ids and
+    payloads byte-for-byte in manifest order, and the initial batch against the
+    `sentAtInit` subset.
+  - `world_thread` test consumes `ChunkLoaded`, builds the initial batch, checks
+    the `Chunks` channel and frames it.
+- **Verified:**
+  - `cargo test -p hytale-world --lib chunk::stream` (2 tests),
+    `cargo test -p hytale-world --test chunk_packets_golden` (all 46 Java
+    payloads), and `cargo test -p hytale-server --test world_thread` are green.
+  - `cargo test --workspace` (1107 passed), clippy and fmt green.
+- **Deviations:**
+  - Nothing is written to a connection yet; the connection task/stream is the
+    next slice.
+  - Initial batches omit tint/fluids to match Java's `sentAtInit = false`; the
+    full batch carries them for updates.
+  - zstd level defaults to Java `PacketIO`'s default (3), configurable per call.
+  - Block-edit/update packets are not built yet.
+  - No cross-chunk batching, priority or coalescing.
+- **Follow-ups:**
+  - Write the frames on the client's `Chunks` stream from the connection task.
+  - Teach `client-bot` to receive/decode chunks.
+  - Add block/section update packets.
+  - Client-bot auth/setup/game join path.

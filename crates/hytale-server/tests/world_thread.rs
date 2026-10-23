@@ -2,7 +2,9 @@
 
 use std::path::PathBuf;
 
+use hytale_protocol::generated::wire::NetworkChannel;
 use hytale_server::{WorldEvent, WorldThread, WorldThreadOptions};
+use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -61,6 +63,23 @@ fn ticks_the_view_and_unloads_chunks_that_leave_it() {
             generated: true,
         })
     );
+
+    // The connection task turns the event into this batch and writes the
+    // frames to the chunk stream.
+    let batch = thread
+        .chunk_packets(start.player_chunk.0, start.player_chunk.1, false)
+        .expect("encode the chunk packets");
+    assert_eq!((batch.x, batch.z), start.player_chunk);
+    assert!(!batch.packets.is_empty());
+    assert!(batch
+        .packets
+        .iter()
+        .all(|packet| packet.channel == NetworkChannel::Chunks));
+    let frames = batch
+        .frames(DEFAULT_COMPRESSION_LEVEL)
+        .expect("frame the batch");
+    assert_eq!(frames.len(), batch.packets.len());
+    assert!(frames.iter().all(|frame| frame.len() > 8));
 
     // Move one chunk away: the old chunk leaves the view and is saved/unloaded,
     // and the new center is queued instead.

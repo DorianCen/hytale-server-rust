@@ -12,6 +12,7 @@ use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread::{self, JoinHandle};
 
 use hytale_world::chunk::storage::ChunkCodec;
+use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::player_data::PlayerDataError;
 use hytale_world::view::{ChunkPlan, ChunkView};
 use hytale_world::world::{WorldError, WorldSave};
@@ -177,6 +178,12 @@ enum Command {
         z: i32,
         reply: SyncSender<Result<LoadOutcome, String>>,
     },
+    ChunkPackets {
+        x: i32,
+        z: i32,
+        full: bool,
+        reply: SyncSender<Result<ChunkPacketBatch, String>>,
+    },
     SetBlock {
         x: i32,
         y: i32,
@@ -280,6 +287,26 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::LoadChunk { x, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Encode the chunk packets for a loaded chunk.
+    ///
+    /// `full == false` is the join set (`SetColumn` + section packets);
+    /// `full == true` adds the tint and fluid update packets.
+    pub fn chunk_packets(
+        &self,
+        x: i32,
+        z: i32,
+        full: bool,
+    ) -> Result<ChunkPacketBatch, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ChunkPackets { x, z, full, reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -402,6 +429,10 @@ fn run(
                     }
                     Command::LoadChunk { x, z, reply } => {
                         let result = load_chunk(&mut save, &generator, &events, seed, x, z);
+                        let _ = reply.send(result);
+                    }
+                    Command::ChunkPackets { x, z, full, reply } => {
+                        let result = chunk_packets(&save, x, z, full);
                         let _ = reply.send(result);
                     }
                     Command::SetBlock {
@@ -586,6 +617,19 @@ fn tick(
     }
     report.remaining = pending.len();
     Ok(report)
+}
+
+fn chunk_packets(save: &WorldSave, x: i32, z: i32, full: bool) -> Result<ChunkPacketBatch, String> {
+    let column = save
+        .world()
+        .chunk(x, z)
+        .ok_or_else(|| format!("chunk ({x}, {z}) is not loaded"))?;
+    if full {
+        ChunkPacketBatch::full(column)
+    } else {
+        ChunkPacketBatch::initial(column)
+    }
+    .map_err(|error| error.to_string())
 }
 
 fn load_chunk(

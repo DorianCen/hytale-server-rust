@@ -27,9 +27,12 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   chunks that left, and `Tick` emits the chunk events the network stream will
   consume. That sits on session 7's headless boot, session 6's BSON chunk
   storage, session 5's P0 asset registry, session 4's runtime chunk packet
-  encoders and session 3's full protocol codegen. Streaming chunks to a client,
-  the join path and the live server loop are still open; see
-  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
+  encoders and session 3's full protocol codegen. Session 14 added
+  `chunk::stream`: a `ChunkLoaded` event becomes a Java-ordered
+  `SetColumn`/`SetChunk`/environment batch, framed with the protocol's
+  zstd/frame layer via `WorldThread::chunk_packets`. Writing those frames from
+  the connection task, the join path and the live server loop are still open;
+  see [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/ARCHITECTURE.md`](done/ARCHITECTURE.md),
@@ -366,8 +369,8 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); P0 registry/typed stores and the `worldgen-model` bridge landed (M2) |
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
-| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette and the `SetColumn`/`SetChunk`/tint/environment/fluid packet builders landed (M3); all 46 `chunks-pkts` payloads match Java byte-for-byte |
-| `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading and the `WorldThread` view/scheduling loop landed (M3); universe lifecycle, per-player views and chunk streaming pending |
+| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette, the packet builders and the `chunk::stream` batch/framer landed (M3/M4); all 46 `chunks-pkts` payloads and the batch order match Java |
+| `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading, the `WorldThread` view/scheduling loop and the chunk packet batch/framer landed (M3); universe lifecycle, per-player views and writing frames on a connection pending |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
@@ -406,7 +409,7 @@ Assets.zip ── hytale-assets ── registries ──┬─ hytale-world/worl
                                              └─ hytale-storage (block ids)
 
 worldgen-hytale ── GeneratedChunk ── from_generated_chunk ── runtime ChunkColumn
-                                                               ├─ SetChunk/SetColumn → client
+                                                               ├─ ChunkPacketBatch → zstd frames → Chunks stream
                                                                └─ BlockSection.Data → IndexedStorage
 
 client ── QUIC frames ── hytale-protocol decode ── hytale-net session

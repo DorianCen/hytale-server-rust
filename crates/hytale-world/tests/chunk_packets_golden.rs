@@ -18,6 +18,7 @@ use std::rc::Rc;
 use hytale_protocol::generated::wire::Wire;
 use hytale_protocol::io::Writer;
 use hytale_world::chunk::column::ChunkColumn;
+use hytale_world::chunk::stream::ChunkPacketBatch;
 use serde_json::Value;
 use worldgen_hytale::chunk::chunk_generator::ChunkGenerator;
 use worldgen_hytale::chunk::chunk_generator_execution::ChunkGeneratorExecution;
@@ -128,6 +129,45 @@ fn the_initial_chunk_packets_match_the_java_serializers() {
         let column =
             ChunkColumn::from_generated_chunk_with_registries(execution.get_chunk(), &registries)
                 .expect("convert the generated chunk");
+
+        // The stream batch must contain the same packets in the manifest's send
+        // order; the initial batch is exactly the `sentAtInit` subset.
+        let manifest_packets = chunk["packets"].as_array().expect("packets array");
+        let full = ChunkPacketBatch::full(&column).expect("full packet batch");
+        assert_eq!(full.packets.len(), manifest_packets.len());
+        let initial = ChunkPacketBatch::initial(&column).expect("initial packet batch");
+        let expected_initial: Vec<&Value> = manifest_packets
+            .iter()
+            .filter(|packet| packet["sentAtInit"].as_bool() == Some(true))
+            .collect();
+        assert_eq!(initial.packets.len(), expected_initial.len());
+
+        for (index, packet) in manifest_packets.iter().enumerate() {
+            let batch_packet = &full.packets[index];
+            assert_eq!(
+                batch_packet.id,
+                packet["id"].as_u64().expect("packet id") as u32,
+                "batch id at {index} ({})",
+                packet["name"].as_str().unwrap_or("?")
+            );
+            let expected = std::fs::read(golden.join(packet["file"].as_str().expect("file")))
+                .expect("read the golden payload");
+            assert_eq!(
+                batch_packet.payload(),
+                expected.as_slice(),
+                "batch payload at {index} ({})",
+                packet["name"].as_str().unwrap_or("?")
+            );
+        }
+        for (batch_packet, packet) in initial.packets.iter().zip(&expected_initial) {
+            assert_eq!(
+                batch_packet.id,
+                packet["id"].as_u64().expect("packet id") as u32
+            );
+            let expected = std::fs::read(golden.join(packet["file"].as_str().expect("file")))
+                .expect("read the golden payload");
+            assert_eq!(batch_packet.payload(), expected.as_slice());
+        }
 
         for packet in chunk["packets"].as_array().expect("packets array") {
             let name = packet["name"].as_str().expect("packet name");

@@ -157,6 +157,12 @@ For the server, “exact” also applies to:
 - `from_generated_chunk` is a one-way copy at the generation boundary.
 - Section serialization is shared between network and storage; one implementation,
   two consumers.
+- Chunk network output goes through `chunk::stream` (`ChunkPacketBatch`): Java
+  join order is `SetColumn`, then per section `SetChunk` +
+  `SetChunkEnvironments`; tint/fluid packets are update-only. Do not hand-order
+  packets in the connection task.
+- Frame compression uses the packet's `COMPRESSED` flag and Java `PacketIO`'s
+  zstd default (level 3) unless a task documents another level.
 - Palette selection must be deterministic and match Java's thresholds. A
   different palette type is a different byte stream even if the logical blocks
   match.

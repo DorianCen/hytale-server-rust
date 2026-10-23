@@ -1,6 +1,6 @@
-# Next steps — CoreServer rewrite, session 14
+# Next steps — CoreServer rewrite, session 15
 
-**Status:** sessions 1–13 landed. The wire layer (connection codegen, full
+**Status:** sessions 1–14 landed. The wire layer (connection codegen, full
 protocol codegen, registry, `ProtocolSettings`), QUIC mTLS transport, runtime
 chunk sections, client-bot skeleton, P0 asset-packet goldens, Java chunk-packet
 goldens, the runtime chunk packet encoders, the P0 asset registry and
@@ -22,9 +22,11 @@ loads stored chunks and generates missing ones around the player, with the share
 `WorldGenerator` boot now used by both `headless` and `world-boot`. Session 13
 moved demand onto a dedicated `WorldThread`: a view-distance plan orders chunks
 nearest-first, a view change cancels queued loads and unloads chunks that left,
-and `Tick` emits the chunk events the network stream will consume. See
-[`PORTING_HISTORY.md`](PORTING_HISTORY.md) and the status board in
-[`tasks/README.md`](tasks/README.md).
+and `Tick` emits the chunk events the network stream will consume. Session 14
+turned those events into Java-ordered `SetColumn`/`SetChunk`/environment batches,
+framed with the protocol's zstd/frame layer and exposed through
+`WorldThread::chunk_packets`. See [`PORTING_HISTORY.md`](PORTING_HISTORY.md) and
+the status board in [`tasks/README.md`](tasks/README.md).
 
 **Try it:**
 
@@ -60,7 +62,9 @@ tools/java-dumper/run-save-check.sh target/headless-world 4 -5 129 250 -159 Debu
    (`WorldSave`/`world-boot`) and the whole-save Java gate done in session 11;
    missing-chunk generation and player-radius demand loading done in session 12;
    the world thread, view tracking, queued-cancellation and unload events done
-   in session 13. Remaining: stream chunk events to a client on join.
+   in session 13; Java-ordered chunk packet batches + frames done in session 14.
+   Remaining: write the frames from the connection task and complete the client
+   join path.
 3. ~~Consume `protocol.json` in `hytale-world` chunk packet encoders and compare
    against `chunks-pkts/**/*.bin` byte-for-byte.~~ Done in session 4. The
    `hytale-assets` packet encoders still need their `assets/*.bin` comparison.
@@ -69,7 +73,8 @@ tools/java-dumper/run-save-check.sh target/headless-world 4 -5 129 250 -159 Debu
    region blob.~~ Done in session 7. The boot loads the asset pack once, uses
    its registry ids for generation/storage and verifies the decoded save.
 5. Extend `client-bot` from the connection handshake into auth/setup/game with
-   the packet-trace fixture.
+   the packet-trace fixture, and write the chunk-stream frames on the client's
+   `Chunks` stream.
 6. ~~Load saved chunks back into a world runtime (region → `ChunkColumn`) and
    add the mutate → Rust save → Java reload compatibility gate.~~ Done in
    session 8 (`World`/`WorldStorage`, `load-chunk`, `WorldStorageProbe`).

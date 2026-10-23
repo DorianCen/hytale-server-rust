@@ -108,7 +108,11 @@ and regenerate with `tools/java-dumper/run-chunks.sh --check`.
 The Java dumper must produce these from the real `WorldChunk`/`BlockSection`
 serialization, not a reimplementation. Rust must match byte-for-byte.
 `crates/hytale-world/tests/chunk_packets_golden.rs` is that gate: it
-regenerates both chunks and compares all 46 payloads.
+regenerates both chunks, compares all 46 payloads, and (session 14) checks that
+`ChunkPacketBatch::full` has the same ids/payloads in manifest order and
+`initial` is exactly the `sentAtInit` subset. `chunk::stream` then compresses and
+frames the batch; the unit test decodes the frames back through the protocol
+decoder and generated packet codecs.
 
 ### 3.4 `storage/`
 
