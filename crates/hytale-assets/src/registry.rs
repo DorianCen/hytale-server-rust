@@ -112,6 +112,50 @@ const ITEM: StoreSpec = P0_STORES[5];
 const PHYSICAL_MATERIAL: StoreSpec = P0_STORES[6];
 const PREFAB_LIST: StoreSpec = P0_STORES[7];
 
+/// Item-side child stores loaded by [`AssetRegistry::load_phase2`].
+pub const ITEM_CHILD_STORES: &[StoreSpec] = &[
+    StoreSpec {
+        name: "ItemSoundSet",
+        path: "Server/Audio/ItemSounds",
+        map: MapKind::IndexedLookupTable,
+    },
+    StoreSpec {
+        name: "ItemQuality",
+        path: "Server/Item/Qualities",
+        map: MapKind::IndexedLookupTable,
+    },
+    StoreSpec {
+        name: "ItemReticleConfig",
+        path: "Server/Item/Reticles",
+        map: MapKind::IndexedLookupTable,
+    },
+    StoreSpec {
+        name: "ItemCategory",
+        path: "Server/Item/Category/CreativeLibrary",
+        map: MapKind::Default,
+    },
+    StoreSpec {
+        name: "ItemPlayerAnimations",
+        path: "Server/Item/Animations",
+        map: MapKind::Default,
+    },
+];
+
+const ITEM_SOUND_SET: StoreSpec = ITEM_CHILD_STORES[0];
+const ITEM_QUALITY: StoreSpec = ITEM_CHILD_STORES[1];
+const ITEM_RETICLE: StoreSpec = ITEM_CHILD_STORES[2];
+const ITEM_CATEGORY: StoreSpec = ITEM_CHILD_STORES[3];
+const ITEM_PLAYER_ANIMATIONS: StoreSpec = ITEM_CHILD_STORES[4];
+
+/// `SoundEvent` is owned by T36. `load_phase2` only needs its assigned ids so
+/// `ItemSoundSet.soundEventIndices` can be encoded; the full typed store will
+/// replace this lookup when the block/fluid child stores are merged.
+const SOUND_EVENT: StoreSpec = StoreSpec {
+    name: "SoundEvent",
+    path: "Server/Audio/SoundEvents",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -138,6 +182,16 @@ pub struct AssetCollection<T> {
 }
 
 impl<T> AssetCollection<T> {
+    /// An empty collection, used by `load_p0` for stores a loader does not
+    /// populate.
+    fn empty() -> Self {
+        Self {
+            records: Vec::new(),
+            by_key: HashMap::new(),
+            by_id: Vec::new(),
+        }
+    }
+
     fn new(store: &str, records: Vec<AssetRecord<T>>) -> Result<Self, AssetError> {
         let mut by_key = HashMap::with_capacity(records.len());
         for (index, record) in records.iter().enumerate() {
@@ -535,13 +589,34 @@ pub struct AssetRegistry {
     pub block_type_lists: AssetCollection<Value>,
     /// `PrefabListAsset`.
     pub prefab_lists: AssetCollection<Value>,
+    /// `ItemSoundSet` (loaded by [`Self::load_phase2`]).
+    pub item_sound_sets: AssetCollection<Value>,
+    /// `ItemQuality` (loaded by [`Self::load_phase2`]).
+    pub item_qualities: AssetCollection<Value>,
+    /// `ItemReticleConfig` (loaded by [`Self::load_phase2`]).
+    pub item_reticles: AssetCollection<Value>,
+    /// `ItemCategory` (loaded by [`Self::load_phase2`]).
+    pub item_categories: AssetCollection<Value>,
+    /// `ItemPlayerAnimations` (loaded by [`Self::load_phase2`]).
+    pub item_player_animations: AssetCollection<Value>,
+    /// Per-item source document before parent resolution, used where Java
+    /// fields are not inherited (`Item.Quality`) or generate contained ids.
+    item_local: HashMap<String, Value>,
+    /// `ItemPlayerAnimations` assets contained in items/states
+    /// (`*<item>_PlayerAnimationsId`).
+    item_contained_animations: Vec<RawAsset>,
+    /// `SoundEvent` key → id, only used by the `ItemSoundSet` encoder.
+    sound_event_indexes: HashMap<String, i32>,
 }
 
 impl AssetRegistry {
     /// Load the P0 stores from `pack`.
+    ///
+    /// The item-side child stores stay empty; use [`Self::load_phase2`] to load
+    /// them as well.
     pub fn load_p0(pack: &AssetPack) -> Result<Self, AssetError> {
-        let (items, contained_block_types) = load_items(pack)?;
-        let block_types = load_block_types(pack, contained_block_types)?;
+        let item_load = load_items(pack)?;
+        let block_types = load_block_types(pack, item_load.contained_block_types)?;
         let fluids = load_indexed_store(pack, &FLUID, fluid_preloads(), parse_fluid)?;
         let environments =
             load_indexed_store(pack, &ENVIRONMENT, environment_preloads(), parse_key_asset)?;
@@ -564,12 +639,45 @@ impl AssetRegistry {
             block_types,
             fluids,
             environments,
-            items,
+            items: item_load.items,
             physical_materials,
             block_bounding_boxes,
             block_type_lists,
             prefab_lists,
+            item_sound_sets: AssetCollection::empty(),
+            item_qualities: AssetCollection::empty(),
+            item_reticles: AssetCollection::empty(),
+            item_categories: AssetCollection::empty(),
+            item_player_animations: AssetCollection::empty(),
+            item_local: item_load.local,
+            item_contained_animations: item_load.contained_animations,
+            sound_event_indexes: HashMap::new(),
         })
+    }
+
+    /// Load P0 plus the item-side child stores: `ItemSoundSet`, `ItemQuality`,
+    /// `ItemReticleConfig`, `ItemCategory` and `ItemPlayerAnimations`.
+    pub fn load_phase2(pack: &AssetPack) -> Result<Self, AssetError> {
+        let mut registry = Self::load_p0(pack)?;
+        registry.item_sound_sets =
+            load_indexed_store(pack, &ITEM_SOUND_SET, Vec::new(), parse_key_asset)?;
+        registry.item_qualities = load_indexed_store(
+            pack,
+            &ITEM_QUALITY,
+            item_quality_preloads(),
+            parse_key_asset,
+        )?;
+        registry.item_reticles = load_indexed_store(
+            pack,
+            &ITEM_RETICLE,
+            item_reticle_preloads(),
+            parse_key_asset,
+        )?;
+        registry.item_categories = load_default_store(pack, &ITEM_CATEGORY, Vec::new())?;
+        registry.sound_event_indexes = load_sound_event_indexes(pack)?;
+        registry.item_player_animations =
+            load_item_player_animations(pack, &registry.item_contained_animations)?;
+        Ok(registry)
     }
 
     /// Java `BlockType.getAssetMap().getAsset(key)`.
@@ -580,6 +688,19 @@ impl AssetRegistry {
     /// Java `Fluid.getAssetMap().getAsset(key)`.
     pub fn fluid(&self, key: &str) -> Option<&FluidAsset> {
         self.fluids.get(key).map(|record| &record.value)
+    }
+
+    /// The source item document before `Parent` resolution (`None` for a key
+    /// the item store does not contain).
+    pub fn item_local_json(&self, key: &str) -> Option<&Value> {
+        self.item_local.get(&key.to_ascii_lowercase())
+    }
+
+    /// Java `SoundEvent.getAssetMap().getIndex(key)`.
+    pub fn sound_event_index(&self, key: &str) -> Option<i32> {
+        self.sound_event_indexes
+            .get(&key.to_ascii_lowercase())
+            .copied()
     }
 }
 
@@ -736,6 +857,85 @@ fn load_default_store(
     AssetCollection::new(spec.name, records)
 }
 
+/// Load `ItemPlayerAnimations` files plus the assets contained in items.
+fn load_item_player_animations(
+    pack: &AssetPack,
+    contained: &[RawAsset],
+) -> Result<AssetCollection<Value>, AssetError> {
+    let spec = &ITEM_PLAYER_ANIMATIONS;
+    let mut loaded: HashSet<String> = HashSet::new();
+    let files = read_store_files(pack, spec.path)?;
+    let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
+    let mut all = ordered;
+    let contained = assign_phase(
+        contained.to_vec(),
+        &mut loaded,
+        MissingParentPolicy::Error,
+        spec.name,
+    )?;
+    all.extend(contained);
+
+    let resolved = resolve_assets(
+        all,
+        spec.name,
+        MergeHook::Custom(merge_item_player_animations),
+    )?;
+    let records = resolved
+        .into_iter()
+        .map(|asset| AssetRecord {
+            key: asset.raw.key,
+            id: None,
+            parent: asset.raw.parent,
+            source: asset.raw.source,
+            preloaded: asset.raw.preloaded,
+            value: asset.merged,
+        })
+        .collect();
+    AssetCollection::new(spec.name, records)
+}
+
+/// Java `ItemPlayerAnimations.CODEC` inherits every field wholesale except
+/// `Animations`, which is `MapUtil.combineUnmodifiable(parent, child)`.
+fn merge_item_player_animations(parent: &mut Value, child: Value) {
+    let combined = match (parent.get("Animations"), child.get("Animations")) {
+        (Some(Value::Object(parent_animations)), Some(Value::Object(child_animations))) => {
+            let mut animations = parent_animations.clone();
+            animations.extend(child_animations.clone());
+            Some(Value::Object(animations))
+        }
+        _ => None,
+    };
+    let mut merged = crate::parent::merge_shallow(parent.clone(), child);
+    if let (Some(animations), Value::Object(object)) = (combined, &mut merged) {
+        object.insert("Animations".to_string(), animations);
+    }
+    *parent = merged;
+}
+
+/// Only the `SoundEvent` key → id assignments are needed here; the typed store
+/// is part of T36.
+fn load_sound_event_indexes(pack: &AssetPack) -> Result<HashMap<String, i32>, AssetError> {
+    let preloaded = preloaded_assets_with(sound_event_preloads());
+    let mut loaded: HashSet<String> = preloaded
+        .iter()
+        .map(|asset| asset.key.to_ascii_lowercase())
+        .collect();
+    let files = read_store_files(pack, SOUND_EVENT.path)?;
+    let ordered = assign_phase(
+        files,
+        &mut loaded,
+        MissingParentPolicy::Error,
+        SOUND_EVENT.name,
+    )?;
+    let mut all = preloaded;
+    all.extend(ordered);
+    Ok(all
+        .into_iter()
+        .enumerate()
+        .map(|(index, asset)| (asset.key.to_ascii_lowercase(), index as i32))
+        .collect())
+}
+
 fn preloaded_assets_with(preloads: Vec<(&'static str, Value)>) -> Vec<RawAsset> {
     preloads
         .into_iter()
@@ -888,7 +1088,16 @@ fn resolve_assets(
 // Store specific loading and typed decoding
 // ---------------------------------------------------------------------------
 
-fn load_items(pack: &AssetPack) -> Result<(AssetCollection<Value>, Vec<RawAsset>), AssetError> {
+/// The result of loading `Item`, including the contained assets Java
+/// registers while decoding items.
+struct ItemLoad {
+    items: AssetCollection<Value>,
+    local: HashMap<String, Value>,
+    contained_block_types: Vec<RawAsset>,
+    contained_animations: Vec<RawAsset>,
+}
+
+fn load_items(pack: &AssetPack) -> Result<ItemLoad, AssetError> {
     let preloaded = preloaded_assets_with(item_preloads());
     let mut loaded: HashSet<String> = preloaded
         .iter()
@@ -904,7 +1113,7 @@ fn load_items(pack: &AssetPack) -> Result<(AssetCollection<Value>, Vec<RawAsset>
     // Java's `ContainedAssetCodec` (`*<item>_State_<name>`). They may contain
     // their own block types and nested states, so expand them before resolving
     // parents and extracting blocks.
-    let mut contained = Vec::new();
+    let mut contained_block_types = Vec::new();
     let mut state_items = Vec::new();
     for asset in &all {
         extract_item_state_assets(
@@ -912,7 +1121,7 @@ fn load_items(pack: &AssetPack) -> Result<(AssetCollection<Value>, Vec<RawAsset>
             &asset.key,
             &asset.source,
             &mut state_items,
-            &mut contained,
+            &mut contained_block_types,
         );
     }
     all.extend(state_items);
@@ -924,9 +1133,25 @@ fn load_items(pack: &AssetPack) -> Result<(AssetCollection<Value>, Vec<RawAsset>
             None,
             &asset.key,
             &asset.source,
-            &mut contained,
+            &mut contained_block_types,
         );
     }
+
+    // Contained animation assets are registered against the containing item
+    // asset (`*<item>_PlayerAnimationsId`). Interaction-owned containment is
+    // part of the Interaction store, which this registry does not load.
+    let mut contained_animations = Vec::new();
+    for asset in &all {
+        extract_item_player_animations(asset, &mut contained_animations);
+    }
+
+    // Keep the pre-resolution documents: `Item.Quality` is a plain `append`
+    // codec in Java (not inherited), and contained animation ids use the key of
+    // the document that defines them.
+    let local = all
+        .iter()
+        .map(|asset| (asset.key.to_ascii_lowercase(), asset.value.clone()))
+        .collect();
 
     // Item fields are nested `BuilderCodec` objects whose inherited fields are
     // filled from the parent object (e.g. `TranslationProperties.Description`),
@@ -945,7 +1170,31 @@ fn load_items(pack: &AssetPack) -> Result<(AssetCollection<Value>, Vec<RawAsset>
         .collect();
     let items = AssetCollection::new(ITEM.name, records)?;
 
-    Ok((items, contained))
+    Ok(ItemLoad {
+        items,
+        local,
+        contained_block_types,
+        contained_animations,
+    })
+}
+
+/// Register the `ItemPlayerAnimations` object contained in an item or item
+/// state. Java's `ContainedAssetCodec` generates `*<container>_<field>`.
+fn extract_item_player_animations(asset: &RawAsset, out: &mut Vec<RawAsset>) {
+    let Some(Value::Object(object)) = asset.value.get("PlayerAnimationsId") else {
+        return;
+    };
+    out.push(RawAsset {
+        key: format!("*{}_PlayerAnimationsId", asset.key),
+        parent: object
+            .get("Parent")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        container_item: Some(asset.key.clone()),
+        source: asset.source.clone(),
+        preloaded: false,
+        value: Value::Object(object.clone()),
+    });
 }
 
 /// Expand a `State` map into Java's contained item assets.
@@ -1307,9 +1556,41 @@ fn block_bounding_box_preloads() -> Vec<(&'static str, Value)> {
     )]
 }
 
+fn item_quality_preloads() -> Vec<(&'static str, Value)> {
+    // Java `ItemQuality.DEFAULT_ITEM_QUALITY`.
+    vec![(
+        "Default",
+        json!({
+            "QualityValue": -1,
+            "ItemTooltipTexture": "UI/ItemQualities/Tooltips/ItemTooltipDefault.png",
+            "ItemTooltipArrowTexture": "UI/ItemQualities/Tooltips/ItemTooltipDefaultArrow.png",
+            "SlotTexture": "UI/ItemQualities/Slots/SlotDefault.png",
+            "BlockSlotTexture": "UI/ItemQualities/Slots/SlotDefault.png",
+            "SpecialSlotTexture": "UI/ItemQualities/Slots/SpecialSlotDefault.png",
+            "TextColor": "#c9d2dd",
+            "LocalizationKey": "server.general.qualities.Default",
+            "HideFromSearch": false
+        }),
+    )]
+}
+
+fn item_reticle_preloads() -> Vec<(&'static str, Value)> {
+    // Java `ItemReticleConfig.DEFAULT`.
+    vec![("Default", json!({"Base": ["UI/Reticles/Default.png"]}))]
+}
+
+fn sound_event_preloads() -> Vec<(&'static str, Value)> {
+    // Java `SoundEvent.EMPTY_SOUND_EVENT` (`EMPTY_ID = 0`).
+    vec![("EMPTY", json!({}))]
+}
+
 fn item_preloads() -> Vec<(&'static str, Value)> {
+    // Java `Item.UNKNOWN` sets `playerAnimationsId = "Item"`.
     vec![(
         "Unknown",
-        json!({"Model": "Items/CreativeTools/EditorTool.blockymodel"}),
+        json!({
+            "Model": "Items/CreativeTools/EditorTool.blockymodel",
+            "PlayerAnimationsId": "Item"
+        }),
     )]
 }

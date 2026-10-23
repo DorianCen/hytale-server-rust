@@ -20,11 +20,17 @@ mod item;
 use std::collections::{BTreeMap, BTreeSet};
 
 use hytale_protocol::generated::assets::{
-    UpdateBlockHitboxes, UpdateEnvironments, UpdateFluids, UpdatePhysicalMaterials,
+    UpdateBlockHitboxes, UpdateEnvironments, UpdateFluids, UpdateItemCategories,
+    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
+    UpdatePhysicalMaterials,
 };
 use hytale_protocol::generated::common::{
-    BlockTextures, Color, ColorLight, Direction, EntityPart, Fluid, FluidDrawType, Hitbox,
-    ModelParticle, Opacity, PhysicalMaterial, ShaderType, UpdateType, WorldEnvironment,
+    BlockTextures, CameraAxis, CameraNode, CameraSettings, Color, ColorLight, Direction,
+    EntityPart, Fluid, FluidDrawType, Hitbox, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
+    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
+    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, ModelParticle,
+    Opacity, PhysicalMaterial, Rangef, ShaderType, SubCategoryDefinition, UpdateType,
+    WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -229,6 +235,221 @@ impl AssetRegistry {
         item::item_packet(self, tags)
     }
 
+    /// `UpdateItemSoundSets` (id 43) from the `ItemSoundSet` store.
+    pub fn item_sound_set_packet(&self) -> Result<AssetPacket> {
+        let mut sets = BTreeMap::new();
+        for record in self.item_sound_sets.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "ItemSoundSet",
+                key: record.key.clone(),
+            })?;
+            let mut indices = BTreeMap::new();
+            if let Some(events) = record.value.get("SoundEvents").and_then(Value::as_object) {
+                for (name, value) in events {
+                    let event = match name.as_str() {
+                        "Drag" => ItemSoundEvent::Drag,
+                        "Drop" => ItemSoundEvent::Drop,
+                        other => {
+                            return Err(invalid(
+                                "ItemSoundSet",
+                                &record.key,
+                                format!("unknown ItemSoundEvent `{other}`"),
+                            ))
+                        }
+                    };
+                    let sound = value.as_str().ok_or_else(|| {
+                        invalid(
+                            "ItemSoundSet",
+                            &record.key,
+                            "SoundEvents values must be strings",
+                        )
+                    })?;
+                    let index = self.sound_event_index(sound).ok_or_else(|| {
+                        invalid(
+                            "ItemSoundSet",
+                            &record.key,
+                            format!("missing SoundEvent `{sound}`"),
+                        )
+                    })?;
+                    indices.insert(event, index);
+                }
+            }
+            sets.insert(
+                id,
+                ItemSoundSet {
+                    // Java `processConfig` always assigns a (possibly empty)
+                    // index map.
+                    id: Some(record.key.clone()),
+                    sound_event_indices: Some(indices),
+                },
+            );
+        }
+        let packet = UpdateItemSoundSets {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.item_sound_sets, "ItemSoundSet")?,
+            item_sound_sets: Some(sets),
+        };
+        AssetPacket::encode("ItemSoundSet", &packet)
+    }
+
+    /// `UpdateItemQualities` (id 55) from the `ItemQuality` store.
+    pub fn item_quality_packet(&self) -> Result<AssetPacket> {
+        let mut qualities = BTreeMap::new();
+        for record in self.item_qualities.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "ItemQuality",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            qualities.insert(
+                id,
+                ItemQuality {
+                    id: Some(record.key.clone()),
+                    item_tooltip_texture: text(json, "ItemTooltipTexture"),
+                    item_tooltip_arrow_texture: text(json, "ItemTooltipArrowTexture"),
+                    slot_texture: text(json, "SlotTexture"),
+                    block_slot_texture: text(json, "BlockSlotTexture"),
+                    special_slot_texture: text(json, "SpecialSlotTexture"),
+                    text_color: color(json.get("TextColor")),
+                    localization_key: text(json, "LocalizationKey"),
+                    visible_quality_label: boolean(json, "VisibleQualityLabel", false),
+                    render_special_slot: boolean(json, "RenderSpecialSlot", false),
+                    hide_from_search: boolean(json, "HideFromSearch", false),
+                },
+            );
+        }
+        let packet = UpdateItemQualities {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.item_qualities, "ItemQuality")?,
+            item_qualities: Some(qualities),
+        };
+        AssetPacket::encode("ItemQuality", &packet)
+    }
+
+    /// `UpdateItemReticles` (id 57) from the `ItemReticleConfig` store.
+    pub fn item_reticle_packet(&self) -> Result<AssetPacket> {
+        let event_indexes = self.reticle_event_indexes();
+        let mut reticles = BTreeMap::new();
+        for record in self.item_reticles.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "ItemReticleConfig",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            let base = json.get("Base").and_then(Value::as_array).map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            });
+
+            let server_events = match json.get("ServerEvents").and_then(Value::as_object) {
+                Some(events) if !events.is_empty() => {
+                    let mut map = BTreeMap::new();
+                    for (event, value) in events {
+                        let index = event_indexes.get(event).copied().ok_or_else(|| {
+                            invalid(
+                                "ItemReticleConfig",
+                                &record.key,
+                                format!("missing server event `{event}`"),
+                            )
+                        })?;
+                        map.insert(index, reticle(value, 0.25));
+                    }
+                    Some(map)
+                }
+                _ => None,
+            };
+
+            let client_events = match json.get("ClientEvents").and_then(Value::as_object) {
+                Some(events) if !events.is_empty() => {
+                    let mut map = BTreeMap::new();
+                    for (event, value) in events {
+                        let event = reticle_client_event(event).ok_or_else(|| {
+                            invalid(
+                                "ItemReticleConfig",
+                                &record.key,
+                                format!("unknown ItemReticleClientEvent `{event}`"),
+                            )
+                        })?;
+                        map.insert(event, reticle(value, 0.0));
+                    }
+                    Some(map)
+                }
+                _ => None,
+            };
+
+            reticles.insert(
+                id,
+                ItemReticleConfig {
+                    // Java `toPacket` does not set the id.
+                    id: None,
+                    base,
+                    server_events,
+                    client_events,
+                },
+            );
+        }
+        let packet = UpdateItemReticles {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.item_reticles, "ItemReticleConfig")?,
+            item_reticle_configs: Some(reticles),
+        };
+        AssetPacket::encode("ItemReticleConfig", &packet)
+    }
+
+    /// `UpdateItemCategories` (id 56) from the `ItemCategory` store.
+    pub fn item_category_packet(&self) -> Result<AssetPacket> {
+        let mut records: Vec<_> = self.item_categories.iter().collect();
+        // The Java dumper hands the generator assets in sorted key order, and
+        // `ItemCategoryPacketGenerator` preserves that array order.
+        records.sort_by(|a, b| a.key.cmp(&b.key));
+        let categories = records
+            .into_iter()
+            .map(|record| item_category(&record.key, &record.value, true))
+            .collect::<Result<Vec<_>>>()?;
+        let packet = UpdateItemCategories {
+            r#type: UpdateType::Init,
+            item_categories: Some(categories),
+        };
+        AssetPacket::encode("ItemCategory", &packet)
+    }
+
+    /// `UpdateItemPlayerAnimations` (id 52) from the `ItemPlayerAnimations`
+    /// store.
+    pub fn item_player_animations_packet(&self) -> Result<AssetPacket> {
+        let mut animations = BTreeMap::new();
+        for record in self.item_player_animations.iter() {
+            animations.insert(
+                record.key.clone(),
+                item_player_animations(&record.key, &record.value)?,
+            );
+        }
+        let packet = UpdateItemPlayerAnimations {
+            r#type: UpdateType::Init,
+            item_player_animations: Some(animations),
+        };
+        AssetPacket::encode("ItemPlayerAnimations", &packet)
+    }
+
+    /// Java's `ItemReticleConfig` keys server events by `AssetRegistry`'s global
+    /// tag index. That index depends on the whole 54-store load order, so this
+    /// snapshot assigns deterministic indexes over the reticle event names.
+    fn reticle_event_indexes(&self) -> BTreeMap<String, i32> {
+        let mut names = BTreeSet::new();
+        for record in self.item_reticles.iter() {
+            if let Some(events) = record.value.get("ServerEvents").and_then(Value::as_object) {
+                names.extend(events.keys().cloned());
+            }
+        }
+        names
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| (name, index as i32))
+            .collect()
+    }
+
     /// `UpdateFluids` (id 83) from the P0 `Fluid` store.
     pub fn fluid_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
         let mut fluids = BTreeMap::new();
@@ -398,6 +619,279 @@ pub struct ConfigAssets {
 }
 
 const UNKNOWN_TEXTURE: &str = "BlockTextures/Unknown.png";
+
+fn text(json: &Value, name: &str) -> Option<String> {
+    json.get(name)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn boolean(json: &Value, name: &str, fallback: bool) -> bool {
+    json.get(name).and_then(Value::as_bool).unwrap_or(fallback)
+}
+
+fn reticle(value: &Value, default_duration: f32) -> ItemReticle {
+    ItemReticle {
+        hide_base: value
+            .get("HideBase")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        parts: value.get("Parts").and_then(Value::as_array).map(|parts| {
+            parts
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect()
+        }),
+        duration: value
+            .get("Duration")
+            .and_then(Value::as_f64)
+            .map(|duration| duration as f32)
+            .unwrap_or(default_duration),
+    }
+}
+
+fn reticle_client_event(name: &str) -> Option<ItemReticleClientEvent> {
+    Some(match name {
+        "OnHit" => ItemReticleClientEvent::OnHit,
+        "Wielding" => ItemReticleClientEvent::Wielding,
+        "OnMovementLeft" => ItemReticleClientEvent::OnMovementLeft,
+        "OnMovementRight" => ItemReticleClientEvent::OnMovementRight,
+        "OnMovementBack" => ItemReticleClientEvent::OnMovementBack,
+        _ => return None,
+    })
+}
+
+fn item_category(key: &str, value: &Value, top_level: bool) -> Result<ItemCategory> {
+    let id = value
+        .get("Id")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .or_else(|| top_level.then(|| key.to_string()));
+    let info_display_mode = match value.get("InfoDisplayMode").and_then(Value::as_str) {
+        None | Some("Tooltip") => ItemGridInfoDisplayMode::Tooltip,
+        Some("Adjacent") => ItemGridInfoDisplayMode::Adjacent,
+        Some("None") => ItemGridInfoDisplayMode::None,
+        Some(other) => {
+            return Err(invalid(
+                "ItemCategory",
+                key,
+                format!("unknown ItemGridInfoDisplayMode `{other}`"),
+            ))
+        }
+    };
+    let mut children = Vec::new();
+    if let Some(values) = value.get("Children").and_then(Value::as_array) {
+        let mut ordered: Vec<(&Value, i32)> = values
+            .iter()
+            .map(|child| {
+                (
+                    child,
+                    child.get("Order").and_then(Value::as_i64).unwrap_or(0) as i32,
+                )
+            })
+            .collect();
+        // Java `afterDecode` sorts children by `Order`.
+        ordered.sort_by_key(|(_, order)| *order);
+        for (child, _) in ordered {
+            children.push(item_category(key, child, false)?);
+        }
+    }
+    let sub_categories = value
+        .get("SubCategories")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .map(|sub| SubCategoryDefinition {
+                    id: sub.get("Id").and_then(Value::as_str).map(ToOwned::to_owned),
+                    name: sub
+                        .get("Name")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    description: sub
+                        .get("Description")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    order: sub.get("Order").and_then(Value::as_i64).unwrap_or(0) as i32,
+                })
+                .collect()
+        });
+    Ok(ItemCategory {
+        id,
+        name: value
+            .get("Name")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        icon: value
+            .get("Icon")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        order: value.get("Order").and_then(Value::as_i64).unwrap_or(0) as i32,
+        info_display_mode,
+        children: (!children.is_empty()).then_some(children),
+        sub_categories,
+    })
+}
+
+fn item_player_animations(key: &str, value: &Value) -> Result<ItemPlayerAnimations> {
+    let mut animations = BTreeMap::new();
+    if let Some(entries) = value.get("Animations").and_then(Value::as_object) {
+        for (name, animation) in entries {
+            animations.insert(name.clone(), item_animation(key, name, animation)?);
+        }
+    }
+    Ok(ItemPlayerAnimations {
+        id: Some(key.to_string()),
+        animations,
+        wiggle_weights: value
+            .get("WiggleWeights")
+            .and_then(Value::as_object)
+            .map(wiggle_weights),
+        camera: value
+            .get("Camera")
+            .and_then(Value::as_object)
+            .map(camera_settings),
+        pullback_config: value
+            .get("PullbackConfig")
+            .and_then(Value::as_object)
+            .map(pullback_config),
+        use_first_person_override: value
+            .get("UseFirstPersonOverrides")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn item_animation(store_key: &str, name: &str, value: &Value) -> Result<ItemAnimation> {
+    let Some(object) = value.as_object() else {
+        return Err(invalid(
+            "ItemPlayerAnimations",
+            store_key,
+            format!("animation `{name}` must be an object"),
+        ));
+    };
+    let field = |name: &str| {
+        object
+            .get(name)
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+    };
+    Ok(ItemAnimation {
+        third_person: field("ThirdPerson"),
+        third_person_moving: field("ThirdPersonMoving"),
+        third_person_face: field("ThirdPersonFace"),
+        first_person: field("FirstPerson"),
+        first_person_override: field("FirstPersonOverride"),
+        keep_previous_first_person_animation: object
+            .get("KeepPreviousFirstPersonAnimation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        speed: object.get("Speed").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        // Java `ItemAnimation.blendingDuration` defaults to 0.2.
+        blending_duration: object
+            .get("BlendingDuration")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.2) as f32,
+        looping: object
+            .get("Looping")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        clips_geometry: object
+            .get("ClipsGeometry")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn wiggle_weights(object: &serde_json::Map<String, Value>) -> WiggleWeights {
+    let field =
+        |name: &str| -> f32 { object.get(name).and_then(Value::as_f64).unwrap_or(0.0) as f32 };
+    WiggleWeights {
+        x: field("X"),
+        x_deceleration: field("XDeceleration"),
+        y: field("Y"),
+        y_deceleration: field("YDeceleration"),
+        z: field("Z"),
+        z_deceleration: field("ZDeceleration"),
+        roll: field("Roll"),
+        roll_deceleration: field("RollDeceleration"),
+        pitch: field("Pitch"),
+        pitch_deceleration: field("PitchDeceleration"),
+    }
+}
+
+fn camera_settings(object: &serde_json::Map<String, Value>) -> CameraSettings {
+    CameraSettings {
+        position_offset: object.get("PositionOffset").and_then(vector3),
+        yaw: object
+            .get("Yaw")
+            .and_then(Value::as_object)
+            .map(camera_axis),
+        pitch: object
+            .get("Pitch")
+            .and_then(Value::as_object)
+            .map(camera_axis),
+    }
+}
+
+fn camera_axis(object: &serde_json::Map<String, Value>) -> CameraAxis {
+    CameraAxis {
+        angle_range: object
+            .get("AngleRange")
+            .and_then(Value::as_object)
+            .map(|range| Rangef {
+                min: range.get("Min").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                max: range.get("Max").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+            }),
+        target_nodes: object
+            .get("TargetNodes")
+            .and_then(Value::as_array)
+            .map(|nodes| {
+                nodes
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(camera_node)
+                    .collect()
+            }),
+    }
+}
+
+fn camera_node(name: &str) -> Option<CameraNode> {
+    Some(match name {
+        "None" => CameraNode::None,
+        "Head" => CameraNode::Head,
+        "LShoulder" => CameraNode::LShoulder,
+        "RShoulder" => CameraNode::RShoulder,
+        "Belly" => CameraNode::Belly,
+        _ => return None,
+    })
+}
+
+fn pullback_config(object: &serde_json::Map<String, Value>) -> ItemPullbackConfiguration {
+    ItemPullbackConfiguration {
+        left_offset_override: object.get("LeftOffsetOverride").and_then(vector3),
+        left_rotation_override: object.get("LeftRotationOverride").and_then(vector3),
+        right_offset_override: object.get("RightOffsetOverride").and_then(vector3),
+        right_rotation_override: object.get("RightRotationOverride").and_then(vector3),
+    }
+}
+
+fn vector3(value: &Value) -> Option<Vector3f> {
+    if let Some(values) = value.as_array() {
+        return Some(Vector3f {
+            x: values.first().and_then(Value::as_f64).unwrap_or(0.0) as f32,
+            y: values.get(1).and_then(Value::as_f64).unwrap_or(0.0) as f32,
+            z: values.get(2).and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        });
+    }
+    let object = value.as_object()?;
+    Some(Vector3f {
+        x: object.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        y: object.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        z: object.get("Z").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+    })
+}
 
 fn color(value: Option<&Value>) -> Option<Color> {
     let text = value?.as_str()?;

@@ -26,9 +26,11 @@ use crate::registry::AssetRegistry;
 /// Java `Item.UNKNOWN_TEXTURE`.
 const UNKNOWN_ITEM_TEXTURE: &str = "Items/Unknown.png";
 /// Java `ItemPlayerAnimations.DEFAULT_ID`.
-const DEFAULT_PLAYER_ANIMATIONS: &str = "Item";
+const DEFAULT_PLAYER_ANIMATIONS: &str = "Default";
 /// Java `ItemEntityConfig.DEFAULT_PARTICLE_SYSTEM_ID`.
 const DEFAULT_PARTICLE_SYSTEM: &str = "Item";
+/// Java `Item.itemSoundSetId` default.
+const DEFAULT_ITEM_SOUND_SET: &str = "ISS_Default";
 /// Java `BlockType.UNKNOWN_ID`, used when a contained block type is missing.
 const UNKNOWN_BLOCK_ID: i32 = 1;
 
@@ -61,6 +63,46 @@ fn item_base(
     let has_block = json.get("BlockType").is_some_and(Value::is_object);
     let block_id = block_id(registry, key, has_block);
 
+    // Java `processConfig`: `Quality` is a plain (non-inherited) field, so use
+    // the item's own document rather than the parent-merged value.
+    let quality_id = registry
+        .item_local_json(key)
+        .and_then(|json| json.get("Quality"))
+        .and_then(Value::as_str);
+    let quality_index = quality_id
+        .and_then(|quality| registry.item_qualities.id_of(quality))
+        .unwrap_or(0);
+
+    let item_entity = Some(
+        resolved_item_entity(registry, key, json, &mut std::collections::BTreeSet::new())
+            .unwrap_or_else(|| default_item_entity(has_block)),
+    );
+
+    let reticle_index = json
+        .get("Reticle")
+        .and_then(Value::as_str)
+        .and_then(|reticle| registry.item_reticles.id_of(reticle))
+        .unwrap_or(0);
+    // Java `preLoadAssets` constructs `Item.UNKNOWN` directly, so its
+    // `processConfig` never resolves the sound-set index.
+    let preloaded = registry
+        .items
+        .get(key)
+        .is_some_and(|record| record.preloaded);
+    let item_sound_set_index = if preloaded {
+        0
+    } else {
+        let sound_set = json
+            .get("ItemSoundSetId")
+            .and_then(Value::as_str)
+            .unwrap_or(DEFAULT_ITEM_SOUND_SET);
+        registry
+            .item_sound_sets
+            .id_of(sound_set)
+            .or_else(|| registry.item_sound_sets.id_of(DEFAULT_ITEM_SOUND_SET))
+            .unwrap_or(0)
+    };
+
     let mut max_stack = integer(json, "MaxStack").unwrap_or(-1);
     if max_stack == -1 {
         // Java `Item.processConfig`.
@@ -86,20 +128,15 @@ fn item_base(
         scale: number(json, "Scale").unwrap_or(1.0) as f32,
         texture: Some(string(json, "Texture").unwrap_or_else(|| UNKNOWN_ITEM_TEXTURE.to_string())),
         animation: string(json, "Animation"),
-        player_animations_id: Some(
-            string(json, "PlayerAnimationsId")
-                .unwrap_or_else(|| DEFAULT_PLAYER_ANIMATIONS.to_string()),
-        ),
+        player_animations_id: Some(player_animations_id(registry, key)),
         use_player_animations: boolean(json, "UsePlayerAnimations", false),
         max_stack,
-        // Reticle, quality and sound indexes depend on stores that are not
-        // streamed yet (T33 deviations).
-        reticle_index: 0,
+        reticle_index,
         icon: string(json, "Icon"),
         icon_properties: icon_properties(json.get("IconProperties")),
         translation_properties: translation_properties(json.get("TranslationProperties")),
         item_level: integer(json, "ItemLevel").unwrap_or(0),
-        quality_index: 0,
+        quality_index,
         resource_types: resource_types(json.get("ResourceTypes")),
         consumable: boolean(json, "Consumable", false),
         variant: boolean(json, "Variant", false),
@@ -111,7 +148,7 @@ fn item_base(
         utility: Some(utility(json.get("Utility"))),
         block_selector_tool: None,
         builder_tool_data: None,
-        item_entity: Some(item_entity(json.get("ItemEntity"), has_block)),
+        item_entity,
         set: string(json, "Set"),
         categories: non_empty_strings(json.get("Categories")),
         sub_category: string(json, "SubCategory"),
@@ -121,7 +158,7 @@ fn item_base(
         light: color_light(json.get("Light")),
         durability: number(json, "MaxDurability").unwrap_or(0.0),
         sound_event_index: 0,
-        item_sound_set_index: 0,
+        item_sound_set_index,
         // Java always sends the interaction maps, empty when the item has no
         // entries. Interaction ids are not resolved until `RootInteraction` is
         // streamed.
@@ -346,29 +383,106 @@ fn numeric_ids(value: &Value) -> Option<Vec<i32>> {
         .collect()
 }
 
-fn item_entity(value: Option<&Value>, has_block: bool) -> ItemEntityConfig {
-    match value.and_then(Value::as_object) {
-        Some(object) => ItemEntityConfig {
-            particle_system_id: Some(
-                object
-                    .get("ParticleSystemId")
-                    .and_then(Value::as_str)
-                    .unwrap_or(DEFAULT_PARTICLE_SYSTEM)
-                    .to_string(),
-            ),
-            particle_color: color(object.get("ParticleColor")),
-            show_item_particles: object
-                .get("ShowItemParticles")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
+/// Decode an explicit/inherited `ItemEntityConfig`, or `None` when the field
+/// is absent (Java's `null`, which `processConfig` later replaces with a
+/// default).
+fn item_entity_config(value: Option<&Value>) -> Option<ItemEntityConfig> {
+    let object = value?.as_object()?;
+    Some(ItemEntityConfig {
+        // An explicit `null` decodes as Java `null`; an absent key keeps the
+        // codec field initializer `DEFAULT_PARTICLE_SYSTEM_ID`.
+        particle_system_id: match object.get("ParticleSystemId") {
+            Some(Value::Null) => None,
+            Some(Value::String(id)) => Some(id.clone()),
+            Some(_) => return None,
+            None => Some(DEFAULT_PARTICLE_SYSTEM.to_string()),
         },
-        None => ItemEntityConfig {
-            // Java `ItemEntityConfig.DEFAULT_BLOCK` / `DEFAULT`.
-            particle_system_id: (!has_block).then(|| DEFAULT_PARTICLE_SYSTEM.to_string()),
-            particle_color: None,
-            show_item_particles: true,
-        },
+        particle_color: color(object.get("ParticleColor")),
+        show_item_particles: object
+            .get("ShowItemParticles")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    })
+}
+
+/// Java inherits `ItemEntity` from the parent *after* the parent's
+/// `processConfig` ran, so a parent's quality-driven config propagates to
+/// children that do not define their own field. The child's own `Quality` is
+/// not inherited and overrides the chain when present.
+fn resolved_item_entity(
+    registry: &AssetRegistry,
+    key: &str,
+    json: &Value,
+    seen: &mut std::collections::BTreeSet<String>,
+) -> Option<ItemEntityConfig> {
+    if !seen.insert(key.to_ascii_lowercase()) {
+        return None;
     }
+    let local = registry.item_local_json(key);
+    let has_block = json.get("BlockType").is_some_and(Value::is_object);
+    let mut entity = match local.and_then(|local| local.get("ItemEntity")) {
+        Some(value) => item_entity_config(Some(value)),
+        None => registry
+            .items
+            .get(key)
+            .and_then(|record| record.parent.clone())
+            .and_then(|parent| {
+                registry
+                    .items
+                    .get(&parent)
+                    .map(|record| resolved_item_entity(registry, &parent, &record.value, seen))
+            })
+            .flatten(),
+    };
+
+    if let Some(quality) = local
+        .and_then(|local| local.get("Quality"))
+        .and_then(Value::as_str)
+    {
+        let quality_index = registry.item_qualities.id_of(quality).unwrap_or(0);
+        if let Some(record) = registry.item_qualities.get_by_id(quality_index) {
+            entity = item_entity_config(record.value.get("ItemEntityConfig"));
+        }
+    }
+
+    entity.or_else(|| Some(default_item_entity(has_block)))
+}
+
+/// Java `ItemEntityConfig.DEFAULT_BLOCK` / `ItemEntityConfig.DEFAULT`.
+fn default_item_entity(has_block: bool) -> ItemEntityConfig {
+    ItemEntityConfig {
+        particle_system_id: (!has_block).then(|| DEFAULT_PARTICLE_SYSTEM.to_string()),
+        particle_color: None,
+        show_item_particles: true,
+    }
+}
+
+/// Resolve `Item.PlayerAnimationsId` through the item's own document and parent
+/// chain. A contained animation object resolves to the id Java generates for
+/// the document that defines it (`*<document>_PlayerAnimationsId`); otherwise
+/// the field is inherited as a plain string.
+fn player_animations_id(registry: &AssetRegistry, key: &str) -> String {
+    let mut current = Some(key.to_string());
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(candidate) = current {
+        if !seen.insert(candidate.to_ascii_lowercase()) {
+            break;
+        }
+        if let Some(local) = registry.item_local_json(&candidate) {
+            match local.get("PlayerAnimationsId") {
+                Some(Value::String(id)) => return id.clone(),
+                Some(Value::Object(_)) => {
+                    return format!("*{candidate}_PlayerAnimationsId");
+                }
+                _ => {}
+            }
+        }
+        current = registry
+            .items
+            .get(&candidate)
+            .and_then(|record| record.parent.clone());
+    }
+    DEFAULT_PLAYER_ANIMATIONS.to_string()
 }
 
 /// Java `InteractionPriorityCodec`: an integer is the `Default` slot, an object
