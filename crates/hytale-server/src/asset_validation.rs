@@ -461,6 +461,7 @@ pub fn print_report(pack: &Path, report: &AssetValidationReport) -> bool {
         "tags: {} ({range}); checked {} asset/pattern references",
         report.tag_count, report.checked_tag_indexes
     );
+    println!("failures: {}", report.failures.len());
     if report.failures.is_empty() {
         println!("validation: ok");
         true
