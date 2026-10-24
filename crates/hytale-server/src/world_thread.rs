@@ -9,6 +9,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use hytale_assets::{AssetPack, CommonAssetRegistry};
@@ -236,7 +237,7 @@ enum Command {
         reply: SyncSender<Result<usize, String>>,
     },
     ConfigAssetPackets {
-        reply: SyncSender<Result<hytale_assets::ConfigAssets, String>>,
+        reply: SyncSender<Result<Arc<hytale_assets::ConfigAssets>, String>>,
     },
     CommonAssets {
         reply: SyncSender<Result<CommonAssetRegistry, String>>,
@@ -426,8 +427,13 @@ impl WorldThread {
             .ok()
     }
 
-    /// Encode the config asset packets and tag map the session sends during setup.
-    pub fn config_asset_packets(&self) -> Result<hytale_assets::ConfigAssets, WorldThreadError> {
+    /// The config asset packets and tag map the session sends during setup.
+    ///
+    /// The payload is encoded once when the world starts and shared by every
+    /// connection.
+    pub fn config_asset_packets(
+        &self,
+    ) -> Result<Arc<hytale_assets::ConfigAssets>, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::ConfigAssetPackets { reply })
@@ -518,6 +524,7 @@ fn run(
             start,
             player_transform,
             world_time,
+            config_assets,
         }) => {
             if ready.send(Ok(start)).is_err() {
                 generator.shutdown();
@@ -577,11 +584,7 @@ fn run(
                         let _ = reply.send(result);
                     }
                     Command::ConfigAssetPackets { reply } => {
-                        let result = generator
-                            .assets()
-                            .config_assets()
-                            .map_err(|error| error.to_string());
-                        let _ = reply.send(result);
+                        let _ = reply.send(Ok(Arc::clone(&config_assets)));
                     }
                     Command::CommonAssets { reply } => {
                         let result = AssetPack::open(&options.generator.assets_pack)
@@ -621,10 +624,13 @@ struct Started {
     start: WorldStartReport,
     player_transform: Option<PlayerTransform>,
     world_time: WorldTimeState,
+    config_assets: Arc<hytale_assets::ConfigAssets>,
 }
 
 fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let generator = WorldGenerator::open(&options.generator)?;
+    // Encode the config burst once per world; every session shares the Arc.
+    let config_assets = Arc::new(generator.assets().config_assets()?);
     let world_uuid = match &options.world_uuid {
         Some(value) => value
             .parse()
@@ -700,6 +706,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         start,
         player_transform,
         world_time,
+        config_assets,
     })
 }
 

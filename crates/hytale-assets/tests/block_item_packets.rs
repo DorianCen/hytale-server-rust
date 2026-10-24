@@ -11,8 +11,10 @@ use std::path::PathBuf;
 
 use hytale_assets::{AssetPack, AssetRegistry, TagRegistry};
 use hytale_protocol::generated::assets::{
-    UpdateBlockHitboxes, UpdateBlockTypes, UpdateEnvironments, UpdateFluids, UpdateItems,
-    UpdatePhysicalMaterials, UpdateTagPatterns,
+    UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets, UpdateBlockSoundSets,
+    UpdateBlockTypes, UpdateEnvironments, UpdateFluidFX, UpdateFluids, UpdateItemCategories,
+    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
+    UpdateItems, UpdatePhysicalMaterials, UpdateSoundEvents, UpdateTagPatterns,
 };
 use hytale_protocol::generated::common::{BlockNeighbor, BlockType, RequiredBlockFaceSupport};
 use hytale_protocol::generated::wire::{Packet, Wire};
@@ -28,7 +30,7 @@ fn assets_available() -> bool {
 
 fn load() -> (AssetRegistry, Vec<hytale_assets::AssetPacket>) {
     let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open the pack");
-    let registry = AssetRegistry::load_p0(&pack).expect("load P0");
+    let registry = AssetRegistry::load_phase2(&pack).expect("load phase 2");
     let config = registry.config_assets().expect("encode config assets");
     (registry, config.packets)
 }
@@ -77,10 +79,20 @@ fn config_packets_are_sent_in_dependency_order() {
         vec![
             UpdateBlockHitboxes::ID,
             UpdatePhysicalMaterials::ID,
+            UpdateSoundEvents::ID,
+            UpdateBlockSoundSets::ID,
+            UpdateFluidFX::ID,
             UpdateFluids::ID,
             UpdateEnvironments::ID,
             UpdateTagPatterns::ID,
             UpdateBlockTypes::ID,
+            UpdateBlockParticleSets::ID,
+            UpdateBlockBreakingDecals::ID,
+            UpdateItemSoundSets::ID,
+            UpdateItemQualities::ID,
+            UpdateItemReticles::ID,
+            UpdateItemCategories::ID,
+            UpdateItemPlayerAnimations::ID,
             UpdateItems::ID,
         ]
     );
@@ -184,6 +196,10 @@ fn block_type_packet_matches_the_java_golden() {
         assert_eq!(
             block.physical_material_index, expected.physical_material_index,
             "{name}: physicalMaterialIndex"
+        );
+        assert_eq!(
+            block.block_sound_set_index, expected.block_sound_set_index,
+            "{name}: blockSoundSetIndex"
         );
         assert_eq!(
             block.sound_occlusion_opacity, expected.sound_occlusion_opacity,

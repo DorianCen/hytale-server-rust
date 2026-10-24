@@ -11,8 +11,10 @@ use hytale_net::{
 };
 use hytale_protocol::frame::{decode_frame, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::assets::{
-    UpdateBlockHitboxes, UpdateBlockTypes, UpdateEnvironments, UpdateFluids, UpdateItems,
-    UpdatePhysicalMaterials, UpdateTranslations,
+    UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets, UpdateBlockSoundSets,
+    UpdateBlockTypes, UpdateEnvironments, UpdateFluidFX, UpdateFluids, UpdateItemCategories,
+    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
+    UpdateItems, UpdatePhysicalMaterials, UpdateSoundEvents, UpdateTagPatterns, UpdateTranslations,
 };
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{Asset, PongType, Position, TeleportAck};
@@ -725,9 +727,20 @@ pub async fn auth_join(
             }
             UpdatePhysicalMaterials::ID
             | UpdateBlockHitboxes::ID
+            | UpdateSoundEvents::ID
+            | UpdateBlockSoundSets::ID
+            | UpdateFluidFX::ID
             | UpdateFluids::ID
             | UpdateEnvironments::ID
+            | UpdateTagPatterns::ID
             | UpdateBlockTypes::ID
+            | UpdateBlockParticleSets::ID
+            | UpdateBlockBreakingDecals::ID
+            | UpdateItemSoundSets::ID
+            | UpdateItemQualities::ID
+            | UpdateItemReticles::ID
+            | UpdateItemCategories::ID
+            | UpdateItemPlayerAnimations::ID
             | UpdateItems::ID => {
                 report.config_packets.push(frame.packet_id);
             }

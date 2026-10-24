@@ -13,7 +13,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T36](T36-block-fluid-child-stores.md) | Block/fluid child stores + packets | T35 | medium | done (session 26) |
 | [T37](T37-item-child-stores.md) | Item child stores + packets | T35 | medium | done (session 26) |
 | [T38](T38-tag-patterns.md) | TagPattern + `UpdateTagPatterns` | T35 | medium | done (session 26) |
-| [T39](T39-asset-wiring-validation.md) | Asset wiring, config cache, `--validate-assets` | T36, T37, T38 | medium | planned |
+| [T39](T39-asset-wiring-validation.md) | Asset wiring, config cache, `--validate-assets` | T36, T37, T38 | medium | done (session 27) |
 | [T40](T40-hytale-core-runtime.md) | `hytale-core` runtime | T34 | medium | planned |
 | [T41](T41-universe-world-lifecycle.md) | Universe and world lifecycle | T40 | low/medium | planned |
 | [T42](T42-persistent-listener.md) | Persistent listener and multi-session runtime | T39, T41 | low/medium | planned |

@@ -1,13 +1,14 @@
-# Next steps — CoreServer rewrite, phase 2 (session 26)
+# Next steps — CoreServer rewrite, phase 2 (session 27)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next tasks:** T39 wires the child-store packets into the join and adds
-`--validate-assets`. T40–T42 (runtime/universe/listener) remain the parallel
-runtime track; T42 depends on T39's cached config packets.
+**Next tasks:** T40 → T41 → T42 build the persistent runtime (shared
+`hytale-core` services, universe/world lifecycle, then the multi-session
+listener). With T39 complete, M2's asset foundation is finished and T42 can use
+the cached config burst.
 
 ## Current state
 
@@ -28,6 +29,8 @@ Landed and green:
   differences over all 3,971 Java items.
 - T38 `TagPattern` (196 assets, exact Java key/id parity) and
   `UpdateTagPatterns`; pattern tags join the deterministic `TagRegistry`.
+- T39 final config order (17 packets), one encoded `ConfigAssets` shared by all
+  sessions, `--validate-assets`, and client-bot packet recognition.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -52,6 +55,7 @@ cargo fmt --all -- --check
 The phase-1 commands still work:
 
 ```sh
+cargo run -p hytale-server -- --validate-assets
 cargo run -p hytale-server -- headless --save target/headless-world --chunk 4,-5
 cargo run -p hytale-server -- world-boot --save target/headless-world \
   --view-radius 1 --chunks-per-tick 4 --set-block 129,250,-159,4

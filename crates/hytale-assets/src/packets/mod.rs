@@ -223,24 +223,34 @@ impl AssetRegistry {
     /// The config-asset packets and the matching `ServerTags` map.
     ///
     /// Java sends one init packet per store with a packet generator. This port
-    /// encodes `BlockBoundingBoxes`, `PhysicalMaterial`, `Fluid`, `Environment`,
-    /// `TagPattern`, `BlockType` and `Item`. The dependencies are sent first so
-    /// `BlockType` can resolve hitbox/physical-material ids and `Item` block
-    /// ids, and tag patterns arrive before the packets whose tags they describe.
+    /// encodes every enabled store. The order is dependency-driven: every
+    /// numeric index reference arrives before its consumer.
+    ///
+    /// `BlockBoundingBoxes`/`PhysicalMaterial` → `SoundEvent` → `BlockSoundSet`
+    /// → `FluidFX` → `Fluid` → `Environment` → `TagPattern` → `BlockType` →
+    /// `BlockParticleSet`/`BlockBreakingDecal` → item child stores → `Item`.
     /// Tag indexes are owned by the Rust snapshot, so every packet and
     /// `ServerTags` agree.
     pub fn config_assets(&self) -> Result<ConfigAssets> {
         let tags = TagRegistry::from_assets(self);
         Ok(ConfigAssets {
-            // T38 owns this order. Add future tag-dependent packets after
-            // `tag_pattern` and before `block_type`/`item`.
             packets: vec![
                 self.block_hitbox_packet()?,
                 self.physical_material_packet()?,
+                self.sound_event_packet()?,
+                self.block_sound_set_packet()?,
+                self.fluid_fx_packet()?,
                 self.fluid_packet(&tags)?,
                 self.environment_packet(&tags)?,
                 self.tag_pattern_packet(&tags)?,
                 self.block_type_packet(&tags)?,
+                self.block_particle_set_packet()?,
+                self.block_breaking_decal_packet()?,
+                self.item_sound_set_packet()?,
+                self.item_quality_packet()?,
+                self.item_reticle_packet()?,
+                self.item_category_packet()?,
+                self.item_player_animations_packet()?,
                 self.item_packet(&tags)?,
             ],
             tags: tags.map(),

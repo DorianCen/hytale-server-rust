@@ -62,9 +62,12 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   FluidFX and SoundEvent; item sounds/qualities/reticles/categories/player
   animations; and the TagPattern store with `UpdateTagPatterns`. All ten child
   packets are byte-identical to Java; tag patterns match Java's op trees with a
-  deterministic Rust-owned tag index map. Phase 2 continues with T39 wiring,
-  the persistent universe/listener, multiplayer tracking, block edits, the world
-  clock, a real-client trace and then gameplay/NPC/hardening; see
+  deterministic Rust-owned tag index map. Session 27 wired the full 17-packet
+  config burst into the join, caches the encoded `ConfigAssets` once per world
+  thread, adds `hytale-server --validate-assets`, and extends `client-bot` to
+  assert the full config order. Phase 2 continues with the persistent
+  universe/listener, multiplayer tracking, block edits, the world clock, a
+  real-client trace and then gameplay/NPC/hardening; see
   [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,

@@ -7,18 +7,17 @@ the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
 The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
-is **T39** (wire the child packets, cache config assets, add
-`--validate-assets`). T36, T37 and T38 are complete; T40–T42 can still run in
-parallel on the runtime track.
+is **T40** (`hytale-core` runtime), followed by T41 and T42. M2 (asset
+completion) is finished with T35–T39; see [`NEXT_STEPS.md`](NEXT_STEPS.md).
 
 ## 0. Baseline
 
 Completed and not to be redone:
 
 - M1: protocol codegen, framing, QUIC/mTLS, transport.
-- M2 partial: P0 asset loader, deterministic ids, common assets, and the six
-  self-contained config packets (`41`, `87`, `83`, `61`, `40`, `54`), plus the
-  T36–T38 child stores, their packet encoders and `UpdateTagPatterns`.
+- M2 done: P0 asset loader, deterministic ids, common assets, the ten child
+  stores/packets and `UpdateTagPatterns`; the final 17-packet config burst is
+  cached once and `--validate-assets` is green.
 - M3 partial: runtime chunks, BSON region/world/player storage, world config,
   save boot, demand loading, world thread, chunk packets.
 - M4 partial: dev/insecure join, local EdDSA auth, asset streaming, Game
@@ -130,6 +129,8 @@ cargo fmt --all -- --check
 ---
 
 ## M2 — Asset foundation completion
+
+**Status:** done (session 27)
 
 ### T35 — Child-store golden dumper extension
 
@@ -280,6 +281,7 @@ tag registry as `ServerTags`.
 
 ### T39 — Wire child packets, cache config assets, add `--validate-assets`
 
+**Status:** done (session 27)
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`
 **Depends on:** T36, T37, T38
 **Agent fit:** medium

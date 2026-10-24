@@ -111,3 +111,46 @@ This file records phase-2 sessions only.
   - T39 wires all new packets into the final config order, caches encoded
     `ConfigAssets`, and adds `--validate-assets`.
 
+---
+
+## Session 27 — Full config burst, cache and asset validation (2026-10-24)
+
+- **Goal:** finish M2 by wiring the child packets into the join, encoding the
+  config burst once, and validating the live asset registry.
+- **Landed:**
+  - `AssetRegistry::config_assets()` now emits 17 packets in dependency order:
+    hitboxes, physical materials, sound events, block sound sets, FluidFX,
+    Fluid, Environment, TagPattern, BlockType, block particles/decals, item
+    sounds/qualities/reticles/categories/animations, then Item.
+  - `WorldThread` encodes the burst once at world start and hands sessions an
+    `Arc<ConfigAssets>`; the encode no longer runs per connection.
+  - `hytale-server --validate-assets [--pack PATH]` loads every enabled store,
+    reports counts/id ranges/packet sizes/tag counts, checks packet order,
+    duplicate ids, decodability, determinism and that every asset/pattern tag
+    index resolves in `ServerTags`, and exits non-zero on drift.
+  - `client-bot` recognises all 17 config packet ids; the authenticated join
+    asserts their exact dependency order.
+  - Semantic tests now compare `fluidFXIndex`, `blockSoundSetIndex`,
+    `fluidParticles` and the previously divergent item fields directly, removing
+    the child-index exceptions.
+  - Added `crates/hytale-server/tests/asset_validation.rs` and a world-thread
+    cache test (`Arc::ptr_eq` across two config requests).
+- **Verified:**
+  - `cargo run -p hytale-server -- --validate-assets` → 21 stores, 17 packets,
+    579 tags, 24,397 checked references, `validation: ok`.
+  - `cargo test -p client-bot --test auth_join -- --ignored`.
+  - `cargo test --workspace`.
+  - `cargo clippy --workspace --all-targets -- -D warnings`.
+  - `cargo fmt --all -- --check`.
+- **Deviations:**
+  - Validation checks the live registry/encoding rather than committed
+    `index.json`, so it also works with mod packs; fixture comparison remains in
+    the Rust tests.
+  - The cache is per world thread until T41 gives the universe ownership of
+    multiple worlds.
+  - `AudioCategory`/`AudioState` remain dependency-only stores (no packets).
+- **Follow-ups:**
+  - T40 (`hytale-core`), T41 (universe/world lifecycle), T42 (persistent
+    multi-session listener) start the M3 runtime track.
+
+

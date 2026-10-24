@@ -21,6 +21,12 @@ use hytale_world::player_data::{Position, Rotation};
 #[derive(Debug, Parser)]
 #[command(name = "hytale-server", version, about = "Hytale CoreServer rewrite")]
 struct Cli {
+    /// Validate every enabled asset store and the encoded config burst.
+    #[arg(long)]
+    validate_assets: bool,
+    /// Asset pack (zip or unpacked directory) used by `--validate-assets`.
+    #[arg(long, default_value = "Assets/Assets.zip")]
+    pack: PathBuf,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -291,6 +297,9 @@ fn parse_block(value: &str) -> Result<(i32, i32, i32, i32), String> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if cli.validate_assets {
+        return run_validate_assets_command(cli.pack);
+    }
     match cli.command {
         Some(Command::Headless(args)) => run_headless_command(args),
         Some(Command::LoadChunk(args)) => run_load_chunk_command(args),
@@ -301,6 +310,23 @@ fn main() -> ExitCode {
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
+        }
+    }
+}
+
+fn run_validate_assets_command(pack: PathBuf) -> ExitCode {
+    match hytale_server::asset_validation::validate_assets(&pack) {
+        Ok(report) => {
+            let valid = hytale_server::asset_validation::print_report(&pack, &report);
+            if valid {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(error) => {
+            eprintln!("asset validation failed: {error}");
+            ExitCode::FAILURE
         }
     }
 }

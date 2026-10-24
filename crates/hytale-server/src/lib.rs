@@ -5,6 +5,7 @@
 
 #![deny(clippy::all)]
 
+pub mod asset_validation;
 pub mod chunk_serve;
 pub mod chunk_streamer;
 pub mod generation;
@@ -16,6 +17,9 @@ pub mod world_config_tool;
 pub mod world_thread;
 pub mod world_tool;
 
+pub use asset_validation::{
+    validate_assets, AssetValidationError, AssetValidationReport, PacketReport, StoreReport,
+};
 pub use chunk_serve::{
     run as run_chunk_serve, serve_connection as serve_chunk_connection, ChunkServeError,
     ChunkServeOptions, ChunkServeReport,

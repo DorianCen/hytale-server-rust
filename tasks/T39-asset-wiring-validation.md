@@ -1,6 +1,6 @@
 # T39 — Asset wiring, config cache and `--validate-assets`
 
-**Status:** planned (session 25+)
+**Status:** done (session 27)
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`
 **Depends on:** T36, T37, T38
 **Agent fit:** medium
@@ -51,5 +51,20 @@ cargo run -p hytale-server -- --validate-assets
 ## Deviations
 
 - P2/P3 stores outside the selected closure remain deferred.
-- The validation command does not regenerate goldens; it compares against the
-  committed expectations.
+- The validation command does not regenerate goldens; it compares live
+  encoding against itself (determinism) and checks decode, order, duplicate ids
+  and tag references. It does not compare against `index.json`, so it also
+  works against a mod pack.
+- `AudioCategory`/`AudioState` are loaded for `SoundEvent` resolution but still
+  have no init packet in the config burst.
+- The config burst is encoded once per world thread. The runtime still has one
+  world per process until T41's universe owns per-world registries.
+
+## Follow-ups
+
+- T41/T42 move the cached burst to the universe-level shared registry and reuse
+  it across worlds.
+- Add `AudioCategory`/`AudioState` streaming only if a client path needs them.
+- Keep `--validate-assets` free of fixture paths when adding pack-specific
+  expectations; fixture comparison belongs in the Rust tests.
+

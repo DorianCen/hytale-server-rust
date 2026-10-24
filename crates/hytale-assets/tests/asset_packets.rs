@@ -1,9 +1,10 @@
-//! Golden parity for the P0 asset packets whose ids match Java.
+//! Golden parity for the config asset packets whose ids match Java.
 //!
 //! `testdata/golden/server/assets/*.bin` are real Java `generateInitPacket`
 //! payloads (unframed, uncompressed). `PhysicalMaterial` and
 //! `BlockBoundingBoxes` have deterministic Java ids, so the Rust encoders must
-//! match byte-for-byte.
+//! match byte-for-byte. The load also carries the child stores so `Fluid` and
+//! `Environment` can resolve their indexes.
 
 use std::path::PathBuf;
 
@@ -24,7 +25,7 @@ fn assets_available() -> bool {
 
 fn load_registry() -> AssetRegistry {
     let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open the pack");
-    AssetRegistry::load_p0(&pack).expect("load P0")
+    AssetRegistry::load_phase2(&pack).expect("load the phase-2 registry")
 }
 
 fn golden(store: &str) -> Vec<u8> {
@@ -175,9 +176,10 @@ fn environment_and_fluid_packets_decode_and_agree_with_server_tags() {
         assert_eq!(actual.particles, expected.particles);
         assert_eq!(actual.draw_type, expected.draw_type);
         assert_eq!(actual.block_particle_set_id, expected.block_particle_set_id);
+        assert_eq!(actual.fluid_fx_index, expected.fluid_fx_index);
+        assert_eq!(actual.block_sound_set_index, expected.block_sound_set_index);
         assert_eq!(actual.particle_color, expected.particle_color);
-        // `fluidFXIndex` and `blockSoundSetIndex` point at non-P0 stores that
-        // are not streamed yet; tag indexes are Rust-owned.
+        // Tag indexes are Rust-owned.
         for index in actual.tag_indexes.as_deref().unwrap_or_default() {
             assert!(
                 config.tags.values().any(|value| value == index),

@@ -180,17 +180,24 @@ timestamp is written anywhere.
   compares them byte-for-byte. Maps use ascending integer keys, matching
   `AssetDumper.canonicalizeMaps`; `Hitbox` components are double→float.
 - The same test encodes `Environment.bin` and `Fluid.bin` and compares every
-  non-tag/non-child-index field. Java's tag indexes are global across all 54
-  stores; the Rust registry assigns its own deterministic indexes and publishes
-  them in `ServerTags`, so tag arrays intentionally differ.
+  field except the Rust-owned tag arrays, including `fluidParticles`,
+  `fluidFXIndex` and `blockSoundSetIndex`. Java's tag indexes are global across
+  all 54 stores; the Rust registry assigns its own deterministic indexes and
+  publishes them in `ServerTags`, so tag arrays intentionally differ.
 - `crates/hytale-assets/tests/block_item_packets.rs` decodes `BlockType.bin` and
   `Item.bin` and compares the implemented fields by block name/item key. Block
   ids, group ids and tag indexes are Rust-owned, so id references are
   normalized through the Rust registries; the item map uses string keys and is
-  compared directly (`blockId` by block name).
+  compared directly (`blockId` by block name). `blockSoundSetIndex` is compared
+  against the child store.
 - `crates/hytale-assets/tests/child_store_packets.rs` decodes every new
   child-store payload and verifies each `index.json` size/hash against the
   committed file.
-- T36/T37/T38 consume the new child-store payloads and replace the temporary
-  `0` child indexes (`BlockSoundSet`, `FluidFX`, `ItemSoundSet`, `ItemQuality`,
-  `ItemReticleConfig`, `TagPattern`).
+- `child_store_golden.rs`, `item_child_store_packets.rs` and
+  `tag_pattern_packets.rs` byte-compare the ten block/fluid/item child packets,
+  check the store counts/ids against `index.json`, verify all 3,971 item fields,
+  and prove `UpdateTagPatterns` + `ServerTags` consistency.
+- `crates/hytale-server/tests/asset_validation.rs` runs the same live-registry
+  validation as `hytale-server --validate-assets`: all 17 config packets decode
+  in dependency order, encode deterministically, and every asset tag index
+  resolves in `ServerTags`.

@@ -1,4 +1,4 @@
-//! Shared worldgen boot: asset pack → P0 registry → worldgen registries →
+//! Shared worldgen boot: asset pack → phase-2 registry → worldgen registries →
 //! `worldgen-server` worker pool → runtime [`ChunkColumn`].
 //!
 //! `headless` and the saved-world boot both need the same generator setup; this
@@ -86,7 +86,7 @@ impl WorldGenerator {
         }
 
         let pack = AssetPack::open(&options.assets_pack)?;
-        // Phase 2 adds TagPatterns so the join can stream UpdateTagPatterns.
+        // Phase 2 loads every child store the join streams.
         let assets = AssetRegistry::load_phase2(&pack)?;
         let registries = Arc::new(registries_from_assets(&assets)?);
         let config = WorldGenConfig::new(
@@ -111,7 +111,7 @@ impl WorldGenerator {
         })
     }
 
-    /// The P0 asset registry used for the storage/packet codecs.
+    /// The phase-2 asset registry used for the storage/packet codecs.
     pub fn assets(&self) -> &AssetRegistry {
         &self.assets
     }

@@ -119,12 +119,29 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     assert!(report.assets[0].bytes > 0);
     assert!(report.asset_parts >= 1);
     assert_eq!(report.asset_bytes, report.assets[0].bytes);
-    assert!(report.config_packets.contains(&41)); // UpdateBlockHitboxes
-    assert!(report.config_packets.contains(&87)); // UpdatePhysicalMaterials
-    assert!(report.config_packets.contains(&83)); // UpdateFluids
-    assert!(report.config_packets.contains(&61)); // UpdateEnvironments
-    assert!(report.config_packets.contains(&40)); // UpdateBlockTypes
-    assert!(report.config_packets.contains(&54)); // UpdateItems
+    assert_eq!(
+        report.config_packets,
+        vec![
+            41, // UpdateBlockHitboxes
+            87, // UpdatePhysicalMaterials
+            65, // UpdateSoundEvents
+            42, // UpdateBlockSoundSets
+            63, // UpdateFluidFX
+            83, // UpdateFluids
+            61, // UpdateEnvironments
+            84, // UpdateTagPatterns
+            40, // UpdateBlockTypes
+            44, // UpdateBlockParticleSets
+            45, // UpdateBlockBreakingDecals
+            43, // UpdateItemSoundSets
+            55, // UpdateItemQualities
+            57, // UpdateItemReticles
+            56, // UpdateItemCategories
+            52, // UpdateItemPlayerAnimations
+            54, // UpdateItems
+        ],
+        "config packets must arrive in dependency order"
+    );
     assert!(report.translations);
     assert!(report.rebuild_requested);
     assert!(report.game.clear_chunks);

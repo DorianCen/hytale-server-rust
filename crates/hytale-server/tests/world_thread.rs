@@ -26,6 +26,46 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 #[test]
+fn config_assets_are_cached_per_world() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("config-cache");
+    let options = WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, _start) = WorldThread::spawn(options).expect("spawn the world thread");
+
+    let first = thread.config_asset_packets().expect("first config burst");
+    let second = thread.config_asset_packets().expect("second config burst");
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &second),
+        "sessions must share one encoded ConfigAssets"
+    );
+    assert_eq!(first.packets.len(), 17);
+    assert_eq!(
+        first
+            .packets
+            .iter()
+            .map(|packet| packet.id)
+            .collect::<Vec<_>>(),
+        vec![41, 87, 65, 42, 63, 83, 61, 84, 40, 44, 45, 43, 55, 57, 56, 52, 54]
+    );
+    assert!(!first.tags.is_empty());
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn ticks_the_view_and_unloads_chunks_that_leave_it() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

@@ -120,6 +120,13 @@ byte-identical to the committed payloads. `UpdateTagPatterns` is compared by op
 tree/size because Rust owns tag indexes; its key/id mapping matches
 `index.json` exactly.
 
+Session 27 consumer: `crates/hytale-server/tests/asset_validation.rs` runs the
+same live-registry checks as `hytale-server --validate-assets` and
+`world_thread.rs` proves the encoded `ConfigAssets` is shared (`Arc::ptr_eq`)
+by every session. The semantic tests now compare `fluidFXIndex`,
+`blockSoundSetIndex`, `fluidParticles` and the previously divergent item fields
+against the goldens, so the old child-index exceptions are gone.
+
 ### 3.3 `chunks-pkts/`
 
 Session 3 landed the fixture for seed `0`, chunks `(0,0)` and `(4,-5)`:
