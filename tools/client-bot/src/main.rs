@@ -152,6 +152,8 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 observe_after_join: None,
                 disconnect_after: None,
                 keep_alive: false,
+                place_block_after_join: None,
+                break_block_after_join: None,
             },
         )
         .await?;

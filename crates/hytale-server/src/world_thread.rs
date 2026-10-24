@@ -209,6 +209,23 @@ enum Command {
         block_id: i32,
         reply: SyncSender<Result<(i32, i32), String>>,
     },
+    PlaceBlock {
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+        reply: SyncSender<Result<Option<(i32, i32)>, String>>,
+    },
+    GetBlock {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<i32>, String>>,
+    },
+    BlockIdForItem {
+        item_id: String,
+        reply: SyncSender<Result<Option<i32>, String>>,
+    },
     Save {
         reply: SyncSender<Result<usize, String>>,
     },
@@ -387,6 +404,62 @@ impl WorldThread {
                 y,
                 z,
                 block_id,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Place `block_id` only when the target block is empty.
+    ///
+    /// Returns `(before, after)` when applied and `None` when the target was
+    /// occupied or `block_id` was not positive. A missing loaded chunk is an
+    /// error.
+    pub fn place_block(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+    ) -> Result<Option<(i32, i32)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlaceBlock {
+                x,
+                y,
+                z,
+                block_id,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Read a block from a loaded chunk, or `None` when the chunk is not
+    /// loaded.
+    pub fn get_block(&self, x: i32, y: i32, z: i32) -> Result<Option<i32>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::GetBlock { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Resolve an item id to the block id it places, if it is a block item.
+    pub fn block_id_for_item(&self, item_id: &str) -> Result<Option<i32>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockIdForItem {
+                item_id: item_id.to_string(),
                 reply,
             })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
@@ -621,6 +694,28 @@ fn run(
                         reply,
                     } => {
                         let result = set_block(&mut save, x, y, z, block_id);
+                        let _ = reply.send(result);
+                    }
+                    Command::PlaceBlock {
+                        x,
+                        y,
+                        z,
+                        block_id,
+                        reply,
+                    } => {
+                        let result = place_block(&mut save, x, y, z, block_id);
+                        let _ = reply.send(result);
+                    }
+                    Command::GetBlock { x, y, z, reply } => {
+                        let result = if save.world().chunk(x >> 5, z >> 5).is_some() {
+                            Ok(Some(save.world().get_block(x, y, z)))
+                        } else {
+                            Ok(None)
+                        };
+                        let _ = reply.send(result);
+                    }
+                    Command::BlockIdForItem { item_id, reply } => {
+                        let result = block_id_for_item(generator.assets(), &item_id);
                         let _ = reply.send(result);
                     }
                     Command::Save { reply } => {
@@ -959,6 +1054,45 @@ fn set_block(
         .set_block(x, y, z, block_id)
         .map_err(|error| error.to_string())?;
     Ok((before, save.world().get_block(x, y, z)))
+}
+
+fn place_block(
+    save: &mut WorldSave,
+    x: i32,
+    y: i32,
+    z: i32,
+    block_id: i32,
+) -> Result<Option<(i32, i32)>, String> {
+    if block_id <= 0 {
+        return Ok(None);
+    }
+    let (chunk_x, chunk_z) = (x >> 5, z >> 5);
+    if save.world().chunk(chunk_x, chunk_z).is_none() {
+        return Err(format!(
+            "chunk ({chunk_x}, {chunk_z}) is not loaded for block ({x}, {y}, {z})"
+        ));
+    }
+    let before = save.world().get_block(x, y, z);
+    if before != 0 {
+        return Ok(None);
+    }
+    save.world_mut()
+        .set_block(x, y, z, block_id)
+        .map_err(|error| error.to_string())?;
+    Ok(Some((before, save.world().get_block(x, y, z))))
+}
+
+fn block_id_for_item(
+    assets: &hytale_assets::AssetRegistry,
+    item_id: &str,
+) -> Result<Option<i32>, String> {
+    let Some(item) = assets.items.get(item_id) else {
+        return Ok(None);
+    };
+    if item.value.get("BlockType").is_none() {
+        return Ok(None);
+    }
+    Ok(assets.block_types.id_of(&item.key))
 }
 
 fn block_to_chunk(value: f64) -> i32 {

@@ -33,7 +33,8 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    DisconnectType, FormattedMessage, GameMode, InstantData, PlayerSkin, PongType, UpdateType,
+    DisconnectType, FormattedMessage, GameMode, InstantData, MouseButtonState, MouseButtonType,
+    PlayerSkin, PongType, UpdateType,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -42,7 +43,8 @@ use hytale_protocol::generated::connection::{
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo};
 use hytale_protocol::generated::player::{
-    ClientMovement, ClientReady, ClientTeleport, JoinWorld, SetClientId, SetGameMode,
+    ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
+    SetGameMode,
 };
 use hytale_protocol::generated::registry::settings;
 use hytale_protocol::generated::setup::{
@@ -52,7 +54,9 @@ use hytale_protocol::generated::setup::{
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::ClearChunks;
-use hytale_protocol::generated::world::{UpdateTime, UpdateTimeSettings, WorldGameplayConfig};
+use hytale_protocol::generated::world::{
+    ServerSetBlock, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
+};
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 use hytale_world::player_data::{PlayerAppearance, PlayerTransform};
@@ -211,6 +215,10 @@ pub struct GameLoopReport {
     pub time_settings_updates: usize,
     /// Queued player list/entity packets written during the loop.
     pub player_messages: usize,
+    /// Block edits applied to the world.
+    pub block_edits: usize,
+    /// Block interactions rejected (reach, unknown item, occupied target).
+    pub block_edit_rejections: usize,
     /// The client disconnected (or the connection closed) cleanly.
     pub disconnected: bool,
     /// The server disconnected the client for idling.
@@ -259,6 +267,9 @@ pub enum SessionError {
     /// The world thread failed.
     #[error(transparent)]
     World(#[from] WorldThreadError),
+    /// A queued player/entity/block message failed to write.
+    #[error(transparent)]
+    PlayerMessage(#[from] players::PlayerMessageError),
     /// Token validation/issue failed.
     #[error(transparent)]
     Auth(#[from] hytale_auth::AuthError),
@@ -1147,7 +1158,8 @@ async fn run_game_loop(
         }
 
         while let Ok(message) = broadcasts.try_recv() {
-            players::write_message(writer, message, options.chunk_compression_level).await?;
+            players::write_message(writer, chunks, message, options.chunk_compression_level)
+                .await?;
             report.player_messages += 1;
         }
 
@@ -1203,6 +1215,14 @@ async fn run_game_loop(
                                 roll: orientation.roll,
                             };
                             pending_movement = true;
+                        }
+                    }
+                    MouseInteraction::ID => {
+                        let interaction: MouseInteraction = frame.decode()?;
+                        if handle_block_interaction(thread, &players, &transform, &interaction) {
+                            report.block_edits += 1;
+                        } else {
+                            report.block_edit_rejections += 1;
                         }
                     }
                     ViewRadius::ID => {
@@ -1315,6 +1335,118 @@ async fn run_game_loop(
     Ok(report)
 }
 
+/// Apply a left/right mouse interaction as a block break/place.
+///
+/// Invalid targets, out-of-reach positions and non-block items are rejected
+/// without propagating an error, so a bad interaction cannot kill the session.
+/// A validated left/right mouse interaction for a block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BlockEdit {
+    /// Break the block at `(x, y, z)`.
+    Break { x: i32, y: i32, z: i32 },
+    /// Place `item_id` at `(x, y, z)`.
+    Place {
+        x: i32,
+        y: i32,
+        z: i32,
+        item_id: String,
+    },
+}
+
+/// Parse the state-independent part of a block interaction.
+///
+/// This is pure so reach, button-state and held-item validation can be tested
+/// without a world thread.
+fn parse_block_edit(
+    transform: &PlayerTransform,
+    interaction: &MouseInteraction,
+) -> Option<BlockEdit> {
+    let button = interaction.mouse_button.as_ref()?;
+    if button.state != MouseButtonState::Pressed {
+        return None;
+    }
+    let world = interaction.world_interaction.as_ref()?;
+    if world.entity_id >= 0 {
+        return None;
+    }
+    let target = world.block_position.as_ref()?;
+
+    // Adventure reach (5) plus Java's interaction buffer (2).
+    const MAX_REACH_SQUARED: f64 = 7.0 * 7.0;
+    let dx = transform.position.x - (f64::from(target.x) + 0.5);
+    let dy = transform.position.y - (f64::from(target.y) + 0.5);
+    let dz = transform.position.z - (f64::from(target.z) + 0.5);
+    if dx * dx + dy * dy + dz * dz > MAX_REACH_SQUARED {
+        return None;
+    }
+
+    match button.mouse_button_type {
+        MouseButtonType::Left => Some(BlockEdit::Break {
+            x: target.x,
+            y: target.y,
+            z: target.z,
+        }),
+        MouseButtonType::Right => {
+            let item_id = interaction
+                .item_in_hand_id
+                .as_deref()
+                .filter(|id| !id.is_empty() && *id != hytale_world::player_data::EMPTY_ITEM_ID)?;
+            Some(BlockEdit::Place {
+                x: target.x,
+                y: target.y,
+                z: target.z,
+                item_id: item_id.to_string(),
+            })
+        }
+        MouseButtonType::Middle | MouseButtonType::X1 | MouseButtonType::X2 => None,
+    }
+}
+
+fn handle_block_interaction(
+    thread: &WorldThread,
+    players: &PlayerRegistry,
+    transform: &PlayerTransform,
+    interaction: &MouseInteraction,
+) -> bool {
+    match parse_block_edit(transform, interaction) {
+        Some(BlockEdit::Break { x, y, z }) => {
+            let Ok((before, after)) = thread.set_block(x, y, z, 0) else {
+                return false;
+            };
+            if before == 0 || before == after {
+                return false;
+            }
+            players.broadcast_block(ServerSetBlock {
+                x,
+                y,
+                z,
+                block_id: after,
+                filler: 0,
+                rotation: 0,
+            });
+            true
+        }
+        Some(BlockEdit::Place { x, y, z, item_id }) => {
+            let Ok(Some(block_id)) = thread.block_id_for_item(&item_id) else {
+                return false;
+            };
+            let Ok(Some((_before, after))) = thread.place_block(x, y, z, block_id) else {
+                return false;
+            };
+            players.broadcast_block(ServerSetBlock {
+                x,
+                y,
+                z,
+                block_id: after,
+                filler: 0,
+                rotation: 0,
+            });
+            true
+        }
+        None => false,
+    }
+}
+
 async fn send_client_teleport(
     writer: &mut FrameWriter,
     transform: PlayerTransform,
@@ -1378,7 +1510,10 @@ async fn expect<T: Packet + Wire>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hytale_protocol::generated::common::ComponentUpdate;
+    use hytale_protocol::generated::common::{
+        BlockPosition, ComponentUpdate, MouseButtonEvent, WorldInteraction,
+    };
+    use hytale_protocol::generated::wire::Vector2f;
     use hytale_world::player_data::{
         PlayerModelReference, PlayerSkinData, Position, Rotation, EMPTY_ITEM_ID,
     };
@@ -1520,5 +1655,146 @@ mod tests {
             }
             other => panic!("expected PlayerSkinUpdate, got {other:?}"),
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn interaction(
+        button: MouseButtonType,
+        state: MouseButtonState,
+        x: i32,
+        y: i32,
+        z: i32,
+        item: Option<&str>,
+    ) -> MouseInteraction {
+        MouseInteraction {
+            client_timestamp: 0,
+            active_slot: 0,
+            item_in_hand_id: item.map(ToOwned::to_owned),
+            screen_point: Vector2f::default(),
+            mouse_button: Some(MouseButtonEvent {
+                mouse_button_type: button,
+                state,
+                clicks: 1,
+            }),
+            mouse_motion: None,
+            world_interaction: Some(WorldInteraction {
+                entity_id: -1,
+                block_position: Some(BlockPosition { x, y, z }),
+                block_rotation: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn block_edit_parses_valid_break_and_place() {
+        let transform = transform();
+        assert_eq!(
+            parse_block_edit(
+                &transform,
+                &interaction(
+                    MouseButtonType::Left,
+                    MouseButtonState::Pressed,
+                    1,
+                    2,
+                    3,
+                    None
+                )
+            ),
+            Some(BlockEdit::Break { x: 1, y: 2, z: 3 })
+        );
+        assert_eq!(
+            parse_block_edit(
+                &transform,
+                &interaction(
+                    MouseButtonType::Right,
+                    MouseButtonState::Pressed,
+                    1,
+                    2,
+                    3,
+                    Some("Rock_Stone")
+                )
+            ),
+            Some(BlockEdit::Place {
+                x: 1,
+                y: 2,
+                z: 3,
+                item_id: "Rock_Stone".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn block_edit_rejects_out_of_reach_released_and_missing_items() {
+        let transform = transform();
+        assert_eq!(
+            parse_block_edit(
+                &transform,
+                &interaction(
+                    MouseButtonType::Left,
+                    MouseButtonState::Pressed,
+                    100,
+                    2,
+                    3,
+                    None
+                )
+            ),
+            None
+        );
+        assert_eq!(
+            parse_block_edit(
+                &transform,
+                &interaction(
+                    MouseButtonType::Left,
+                    MouseButtonState::Released,
+                    1,
+                    2,
+                    3,
+                    None
+                )
+            ),
+            None
+        );
+        assert_eq!(
+            parse_block_edit(
+                &transform,
+                &interaction(
+                    MouseButtonType::Right,
+                    MouseButtonState::Pressed,
+                    1,
+                    2,
+                    3,
+                    None
+                )
+            ),
+            None
+        );
+        assert_eq!(
+            parse_block_edit(
+                &transform,
+                &interaction(
+                    MouseButtonType::Right,
+                    MouseButtonState::Pressed,
+                    1,
+                    2,
+                    3,
+                    Some(EMPTY_ITEM_ID)
+                )
+            ),
+            None
+        );
+        assert_eq!(
+            parse_block_edit(
+                &transform,
+                &interaction(
+                    MouseButtonType::Middle,
+                    MouseButtonState::Pressed,
+                    1,
+                    2,
+                    3,
+                    None
+                )
+            ),
+            None
+        );
     }
 }

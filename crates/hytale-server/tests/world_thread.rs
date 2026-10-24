@@ -222,6 +222,72 @@ fn saved_equipment_loads_and_unknown_items_fall_back() {
 }
 
 #[test]
+fn block_edits_resolve_items_and_survive_save_reload() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("block-edit");
+    let options = || {
+        WorldThreadOptions::with_defaults(
+            hytale_server::GeneratorOptions {
+                assets_pack: repo_root().join("Assets/Assets.zip"),
+                assets_root: repo_root().join("Assets/extracted"),
+                world_dir: repo_root().join("testdata/Default"),
+                workers: 1,
+            },
+            save_dir.clone(),
+        )
+    };
+    let (thread, start) = WorldThread::spawn(options()).expect("spawn the world thread");
+    while thread.tick().expect("tick").remaining > 0 {}
+
+    let rock = thread
+        .block_id_for_item("Rock_Stone")
+        .expect("resolve Rock_Stone")
+        .expect("Rock_Stone is a block item");
+    assert!(rock > 0);
+    assert_eq!(
+        thread
+            .block_id_for_item("Weapon_Longsword_Adamantite")
+            .expect("resolve sword"),
+        None,
+        "non-block items must not place a block"
+    );
+    assert_eq!(
+        thread
+            .block_id_for_item("Definitely_Not_An_Item")
+            .expect("resolve unknown item"),
+        None
+    );
+
+    let (x, y, z) = (
+        start.player_chunk.0 * 32 + 8,
+        200,
+        start.player_chunk.1 * 32 + 8,
+    );
+    assert_eq!(thread.get_block(x, y, z).expect("read before"), Some(0));
+    assert_eq!(
+        thread.place_block(x, y, z, rock).expect("place the block"),
+        Some((0, rock))
+    );
+    assert_eq!(thread.get_block(x, y, z).expect("read after"), Some(rock));
+    assert!(thread.save().expect("save") >= 1);
+    thread.shutdown().expect("shutdown");
+
+    let (thread, _start) = WorldThread::spawn(options()).expect("respawn the world thread");
+    while thread.tick().expect("tick").remaining > 0 {}
+    assert_eq!(
+        thread.get_block(x, y, z).expect("read reloaded"),
+        Some(rock),
+        "block edit must survive save/reload"
+    );
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn world_clock_progresses_pauses_and_survives_save_reload() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

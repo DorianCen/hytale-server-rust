@@ -83,9 +83,11 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   full player-list snapshots/add/removes, view-filtered entity
   spawn/movement/removal broadcasts, a per-session message queue drained by the
   game loop, and a two-bot loopback test covering mutual spawn, movement,
-  disconnect and rejoin. M3 is complete and M4 continues with block edits, a
-  real-client trace and then gameplay/NPC/hardening; see
-  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  disconnect and rejoin. Session 34 completed the v1 edit loop: validated
+  `MouseInteraction` break/place, item→block resolution, dirty chunk saves and
+  view-filtered `ServerSetBlock` broadcasts. M3 is complete and M4 continues
+  with reconnect/teardown and a real-client trace, then gameplay/NPC/hardening;
+  see [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -350,6 +352,15 @@ from wall-clock deltas on each command, and persists `GameTime` plus
 `UpdateTimeSettings`/`UpdateTime` from the shared snapshot; `UpdateTime` is
 broadcast once per real second while time runs.
 
+Block edits enter through the client `MouseInteraction` packet. The session
+validates the pressed left/right button, block target, reach and held item, then
+resolves an item with a `BlockType` to its block id and applies the edit through
+`WorldThread` (`set_block` / `place_block`), which marks the chunk dirty for the
+normal region save. `PlayerRegistry::broadcast_block` sends the authoritative
+`ServerSetBlock` on each interested session's chunks stream, including the
+editor. Concurrent writes are serialized by the single world thread; network
+broadcasts are queued per session.
+
 ---
 
 ## 6. Entity layer
@@ -512,7 +523,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::player_data` | saved model reference and inventory components decoded (M4); full `ModelAsset` protocol expansion and ECS lifecycle deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, and the per-world player registry with view-filtered entity broadcasts (M3/M4) landed; block interactions pending |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, and validated block place/break with `ServerSetBlock` broadcasts (M3/M4) landed |
 | `CoreServer/.../auth/**` | `hytale-auth` | Ed25519 keys, EdDSA JWT claims/signature/time/scope validation, `cnf.x5t#S256` certificate binding and the local issuer/validator authority landed (M4); OAuth device/browser, session-service JWKS and credential-store adapters pending |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |

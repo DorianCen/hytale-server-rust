@@ -20,7 +20,8 @@ use hytale_protocol::generated::assets::{
 };
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{
-    Asset, ComponentUpdate, PlayerSkin, PongType, Position, TeleportAck,
+    Asset, BlockPosition, ComponentUpdate, MouseButtonEvent, MouseButtonState, MouseButtonType,
+    PlayerSkin, PongType, Position, TeleportAck, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
@@ -29,17 +30,17 @@ use hytale_protocol::generated::connection::{
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
 use hytale_protocol::generated::player::{
-    ClientMovement, ClientReady, ClientTeleport, JoinWorld, SetClientId,
+    ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
 };
 use hytale_protocol::generated::setup::{
     AssetFinalize, AssetInitialize, AssetPart, RequestAssets, RequestCommonAssetsRebuild,
     ServerTags, SetTimeDilation, SetUpdateRate, SetupFinalize, UpdateFeatures, ViewRadius,
     WorldLoadFinished, WorldSettings,
 };
-use hytale_protocol::generated::wire::{Packet, Wire};
+use hytale_protocol::generated::wire::{Packet, Vector2f, Wire};
 use hytale_protocol::generated::world::{
-    ClearChunks, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
-    UnloadChunk, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
+    ClearChunks, ServerSetBlock, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn,
+    SetFluids, UnloadChunk, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
 };
 use hytale_protocol::io::{ProtocolError, Reader, Uuid, Writer};
 use sha2::{Digest, Sha256};
@@ -298,6 +299,10 @@ pub struct DevJoinOptions {
     /// Keep the setup/chunk streams alive in a background task after the report
     /// is built, so the session stays registered for later joins.
     pub keep_alive: bool,
+    /// Place this block with this item after the join (right click).
+    pub place_block_after_join: Option<(BlockPosition, String)>,
+    /// Break this block after the join (left click).
+    pub break_block_after_join: Option<BlockPosition>,
 }
 
 /// World-join state observed by the bot.
@@ -371,7 +376,20 @@ pub struct ObservedEntityUpdate {
     pub armor: Option<Vec<String>>,
 }
 
-/// Player-list and entity broadcasts observed after a join.
+/// One block edit seen on the chunks stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObservedBlockUpdate {
+    /// Block x.
+    pub x: i32,
+    /// Block y.
+    pub y: i32,
+    /// Block z.
+    pub z: i32,
+    /// New block id.
+    pub block_id: i32,
+}
+
+/// Player-list, entity and block broadcasts observed after a join.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlayerObservation {
     /// Player UUIDs added to the server player list.
@@ -380,6 +398,8 @@ pub struct PlayerObservation {
     pub removed: Vec<Uuid>,
     /// Entity spawn/update/removal batches.
     pub entities: Vec<ObservedEntityUpdate>,
+    /// Block edits from the chunks stream.
+    pub block_updates: Vec<ObservedBlockUpdate>,
 }
 
 /// Errors from the dev join.
@@ -521,8 +541,24 @@ pub async fn dev_join(
             connection.close(0u32.into(), b"client bot disconnect");
         });
     }
+    if let Some((position, item)) = options.place_block_after_join.clone() {
+        send_block_interaction(&mut writer, MouseButtonType::Right, position, Some(item)).await?;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    if let Some(position) = options.break_block_after_join.clone() {
+        send_block_interaction(&mut writer, MouseButtonType::Left, position, None).await?;
+    }
     let observation = match options.observe_after_join {
-        Some(window) => observe_players(&mut reader, &mut writer, game.client_id, window).await?,
+        Some(window) => {
+            observe_players(
+                &mut reader,
+                &mut writer,
+                &mut chunks,
+                game.client_id,
+                window,
+            )
+            .await?
+        }
         None => PlayerObservation::default(),
     };
     if options.keep_alive {
@@ -573,37 +609,89 @@ async fn keep_alive(
 async fn observe_players(
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
+    chunks: &mut ChunkStreamReader,
     self_id: Option<i32>,
     window: Duration,
 ) -> Result<PlayerObservation, FrameStreamError> {
     let mut observation = PlayerObservation::default();
     let deadline = tokio::time::Instant::now() + window;
+    let mut chunks_open = true;
     loop {
-        let frame = match tokio::time::timeout_at(deadline, reader.next_frame()).await {
-            Ok(Ok(Some(frame))) => frame,
-            Ok(Ok(None)) | Ok(Err(_)) | Err(_) => break,
-        };
-        match frame.packet_id {
-            AddToServerPlayerList::ID => {
-                let packet: AddToServerPlayerList = frame.decode()?;
-                observation
-                    .added
-                    .extend(packet.players.into_iter().map(|player| player.uuid));
+        tokio::select! {
+            frame = tokio::time::timeout_at(deadline, reader.next_frame()) => {
+                let frame = match frame {
+                    Ok(Ok(Some(frame))) => frame,
+                    Ok(Ok(None)) | Ok(Err(_)) | Err(_) => break,
+                };
+                match frame.packet_id {
+                    AddToServerPlayerList::ID => {
+                        let packet: AddToServerPlayerList = frame.decode()?;
+                        observation
+                            .added
+                            .extend(packet.players.into_iter().map(|player| player.uuid));
+                    }
+                    RemoveFromServerPlayerList::ID => {
+                        let packet: RemoveFromServerPlayerList = frame.decode()?;
+                        observation.removed.extend(packet.players);
+                    }
+                    EntityUpdates::ID => {
+                        let packet: EntityUpdates = frame.decode()?;
+                        record_observed_entities(&packet, &mut observation, self_id);
+                    }
+                    Ping::ID => answer_ping(writer, &frame).await?,
+                    ServerDisconnect::ID => return Ok(observation),
+                    _ => {}
+                }
             }
-            RemoveFromServerPlayerList::ID => {
-                let packet: RemoveFromServerPlayerList = frame.decode()?;
-                observation.removed.extend(packet.players);
+            frame = chunks.next_frame(), if chunks_open => {
+                match frame {
+                    Ok(Some(frame)) => {
+                        if frame.packet_id == ServerSetBlock::ID {
+                            let update = ServerSetBlock::decode(&mut Reader::new(&frame.payload))?;
+                            observation.block_updates.push(ObservedBlockUpdate {
+                                x: update.x,
+                                y: update.y,
+                                z: update.z,
+                                block_id: update.block_id,
+                            });
+                        }
+                    }
+                    Ok(None) | Err(_) => chunks_open = false,
+                }
             }
-            EntityUpdates::ID => {
-                let packet: EntityUpdates = frame.decode()?;
-                record_observed_entities(&packet, &mut observation, self_id);
-            }
-            Ping::ID => answer_ping(writer, &frame).await?,
-            ServerDisconnect::ID => break,
-            _ => {}
         }
     }
     Ok(observation)
+}
+
+async fn send_block_interaction(
+    writer: &mut FrameWriter,
+    button: MouseButtonType,
+    position: BlockPosition,
+    item_in_hand_id: Option<String>,
+) -> Result<(), FrameStreamError> {
+    writer
+        .write_packet(
+            &MouseInteraction {
+                client_timestamp: 0,
+                active_slot: 0,
+                item_in_hand_id,
+                screen_point: Vector2f::default(),
+                mouse_button: Some(MouseButtonEvent {
+                    mouse_button_type: button,
+                    state: MouseButtonState::Pressed,
+                    clicks: 1,
+                }),
+                mouse_motion: None,
+                world_interaction: Some(WorldInteraction {
+                    entity_id: -1,
+                    block_position: Some(position),
+                    block_rotation: None,
+                }),
+            },
+            3,
+        )
+        .await
 }
 
 fn record_observed_entities(

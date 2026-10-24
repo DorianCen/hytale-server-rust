@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use client_bot::{dev_join, DevJoinOptions};
 use hytale_net::{connect, TlsIdentity};
-use hytale_protocol::generated::common::Position;
+use hytale_protocol::generated::common::{BlockPosition, Position};
 use hytale_protocol::io::Uuid;
 use hytale_server::{serve_listener, GeneratorOptions, ServeOptions, SessionOptions};
 use tokio::sync::oneshot;
@@ -108,6 +108,8 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         observe_after_join: Some(Duration::from_secs(4)),
         disconnect_after: Some(Duration::from_millis(2_500)),
         keep_alive: false,
+        place_block_after_join: None,
+        break_block_after_join: None,
     };
     let second_options = DevJoinOptions {
         uuid: Uuid::new(1, 2),
@@ -116,12 +118,17 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         skin: None,
         movement_after_join: Some(Position {
             x: 8.0,
-            y: 0.0,
+            y: 200.0,
             z: 8.0,
         }),
         observe_after_join: Some(Duration::from_secs(3)),
         disconnect_after: None,
         keep_alive: true,
+        place_block_after_join: Some((
+            BlockPosition { x: 8, y: 200, z: 8 },
+            "Rock_Stone".to_string(),
+        )),
+        break_block_after_join: Some(BlockPosition { x: 8, y: 200, z: 8 }),
     };
 
     // The second bot joins while the first is still observing, so both see
@@ -206,6 +213,24 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         second_report.observation.entities
     );
 
+    // The second client places and then breaks a block; the first client is
+    // still observing and must receive both authoritative chunk-stream edits.
+    let target = BlockPosition { x: 8, y: 200, z: 8 };
+    assert!(
+        first_report.observation.block_updates.iter().any(|update| {
+            (update.x, update.y, update.z) == (target.x, target.y, target.z) && update.block_id != 0
+        }),
+        "first client did not see the block placement: {:?}",
+        first_report.observation.block_updates
+    );
+    assert!(
+        first_report.observation.block_updates.iter().any(|update| {
+            (update.x, update.y, update.z) == (target.x, target.y, target.z) && update.block_id == 0
+        }),
+        "first client did not see the block break: {:?}",
+        first_report.observation.block_updates
+    );
+
     // Closing the first session removes its entity and player-list entry from
     // the still-connected second client.
     assert!(
@@ -245,6 +270,8 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             observe_after_join: None,
             disconnect_after: None,
             keep_alive: false,
+            place_block_after_join: None,
+            break_block_after_join: None,
         },
     )
     .await

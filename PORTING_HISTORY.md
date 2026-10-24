@@ -425,6 +425,54 @@ This file records phase-2 sessions only.
   - T47 should load/save per-session player data and persist live transforms.
   - T62 adds queue backpressure/rate limits.
 
+---
+
+## Session 34 — Block place/break (2026-10-24)
+
+- **Goal:** complete the v1 edit loop: client interaction → world edit →
+  broadcast → save.
+- **Landed:**
+  - T46: `MouseInteraction` is decoded in the session loop. Pressed left is a
+    break and pressed right is a place; target/entity selection, reach (5 plus
+    Java's 2-block buffer), held-item presence and non-block items are validated
+    in a pure `parse_block_edit` helper. Invalid interactions are rejected
+    without returning a session error.
+  - `WorldThread` gained `get_block`, `place_block` (only into air) and
+    `block_id_for_item` (item with a `BlockType` → block id). Edits use the
+    existing `World::set_block` path, which marks the chunk dirty for the normal
+    region save.
+  - `PlayerMessage::BlockUpdate(ServerSetBlock)` and
+    `PlayerRegistry::broadcast_block` fan a block edit to every viewer whose
+    square chunk view contains it, including the editor. The session writes it
+    on the chunks stream.
+  - `client-bot` sends place/break `MouseInteraction` packets, reads
+    `ServerSetBlock` from the chunk stream during observation, and the
+    multi-client loopback now asserts an observer sees another client's
+    placement and break.
+  - Added world-thread persistence coverage: resolve `Rock_Stone`, reject a
+    sword/non-block and unknown item, place/get, save, respawn and read the
+    edited block back.
+  - Session unit tests cover valid break/place parsing and release/out-of-reach/
+    missing-item/middle-button rejection.
+- **Verified:**
+  - `cargo test -p hytale-server` (8 lib tests + world-thread block edit test).
+  - `cargo test -p client-bot --test multi_join -- --ignored` (spawn, movement,
+    block placement/break broadcast, disconnect, rejoin).
+  - `cargo test -p client-bot --test auth_join -- --ignored` and
+    `--test dev_join -- --ignored`.
+  - `cargo test --workspace`, clippy and fmt.
+  - `tools/java-dumper/run-save-check.sh` on a Rust-written save with an edited
+    block (`Debug_Test_Block`) → `whole-save check: ok`.
+- **Deviations:**
+  - Placement uses the packet's `itemInHandId` but does not decrement a live
+    inventory; full inventory transactions are T49.
+  - Broadcast filler/rotation are `0`; per-item/creative reach, releases, mouse
+    motion, block components and damage/particle feedback remain later tasks.
+- **Follow-ups:**
+  - T47 persists live transforms and restores edits on reconnect.
+  - T49/T50 add inventory consumption and the interaction graph.
+  - T52 adds block simulation and component updates.
+
 
 
 

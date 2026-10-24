@@ -7,9 +7,9 @@ the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
 The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
-`GameplayConfig`), T44 (self-spawn appearance/equipment) and T45 (other-player
-tracking) are done; the immediate next task is **T46** (block place/break),
-continuing M4's v1 path.
+`GameplayConfig`), T44 (self-spawn appearance/equipment), T45 (other-player
+tracking) and T46 (block place/break) are done; the immediate next task is
+**T47** (disconnect, reconnect and session teardown), continuing M4's v1 path.
 
 ## 0. Baseline
 
@@ -540,6 +540,7 @@ Make time advance and stop using protocol defaults for gameplay rules.
 
 ### T46 — Block place/break
 
+**Status:** done (session 34)
 **Package:** `hytale-server`, `hytale-world`
 **Depends on:** T42
 **Goal:** complete the v1 edit loop.
@@ -559,6 +560,15 @@ Make time advance and stop using protocol defaults for gameplay rules.
 - A bot places and breaks a block; another client sees the change.
 - The edit survives save/reload and the Java reload gate.
 - Invalid targets/ids are rejected without killing the session.
+
+**Deviations**
+
+- Placement resolves the packet's `itemInHandId` through the item/block
+  registries; it does not decrement a live inventory yet (T49).
+- Broadcasts use filler `0`/rotation `0`; block rotations, filler and block
+  components are later gameplay work.
+- Only pressed left/right mouse buttons are handled; releases, mouse motion and
+  per-item/creative reach remain later interaction work.
 
 ---
 

@@ -23,6 +23,7 @@ use hytale_protocol::generated::common::{
 };
 use hytale_protocol::generated::entities::EntityUpdates;
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
+use hytale_protocol::generated::world::ServerSetBlock;
 use hytale_protocol::io::Uuid;
 use hytale_world::player_data::{
     PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
@@ -37,6 +38,19 @@ pub enum PlayerMessage {
     RemoveFromPlayerList(Vec<Uuid>),
     /// Spawn/update/remove one or more entities.
     EntityUpdates(EntityUpdates),
+    /// A single block edit on the chunks stream.
+    BlockUpdate(ServerSetBlock),
+}
+
+/// A queued player/entity/block message failed to write.
+#[derive(Debug, thiserror::Error)]
+pub enum PlayerMessageError {
+    /// A control-stream packet failed.
+    #[error(transparent)]
+    Frame(#[from] hytale_net::FrameStreamError),
+    /// A chunks-stream packet failed.
+    #[error(transparent)]
+    Chunk(#[from] hytale_net::ChunkStreamError),
 }
 
 /// Everything needed to register a joining session.
@@ -244,6 +258,27 @@ impl PlayerRegistry {
         entry.view_radius = radius;
         recompute_visibility(&mut inner);
         true
+    }
+
+    /// Queue a block edit for every viewer whose square chunk view contains it.
+    ///
+    /// The editing session is included: the client predicts the edit, and the
+    /// server update is the authoritative correction.
+    pub fn broadcast_block(&self, packet: ServerSetBlock) {
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for viewer in inner.players.values() {
+            if in_view(
+                viewer.view_center,
+                viewer.view_radius,
+                hytale_world::player_data::Position {
+                    x: f64::from(packet.x) + 0.5,
+                    y: f64::from(packet.y) + 0.5,
+                    z: f64::from(packet.z) + 0.5,
+                },
+            ) {
+                queue(viewer, PlayerMessage::BlockUpdate(packet.clone()));
+            }
+        }
     }
 
     /// Number of registered players.
@@ -494,24 +529,29 @@ fn skin_packet(skin: &PlayerSkinData) -> PlayerSkin {
 /// Write one queued message to a session.
 pub async fn write_message(
     writer: &mut hytale_net::FrameWriter,
+    chunks: &mut hytale_net::ChunkStreamWriter,
     message: PlayerMessage,
     compression_level: i32,
-) -> Result<(), hytale_net::FrameStreamError> {
+) -> Result<(), PlayerMessageError> {
     match message {
         PlayerMessage::AddToPlayerList(players) => {
             writer
                 .write_packet(&AddToServerPlayerList { players }, compression_level)
-                .await
+                .await?;
         }
         PlayerMessage::RemoveFromPlayerList(players) => {
             writer
                 .write_packet(&RemoveFromServerPlayerList { players }, compression_level)
-                .await
+                .await?;
         }
         PlayerMessage::EntityUpdates(updates) => {
-            writer.write_packet(&updates, compression_level).await
+            writer.write_packet(&updates, compression_level).await?;
+        }
+        PlayerMessage::BlockUpdate(update) => {
+            chunks.write_packet(&update, compression_level).await?;
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
