@@ -47,7 +47,7 @@ persists.
 |---|---|---|---|
 | M0 | Archive the completed slice and re-baseline the docs | T34 | Archive is self-contained; root docs describe phase 2 |
 | M2 | Finish the asset foundation | T35–T39 | All P0/P1 asset packets and child indexes are golden-checked; `--validate-assets` passes |
-| M3 | Runtime, universe, world lifecycle | T40–T42 | A persistent multi-world/multi-connection server runtime exists |
+| M3 | Runtime, universe, world lifecycle | T40–T42 | A persistent universe catalog and multi-session listener exist (one selected world per listener) |
 | M4 | v1 client join, multiplayer, edits | T43–T48 | The v1 gate in `plan.md` is satisfied and trace-tested |
 | M5 | Core gameplay parity | T49–T57 | Scripted gameplay scenarios match Java |
 | M6 | Builtins and NPC | T58–T61 | Selected builtin modules and NPC systems run with parity tests |
@@ -329,6 +329,8 @@ cargo run -p hytale-server -- --validate-assets
 ---
 
 ## M3 — Runtime, universe and world lifecycle
+
+**Status:** done (session 30)
 
 ### T40 — `hytale-core` runtime
 

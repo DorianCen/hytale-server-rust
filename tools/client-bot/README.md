@@ -87,15 +87,39 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
 
 `--asset-limit N` requests only the first `N` advertised assets (omit it to
 request all 28k+/45 MB). `--auth-issuer`/`--auth-audience` must match the
-server. Config asset packets currently include `BlockHitboxes` (41),
-`PhysicalMaterials` (87), `Fluids` (83) and `Environments` (61), with the
-matching `ServerTags` map. After the initial snapshot the bot sends
-`ClientReady(readyForGameplay)`, receives `ClientTeleport`, and (with
-`--move-chunk x,z`) sends a `ClientMovement` teleport ack + position so the
-server streams the unload/new-chunk batch. It prints the token exchange,
-per-asset hashes/bytes, config packet ids, the Game state, the initial chunk
-summaries and the view-update packets. The loopback test is `#[ignore]`d:
+server. The config asset burst includes all 17 packets (hitboxes, physical
+materials, sound events/sets, FluidFX, fluids, environments, tag patterns,
+block types, block decals/particles, item sounds/qualities/reticles/categories/
+animations and items) with the matching `ServerTags` map. After the initial
+snapshot the bot sends `ClientReady(readyForGameplay)`, receives
+`ClientTeleport`, and (with `--move-chunk x,z`) sends a `ClientMovement`
+teleport ack + position so the server streams the unload/new-chunk batch. It
+prints the token exchange, per-asset hashes/bytes, config packet ids, the Game
+state, the initial chunk summaries and the view-update packets. The loopback
+test is `#[ignore]`d:
 
 ```sh
 cargo test -p client-bot --test auth_join -- --ignored
+```
+
+## Persistent multi-session listener
+
+`hytale-server serve` keeps one QUIC listener and one universe/world thread
+alive for the process lifetime. Each connection gets an independent session;
+the listener enforces a connection limit, an idle timeout, and graceful
+shutdown. `client-bot` can drive it directly:
+
+```sh
+# terminal 1
+cargo run -p hytale-server -- serve --universe target/universe \
+    --bind 127.0.0.1:5520 --view-radius 0
+# terminal 2 (repeat in another terminal for a second player)
+cargo run -p client-bot -- --host 127.0.0.1:5520 --dev-join \
+    --view-radius 0 --timeout 60
+```
+
+The concurrent disconnect/rejoin loopback test is `#[ignore]`d:
+
+```sh
+cargo test -p client-bot --test multi_join -- --ignored
 ```

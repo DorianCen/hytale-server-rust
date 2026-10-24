@@ -67,8 +67,10 @@ cargo test --workspace
 
 ## Follow-ups
 
-- T42 moves the universe/listener ownership to the persistent process runtime
-  and shares the asset registry/config burst across worlds and sessions.
+- T42 built the persistent listener on `UniverseRuntime`. Cross-world asset
+  sharing and multi-world session routing are still deferred; the listener
+  currently serves one selected/default world and each world thread owns its
+  registry.
 - M5 replaces the Flat/Void/Dummy empty-column stubs with real provider parity.
 - T44/T47 should persist player transform/appearance updates on leave; T41 only
   provides the player load/save seam.

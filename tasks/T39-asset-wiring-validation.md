@@ -62,8 +62,9 @@ cargo run -p hytale-server -- --validate-assets
 
 ## Follow-ups
 
-- T41/T42 move the cached burst to the universe-level shared registry and reuse
-  it across worlds.
+- T41/T42 moved the cached burst to the world runtime; reuse across worlds and
+  sessions currently relies on the selected `WorldThread`. A process-level
+  shared registry for multi-world listeners remains an optimization.
 - Add `AudioCategory`/`AudioState` streaming only if a client path needs them.
 - Keep `--validate-assets` free of fixture paths when adding pack-specific
   expectations; fixture comparison belongs in the Rust tests.

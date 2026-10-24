@@ -67,8 +67,9 @@ cargo test --workspace
 
 ## Follow-ups
 
-- T41/T42 compose these services into the universe/listener runtime and switch
-  the binaries to `ServerConfig`/`init_logging`.
+- T41/T42 composed these services into `UniverseRuntime`/`serve`; the existing
+  binaries still use their current option structs and logging, so switching
+  `main` to `ServerConfig`/`init_logging` remains a follow-up.
 - Add module lifecycle/factory hooks when T60 starts implementing builtin
   modules; this task only resolves manifests and dependency order.
 

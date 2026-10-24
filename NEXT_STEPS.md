@@ -54,7 +54,7 @@ cargo fmt --all -- --check
 
 ## Phase 2 sequence
 
-1. **M2 — asset completion:** T35 → T36/T37/T38 → T39.
+1. **M2 — asset completion (done):** T35 → T36/T37/T38 → T39.
 2. **M3 — runtime:** T40 (done) → T41 (done) → T42 (done; parallel with M2 after T34).
 3. **M4 — v1:** T43 → T44 → T45 → T46 → T47 → T48.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md)).
