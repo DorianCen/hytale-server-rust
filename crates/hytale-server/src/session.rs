@@ -120,6 +120,8 @@ pub struct SessionOptions {
     pub handshake_timeout: Duration,
     /// Timeout for the client's `ClientReady(readyForChunks)`.
     pub world_join_timeout: Duration,
+    /// Disconnect a game session after this long without a client frame.
+    pub idle_timeout: Duration,
     /// Authentication mode.
     pub auth: AuthMode,
 }
@@ -134,6 +136,7 @@ impl Default for SessionOptions {
             chunk_compression_level: DEFAULT_COMPRESSION_LEVEL,
             handshake_timeout: Duration::from_secs(30),
             world_join_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(300),
             auth: AuthMode::Insecure,
         }
     }
@@ -204,6 +207,8 @@ pub struct GameLoopReport {
     pub unloaded: usize,
     /// The client disconnected (or the connection closed) cleanly.
     pub disconnected: bool,
+    /// The server disconnected the client for idling.
+    pub idle_timeout: bool,
 }
 
 /// What the session produced.
@@ -1100,6 +1105,7 @@ async fn run_game_loop(
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
+    let mut last_activity = std::time::Instant::now();
     let interval = Duration::from_millis(50);
     let mut teleport_sent = false;
 
@@ -1118,65 +1124,68 @@ async fn run_game_loop(
 
         let wait = interval.saturating_sub(ticker.elapsed());
         match tokio::time::timeout(wait, reader.next_frame()).await {
-            Ok(Ok(Some(frame))) => match frame.packet_id {
-                ClientReady::ID => {
-                    let ready: ClientReady = frame.decode()?;
-                    if ready.ready_for_gameplay {
-                        report.ready_for_gameplay = true;
+            Ok(Ok(Some(frame))) => {
+                last_activity = std::time::Instant::now();
+                match frame.packet_id {
+                    ClientReady::ID => {
+                        let ready: ClientReady = frame.decode()?;
+                        if ready.ready_for_gameplay {
+                            report.ready_for_gameplay = true;
+                        }
+                        if ready.ready_for_gameplay && !teleport_sent {
+                            send_client_teleport(writer, transform, options).await?;
+                            teleport_sent = true;
+                            report.teleport_sent = true;
+                        }
                     }
-                    if ready.ready_for_gameplay && !teleport_sent {
-                        send_client_teleport(writer, transform, options).await?;
-                        teleport_sent = true;
-                        report.teleport_sent = true;
-                    }
-                }
-                ClientMovement::ID => {
-                    let movement: ClientMovement = frame.decode()?;
-                    report.movement_packets += 1;
-                    if movement.teleport_ack.is_some() {
-                        report.teleport_acked = true;
-                    }
-                    if let Some(position) = movement.absolute_position {
-                        if position.x.is_finite() && position.z.is_finite() {
-                            let next = (block_to_chunk(position.x), block_to_chunk(position.z));
-                            if next != center && report.teleport_acked {
-                                thread.set_view(next.0, next.1, radius)?;
-                                center = next;
-                                report.view_changes += 1;
+                    ClientMovement::ID => {
+                        let movement: ClientMovement = frame.decode()?;
+                        report.movement_packets += 1;
+                        if movement.teleport_ack.is_some() {
+                            report.teleport_acked = true;
+                        }
+                        if let Some(position) = movement.absolute_position {
+                            if position.x.is_finite() && position.z.is_finite() {
+                                let next = (block_to_chunk(position.x), block_to_chunk(position.z));
+                                if next != center && report.teleport_acked {
+                                    thread.set_view(next.0, next.1, radius)?;
+                                    center = next;
+                                    report.view_changes += 1;
+                                }
                             }
                         }
                     }
-                }
-                ViewRadius::ID => {
-                    let packet: ViewRadius = frame.decode()?;
-                    if packet.value > 0 {
-                        let next = ((packet.value as f32) / 32.0).ceil() as u32;
-                        if next != radius {
-                            radius = next;
-                            thread.set_view(center.0, center.1, radius)?;
+                    ViewRadius::ID => {
+                        let packet: ViewRadius = frame.decode()?;
+                        if packet.value > 0 {
+                            let next = ((packet.value as f32) / 32.0).ceil() as u32;
+                            if next != radius {
+                                radius = next;
+                                thread.set_view(center.0, center.1, radius)?;
+                            }
                         }
                     }
+                    Ping::ID => {
+                        let ping: Ping = frame.decode()?;
+                        writer
+                            .write_packet(
+                                &Pong {
+                                    id: ping.id,
+                                    time: ping.time,
+                                    r#type: PongType::Raw,
+                                    packet_queue_size: 0,
+                                },
+                                DEFAULT_COMPRESSION_LEVEL,
+                            )
+                            .await?;
+                    }
+                    ClientDisconnect::ID => {
+                        report.disconnected = true;
+                        break;
+                    }
+                    _ => {}
                 }
-                Ping::ID => {
-                    let ping: Ping = frame.decode()?;
-                    writer
-                        .write_packet(
-                            &Pong {
-                                id: ping.id,
-                                time: ping.time,
-                                r#type: PongType::Raw,
-                                packet_queue_size: 0,
-                            },
-                            DEFAULT_COMPRESSION_LEVEL,
-                        )
-                        .await?;
-                }
-                ClientDisconnect::ID => {
-                    report.disconnected = true;
-                    break;
-                }
-                _ => {}
-            },
+            }
             Ok(Ok(None)) => {
                 report.disconnected = true;
                 break;
@@ -1189,6 +1198,13 @@ async fn run_game_loop(
                 return Err(SessionError::Frame(error));
             }
             Err(_) => {}
+        }
+
+        if last_activity.elapsed() >= options.idle_timeout {
+            let _ = send_disconnect(writer, "idle timeout").await;
+            report.idle_timeout = true;
+            report.disconnected = true;
+            break;
         }
 
         if ticker.elapsed() >= interval {

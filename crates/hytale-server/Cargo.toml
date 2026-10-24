@@ -24,4 +24,4 @@ worldgen-server = { path = "../worldgen-server" }
 clap = { workspace = true }
 quinn = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }

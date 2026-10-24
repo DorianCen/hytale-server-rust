@@ -11,9 +11,9 @@ use clap::{Args, Parser, Subcommand};
 use hytale_auth::{AuthKey, AuthService};
 use hytale_server::GeneratorOptions;
 use hytale_server::{
-    run_chunk_serve, run_chunk_tool, run_headless, run_player_data_tool, run_world_boot,
+    run_chunk_serve, run_chunk_tool, run_headless, run_player_data_tool, run_serve, run_world_boot,
     run_world_config_tool, AuthMode, ChunkServeOptions, ChunkToolOptions, HeadlessOptions,
-    PlayerDataToolOptions, SessionOptions, WorldBootOptions, WorldConfigToolOptions,
+    PlayerDataToolOptions, ServeOptions, SessionOptions, WorldBootOptions, WorldConfigToolOptions,
     WorldThreadOptions,
 };
 use hytale_world::player_data::{Position, Rotation};
@@ -49,6 +49,8 @@ enum Command {
     Universe(UniverseArgs),
     /// Serve one client's chunk stream over QUIC (transport demo, no auth).
     ChunkServe(ChunkServeArgs),
+    /// Persistent multi-session listener over a universe.
+    Serve(ServeArgs),
 }
 
 #[derive(Debug, Args)]
@@ -308,9 +310,85 @@ struct ChunkServeArgs {
     /// Expected/granted JWT audience for `--auth-mode local`.
     #[arg(long, default_value = "rust-server")]
     auth_audience: String,
+    /// Seconds a game session may be idle before the server disconnects it.
+    #[arg(long, default_value_t = 300)]
+    idle_timeout: u64,
     /// Seconds to wait for the client to close after the stream ends.
     #[arg(long, default_value_t = 5)]
     close_timeout: u64,
+}
+
+#[derive(Debug, Args)]
+struct ServeArgs {
+    /// Universe root (`universe.json` plus one directory per world).
+    #[arg(long, default_value = "target/universe")]
+    universe: PathBuf,
+    /// World name or UUID to serve; defaults to the universe default.
+    #[arg(long)]
+    world: Option<String>,
+    /// Asset pack (zip or unpacked directory).
+    #[arg(long, default_value = "Assets/Assets.zip")]
+    assets_pack: PathBuf,
+    /// Unpacked asset tree for prefabs, environments and tint gradients.
+    #[arg(long, default_value = "Assets/extracted")]
+    assets_root: PathBuf,
+    /// World-gen data folder (`World.json`).
+    #[arg(long, default_value = "testdata/Default")]
+    world_data: PathBuf,
+    /// QUIC bind address.
+    #[arg(long, default_value = "127.0.0.1:5520")]
+    bind: std::net::SocketAddr,
+    /// Worldgen worker count.
+    #[arg(long, default_value_t = 1)]
+    workers: usize,
+    /// Chunk radius sent to the client.
+    #[arg(long, default_value_t = 0)]
+    view_radius: u32,
+    /// Maximum chunks loaded/generated per world-thread tick.
+    #[arg(long, default_value_t = 8)]
+    chunks_per_tick: usize,
+    /// zstd compression level for chunk frames.
+    #[arg(long, default_value_t = 3)]
+    compression_level: i32,
+    /// Concurrent session limit.
+    #[arg(long, default_value_t = 20)]
+    max_connections: usize,
+    /// Seconds allowed for the whole handshake.
+    #[arg(long, default_value_t = 30)]
+    handshake_timeout: u64,
+    /// Seconds to wait for the client's `ClientReady` after `JoinWorld`.
+    #[arg(long, default_value_t = 30)]
+    world_join_timeout: u64,
+    /// Seconds a game session may be idle before the server disconnects it.
+    #[arg(long, default_value_t = 300)]
+    idle_timeout: u64,
+    /// Seconds to wait for sessions during shutdown before aborting them.
+    #[arg(long, default_value_t = 10)]
+    shutdown_timeout: u64,
+    /// Seconds to wait for the client to close after its session ends.
+    #[arg(long, default_value_t = 5)]
+    close_timeout: u64,
+    /// `ServerInfo.serverName`.
+    #[arg(long, default_value = "Rust CoreServer")]
+    server_name: String,
+    /// `ServerInfo.motd`.
+    #[arg(long, default_value = "dev")]
+    motd: String,
+    /// `ServerInfo.maxPlayers`.
+    #[arg(long, default_value_t = 20)]
+    max_players: i32,
+    /// Authentication mode: `insecure` or `local`.
+    #[arg(long, default_value = "insecure")]
+    auth_mode: String,
+    /// Base64 PKCS#8 Ed25519 key for `--auth-mode local` (generated when absent).
+    #[arg(long)]
+    auth_key: Option<String>,
+    /// Expected/granted JWT issuer for `--auth-mode local`.
+    #[arg(long, default_value = "rust-local")]
+    auth_issuer: String,
+    /// Expected/granted JWT audience for `--auth-mode local`.
+    #[arg(long, default_value = "rust-server")]
+    auth_audience: String,
 }
 
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
@@ -363,6 +441,7 @@ fn main() -> ExitCode {
         Some(Command::WorldBoot(args)) => run_world_boot_command(args),
         Some(Command::Universe(args)) => run_universe_command(args),
         Some(Command::ChunkServe(args)) => run_chunk_serve_command(args),
+        Some(Command::Serve(args)) => run_serve_command(args),
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -455,6 +534,110 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
     }
 }
 
+fn run_serve_command(args: ServeArgs) -> ExitCode {
+    let auth = match args.auth_mode.as_str() {
+        "insecure" => AuthMode::Insecure,
+        "local" => {
+            let key = match args.auth_key.as_deref() {
+                Some(encoded) => match AuthKey::from_pkcs8_base64(encoded) {
+                    Ok(key) => key,
+                    Err(error) => {
+                        eprintln!("invalid --auth-key: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                },
+                None => match AuthKey::generate() {
+                    Ok(key) => {
+                        println!(
+                            "generated local auth key (pkcs8 base64): {}",
+                            key.pkcs8_base64()
+                        );
+                        println!("local auth key id: {}", key.key_id());
+                        key
+                    }
+                    Err(error) => {
+                        eprintln!("could not generate an auth key: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                },
+            };
+            AuthMode::local(AuthService::new(
+                key,
+                args.auth_issuer.clone(),
+                args.auth_audience.clone(),
+            ))
+        }
+        other => {
+            eprintln!("unknown --auth-mode `{other}` (expected `insecure` or `local`)");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let session = SessionOptions {
+        server_name: args.server_name,
+        motd: args.motd,
+        max_players: args.max_players,
+        default_view_radius: args.view_radius,
+        chunk_compression_level: args.compression_level,
+        handshake_timeout: std::time::Duration::from_secs(args.handshake_timeout),
+        world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
+        idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
+        auth,
+    };
+    let options = ServeOptions {
+        universe_root: args.universe,
+        world: args.world,
+        generator: GeneratorOptions {
+            assets_pack: args.assets_pack,
+            assets_root: args.assets_root,
+            world_dir: args.world_data,
+            workers: args.workers,
+        },
+        bind_addr: args.bind,
+        max_connections: args.max_connections,
+        view_radius: args.view_radius,
+        chunks_per_tick: args.chunks_per_tick,
+        session,
+        shutdown_timeout: std::time::Duration::from_secs(args.shutdown_timeout),
+        close_timeout: std::time::Duration::from_secs(args.close_timeout),
+        bound_tx: None,
+    };
+    match run_serve(options) {
+        Ok(report) => {
+            println!(
+                "serve stopped: world {} ({}) on {}",
+                report.world_name, report.world_uuid, report.bound_addr
+            );
+            println!(
+                "sessions={} rejected={} peak={} saved_chunks={}",
+                report.sessions.len(),
+                report.rejected,
+                report.peak_connections,
+                report.saved_chunks
+            );
+            for session in &report.sessions {
+                println!(
+                    "  {} auth={} chunks={} unloaded={} disconnected={} idle_timeout={}",
+                    session.username,
+                    session.auth_mode,
+                    session.chunks,
+                    session.unloaded,
+                    session.disconnected,
+                    session.idle_timeout
+                );
+            }
+            for error in &report.errors {
+                eprintln!("session error: {error}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("serve failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
     let auth = match args.auth_mode.as_str() {
         "insecure" => AuthMode::Insecure,
@@ -522,6 +705,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
             chunk_compression_level: args.compression_level,
             handshake_timeout: std::time::Duration::from_secs(args.handshake_timeout),
             world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
+            idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
             auth,
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),

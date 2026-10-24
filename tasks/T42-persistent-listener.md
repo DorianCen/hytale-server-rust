@@ -1,6 +1,6 @@
 # T42 — Persistent listener and multi-session runtime
 
-**Status:** planned (session 25+)
+**Status:** done (session 30)
 **Package:** `hytale-server`, `hytale-net`, `client-bot`
 **Depends on:** T39, T41
 **Agent fit:** low/medium
@@ -54,3 +54,23 @@ cargo fmt --all -- --check
   but do not yet see each other.
 - TLS/OAuth production authority remains the local EdDSA profile until the auth
   backlog is scheduled.
+- `serve` binds one selected/default world per listener. The universe may catalog
+  more worlds and `UniverseRuntime` can start them, but session world selection
+  needs protocol/routing work after T45.
+- Sessions share the selected `WorldThread`'s cached `ConfigAssets`; each world
+  thread still loads its own asset registry. Cross-world asset sharing is a
+  later optimization.
+- On shutdown the listener closes active QUIC connections, waits up to
+  `--shutdown-timeout` for session tasks, aborts any remaining task, then stops
+  world threads (which save chunks and config).
+- Idle timeout applies to the live game loop; the existing handshake and
+  world-join deadlines remain.
+- `chunk-serve` is kept unchanged as the single-connection transport demo.
+
+## Follow-ups
+
+- T45 adds cross-session visibility; T44/T47 add player appearance and
+  disconnect/reconnect state.
+- A process-level shared `AssetRegistry` for multi-world listeners belongs with
+  the universe-level config cache.
+

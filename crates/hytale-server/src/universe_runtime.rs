@@ -6,6 +6,7 @@
 //! asset registry is still per thread until T42 shares it.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use hytale_world::universe::{Universe, UniverseError, WorldDescriptor, WorldProviderKind};
 use hytale_world::world_config::WorldUuid;
@@ -29,6 +30,9 @@ pub enum UniverseRuntimeError {
     /// The world is not running.
     #[error("world `{0}` is not running")]
     NotRunning(WorldUuid),
+    /// A session still holds the world thread handle.
+    #[error("world `{0}` still has live session handles")]
+    StillInUse(WorldUuid),
     /// The default thread only implements the Default provider.
     #[error(
         "provider `{provider}` is not available for world `{world}`; \
@@ -51,7 +55,7 @@ pub struct UniverseRuntime {
     generator: GeneratorOptions,
     view_radius: u32,
     chunks_per_tick: usize,
-    running: BTreeMap<WorldUuid, WorldThread>,
+    running: BTreeMap<WorldUuid, Arc<WorldThread>>,
 }
 
 impl UniverseRuntime {
@@ -96,11 +100,12 @@ impl UniverseRuntime {
             .unwrap_or(false)
     }
 
-    /// The live thread for one world.
-    pub fn world_thread(&self, name_or_uuid: &str) -> Result<&WorldThread> {
+    /// The live thread handle for one world.
+    pub fn world_thread(&self, name_or_uuid: &str) -> Result<Arc<WorldThread>> {
         let uuid = self.universe.resolve(name_or_uuid)?.uuid;
         self.running
             .get(&uuid)
+            .cloned()
             .ok_or(UniverseRuntimeError::NotRunning(uuid))
     }
 
@@ -150,7 +155,7 @@ impl UniverseRuntime {
             chunks_per_tick: self.chunks_per_tick,
         };
         let (thread, start) = WorldThread::spawn(options)?;
-        self.running.insert(descriptor.uuid, thread);
+        self.running.insert(descriptor.uuid, Arc::new(thread));
         Ok(start)
     }
 
@@ -173,6 +178,7 @@ impl UniverseRuntime {
             .running
             .remove(&uuid)
             .ok_or(UniverseRuntimeError::NotRunning(uuid))?;
+        let thread = Arc::try_unwrap(thread).map_err(|_| UniverseRuntimeError::StillInUse(uuid))?;
         Ok(thread.shutdown()?)
     }
 
@@ -180,7 +186,9 @@ impl UniverseRuntime {
     pub fn shutdown(&mut self) -> Result<usize> {
         let running = std::mem::take(&mut self.running);
         let mut saved = 0;
-        for (_uuid, thread) in running {
+        for (uuid, thread) in running {
+            let thread =
+                Arc::try_unwrap(thread).map_err(|_| UniverseRuntimeError::StillInUse(uuid))?;
             saved += thread.shutdown()?;
         }
         Ok(saved)

@@ -7,8 +7,8 @@ the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
 The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
-is **T42** (persistent multi-session listener). T40's `hytale-core` services and
-T41's universe/world lifecycle are in place.
+is **T43** (world clock and `GameplayConfig`), the start of M4. M3's persistent
+universe/listener runtime is complete with T40–T42.
 
 ## 0. Baseline
 
@@ -18,12 +18,10 @@ Completed and not to be redone:
 - M2 done: P0 asset loader, deterministic ids, common assets, the ten child
   stores/packets and `UpdateTagPatterns`; the final 17-packet config burst is
   cached once and `--validate-assets` is green.
-- M3 partial: `hytale-core` now provides typed config, logging init, the async
-  task scheduler/shutdown token, event bus and module-manifest registry. T41
-  adds the persistent universe catalog, world provider seam, per-world
-  `UniverseRuntime` threads, player load/save seam and the `universe` CLI. Runtime
-  chunks, BSON region/world/player storage, world config, save boot, demand
-  loading, world thread and Java-ordered chunk packets are complete.
+- M3 done: `hytale-core` runtime services, the persistent universe catalog and
+  provider seam, per-world `UniverseRuntime`, player load/save seam, the
+  `universe` CLI, and the persistent multi-session `serve` listener with shared
+  per-world config cache, connection limits, idle timeout and graceful shutdown.
 - M4 partial: dev/insecure join, local EdDSA auth, asset streaming, Game
   transition, player list/self-spawn, time/gameplay packets, teleport exchange,
   persistent chunk stream and movement-driven view updates.
@@ -394,6 +392,7 @@ Own multiple worlds for the process lifetime instead of one scripted save.
 
 ### T42 — Persistent listener and multi-session runtime
 
+**Status:** done (session 30)
 **Package:** `hytale-server`, `hytale-net`, `client-bot`
 **Depends on:** T41, T39 (for cached config packets)
 **Agent fit:** low/medium

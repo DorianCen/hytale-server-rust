@@ -227,6 +227,44 @@ This file records phase-2 sessions only.
   - T42 builds the persistent listener and multi-session runtime on
     `UniverseRuntime`.
 
+---
+
+## Session 30 — Persistent listener and multi-session runtime (2026-10-24)
+
+- **Goal:** replace the one-connection demo with a process-lifetime listener
+  over the universe runtime.
+- **Landed:**
+  - `hytale-server::serve`: one QUIC endpoint and one `UniverseRuntime`; the
+    selected/default world starts once and every accepted connection gets an
+    independent task running the existing join state machine.
+  - Sessions share the world thread's cached `ConfigAssets` (no per-connection
+    re-encode).
+  - Connection limit with explicit `server full` rejection, peak-session
+    accounting, idle timeout in the game loop, clean EOF/`ClientDisconnect`
+    handling, and close-after-session.
+  - Graceful shutdown: closes the endpoint, closes active connections, waits for
+    session tasks up to `--shutdown-timeout`, aborts the remainder, then stops
+    world threads and saves chunks/config.
+  - `hytale-server serve` CLI with auth modes, world selection, view/tick
+    settings, session limits/timeouts, and `--universe`.
+  - `chunk-serve` remains the single-connection transport demo.
+  - Added `client-bot` multi-join test: two concurrent clients, one disconnect,
+    a third rejoin, and clean listener shutdown.
+- **Verified:**
+  - `cargo test -p client-bot --test multi_join -- --ignored`.
+  - `cargo test -p client-bot --test auth_join -- --ignored`.
+  - `cargo test -p hytale-server`.
+  - `cargo test --workspace`, clippy and fmt.
+- **Deviations:**
+  - Sessions do not see each other yet (T45).
+  - `serve` serves one selected/default world; multi-world session routing needs
+    protocol work.
+  - Each world thread still owns its asset registry; cross-world sharing remains
+    an optimization.
+- **Follow-ups:**
+  - T43 starts M4 with the world clock and `GameplayConfig`.
+
+
 
 
 

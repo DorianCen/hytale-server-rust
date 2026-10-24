@@ -11,6 +11,7 @@ pub mod chunk_streamer;
 pub mod generation;
 pub mod headless;
 pub mod player_data_tool;
+pub mod serve;
 pub mod session;
 pub mod universe_runtime;
 pub mod world_boot;
@@ -32,6 +33,10 @@ pub use generation::{GenerationError, GeneratorOptions, WorldGenerator};
 pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, HeadlessReport};
 pub use player_data_tool::{
     run as run_player_data_tool, PlayerDataToolError, PlayerDataToolOptions, PlayerDataToolReport,
+};
+pub use serve::{
+    run as run_serve, serve as serve_listener, ServeError, ServeOptions, ServeReport,
+    SessionSummary,
 };
 pub use session::{
     serve_connection as serve_session_connection, AssetStreamReport, AuthMode, GameLoopReport,
