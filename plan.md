@@ -6,9 +6,9 @@ completed slice is archived in
 the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
-The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
-is **T43** (world clock and `GameplayConfig`), the start of M4. M3's persistent
-universe/listener runtime is complete with T40–T42.
+The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
+`GameplayConfig`) is done; the immediate next task is **T44** (self-spawn
+equipment and cosmetics from the player save), continuing M4's v1 path.
 
 ## 0. Baseline
 
@@ -433,6 +433,7 @@ cargo test -p client-bot --test auth_join -- --ignored
 
 ### T43 — World clock and `GameplayConfig`
 
+**Status:** done (session 31)
 **Package:** `hytale-server`, `hytale-world`, `hytale-assets`
 **Depends on:** T42
 **Agent fit:** medium
@@ -454,6 +455,19 @@ Make time advance and stop using protocol defaults for gameplay rules.
 - A client sees time advance after joining and after an hour rollover.
 - Gameplay flags match the loaded config.
 - Clock state survives save/reload via the world config/time source.
+
+**Deviations**
+
+- `GameplayConfig` loads as an internal Rust store (all 8 pack assets) while
+  the Java canonical boot reports count 0 because the config files fail
+  camera-effect validation. The world falls back to `GameplayConfig.DEFAULT`
+  when the id is missing or the store is empty.
+- `UpdateTime` is written by each session once per real second while time is
+  running; a pause-state change also re-sends `UpdateTimeSettings`. There is no
+  cross-session broadcast registry until T45, so each session writes its own
+  copy from the shared world clock.
+- `DayTime` interpolation/sleep commands and moon-phase events remain T54 and
+  the command framework.
 
 ---
 

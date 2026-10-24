@@ -204,6 +204,7 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("Item", items),
         store!("BlockTypeListAsset", block_type_lists),
         store!("PrefabListAsset", prefab_lists),
+        store!("GameplayConfig", gameplay_configs),
     ]
 }
 

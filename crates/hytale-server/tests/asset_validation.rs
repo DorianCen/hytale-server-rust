@@ -37,11 +37,15 @@ fn default_pack_validates_and_reports_every_config_packet() {
     assert!(report.packets.iter().all(|packet| packet.bytes > 0));
     assert!(report.tag_count > 0);
     assert!(report.checked_tag_indexes > 0);
-    assert_eq!(report.stores.len(), 21);
+    assert_eq!(report.stores.len(), 22);
     assert!(report
         .stores
         .iter()
         .any(|store| store.name == "Item" && store.count == 4008));
+    assert!(report
+        .stores
+        .iter()
+        .any(|store| store.name == "GameplayConfig" && store.count == 8));
     assert!(report
         .stores
         .iter()

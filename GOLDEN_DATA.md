@@ -111,6 +111,13 @@ dependency roots; `BlockSet` records `packetError` because its generator needs
 an un-booted server module, and `GameplayConfig` has no loaded assets in the
 canonical boot.
 
+Session 31 note: `GameplayConfig` is still 0 in the Java oracle (every pack
+document fails camera-effect validation), but the Rust registry now loads the
+eight `Server/GameplayConfigs` documents as an internal store for the world
+clock and `WorldGameplayConfig`. The golden count is intentionally not used as
+the Rust expectation; `crates/hytale-assets/src/gameplay.rs` tests the decoder
+and Java defaults directly, and `--validate-assets` reports the internal store.
+
 Session 26 consumers:
 `crates/hytale-assets/tests/child_store_golden.rs` (block/fluid stores),
 `item_child_store_packets.rs` (item stores and all 3,971 item fields) and

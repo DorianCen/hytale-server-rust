@@ -182,6 +182,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 certificate_fingerprint: identity.fingerprint_base64url(),
                 asset_limit: cli.asset_limit,
                 movement_chunk: cli.move_chunk,
+                observe_time: None,
             },
         )
         .await?;

@@ -11,17 +11,24 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use hytale_assets::{AssetPack, CommonAssetRegistry};
+use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::player_data::{PlayerDataError, PlayerTransform};
 use hytale_world::view::{ChunkPlan, ChunkView};
 use hytale_world::world::{WorldError, WorldSave};
+use hytale_world::world_clock::{format_iso8601, parse_iso8601, WorldClock, WorldClockSettings};
 use hytale_world::world_config::{WorldConfigError, WorldUuid};
 use thiserror::Error;
 
 use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
+
+/// The world clock snapshot sent on join (`WorldTimeState` keeps its previous
+/// name for session compatibility).
+pub use hytale_world::world_clock::WorldClockState as WorldTimeState;
 
 /// Paths and settings for a world thread.
 #[derive(Debug, Clone)]
@@ -56,37 +63,6 @@ impl WorldThreadOptions {
             player_uuid: None,
             view_radius: 0,
             chunks_per_tick: 1,
-        }
-    }
-}
-
-/// Snapshot of the world clock used by the join packet burst.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WorldTimeState {
-    /// Game time, seconds since the Unix epoch (Java `WorldTimeResource`).
-    pub game_time_seconds: i64,
-    /// Game time sub-second nanos.
-    pub game_time_nanos: i32,
-    /// Configured daytime duration.
-    pub daytime_duration_seconds: i32,
-    /// Configured nighttime duration.
-    pub nighttime_duration_seconds: i32,
-    /// Total moon phases (Java `WorldConfig` default 5).
-    pub total_moon_phases: i8,
-    /// Whether world time is paused.
-    pub time_paused: bool,
-}
-
-impl Default for WorldTimeState {
-    fn default() -> Self {
-        Self {
-            // `WorldTimeResource.ZERO_YEAR` (0001-01-01T00:00:00Z).
-            game_time_seconds: -62_135_596_800,
-            game_time_nanos: 0,
-            daytime_duration_seconds: 51_840,
-            nighttime_duration_seconds: 34_560,
-            total_moon_phases: 5,
-            time_paused: false,
         }
     }
 }
@@ -246,6 +222,17 @@ enum Command {
         reply: SyncSender<Result<Option<PlayerTransform>, String>>,
     },
     WorldTime {
+        reply: SyncSender<Result<WorldTimeState, String>>,
+    },
+    GameplayConfig {
+        reply: SyncSender<Result<WorldGameplayConfig, String>>,
+    },
+    SetTimePaused {
+        paused: bool,
+        reply: SyncSender<Result<WorldTimeState, String>>,
+    },
+    AdvanceTime {
+        seconds: f64,
         reply: SyncSender<Result<WorldTimeState, String>>,
     },
     Shutdown {
@@ -481,6 +468,43 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// The `WorldGameplayConfig` packet built from the world's loaded
+    /// `GameplayConfig` asset (or the Java defaults).
+    pub fn gameplay_config(&self) -> Result<WorldGameplayConfig, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::GameplayConfig { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Pause or resume world time and persist the flag in the world config.
+    pub fn set_time_paused(&self, paused: bool) -> Result<WorldTimeState, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetTimePaused { paused, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Advance the clock by `seconds` of real time (test/debug seam).
+    pub fn advance_time(&self, seconds: f64) -> Result<WorldTimeState, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::AdvanceTime { seconds, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Save, stop the generator and join the thread.
     pub fn shutdown(mut self) -> Result<usize, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -523,7 +547,8 @@ fn run(
             mut pending,
             start,
             player_transform,
-            world_time,
+            mut clock,
+            gameplay_config,
             config_assets,
         }) => {
             if ready.send(Ok(start)).is_err() {
@@ -532,6 +557,7 @@ fn run(
             }
             let seed = save.config().seed as i32;
             let budget = options.chunks_per_tick.max(1);
+            let mut last_clock = Instant::now();
             for command in commands {
                 match command {
                     Command::SetView {
@@ -552,6 +578,7 @@ fn run(
                         let _ = reply.send(result);
                     }
                     Command::Tick { reply } => {
+                        advance_clock(&mut clock, &mut last_clock);
                         let result =
                             tick(&mut save, &generator, &events, seed, budget, &mut pending);
                         let _ = reply.send(result);
@@ -578,6 +605,8 @@ fn run(
                         let _ = reply.send(result);
                     }
                     Command::Save { reply } => {
+                        advance_clock(&mut clock, &mut last_clock);
+                        store_clock(&clock, &mut save);
                         let result = save
                             .save_all(&ChunkCodec::new(generator.assets()))
                             .map_err(|error| error.to_string());
@@ -598,9 +627,26 @@ fn run(
                         let _ = reply.send(Ok(player_transform));
                     }
                     Command::WorldTime { reply } => {
-                        let _ = reply.send(Ok(world_time));
+                        advance_clock(&mut clock, &mut last_clock);
+                        let _ = reply.send(Ok(clock.state()));
+                    }
+                    Command::GameplayConfig { reply } => {
+                        let _ = reply.send(Ok(gameplay_config.clone()));
+                    }
+                    Command::SetTimePaused { paused, reply } => {
+                        advance_clock(&mut clock, &mut last_clock);
+                        clock.set_paused(paused);
+                        store_clock(&clock, &mut save);
+                        let _ = reply.send(Ok(clock.state()));
+                    }
+                    Command::AdvanceTime { seconds, reply } => {
+                        advance_clock(&mut clock, &mut last_clock);
+                        clock.tick(seconds);
+                        let _ = reply.send(Ok(clock.state()));
                     }
                     Command::Shutdown { reply } => {
+                        advance_clock(&mut clock, &mut last_clock);
+                        store_clock(&clock, &mut save);
                         let result = save
                             .save_all(&ChunkCodec::new(generator.assets()))
                             .map_err(|error| error.to_string());
@@ -623,7 +669,8 @@ struct Started {
     pending: VecDeque<(i32, i32)>,
     start: WorldStartReport,
     player_transform: Option<PlayerTransform>,
-    world_time: WorldTimeState,
+    clock: WorldClock,
+    gameplay_config: WorldGameplayConfig,
     config_assets: Arc<hytale_assets::ConfigAssets>,
 }
 
@@ -666,12 +713,35 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let (player, player_created) = save.load_or_create_player(player_uuid)?;
     let player_transform = player.transform();
     save.save_player(player_uuid, &player)?;
-    let world_time = WorldTimeState {
-        daytime_duration_seconds: save.config().daytime_duration_seconds.unwrap_or(51_840),
-        nighttime_duration_seconds: save.config().nighttime_duration_seconds.unwrap_or(34_560),
-        time_paused: save.config().is_game_time_paused,
-        ..WorldTimeState::default()
+
+    // The gameplay config id comes from `config.json`; a missing asset (or a
+    // pack that fails to load it) falls back to Java `GameplayConfig.DEFAULT`.
+    let gameplay_asset = generator
+        .assets()
+        .gameplay_configs
+        .get(save.config().gameplay_config_id())
+        .map(|record| record.value.clone())
+        .unwrap_or_default();
+    let gameplay_config = gameplay_asset.to_packet(&config_assets.tags);
+    let clock_settings = WorldClockSettings {
+        daytime_duration_seconds: save
+            .config()
+            .daytime_duration_seconds
+            .unwrap_or(gameplay_asset.world.daytime_duration_seconds),
+        nighttime_duration_seconds: save
+            .config()
+            .nighttime_duration_seconds
+            .unwrap_or(gameplay_asset.world.nighttime_duration_seconds),
+        total_moon_phases: i8::try_from(gameplay_asset.world.total_moon_phases)
+            .ok()
+            .filter(|value| *value > 0)
+            .unwrap_or(hytale_world::world_clock::DEFAULT_TOTAL_MOON_PHASES),
     };
+    let clock = WorldClock::from_game_time(
+        parse_iso8601(&save.config().game_time),
+        clock_settings,
+        save.config().is_game_time_paused,
+    );
 
     let stored_chunks = save.world().storage().stored_chunk_coordinates()?.len();
     let player_chunk = player
@@ -705,9 +775,22 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         pending,
         start,
         player_transform,
-        world_time,
+        clock,
+        gameplay_config,
         config_assets,
     })
+}
+
+fn advance_clock(clock: &mut WorldClock, last: &mut Instant) {
+    let now = Instant::now();
+    let seconds = now.saturating_duration_since(*last).as_secs_f64();
+    *last = now;
+    clock.tick(seconds);
+}
+
+fn store_clock(clock: &WorldClock, save: &mut WorldSave) {
+    save.config_mut().game_time = format_iso8601(clock.game_time());
+    save.config_mut().is_game_time_paused = clock.is_paused();
 }
 
 fn apply_view(

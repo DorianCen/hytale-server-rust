@@ -106,6 +106,7 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
             certificate_fingerprint: client_fingerprint,
             asset_limit: Some(1),
             movement_chunk: Some((1, 0)),
+            observe_time: Some(Duration::from_millis(2_500)),
         },
     )
     .await
@@ -150,6 +151,40 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     assert!(report.game.self_spawn);
     assert_eq!(report.game.client_id, Some(1));
     assert!(report.game.sent_ready_for_chunks);
+    let gameplay = report
+        .game
+        .gameplay_config
+        .as_ref()
+        .expect("WorldGameplayConfig from the loaded GameplayConfig asset");
+    assert!(gameplay.world_config.allow_block_breaking);
+    assert!(gameplay.world_config.allow_block_gathering);
+    assert!(gameplay.world_config.allow_block_placement);
+    assert!(gameplay.combat_config.display_health_bars);
+    assert!(gameplay.combat_config.display_combat_text);
+    assert_eq!(
+        gameplay.player_config.armor_visibility_option,
+        hytale_protocol::generated::common::ArmorVisibilityOption::All
+    );
+    let settings = report
+        .game
+        .time_settings
+        .as_ref()
+        .expect("UpdateTimeSettings");
+    assert_eq!(settings.daytime_duration_seconds, 1_728);
+    assert_eq!(settings.nighttime_duration_seconds, 1_152);
+    assert_eq!(settings.total_moon_phases, 5);
+    assert!(!settings.time_paused);
+    assert!(report.game.initial_time.is_some());
+    assert!(
+        report.time_updates.len() >= 2,
+        "expected at least two live UpdateTime packets: {:?}",
+        report.time_updates
+    );
+    assert!(
+        report.time_updates.last() > report.time_updates.first(),
+        "time must advance while observing: {:?}",
+        report.time_updates
+    );
     assert_eq!(report.chunks.len(), 21);
     assert!(report.teleport);
     assert!(
@@ -258,6 +293,7 @@ async fn the_server_rejects_a_token_bound_to_another_certificate() {
             certificate_fingerprint: "not-the-client-certificate".to_string(),
             asset_limit: Some(0),
             movement_chunk: None,
+            observe_time: None,
         },
     )
     .await;

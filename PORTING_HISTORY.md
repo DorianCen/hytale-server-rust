@@ -264,6 +264,60 @@ This file records phase-2 sessions only.
 - **Follow-ups:**
   - T43 starts M4 with the world clock and `GameplayConfig`.
 
+---
+
+## Session 31 — World clock and `GameplayConfig` (2026-10-24)
+
+- **Goal:** replace protocol-default time/gameplay state with a real world
+  clock and the loaded gameplay configuration.
+- **Landed:**
+  - T43: `hytale-world::world_clock` ports `WorldTimeResource`: Java's segmented
+    real-time → game-time mapping (`DAYTIME_SECONDS`/`NIGHTTIME_SECONDS` over
+    the configured durations), pause/resume, duration sanitisation, Java range
+    wrap, and ISO-8601 `GameTime` parse/format (`0001-01-01T05:30:00Z` default).
+  - `hytale-assets::gameplay` loads `Server/GameplayConfigs` as an internal
+    `DefaultAssetMap` store (8 assets; parents resolved with the normal shallow
+    merge). It models the protocol-visible world/combat/player fields, applies
+    Java `GameplayConfig.DEFAULT` values for absent sections, resolves block
+    tags through `ServerTags`, and emits `WorldGameplayConfig`.
+  - `WorldThread` owns the clock and the gameplay packet. `Tick` advances by the
+    wall-clock delta since the previous command; `WorldTime`, `Save` and
+    `Shutdown` also settle the clock. `Save`/`Shutdown` write `GameTime` and
+    `IsGameTimePaused` into `config.json`; duration overrides win over the
+    gameplay asset's `World` values.
+  - `WorldThread::{gameplay_config, set_time_paused, advance_time}` expose the
+    join packet, pause seam and a deterministic test/debug tick.
+  - Sessions send the loaded `WorldGameplayConfig` instead of the hardcoded
+    packet, and broadcast `UpdateTime` once per real second while running;
+    a pause change re-sends `UpdateTimeSettings`.
+  - `client-bot` decodes `WorldGameplayConfig`/`UpdateTimeSettings`/initial
+    `UpdateTime`, and `observe_time` collects live time packets for the
+    loopback test.
+  - `--validate-assets` now reports the internal `GameplayConfig` store (8
+    assets) alongside the 21 streaming stores.
+- **Verified:**
+  - `cargo test -p hytale-world` (30 tests incl. 10 clock tests).
+  - `cargo test -p hytale-assets` (gameplay parser/packet tests).
+  - `cargo test -p hytale-server` (world-thread clock/save/reload test,
+    asset validation store count).
+  - `cargo test -p client-bot --test auth_join -- --ignored`
+    (gameplay flags + two increasing `UpdateTime` packets).
+  - `cargo test -p client-bot --test multi_join -- --ignored`.
+  - `cargo run -p hytale-server -- --validate-assets` → 22 stores, 17 packets,
+    579 tags, 24,397 references, `validation: ok`.
+  - Full workspace/clippy/fmt gates.
+- **Deviations:**
+  - Java's canonical asset boot reports `GameplayConfig` count 0 because all
+    eight files fail camera-effect validation. Rust reads them directly; a
+    missing id or empty store falls back to `GameplayConfig.DEFAULT`.
+  - Time packets are per-session writes from the shared clock until T45 adds a
+    session registry/broadcast path.
+  - `UpdateTimeSettings` is only re-sent on a pause change, matching Java's
+    settings-change broadcast (joining players get it in the join burst).
+- **Follow-ups:**
+  - T44 gives the self-spawn packet real equipment/cosmetics.
+  - T54 owns weather, sleep/day-time interpolation and moon-phase events.
+
 
 
 

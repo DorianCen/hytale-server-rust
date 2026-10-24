@@ -17,7 +17,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T40](T40-hytale-core-runtime.md) | `hytale-core` runtime | T34 | medium | done (session 28) |
 | [T41](T41-universe-world-lifecycle.md) | Universe and world lifecycle | T40 | low/medium | done (session 29) |
 | [T42](T42-persistent-listener.md) | Persistent listener and multi-session runtime | T39, T41 | low/medium | done (session 30) |
-| T43 | World clock and `GameplayConfig` | T42 | medium | planned |
+| [T43](T43-world-clock-gameplay-config.md) | World clock and `GameplayConfig` | T42 | medium | done (session 31) |
 | T44 | Self-spawn equipment and cosmetics | T42 | medium | planned |
 | T45 | Other-player entity tracking and broadcast | T42, T44 | low/medium | planned |
 | T46 | Block place/break | T42 | medium | planned |

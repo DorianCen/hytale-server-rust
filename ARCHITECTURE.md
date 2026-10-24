@@ -72,11 +72,14 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   provider seam and per-world `UniverseRuntime` threads with save-on-unload and
   the `universe` CLI. Session 30 added the persistent multi-session `serve`
   listener: one endpoint/universe, independent session tasks, shared per-world
-  config cache, connection limits, idle timeout and graceful shutdown. M3 is
-  complete; phase 2 continues with the world clock, multiplayer tracking, block
-  edits, a real-client trace and then gameplay/NPC/hardening; see
-  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
-  [`tasks/README.md`](tasks/README.md).
+  config cache, connection limits, idle timeout and graceful shutdown. Session
+  31 added the Java-compatible world clock (`WorldClock`), the internal
+  `GameplayConfig` store with a tag-resolved `WorldGameplayConfig` join packet,
+  per-second `UpdateTime` broadcasts, and `GameTime`/pause persistence through
+  `config.json`. M3 is complete and M4 continues with self-spawn appearance,
+  multiplayer tracking, block edits, a real-client trace and then
+  gameplay/NPC/hardening; see [`plan.md`](plan.md),
+  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/world-generation/ARCHITECTURE.md`](done/world-generation/ARCHITECTURE.md),
@@ -252,7 +255,14 @@ Components:
   (54) are golden-checked by asset key because their tag indexes, block ids and
   group ids are Rust-owned and published consistently (`ServerTags`, the
   deterministic group registry). `FluidFX`/`BlockSoundSet`/`ItemSoundSet`/
-  `ItemQuality` child indexes are still 0 until those stores are streamed.
+  `ItemQuality` child indexes resolve through their loaded stores.
+- **Gameplay config**: `hytale-assets::gameplay` reads the internal
+  `Server/GameplayConfigs` `DefaultAssetMap` (no numeric ids, no packet
+  generator). It models `World`/`Combat`/`Player`, fills absent sections with
+  Java `GameplayConfig.DEFAULT` values, resolves block tags through
+  `ServerTags`, and builds `WorldGameplayConfig` for the join. The Java asset
+  boot cannot validate these files without the camera-effect store; Rust reads
+  them directly and falls back per world-config id.
 - **Common assets**: `hytale-assets::common` reads the pack-root
   `CommonAssetsIndex.hashes`, advertises the hash/name pairs in
   `WorldSettings.requiredAssets`, and lazily loads + SHA-256-verifies the files
@@ -322,6 +332,15 @@ plan orders missing chunks nearest-first; `SetView` replaces the queue
 bounded number of chunks and emits `WorldEvent::ChunkLoaded/ChunkUnloaded`.
 `load-chunk` remains the one-chunk editor. Chunk streaming, the live tick loop
 and per-player views are not wired yet.
+
+`WorldClock` (`hytale-world::world_clock`) follows Java
+`WorldTimeResource`: game time is an epoch instant, the configured daytime and
+nighttime durations are real seconds that map onto the fixed 60/40 game-day
+split, and pause freezes progression. `WorldThread` owns one clock, advances it
+from wall-clock deltas on each command, and persists `GameTime` plus
+`IsGameTimePaused` in `config.json` on save/shutdown. Sessions send
+`UpdateTimeSettings`/`UpdateTime` from the shared snapshot; `UpdateTime` is
+broadcast once per real second while time runs.
 
 ---
 
@@ -471,9 +490,11 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette, the packet builders and the `chunk::stream` batch/framer landed (M3/M4); all 46 `chunks-pkts` payloads and the batch order match Java |
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading, the `WorldThread` view/scheduling loop and the chunk packet batch/framer landed (M3); universe lifecycle, per-player views and writing frames on a connection pending |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
+| `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
+| `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence and per-second `UpdateTime` landed (M4); sleep/interpolation commands and moon-phase events pending (T54) |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial time/gameplay packets, the teleport exchange, movement-driven view updates, and the persistent multi-session listener (M3/M4) landed; other-player tracking, block interactions and world-clock progression pending |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, and the persistent multi-session listener (M3/M4) landed; other-player tracking and block interactions pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | Ed25519 keys, EdDSA JWT claims/signature/time/scope validation, `cnf.x5t#S256` certificate binding and the local issuer/validator authority landed (M4); OAuth device/browser, session-service JWKS and credential-store adapters pending |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |

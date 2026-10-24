@@ -1,12 +1,12 @@
-# Next steps — CoreServer rewrite, phase 2 (session 30)
+# Next steps — CoreServer rewrite, phase 2 (session 31)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** **T43** — world clock and `GameplayConfig`, the start of M4's v1
-client path.
+**Next task:** **T44** — self-spawn equipment and cosmetics from the player
+save, continuing M4's v1 client path.
 
 ## Current state
 
@@ -40,6 +40,11 @@ Landed and green:
   independent session tasks over the existing join state machine, shared cached
   config burst, connection limit, idle timeout, clean shutdown and the
   two-client disconnect/rejoin loopback test.
+- T43 world clock and `GameplayConfig`: a Java-compatible day/night clock
+  (segmented real-time rates, pause/resume, wrap and ISO-8601 game time), the
+  internal eight-asset `GameplayConfig` store with tag-resolved
+  `WorldGameplayConfig`, per-second `UpdateTime` broadcasts, and save/reload
+  through `config.json`.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -56,7 +61,7 @@ cargo fmt --all -- --check
 
 1. **M2 — asset completion (done):** T35 → T36/T37/T38 → T39.
 2. **M3 — runtime:** T40 (done) → T41 (done) → T42 (done; parallel with M2 after T34).
-3. **M4 — v1:** T43 → T44 → T45 → T46 → T47 → T48.
+3. **M4 — v1:** T43 (done) → T44 → T45 → T46 → T47 → T48.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md)).
 
 ## Try it

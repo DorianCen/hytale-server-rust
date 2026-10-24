@@ -34,6 +34,7 @@ use std::collections::{HashMap, HashSet};
 use hytale_protocol::generated::common::{BlockMaterial, BlockNeighbor, DrawType, Opacity};
 use serde_json::{json, Value};
 
+use crate::gameplay::GameplayConfigAsset;
 use crate::pack::{AssetError, AssetPack, ParentProvider};
 use crate::parent::{MergeHook, ParentResolver};
 
@@ -122,6 +123,16 @@ pub const TAG_PATTERN_STORE: StoreSpec = StoreSpec {
     name: "TagPattern",
     path: "Server/TagPatterns",
     map: MapKind::IndexedLookupTable,
+};
+
+/// The internal `GameplayConfig` store (`DefaultAssetMap`, no packet generator).
+///
+/// Loaded with every registry so the world can build `WorldGameplayConfig` and
+/// resolve its day/night settings. The store has no numeric ids.
+pub const GAMEPLAY_CONFIG_STORE: StoreSpec = StoreSpec {
+    name: "GameplayConfig",
+    path: "Server/GameplayConfigs",
+    map: MapKind::Default,
 };
 
 /// Stores whose documents contain `TagPattern.CHILD_ASSET_CODEC` fields.
@@ -687,6 +698,9 @@ pub struct AssetRegistry {
     pub prefab_lists: AssetCollection<Value>,
     /// `TagPattern` (loaded by [`AssetRegistry::load_phase2`]).
     pub tag_patterns: AssetCollection<TagPatternAsset>,
+    /// Internal `GameplayConfig` store (no packet; used by the world clock and
+    /// the join `WorldGameplayConfig` packet).
+    pub gameplay_configs: AssetCollection<GameplayConfigAsset>,
     /// `ItemSoundSet` (loaded by [`Self::load_phase2`]).
     pub item_sound_sets: AssetCollection<Value>,
     /// `ItemQuality` (loaded by [`Self::load_phase2`]).
@@ -744,6 +758,11 @@ impl AssetRegistry {
         )?;
         let block_type_lists = load_default_store(pack, &BLOCK_TYPE_LIST, Vec::new())?;
         let prefab_lists = load_default_store(pack, &PREFAB_LIST, Vec::new())?;
+        let gameplay_configs = load_keyed_store(
+            pack,
+            &GAMEPLAY_CONFIG_STORE,
+            GameplayConfigAsset::from_value,
+        )?;
 
         Ok(Self {
             block_types,
@@ -755,6 +774,7 @@ impl AssetRegistry {
             block_type_lists,
             prefab_lists,
             tag_patterns: AssetCollection::new(TAG_PATTERN_STORE.name, Vec::new())?,
+            gameplay_configs,
             item_sound_sets: AssetCollection::empty(),
             item_qualities: AssetCollection::empty(),
             item_reticles: AssetCollection::empty(),
@@ -973,6 +993,37 @@ fn load_indexed_store_with<T>(
             Ok(AssetRecord {
                 key: asset.raw.key,
                 id: Some(id),
+                parent: asset.raw.parent,
+                source: asset.raw.source,
+                preloaded: asset.raw.preloaded,
+                value,
+            })
+        })
+        .collect::<Result<Vec<_>, AssetError>>()?;
+    AssetCollection::new(spec.name, records)
+}
+
+/// Load a `DefaultAssetMap` store with a typed decoder.
+fn load_keyed_store<T>(
+    pack: &AssetPack,
+    spec: &StoreSpec,
+    parse: fn(&Value) -> Result<T, String>,
+) -> Result<AssetCollection<T>, AssetError> {
+    let mut loaded: HashSet<String> = HashSet::new();
+    let files = read_store_files(pack, spec.path)?;
+    let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
+    let resolved = resolve_assets(ordered, spec.name, MergeHook::Shallow)?;
+    let records = resolved
+        .into_iter()
+        .map(|asset| {
+            let value = parse(&asset.merged).map_err(|message| AssetError::InvalidAsset {
+                store: spec.name.to_string(),
+                key: asset.raw.key.clone(),
+                message,
+            })?;
+            Ok(AssetRecord {
+                key: asset.raw.key,
+                id: None,
                 parent: asset.raw.parent,
                 source: asset.raw.source,
                 preloaded: asset.raw.preloaded,

@@ -2,9 +2,12 @@
 
 use std::path::PathBuf;
 
+use hytale_protocol::generated::common::ArmorVisibilityOption;
 use hytale_protocol::generated::wire::NetworkChannel;
 use hytale_server::{WorldEvent, WorldThread, WorldThreadOptions};
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
+use hytale_world::world_clock::parse_iso8601;
+use hytale_world::world_config::{WorldConfig, WorldUuid};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -153,5 +156,96 @@ fn ticks_the_view_and_unloads_chunks_that_leave_it() {
     assert!(loaded_new);
 
     assert!(thread.shutdown().expect("shutdown") >= 1);
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn world_clock_progresses_pauses_and_survives_save_reload() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("clock");
+    let mut config = WorldConfig::new(WorldUuid::derive(0, "ClockTest"), 0, None);
+    config.daytime_duration_seconds = Some(100);
+    config.nighttime_duration_seconds = Some(100);
+    config
+        .save(WorldConfig::path_in(&save_dir))
+        .expect("write config overrides");
+
+    let options = || {
+        WorldThreadOptions::with_defaults(
+            hytale_server::GeneratorOptions {
+                assets_pack: repo_root().join("Assets/Assets.zip"),
+                assets_root: repo_root().join("Assets/extracted"),
+                world_dir: repo_root().join("testdata/Default"),
+                workers: 1,
+            },
+            save_dir.clone(),
+        )
+    };
+    let (thread, _start) = WorldThread::spawn(options()).expect("spawn the world thread");
+
+    // Overrides win over the GameplayConfig durations.
+    let initial = thread.world_time().expect("initial time");
+    assert_eq!(initial.daytime_duration_seconds, 100);
+    assert_eq!(initial.nighttime_duration_seconds, 100);
+    assert_eq!(initial.total_moon_phases, 5);
+    assert!(!initial.time_paused);
+    let expected_initial = parse_iso8601("0001-01-01T05:30:00Z").expect("default instant");
+    assert!(
+        (initial.game_time_seconds - expected_initial.seconds).abs() <= 1,
+        "expected the Java 05:30 default, got {initial:?}"
+    );
+
+    // The join packet comes from `Server/GameplayConfigs/Default.json` (the
+    // asset itself fails Java validation, so this also covers the internal
+    // reader) with Java's default flags.
+    let gameplay = thread.gameplay_config().expect("gameplay config");
+    assert!(gameplay.world_config.allow_block_breaking);
+    assert!(gameplay.world_config.allow_block_gathering);
+    assert!(gameplay.world_config.allow_block_placement);
+    assert!(gameplay.combat_config.display_health_bars);
+    assert!(gameplay.combat_config.display_combat_text);
+    assert_eq!(
+        gameplay.player_config.armor_visibility_option,
+        ArmorVisibilityOption::All
+    );
+
+    // 200 real seconds is one full day/night cycle, i.e. 86,400 game seconds.
+    let advanced = thread.advance_time(200.0).expect("advance time");
+    let elapsed = advanced.game_time_seconds - initial.game_time_seconds;
+    assert!(
+        (86_398..=86_400).contains(&elapsed),
+        "expected one game day, got {elapsed}s"
+    );
+
+    // Pausing freezes the clock; saving then reloading restores the exact
+    // paused instant and the duration overrides.
+    let paused = thread.set_time_paused(true).expect("pause time");
+    assert!(paused.time_paused);
+    assert!(thread.advance_time(60.0).expect("paused advance") == paused);
+    assert!(thread.save().is_ok());
+    let saved = thread.world_time().expect("saved state");
+    assert_eq!(saved, paused);
+    thread.shutdown().expect("shutdown");
+
+    let (thread, _start) = WorldThread::spawn(options()).expect("respawn the world thread");
+    let reloaded = thread.world_time().expect("reloaded time");
+    assert_eq!(reloaded, saved);
+    assert!(reloaded.time_paused);
+
+    // Resuming continues from the same instant.
+    let resumed = thread.set_time_paused(false).expect("resume time");
+    assert!(!resumed.time_paused);
+    assert_eq!(
+        (resumed.game_time_seconds, resumed.game_time_nanos),
+        (saved.game_time_seconds, saved.game_time_nanos)
+    );
+    let moved = thread.advance_time(1.0).expect("advance after resume");
+    assert!(moved.game_time_seconds > resumed.game_time_seconds);
+
+    thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();
 }

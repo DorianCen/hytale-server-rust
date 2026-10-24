@@ -32,9 +32,9 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    CombatConfig, ComponentUpdate, Direction, DisconnectType, EntityUpdate, EquipmentUpdate,
-    FormattedMessage, GameMode, InstantData, ModelTransform, ModelUpdate, PlayerConfig,
-    PlayerSkinUpdate, PongType, Position, TransformUpdate, UpdateType,
+    ComponentUpdate, Direction, DisconnectType, EntityUpdate, EquipmentUpdate, FormattedMessage,
+    GameMode, InstantData, ModelTransform, ModelUpdate, PlayerSkinUpdate, PongType, Position,
+    TransformUpdate, UpdateType,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -205,6 +205,10 @@ pub struct GameLoopReport {
     pub payload_bytes: usize,
     /// Chunks unloaded during the loop.
     pub unloaded: usize,
+    /// Periodic `UpdateTime` packets written.
+    pub time_updates: usize,
+    /// `UpdateTimeSettings` packets written after a pause-state change.
+    pub time_settings_updates: usize,
     /// The client disconnected (or the connection closed) cleanly.
     pub disconnected: bool,
     /// The server disconnected the client for idling.
@@ -300,6 +304,7 @@ struct EnterGame {
     radius: u32,
     player_transform: PlayerTransform,
     world_time: WorldTimeState,
+    gameplay_config: WorldGameplayConfig,
 }
 
 struct LiveGame {
@@ -307,6 +312,7 @@ struct LiveGame {
     radius: u32,
     transform: PlayerTransform,
     ready_for_gameplay: bool,
+    world_time: WorldTimeState,
 }
 
 /// Run authentication + setup on an accepted connection, transition to `Game`,
@@ -350,6 +356,7 @@ pub async fn serve_connection(
         .player_transform()?
         .unwrap_or_else(default_player_transform);
     let world_time = thread.world_time()?;
+    let gameplay_config = thread.gameplay_config()?;
     let world_uuid: Uuid = start
         .world_uuid
         .parse()
@@ -373,6 +380,7 @@ pub async fn serve_connection(
             radius,
             player_transform,
             world_time,
+            gameplay_config,
         },
         options,
     )
@@ -400,6 +408,7 @@ pub async fn serve_connection(
             radius,
             transform: player_transform,
             ready_for_gameplay: game.client_ready_for_gameplay,
+            world_time,
         },
         options,
     )
@@ -827,6 +836,7 @@ async fn enter_game(
         radius,
         player_transform,
         world_time,
+        gameplay_config,
     } = start;
     let mut chunks = ChunkStreamWriter::open(connection).await?;
     chunks
@@ -940,19 +950,7 @@ async fn enter_game(
     game.self_spawn = true;
 
     writer
-        .write_packet(
-            &WorldGameplayConfig {
-                world_config: hytale_protocol::generated::common::WorldConfig {
-                    allow_block_breaking: true,
-                    allow_block_gathering: true,
-                    allow_block_placement: true,
-                    ..Default::default()
-                },
-                combat_config: CombatConfig::default(),
-                player_config: PlayerConfig::default(),
-            },
-            options.chunk_compression_level,
-        )
+        .write_packet(&gameplay_config, options.chunk_compression_level)
         .await?;
     game.gameplay_config = true;
     writer
@@ -1102,11 +1100,17 @@ async fn run_game_loop(
         mut radius,
         transform,
         ready_for_gameplay,
+        mut world_time,
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
     let mut last_activity = std::time::Instant::now();
     let interval = Duration::from_millis(50);
+    let mut time_ticker = std::time::Instant::now();
+    // The join burst already sent the settings/time; only re-send settings
+    // after an actual pause change, and time once per real second while
+    // running (Java `TimePacketSystem.BROADCAST_INTERVAL`).
+    let mut last_time_paused = world_time.time_paused;
     let mut teleport_sent = false;
 
     if ready_for_gameplay {
@@ -1216,6 +1220,40 @@ async fn run_game_loop(
             report.payload_bytes += updates.payload_bytes;
             report.unloaded += updates.unloaded;
             ticker = std::time::Instant::now();
+        }
+
+        if time_ticker.elapsed() >= Duration::from_secs(1) {
+            world_time = thread.world_time()?;
+            if world_time.time_paused != last_time_paused {
+                writer
+                    .write_packet(
+                        &UpdateTimeSettings {
+                            daytime_duration_seconds: world_time.daytime_duration_seconds,
+                            nighttime_duration_seconds: world_time.nighttime_duration_seconds,
+                            total_moon_phases: world_time.total_moon_phases,
+                            time_paused: world_time.time_paused,
+                        },
+                        options.chunk_compression_level,
+                    )
+                    .await?;
+                report.time_settings_updates += 1;
+                last_time_paused = world_time.time_paused;
+            }
+            if !world_time.time_paused {
+                writer
+                    .write_packet(
+                        &UpdateTime {
+                            game_time: Some(InstantData {
+                                seconds: world_time.game_time_seconds,
+                                nanos: world_time.game_time_nanos,
+                            }),
+                        },
+                        options.chunk_compression_level,
+                    )
+                    .await?;
+                report.time_updates += 1;
+            }
+            time_ticker = std::time::Instant::now();
         }
     }
 

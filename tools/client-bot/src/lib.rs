@@ -4,6 +4,8 @@
 //! packets until the server disconnects or the timeout expires. Packet handlers
 //! and the full join flow land in later tasks.
 
+use std::time::Duration;
+
 use hytale_auth::{AuthService, SCOPE_CLIENT};
 use hytale_net::{
     ChunkFrame, ChunkStreamError, ChunkStreamReader, ClientSession, FrameReader, FrameStreamError,
@@ -34,7 +36,8 @@ use hytale_protocol::generated::setup::{
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::{
-    ClearChunks, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids, UnloadChunk,
+    ClearChunks, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
+    UnloadChunk, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
 };
 use hytale_protocol::io::{ProtocolError, Reader, Uuid, Writer};
 use sha2::{Digest, Sha256};
@@ -303,6 +306,12 @@ pub struct GameJoinReport {
     pub player_list: bool,
     /// The self `EntityUpdates` spawn arrived.
     pub self_spawn: bool,
+    /// `WorldGameplayConfig` payload.
+    pub gameplay_config: Option<WorldGameplayConfig>,
+    /// Initial `UpdateTimeSettings` payload.
+    pub time_settings: Option<UpdateTimeSettings>,
+    /// Initial `UpdateTime` value.
+    pub initial_time: Option<(i64, i32)>,
     /// The bot sent `ClientReady(readyForChunks)`.
     pub sent_ready_for_chunks: bool,
 }
@@ -472,6 +481,9 @@ pub struct AuthJoinOptions {
     pub asset_limit: Option<usize>,
     /// Move to this chunk after the teleport ack to exercise a view update.
     pub movement_chunk: Option<(i32, i32)>,
+    /// After the join, keep reading the setup stream for this long and collect
+    /// live `UpdateTime` broadcasts (`None` = stop at the teleport).
+    pub observe_time: Option<Duration>,
 }
 
 /// What the authenticated join produced.
@@ -507,6 +519,8 @@ pub struct AuthJoinReport {
     pub view_update_chunks: Vec<ChunkPacketSummary>,
     /// Decoded chunk packets from the initial snapshot.
     pub chunks: Vec<ChunkPacketSummary>,
+    /// Live `UpdateTime` values collected by `observe_time`.
+    pub time_updates: Vec<(i64, i32)>,
 }
 
 /// Errors from the authenticated join.
@@ -618,6 +632,7 @@ pub async fn auth_join(
         teleport: false,
         view_update_chunks: Vec::new(),
         chunks: Vec::new(),
+        time_updates: Vec::new(),
     };
     let mut current: Option<(Asset, i32, Vec<u8>)> = None;
     let mut requested = false;
@@ -777,11 +792,15 @@ pub async fn auth_join(
     report.chunks =
         receive_initial_snapshot(&mut chunks, &mut pending, options.view_radius_chunks).await?;
 
-    let (teleport, teleport_id) = finish_game(&mut reader, &mut writer).await?;
+    let (teleport, teleport_id) = finish_game(&mut reader, &mut writer, &mut report.game).await?;
     report.teleport = teleport;
     if let (Some(target), Some(teleport_id)) = (options.movement_chunk, teleport_id) {
         report.view_update_chunks =
             exercise_movement(&mut reader, &mut writer, &mut chunks, target, teleport_id).await?;
+    }
+    if let Some(window) = options.observe_time {
+        report.time_updates =
+            observe_time(&mut reader, &mut writer, window, &mut report.game).await?;
     }
     Ok(report)
 }
@@ -909,10 +928,36 @@ async fn enter_game_client(
     }
 
     // Java sends the joining player's self entity update after the world
-    // identity burst, before gameplay input starts.
-    let frame = reader.next_frame().await?.ok_or(AuthJoinError::Closed)?;
-    if frame.packet_id == hytale_protocol::generated::entities::EntityUpdates::ID {
-        game.self_spawn = true;
+    // identity burst, before gameplay input starts. The gameplay/time packets
+    // share this part of the stream.
+    loop {
+        let frame = reader.next_frame().await?.ok_or(AuthJoinError::Closed)?;
+        match frame.packet_id {
+            hytale_protocol::generated::entities::EntityUpdates::ID => {
+                game.self_spawn = true;
+                break;
+            }
+            WorldGameplayConfig::ID => {
+                game.gameplay_config = Some(frame.decode()?);
+            }
+            UpdateTimeSettings::ID => {
+                game.time_settings = Some(frame.decode()?);
+            }
+            UpdateTime::ID => {
+                let packet: UpdateTime = frame.decode()?;
+                game.initial_time = packet.game_time.map(|time| (time.seconds, time.nanos));
+            }
+            Ping::ID => answer_ping(writer, &frame).await?,
+            ServerDisconnect::ID => {
+                let disconnect: ServerDisconnect = frame.decode()?;
+                let reason = disconnect
+                    .reason
+                    .and_then(|message| message.raw_text)
+                    .unwrap_or_else(|| "disconnect".to_string());
+                return Err(AuthJoinError::Disconnected(reason));
+            }
+            _ => {}
+        }
     }
 
     Ok((game, chunks, pending))
@@ -951,6 +996,7 @@ async fn receive_initial_snapshot(
 async fn finish_game(
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
+    game: &mut GameJoinReport,
 ) -> Result<(bool, Option<i8>), AuthJoinError> {
     writer
         .write_packet(
@@ -968,6 +1014,16 @@ async fn finish_game(
                 let teleport: ClientTeleport = frame.decode()?;
                 return Ok((true, Some(teleport.teleport_id)));
             }
+            WorldGameplayConfig::ID => {
+                game.gameplay_config = Some(frame.decode()?);
+            }
+            UpdateTimeSettings::ID => {
+                game.time_settings = Some(frame.decode()?);
+            }
+            UpdateTime::ID => {
+                let packet: UpdateTime = frame.decode()?;
+                game.initial_time = packet.game_time.map(|time| (time.seconds, time.nanos));
+            }
             Ping::ID => answer_ping(writer, &frame).await?,
             ServerDisconnect::ID => {
                 let disconnect: ServerDisconnect = frame.decode()?;
@@ -980,6 +1036,48 @@ async fn finish_game(
             _ => {}
         }
     }
+}
+
+/// Keep reading the setup stream for `window`, collecting live `UpdateTime`
+/// broadcasts. Pings are answered; other packets are ignored.
+async fn observe_time(
+    reader: &mut FrameReader,
+    writer: &mut FrameWriter,
+    window: Duration,
+    game: &mut GameJoinReport,
+) -> Result<Vec<(i64, i32)>, AuthJoinError> {
+    let mut updates = Vec::new();
+    let deadline = tokio::time::Instant::now() + window;
+    loop {
+        let frame = match tokio::time::timeout_at(deadline, reader.next_frame()).await {
+            Ok(Ok(Some(frame))) => frame,
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => return Err(AuthJoinError::Frame(error)),
+            Err(_) => break,
+        };
+        match frame.packet_id {
+            UpdateTime::ID => {
+                let packet: UpdateTime = frame.decode()?;
+                if let Some(time) = packet.game_time {
+                    updates.push((time.seconds, time.nanos));
+                }
+            }
+            UpdateTimeSettings::ID => {
+                game.time_settings = Some(frame.decode()?);
+            }
+            Ping::ID => answer_ping(writer, &frame).await?,
+            ServerDisconnect::ID => {
+                let disconnect: ServerDisconnect = frame.decode()?;
+                let reason = disconnect
+                    .reason
+                    .and_then(|message| message.raw_text)
+                    .unwrap_or_else(|| "disconnect".to_string());
+                return Err(AuthJoinError::Disconnected(reason));
+            }
+            _ => {}
+        }
+    }
+    Ok(updates)
 }
 
 async fn exercise_movement(
