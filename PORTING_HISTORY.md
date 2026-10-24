@@ -642,3 +642,54 @@ This file records phase-2 sessions only.
   - T50/T56 wire block containers and dropped/runtime item entities.
   - T53 consumes item utility/stat metadata.
   - T57 adds inventory UI presentation.
+---
+
+## Session 38 — Interaction graph and block interactions (2026-10-24)
+
+- **Goal:** load the Java interaction graph, walk root/chained/variable nodes and
+  dispatch block `Use` interactions before falling back to T46 placement.
+- **Landed:**
+  - T50: new `hytale-interactions` crate. It loads `Item/Interactions` and
+    `Item/RootInteractions` from the pack in one `read_many` pass, applies
+    Java-style `Parent` inheritance, and exposes `InteractionCatalog`.
+  - The executor walks `Condition`, `Replace`/interaction vars, `Serial`,
+    `Parallel`, `Chaining`, `Repeat`, `Next`/`Failed` and inline nodes, emitting
+    `WorldAction`s (`Door`, `ChangeState`, `ChangeBlock`, `OpenContainer`,
+    `OpenBench`, `UseBlock`, `BreakBlock`, `PlaceBlock`).
+  - `BlockInteractions` extracts the block's `Interactions`, `Bench`, `Container`
+    and `State.Definitions` metadata; the current state is derived from the
+    contained state block key.
+  - `WorldThread` loads the catalog once, exposes `block_type_json`,
+    `set_block_state` (preserving rotation/filler) and `interaction_catalog`.
+  - Right-click now resolves the target block's `Use` root first. Door toggles
+    and `ChangeState` maps are applied through `set_block_state` and broadcast as
+    authoritative `ServerSetBlock`; containers/benches are handled UI actions
+    (windows remain T57). If no block action handles the click, T46 placement
+    runs unchanged, including T49 held-item consumption.
+  - Added `block_uses`/`block_state_changes` session counters.
+  - `client-bot` gained `use_block_after_join`; the new `block_interactions`
+    loopback places a door, right-clicks it twice and asserts the place → open →
+    close/change block-update sequence plus the two use/state counters.
+  - Graph tests cover referenced/inline door nodes, condition failure paths,
+    replacement vars/defaults, container roots, block metadata extraction and a
+    real-pack catalog load.
+- **Verified:**
+  - `cargo test -p hytale-interactions` (6 tests + real pack load).
+  - `cargo test -p client-bot --test block_interactions -- --ignored`.
+  - `cargo test -p client-bot --test inventory_join`, `multi_join`,
+    `trace_gate` and the existing joins.
+  - `cargo test -p hytale-server`, `cargo test --workspace`, clippy and fmt.
+- **Deviations:**
+  - Selectors, effects/sounds, cooldowns, stats, projectiles, entity/weapon
+    roots and client-chain sync remain T53/T55/T57.
+  - Door handling is single-block and heuristic; double doors, fillers/hitbox
+    updates, blocked checks, soft-block breaking and exact rotation matrices are
+    not ported. `ChangeBlock` is parsed but not applied.
+  - Containers/benches are detected and treated as handled, but window/UI
+    packets are T57.
+  - Right-click prioritises the block `Use` root over the held item's full
+    `Secondary` item root.
+- **Follow-ups:**
+  - T51/T53/T55 add movement/combat/projectile consumers.
+  - T56 adds block components/entity interaction hosts.
+  - T57 adds container/bench UI windows.

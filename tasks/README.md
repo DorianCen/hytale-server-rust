@@ -24,7 +24,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T47](T47-disconnect-reconnect.md) | Disconnect, reconnect and session teardown | T43–T46 | medium | done (session 35) |
 | [T48](T48-real-client-trace.md) | Real-client trace and v1 gate | T47 | low/medium | done (session 36) |
 | [T49](T49-inventory-containers.md) | Inventory, containers and transactions | T48 | low/medium | done (session 37) |
-| T50 | Interaction graph and block interactions | T49 | low/medium | planned |
+| [T50](T50-interaction-graph.md) | Interaction graph and block interactions | T49 | low/medium | done (session 38) |
 | T51 | Player movement physics and collision | T48 | low/medium | planned |
 | T52 | Block simulation: ticks, fluids, support | T49, T51 | low/medium | planned |
 | T53 | Entity stats, effects and combat basics | T48 | low/medium | planned |

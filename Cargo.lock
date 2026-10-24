@@ -831,6 +831,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hytale-interactions"
+version = "0.1.0"
+dependencies = [
+ "hytale-assets",
+ "hytale-protocol",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hytale-inventory"
 version = "0.1.0"
 dependencies = [
@@ -883,12 +893,14 @@ dependencies = [
  "hytale-commands",
  "hytale-core",
  "hytale-entities",
+ "hytale-interactions",
  "hytale-inventory",
  "hytale-net",
  "hytale-protocol",
  "hytale-storage",
  "hytale-world",
  "quinn",
+ "serde_json",
  "thiserror",
  "tokio",
  "worldgen-hytale",

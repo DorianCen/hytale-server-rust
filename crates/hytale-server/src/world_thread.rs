@@ -14,6 +14,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use hytale_assets::{AssetPack, CommonAssetRegistry};
+use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_inventory::PlayerInventory;
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_world::chunk::storage::ChunkCodec;
@@ -199,6 +200,9 @@ pub enum WorldThreadError {
     /// Config asset packet encoding failed.
     #[error(transparent)]
     AssetPackets(#[from] hytale_assets::AssetPacketError),
+    /// Interaction assets failed to load.
+    #[error(transparent)]
+    Interactions(#[from] InteractionError),
     /// A UUID argument is malformed.
     #[error("invalid UUID `{0}`")]
     InvalidUuid(String),
@@ -274,6 +278,22 @@ enum Command {
     BlockIdForItem {
         item_id: String,
         reply: SyncSender<Result<Option<i32>, String>>,
+    },
+    BlockTypeJson {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<(String, serde_json::Value)>, String>>,
+    },
+    SetBlockState {
+        x: i32,
+        y: i32,
+        z: i32,
+        state: String,
+        reply: SyncSender<Result<Option<(i32, i32)>, String>>,
+    },
+    InteractionCatalog {
+        reply: SyncSender<Arc<InteractionCatalog>>,
     },
     Save {
         reply: SyncSender<Result<usize, String>>,
@@ -594,6 +614,57 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// The block type key and merged JSON at a loaded block position.
+    pub fn block_type_json(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<Option<(String, serde_json::Value)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockTypeJson { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Change a block to its `State.Definitions.<state>` variant, preserving
+    /// rotation/filler. Returns `(before, after)`.
+    pub fn set_block_state(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        state: &str,
+    ) -> Result<Option<(i32, i32)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetBlockState {
+                x,
+                y,
+                z,
+                state: state.to_string(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Loaded interaction catalog (shared, immutable).
+    pub fn interaction_catalog(&self) -> Result<Arc<InteractionCatalog>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::InteractionCatalog { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
     /// Save dirty chunks and the config.
     pub fn save(&self) -> Result<usize, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -825,6 +896,7 @@ fn run(
             mut clock,
             gameplay_config,
             config_assets,
+            interactions,
         }) => {
             if ready.send(Ok(start.clone())).is_err() {
                 generator.shutdown();
@@ -959,6 +1031,23 @@ fn run(
                         let result = block_id_for_item(generator.assets(), &item_id);
                         let _ = reply.send(result);
                     }
+                    Command::BlockTypeJson { x, y, z, reply } => {
+                        let result = block_type_json(&save, &generator, x, y, z);
+                        let _ = reply.send(result);
+                    }
+                    Command::SetBlockState {
+                        x,
+                        y,
+                        z,
+                        state,
+                        reply,
+                    } => {
+                        let result = set_block_state(&mut save, &generator, x, y, z, &state);
+                        let _ = reply.send(result);
+                    }
+                    Command::InteractionCatalog { reply } => {
+                        let _ = reply.send(Arc::clone(&interactions));
+                    }
                     Command::Save { reply } => {
                         advance_clock(&mut clock, &mut last_clock);
                         store_clock(&clock, &mut save);
@@ -1052,10 +1141,14 @@ struct Started {
     clock: WorldClock,
     gameplay_config: WorldGameplayConfig,
     config_assets: Arc<hytale_assets::ConfigAssets>,
+    interactions: Arc<InteractionCatalog>,
 }
 
 fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let generator = WorldGenerator::open(&options.generator)?;
+    let interaction_pack =
+        AssetPack::open(&options.generator.assets_pack).map_err(InteractionError::from)?;
+    let interactions = Arc::new(InteractionCatalog::load(&interaction_pack)?);
     // Encode the config burst once per world; every session shares the Arc.
     let config_assets = Arc::new(generator.assets().config_assets()?);
     let world_uuid = match &options.world_uuid {
@@ -1161,6 +1254,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         clock,
         gameplay_config,
         config_assets,
+        interactions,
     })
 }
 
@@ -1420,6 +1514,57 @@ fn place_block(
     }
     save.world_mut()
         .set_block(x, y, z, block_id)
+        .map_err(|error| error.to_string())?;
+    Ok(Some((before, save.world().get_block(x, y, z))))
+}
+
+fn block_type_json(
+    save: &WorldSave,
+    generator: &WorldGenerator,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Result<Option<(String, serde_json::Value)>, String> {
+    if save.world().chunk(x >> 5, z >> 5).is_none() {
+        return Ok(None);
+    }
+    let block_id = save.world().get_block(x, y, z);
+    let Some(record) = generator.assets().block_types.get_by_id(block_id) else {
+        return Ok(None);
+    };
+    Ok(Some((record.key.clone(), record.value.json.clone())))
+}
+
+fn set_block_state(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    x: i32,
+    y: i32,
+    z: i32,
+    state: &str,
+) -> Result<Option<(i32, i32)>, String> {
+    let (chunk_x, chunk_z) = (x >> 5, z >> 5);
+    if save.world().chunk(chunk_x, chunk_z).is_none() {
+        return Ok(None);
+    }
+    let before = save.world().get_block(x, y, z);
+    let Some(record) = generator.assets().block_types.get_by_id(before) else {
+        return Ok(None);
+    };
+    let container = record
+        .value
+        .container_item
+        .clone()
+        .unwrap_or_else(|| record.key.clone());
+    let key = format!("*{container}_State_Definitions_{state}");
+    let Some(target) = generator.assets().block_types.get(&key) else {
+        return Ok(None);
+    };
+    let Some(target_id) = target.id else {
+        return Ok(None);
+    };
+    save.world_mut()
+        .set_block(x, y, z, target_id)
         .map_err(|error| error.to_string())?;
     Ok(Some((before, save.world().get_block(x, y, z))))
 }

@@ -10,8 +10,8 @@ The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
 `GameplayConfig`), T44 (self-spawn appearance/equipment), T45 (other-player
 tracking), T46 (block place/break), T47 (disconnect, reconnect and session
 teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete,
-T49 (inventory containers/transactions) is done and M5 gameplay parity continues
-with T50.
+T49 (inventory containers/transactions) and T50 (interaction graph and block
+interactions) are done and M5 gameplay parity continues with T51.
 
 ## 0. Baseline
 
@@ -681,11 +681,25 @@ save/reload preserves inventory.
 
 ### T50 — Interaction graph and block interactions
 
-**Package:** `hytale-entities`, `hytale-world`, `hytale-server`
+**Status:** done (session 38)
+**Package:** `hytale-interactions`, `hytale-server`, `client-bot`
 **Goal:** root/interaction chains, interaction vars, block interaction dispatch,
 doors/benches/containers as the first consumers.
 **Acceptance:** scripted primary/secondary/use interactions match Java; block
 edit path from T46 remains green.
+
+**Deviations**
+
+- The executor covers structural/variable/block/state nodes used by the first
+  consumers; selectors, effects, sounds, cooldowns, projectiles, stats and
+  client-chain sync remain T53/T55/T57.
+- Door handling uses single-block state variants and a front heuristic; double
+  doors, fillers/hitbox updates, blocked checks and exact rotations are not
+  ported. `ChangeBlock` actions are parsed but not applied.
+- Bench/container blocks are dispatched as handled UI actions; window packets
+  are T57.
+- Right-click prioritises the target block's `Use` root over the held item's
+  full `Secondary` item root.
 
 ### T51 — Player movement physics and collision authority
 

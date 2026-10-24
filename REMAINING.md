@@ -17,7 +17,9 @@ Deferred to M5:
 - Inventory windows/UI, block containers and dropped-item entities beyond the
   T49 item-stack/container/transaction core (hotbar/utility/armor/storage/tools/
   backpack, active slots, held-item consumption and save/reconnect are landed).
-- Interaction graph beyond basic block place/break.
+- Interaction graph beyond the T50 block `Use`/door/state core: item and entity
+  roots, selectors, effects/sounds, cooldowns, client-chain sync and
+  container/bench windows (T53/T55/T57).
 - Block physics/ticking/fluids beyond the minimum needed for a stable world.
 - Player movement physics, collision, anti-cheat and server-authoritative
   positions: the current join loop uses `ClientMovement.absolutePosition` only

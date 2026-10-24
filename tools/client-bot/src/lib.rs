@@ -306,6 +306,8 @@ pub struct DevJoinOptions {
     pub place_block_after_join: Option<(BlockPosition, String)>,
     /// Break this block after the join (left click).
     pub break_block_after_join: Option<BlockPosition>,
+    /// Extra right-click block uses after the snapshot (doors/containers).
+    pub use_block_after_join: Vec<BlockPosition>,
     /// Send `ClientReady(readyForGameplay)` after the snapshot so the server
     /// starts the teleport/time flow.
     pub send_ready_for_gameplay: bool,
@@ -563,6 +565,10 @@ pub async fn dev_join(
     }
     if let Some(position) = options.break_block_after_join.clone() {
         send_block_interaction(&mut writer, MouseButtonType::Left, position, None).await?;
+    }
+    for position in &options.use_block_after_join {
+        send_block_interaction(&mut writer, MouseButtonType::Right, position.clone(), None).await?;
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
     let disconnect_at = options
         .disconnect_after

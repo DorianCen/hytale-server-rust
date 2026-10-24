@@ -162,6 +162,7 @@ async fn held_block_is_consumed_and_restored_on_reconnect() {
                 "Rock_Stone".to_string(),
             )),
             break_block_after_join: None,
+            use_block_after_join: Vec::new(),
             send_ready_for_gameplay: true,
         },
     )
@@ -210,6 +211,7 @@ async fn held_block_is_consumed_and_restored_on_reconnect() {
             keep_alive: false,
             place_block_after_join: None,
             break_block_after_join: None,
+            use_block_after_join: Vec::new(),
             send_ready_for_gameplay: true,
         },
     )

@@ -25,6 +25,10 @@ use std::time::Duration;
 
 use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets};
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
+use hytale_interactions::{
+    execute_root, state_from_block_key, BlockInteractions, ExecutionContext, InteractionCatalog,
+    WorldAction,
+};
 use hytale_inventory::{PlayerInventory, Section};
 use hytale_net::{
     ChunkStreamError, ChunkStreamWriter, FrameReader, FrameStreamError, FrameWriter, PeerIdentity,
@@ -233,6 +237,10 @@ pub struct GameLoopReport {
     pub block_edit_rejections: usize,
     /// Inventory updates written after an active-slot or held-item change.
     pub inventory_updates: usize,
+    /// Block-use interactions handled (doors/state/container/bench).
+    pub block_uses: usize,
+    /// Block state changes applied by interactions.
+    pub block_state_changes: usize,
     /// The client disconnected (or the connection closed) cleanly.
     pub disconnected: bool,
     /// The server disconnected the client for idling.
@@ -351,6 +359,7 @@ struct LiveGame<'a> {
     view: ViewId,
     transform: &'a mut PlayerTransform,
     inventory: &'a mut PlayerInventory,
+    interactions: Arc<InteractionCatalog>,
 }
 
 /// Run authentication + setup on an accepted connection, transition to `Game`,
@@ -435,6 +444,7 @@ pub async fn serve_connection_with_registry(
         .parse()
         .map_err(|_| SessionError::InvalidUuid(start.world_uuid.clone()))?;
     let view_id = thread.add_view(player_chunk.0, player_chunk.1, radius)?;
+    let interactions = thread.interaction_catalog()?;
 
     let (message_tx, message_rx) = players::channel();
     let (player_session, join) = players.register(PlayerJoinRequest {
@@ -508,6 +518,7 @@ pub async fn serve_connection_with_registry(
                     view: view_id,
                     transform: &mut player_transform,
                     inventory: &mut inventory,
+                    interactions,
                 },
                 options,
             )
@@ -1206,6 +1217,7 @@ async fn run_game_loop(
         view,
         transform,
         inventory,
+        interactions,
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
@@ -1303,9 +1315,10 @@ async fn run_game_loop(
                             &players,
                             transform,
                             inventory,
+                            &interactions,
                             &interaction,
                         ) {
-                            Some(consumed) => {
+                            BlockInteractionOutcome::Edit { consumed } => {
                                 report.block_edits += 1;
                                 if consumed {
                                     send_inventory(
@@ -1318,7 +1331,13 @@ async fn run_game_loop(
                                     broadcast_held_items(&players, network_id, inventory);
                                 }
                             }
-                            None => report.block_edit_rejections += 1,
+                            BlockInteractionOutcome::Use { state_changes } => {
+                                report.block_uses += 1;
+                                report.block_state_changes += state_changes;
+                            }
+                            BlockInteractionOutcome::Rejected => {
+                                report.block_edit_rejections += 1;
+                            }
                         }
                     }
                     SetActiveSlot::ID => {
@@ -1481,6 +1500,26 @@ enum BlockEdit {
     },
 }
 
+fn block_target(
+    transform: &PlayerTransform,
+    interaction: &MouseInteraction,
+) -> Option<(i32, i32, i32)> {
+    let world = interaction.world_interaction.as_ref()?;
+    if world.entity_id >= 0 {
+        return None;
+    }
+    let target = world.block_position.as_ref()?;
+    // Adventure reach (5) plus Java's interaction buffer (2).
+    const MAX_REACH_SQUARED: f64 = 7.0 * 7.0;
+    let dx = transform.position.x - (f64::from(target.x) + 0.5);
+    let dy = transform.position.y - (f64::from(target.y) + 0.5);
+    let dz = transform.position.z - (f64::from(target.z) + 0.5);
+    if dx * dx + dy * dy + dz * dz > MAX_REACH_SQUARED {
+        return None;
+    }
+    Some((target.x, target.y, target.z))
+}
+
 /// Parse the state-independent part of a block interaction.
 ///
 /// This is pure so reach, button-state and held-item validation can be tested
@@ -1493,36 +1532,19 @@ fn parse_block_edit(
     if button.state != MouseButtonState::Pressed {
         return None;
     }
-    let world = interaction.world_interaction.as_ref()?;
-    if world.entity_id >= 0 {
-        return None;
-    }
-    let target = world.block_position.as_ref()?;
-
-    // Adventure reach (5) plus Java's interaction buffer (2).
-    const MAX_REACH_SQUARED: f64 = 7.0 * 7.0;
-    let dx = transform.position.x - (f64::from(target.x) + 0.5);
-    let dy = transform.position.y - (f64::from(target.y) + 0.5);
-    let dz = transform.position.z - (f64::from(target.z) + 0.5);
-    if dx * dx + dy * dy + dz * dz > MAX_REACH_SQUARED {
-        return None;
-    }
+    let (x, y, z) = block_target(transform, interaction)?;
 
     match button.mouse_button_type {
-        MouseButtonType::Left => Some(BlockEdit::Break {
-            x: target.x,
-            y: target.y,
-            z: target.z,
-        }),
+        MouseButtonType::Left => Some(BlockEdit::Break { x, y, z }),
         MouseButtonType::Right => {
             let item_id = interaction
                 .item_in_hand_id
                 .as_deref()
                 .filter(|id| !id.is_empty() && *id != hytale_world::player_data::EMPTY_ITEM_ID)?;
             Some(BlockEdit::Place {
-                x: target.x,
-                y: target.y,
-                z: target.z,
+                x,
+                y,
+                z,
                 item_id: item_id.to_string(),
             })
         }
@@ -1530,20 +1552,32 @@ fn parse_block_edit(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockInteractionOutcome {
+    Edit { consumed: bool },
+    Use { state_changes: usize },
+    Rejected,
+}
+
 fn handle_block_interaction(
     thread: &WorldThread,
     players: &PlayerRegistry,
     transform: &PlayerTransform,
     inventory: &mut PlayerInventory,
+    interactions: &InteractionCatalog,
     interaction: &MouseInteraction,
-) -> Option<bool> {
-    match parse_block_edit(transform, interaction)? {
-        BlockEdit::Break { x, y, z } => {
+) -> BlockInteractionOutcome {
+    if let Some(outcome) = try_block_use(thread, players, transform, interactions, interaction) {
+        return outcome;
+    }
+
+    match parse_block_edit(transform, interaction) {
+        Some(BlockEdit::Break { x, y, z }) => {
             let Ok((before, after)) = thread.set_block(x, y, z, 0) else {
-                return None;
+                return BlockInteractionOutcome::Rejected;
             };
             if before == 0 || before == after {
-                return None;
+                return BlockInteractionOutcome::Rejected;
             }
             players.broadcast_block(ServerSetBlock {
                 x,
@@ -1553,9 +1587,9 @@ fn handle_block_interaction(
                 filler: 0,
                 rotation: 0,
             });
-            Some(false)
+            BlockInteractionOutcome::Edit { consumed: false }
         }
-        BlockEdit::Place { x, y, z, item_id } => {
+        Some(BlockEdit::Place { x, y, z, item_id }) => {
             // The inventory is authoritative. The packet's item id remains a
             // compatibility fallback for sessions/tests without a saved
             // inventory (creative/debug joins).
@@ -1564,13 +1598,13 @@ fn handle_block_interaction(
                 .map(|stack| (stack.item_id.clone(), true))
                 .unwrap_or((item_id, false));
             let Ok(Some(block_id)) = thread.block_id_for_item(&item_id) else {
-                return None;
+                return BlockInteractionOutcome::Rejected;
             };
             let Ok(Some((_before, after))) = thread.place_block(x, y, z, block_id) else {
-                return None;
+                return BlockInteractionOutcome::Rejected;
             };
             if from_inventory && !matches!(inventory.consume_right_hand(1), Ok(Some(_))) {
-                return None;
+                return BlockInteractionOutcome::Rejected;
             }
             players.broadcast_block(ServerSetBlock {
                 x,
@@ -1580,9 +1614,153 @@ fn handle_block_interaction(
                 filler: 0,
                 rotation: 0,
             });
-            Some(from_inventory)
+            BlockInteractionOutcome::Edit {
+                consumed: from_inventory,
+            }
+        }
+        None => BlockInteractionOutcome::Rejected,
+    }
+}
+
+fn try_block_use(
+    thread: &WorldThread,
+    players: &PlayerRegistry,
+    transform: &PlayerTransform,
+    interactions: &InteractionCatalog,
+    interaction: &MouseInteraction,
+) -> Option<BlockInteractionOutcome> {
+    let button = interaction.mouse_button.as_ref()?;
+    if button.state != MouseButtonState::Pressed
+        || button.mouse_button_type != MouseButtonType::Right
+    {
+        return None;
+    }
+    let (x, y, z) = block_target(transform, interaction)?;
+    let (block_key, block_json) = thread.block_type_json(x, y, z).ok()??;
+    let block = BlockInteractions::from_json(&block_key, &block_json);
+
+    if block.bench {
+        return Some(BlockInteractionOutcome::Use { state_changes: 0 });
+    }
+    if block.container {
+        return Some(BlockInteractionOutcome::Use { state_changes: 0 });
+    }
+
+    let (interaction_type, root_id) = block.use_root()?;
+    let context = ExecutionContext {
+        interaction_type,
+        vars: interaction_vars(&block_json),
+        ..ExecutionContext::default()
+    };
+    let outcome = execute_root(interactions, root_id, &context);
+    if !outcome.success || outcome.actions.is_empty() {
+        return None;
+    }
+
+    let mut handled = false;
+    let mut state_changes = 0;
+    for action in outcome.actions {
+        match action {
+            WorldAction::Door { .. } => {
+                if let Some((before, after)) = toggle_door(thread, transform, &block_key, x, y, z) {
+                    players.broadcast_block(ServerSetBlock {
+                        x,
+                        y,
+                        z,
+                        block_id: after,
+                        filler: 0,
+                        rotation: 0,
+                    });
+                    if before != after {
+                        state_changes += 1;
+                    }
+                    handled = true;
+                }
+            }
+            WorldAction::ChangeState { changes } => {
+                let Some(state) = block.mapped_state(&changes) else {
+                    continue;
+                };
+                if let Ok(Some((before, after))) = thread.set_block_state(x, y, z, state) {
+                    players.broadcast_block(ServerSetBlock {
+                        x,
+                        y,
+                        z,
+                        block_id: after,
+                        filler: 0,
+                        rotation: 0,
+                    });
+                    if before != after {
+                        state_changes += 1;
+                    }
+                    handled = true;
+                }
+            }
+            WorldAction::OpenContainer => handled = true,
+            WorldAction::OpenBench => handled = true,
+            WorldAction::BreakBlock => {
+                if let Ok((before, after)) = thread.set_block(x, y, z, 0) {
+                    if before != 0 && before != after {
+                        players.broadcast_block(ServerSetBlock {
+                            x,
+                            y,
+                            z,
+                            block_id: after,
+                            filler: 0,
+                            rotation: 0,
+                        });
+                        state_changes += 1;
+                        handled = true;
+                    }
+                }
+            }
+            WorldAction::ChangeBlock { .. }
+            | WorldAction::UseBlock { .. }
+            | WorldAction::PlaceBlock => {}
         }
     }
+
+    handled.then_some(BlockInteractionOutcome::Use { state_changes })
+}
+
+fn toggle_door(
+    thread: &WorldThread,
+    transform: &PlayerTransform,
+    block_key: &str,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Option<(i32, i32)> {
+    let current = state_from_block_key(block_key);
+    let state = match current.as_deref() {
+        Some("OpenDoorIn") => "CloseDoorOut",
+        Some("OpenDoorOut") => "CloseDoorIn",
+        _ => {
+            // Java `DoorBlockUtils.isInFrontOfDoor` with a zero yaw: the door
+            // faces +Z, so a viewer north of the block is in front.
+            let in_front = transform.position.z < f64::from(z) + 0.5;
+            if in_front {
+                "OpenDoorIn"
+            } else {
+                "OpenDoorOut"
+            }
+        }
+    };
+    thread.set_block_state(x, y, z, state).ok().flatten()
+}
+
+fn interaction_vars(block_json: &serde_json::Value) -> BTreeMap<String, String> {
+    block_json
+        .get("InteractionVars")
+        .and_then(serde_json::Value::as_object)
+        .map(|vars| {
+            vars.iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn broadcast_held_items(players: &PlayerRegistry, network_id: i32, inventory: &PlayerInventory) {

@@ -98,7 +98,10 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   item stacks, six player containers, atomic move/split/merge/swap/drop/pickup),
   inventory save/load in player holders, initial inventory/active-slot packets,
   authoritative held-item consumption on placement and inventory persistence
-  with the transform. M5 continues with T50;
+  with the transform. Session 38 added the interaction core: `hytale-interactions`
+  loads the Java root/interaction assets with parent inheritance, walks the
+  structural/variable graph and dispatches block `Use` actions (doors, state
+  changes, containers/benches) before T46 placement. M5 continues with T51;
   see [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -124,6 +127,7 @@ crates/
   hytale-storage/    IndexedStorageFile, BSON component codecs, backups
   hytale-world/      universe, world, runtime chunks, heightmaps, lighting, player data
   hytale-inventory/  item stacks, containers, player inventory and transactions
+  hytale-interactions/ interaction graph loader/executor and block metadata
   hytale-entities/   ECS wrapper, components, systems, player/entity lifecycle
   hytale-net/        QUIC transport, streams, sessions, packet state machine
   hytale-auth/       EdDSA JWT keys/claims, certificate binding, local authority;
@@ -149,6 +153,7 @@ hytale-server
   ├─ hytale-world ── hytale-assets ── hytale-protocol
   │                  hytale-storage ─┘
   │                  hytale-inventory ─ hytale-protocol
+  │                  hytale-interactions ─ hytale-assets
   ├─ hytale-entities ─ hytale-world
   └─ hytale-core
 
@@ -381,6 +386,15 @@ sends the authoritative `ServerSetBlock` on each interested session's chunks
 stream, including the editor. Concurrent writes are serialized by the single
 world thread; network broadcasts are queued per session.
 
+Block `Use` interactions are resolved from the merged `BlockType` JSON and the
+loaded root/interaction catalog before placement. The executor supports
+conditions, replacement variables, serial/parallel/chaining/repeat and inline
+nodes; door/state/container/bench nodes become `WorldAction`s. Door/state
+actions apply a `State.Definitions` variant through `WorldThread` and broadcast
+the authoritative block. Unsupported node types are inert and fall through to
+T46 placement. Windows/UI, selectors, effects and exact door/filler logic remain
+later work.
+
 Inventory state lives in `hytale-inventory`: `ItemStack` mirrors Java's codec,
 `SimpleItemContainer` implements the Java merge/move/remove transaction rules,
 and `PlayerInventory` owns hotbar/utility/armor/storage/tools/backpack with
@@ -561,6 +575,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
 | `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence and per-second `UpdateTime` landed (M4); sleep/interpolation commands and moon-phase events pending (T54) |
 | `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); windows and world item entities deferred |
+| `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes and door state broadcasts landed (M5); selectors/effects/cooldowns, item/entity roots and windows deferred |
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::player_data` | saved model reference and inventory components decoded (M4); full `ModelAsset` protocol expansion and ECS lifecycle deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
