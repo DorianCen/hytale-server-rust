@@ -15,6 +15,7 @@
 //! encoders use `BTreeMap` for the same order.
 
 mod block_type;
+mod child;
 mod item;
 mod tag_pattern;
 
@@ -27,10 +28,10 @@ use hytale_protocol::generated::assets::{
 };
 use hytale_protocol::generated::common::{
     BlockTextures, CameraAxis, CameraNode, CameraSettings, Color, ColorLight, Direction,
-    EntityPart, Fluid, FluidDrawType, Hitbox, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
-    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
-    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, ModelParticle,
-    Opacity, PhysicalMaterial, Rangef, ShaderType, SubCategoryDefinition, UpdateType,
+    EntityPart, Fluid, FluidDrawType, FluidParticle, Hitbox, ItemAnimation, ItemCategory,
+    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
+    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
+    ModelParticle, Opacity, PhysicalMaterial, Rangef, ShaderType, SubCategoryDefinition, UpdateType,
     WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector3f, Wire};
@@ -508,10 +509,11 @@ impl AssetRegistry {
                     light: color_light(json.get("Light")),
                     particles: (!particles.is_empty()).then_some(particles),
                     draw_type: fluid_draw_type(json.get("DrawType"))?,
-                    // FluidFX/BlockSoundSet are non-P0 stores; the client does
-                    // not receive their packets yet.
-                    fluid_fx_index: 0,
-                    block_sound_set_index: 0,
+                    // Java `Fluid.processConfig`: the authored ids default to
+                    // the `Empty`/`EMPTY` code-defined assets. Java leaves the
+                    // `NOT_FOUND` sentinel for an unknown non-empty id.
+                    fluid_fx_index: resolve_fluid_fx(self, json),
+                    block_sound_set_index: resolve_block_sound_set(self, json),
                     block_particle_set_id: json
                         .get("BlockParticleSetId")
                         .and_then(Value::as_str)
@@ -542,9 +544,10 @@ impl AssetRegistry {
                 WorldEnvironment {
                     id: Some(record.key.clone()),
                     water_tint: color(record.value.get("WaterTint")),
-                    // The P0 pack has no fluid-particle environments, and the
-                    // FluidFX store is not loaded yet.
-                    fluid_particles: None,
+                    // Java `Environment.toPacket` only emits the map when the
+                    // authored `FluidParticles` map is non-empty, and drops keys
+                    // whose FluidFX id is unknown.
+                    fluid_particles: environment_fluid_particles(self, &record.value)?,
                     tag_indexes: tags.expanded(record.value.get("Tags")),
                 },
             );
@@ -1132,6 +1135,55 @@ fn model_particles(value: Option<&Value>) -> Result<Vec<ModelParticle>> {
         });
     }
     Ok(particles)
+}
+
+/// Java `AssetMapWithIndexes.NOT_FOUND`.
+const NOT_FOUND: i32 = i32::MIN;
+
+/// Java `Fluid.processConfig` FluidFX index.
+fn resolve_fluid_fx(registry: &AssetRegistry, json: &Value) -> i32 {
+    let id = json
+        .get("FluidFXId")
+        .and_then(Value::as_str)
+        .unwrap_or("Empty");
+    if id.eq_ignore_ascii_case("Empty") {
+        0
+    } else {
+        registry.fluid_fx.id_of(id).unwrap_or(NOT_FOUND)
+    }
+}
+
+/// Java `Fluid.processConfig` BlockSoundSet index.
+fn resolve_block_sound_set(registry: &AssetRegistry, json: &Value) -> i32 {
+    let id = json
+        .get("BlockSoundSetId")
+        .and_then(Value::as_str)
+        .unwrap_or("EMPTY");
+    if id.eq_ignore_ascii_case("EMPTY") {
+        0
+    } else {
+        registry.block_sound_sets.id_of(id).unwrap_or(NOT_FOUND)
+    }
+}
+
+/// Java `Environment.toPacket` fluid-particle map.
+fn environment_fluid_particles(
+    registry: &AssetRegistry,
+    json: &Value,
+) -> Result<Option<BTreeMap<i32, FluidParticle>>> {
+    let Some(particles) = json.get("FluidParticles").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    if particles.is_empty() {
+        return Ok(None);
+    }
+    let mut out = BTreeMap::new();
+    for (key, value) in particles {
+        if let Some(index) = registry.fluid_fx.id_of(key) {
+            out.insert(index, child::fluid_particle(value)?);
+        }
+    }
+    Ok(Some(out))
 }
 
 fn next_id<T>(collection: &AssetCollection<T>, store: &'static str) -> Result<i32> {

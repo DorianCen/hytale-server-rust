@@ -23,5 +23,5 @@ pub use parent::{merge_shallow, merge_values, ArrayMerge, MergeHook, ParentResol
 pub use registry::{
     AssetCollection, AssetRecord, AssetRegistry, BlockSupport, BlockTypeAsset, BlockTypeSupport,
     Face, FluidAsset, MapKind, StoreSpec, SupportRequirement, TagPatternAsset, TagPatternNode,
-    P0_STORES, TAG_PATTERN_STORE,
+    CHILD_STORES, P0_STORES, TAG_PATTERN_STORE,
 };

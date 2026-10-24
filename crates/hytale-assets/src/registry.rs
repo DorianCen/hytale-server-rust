@@ -15,9 +15,11 @@
 //! ordinary files the order is reproducible: the pack's files are walked in
 //! reverse zip order, non-parented assets are committed first, and parented
 //! assets are resolved in waves. The waiting-asset wave follows the iteration
-//! order of Java's `ConcurrentHashMap` (spread hash slot, then insertion order).
-//! The Rust port models that order, so `BlockBoundingBoxes`, `Fluid`,
-//! `Environment` and `PhysicalMaterial` ids match the committed Java golden.
+//! order of Java's `ConcurrentHashMap` (spread hash slot, then the node order
+//! the table holds after its resize-time partial reversals). The Rust port
+//! models that order, so `BlockBoundingBoxes`, `Fluid`, `Environment`,
+//! `BlockSoundSet`, `FluidFX`, `SoundEvent` and `PhysicalMaterial` ids match the
+//! committed Java golden.
 //!
 //! `BlockType` assets are mostly *contained* in `Server/Item/Items` documents.
 //! Java's contained-asset loader groups them through `HashMap`s, so the
@@ -161,14 +163,56 @@ const ITEM_RETICLE: StoreSpec = ITEM_CHILD_STORES[2];
 const ITEM_CATEGORY: StoreSpec = ITEM_CHILD_STORES[3];
 const ITEM_PLAYER_ANIMATIONS: StoreSpec = ITEM_CHILD_STORES[4];
 
-/// `SoundEvent` is owned by T36. `load_phase2` only needs its assigned ids so
-/// `ItemSoundSet.soundEventIndices` can be encoded; the full typed store will
-/// replace this lookup when the block/fluid child stores are merged.
-const SOUND_EVENT: StoreSpec = StoreSpec {
-    name: "SoundEvent",
-    path: "Server/Audio/SoundEvents",
-    map: MapKind::IndexedLookupTable,
-};
+/// Stores the P0 packets resolve child indexes through.
+///
+/// `AudioCategory` and `AudioState` are not streamed by this task; they are
+/// loaded because `SoundEvent` resolves its `AudioCategory`, `StateBindings`
+/// and `DuckingRules` against them.
+pub const CHILD_STORES: &[StoreSpec] = &[
+    StoreSpec {
+        name: "BlockBreakingDecal",
+        path: "Server/Item/Block/BreakingDecals",
+        map: MapKind::Default,
+    },
+    StoreSpec {
+        name: "BlockParticleSet",
+        path: "Server/Item/Block/Particles",
+        map: MapKind::Default,
+    },
+    StoreSpec {
+        name: "BlockSoundSet",
+        path: "Server/Item/Block/Sounds",
+        map: MapKind::IndexedLookupTable,
+    },
+    StoreSpec {
+        name: "FluidFX",
+        path: "Server/Item/Block/FluidFX",
+        map: MapKind::IndexedLookupTable,
+    },
+    StoreSpec {
+        name: "SoundEvent",
+        path: "Server/Audio/SoundEvents",
+        map: MapKind::IndexedLookupTable,
+    },
+    StoreSpec {
+        name: "AudioCategory",
+        path: "Server/Audio/AudioCategories",
+        map: MapKind::IndexedLookupTable,
+    },
+    StoreSpec {
+        name: "AudioState",
+        path: "Server/Audio/AudioStates",
+        map: MapKind::IndexedLookupTable,
+    },
+];
+
+const BLOCK_BREAKING_DECAL: StoreSpec = CHILD_STORES[0];
+const BLOCK_PARTICLE_SET: StoreSpec = CHILD_STORES[1];
+const BLOCK_SOUND_SET: StoreSpec = CHILD_STORES[2];
+const FLUID_FX: StoreSpec = CHILD_STORES[3];
+const SOUND_EVENT: StoreSpec = CHILD_STORES[4];
+const AUDIO_CATEGORY: StoreSpec = CHILD_STORES[5];
+const AUDIO_STATE: StoreSpec = CHILD_STORES[6];
 
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
@@ -659,8 +703,20 @@ pub struct AssetRegistry {
     /// `ItemPlayerAnimations` assets contained in items/states
     /// (`*<item>_PlayerAnimationsId`).
     item_contained_animations: Vec<RawAsset>,
-    /// `SoundEvent` key → id, only used by the `ItemSoundSet` encoder.
-    sound_event_indexes: HashMap<String, i32>,
+    /// `BlockBreakingDecal` (P1).
+    pub block_breaking_decals: AssetCollection<Value>,
+    /// `BlockParticleSet` (P1).
+    pub block_particle_sets: AssetCollection<Value>,
+    /// `BlockSoundSet` (P1).
+    pub block_sound_sets: AssetCollection<Value>,
+    /// `FluidFX` (P1).
+    pub fluid_fx: AssetCollection<Value>,
+    /// `SoundEvent` (P1).
+    pub sound_events: AssetCollection<Value>,
+    /// `AudioCategory` (dependency of `SoundEvent`).
+    pub audio_categories: AssetCollection<Value>,
+    /// `AudioState` (dependency of `SoundEvent`).
+    pub audio_states: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -706,20 +762,49 @@ impl AssetRegistry {
             item_player_animations: AssetCollection::empty(),
             item_local: item_load.local,
             item_contained_animations: item_load.contained_animations,
-            sound_event_indexes: HashMap::new(),
+            block_breaking_decals: AssetCollection::empty(),
+            block_particle_sets: AssetCollection::empty(),
+            block_sound_sets: AssetCollection::empty(),
+            fluid_fx: AssetCollection::empty(),
+            sound_events: AssetCollection::empty(),
+            audio_categories: AssetCollection::empty(),
+            audio_states: AssetCollection::empty(),
         })
     }
 
-    /// Load P0 plus the item-side child stores and `TagPattern`.
+    /// Load P0 plus the block/fluid, item-side child stores and `TagPattern`.
     ///
-    /// Java loads `TagPatterns` after the stores that own file-backed patterns
-    /// and before `AmbienceFX`, then appends the patterns contained in Fluid,
-    /// AmbienceFX, MusicTransition and BlockType/Item documents. This loader
-    /// reproduces the committed Java id order for the vanilla pack. `load_p0`
-    /// is intentionally left unchanged: callers that only need the smaller
-    /// snapshot keep it.
+    /// Java load order: AudioState/AudioCategory precede SoundEvent,
+    /// SoundEvent precedes BlockSoundSet, and FluidFX precedes Fluid. Ids are
+    /// assigned per store, so only the resolution order matters at packet time,
+    /// but keep the same sequence for clarity. `load_p0` is intentionally left
+    /// unchanged: callers that only need the smaller snapshot keep it.
     pub fn load_phase2(pack: &AssetPack) -> Result<Self, AssetError> {
         let mut registry = Self::load_p0(pack)?;
+
+        registry.audio_states =
+            load_indexed_store(pack, &AUDIO_STATE, audio_state_preloads(), parse_key_asset)?;
+        registry.audio_categories = load_indexed_store(
+            pack,
+            &AUDIO_CATEGORY,
+            audio_category_preloads(),
+            parse_key_asset,
+        )?;
+        registry.sound_events =
+            load_indexed_store(pack, &SOUND_EVENT, sound_event_preloads(), parse_key_asset)?;
+        registry.block_sound_sets = load_indexed_store_with(
+            pack,
+            &BLOCK_SOUND_SET,
+            block_sound_set_preloads(),
+            parse_key_asset,
+            MergeHook::Custom(merge_block_sound_set),
+        )?;
+        registry.fluid_fx =
+            load_indexed_store(pack, &FLUID_FX, fluid_fx_preloads(), parse_key_asset)?;
+        registry.block_breaking_decals =
+            load_default_store(pack, &BLOCK_BREAKING_DECAL, Vec::new())?;
+        registry.block_particle_sets = load_default_store(pack, &BLOCK_PARTICLE_SET, Vec::new())?;
+
         registry.item_sound_sets =
             load_indexed_store(pack, &ITEM_SOUND_SET, Vec::new(), parse_key_asset)?;
         registry.item_qualities = load_indexed_store(
@@ -735,7 +820,6 @@ impl AssetRegistry {
             parse_key_asset,
         )?;
         registry.item_categories = load_default_store(pack, &ITEM_CATEGORY, Vec::new())?;
-        registry.sound_event_indexes = load_sound_event_indexes(pack)?;
         registry.item_player_animations =
             load_item_player_animations(pack, &registry.item_contained_animations)?;
         registry.tag_patterns = load_tag_patterns(pack)?;
@@ -760,9 +844,7 @@ impl AssetRegistry {
 
     /// Java `SoundEvent.getAssetMap().getIndex(key)`.
     pub fn sound_event_index(&self, key: &str) -> Option<i32> {
-        self.sound_event_indexes
-            .get(&key.to_ascii_lowercase())
-            .copied()
+        self.sound_events.id_of(key)
     }
 }
 
@@ -853,16 +935,27 @@ fn load_indexed_store<T>(
     preloads: Vec<(&'static str, Value)>,
     parse: fn(&Value) -> Result<T, String>,
 ) -> Result<AssetCollection<T>, AssetError> {
-    let preloaded = preloaded_assets_with(preloads);
+    load_indexed_store_with(pack, spec, preloads, parse, MergeHook::Shallow)
+}
+
+fn load_indexed_store_with<T>(
+    pack: &AssetPack,
+    spec: &StoreSpec,
+    preloads: Vec<(&'static str, Value)>,
+    parse: fn(&Value) -> Result<T, String>,
+    hook: MergeHook,
+) -> Result<AssetCollection<T>, AssetError> {
+    let mut preloaded = preloaded_assets_with(preloads);
     let mut loaded: HashSet<String> = preloaded
         .iter()
         .map(|asset| asset.key.to_ascii_lowercase())
         .collect();
     let files = read_store_files(pack, spec.path)?;
+    let files = apply_preload_replacements(&mut preloaded, files);
     let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
     let mut all = preloaded;
     all.extend(ordered);
-    let resolved = resolve_assets(all, spec.name, MergeHook::Shallow)?;
+    let resolved = resolve_assets(all, spec.name, hook)?;
     let records = resolved
         .into_iter()
         .enumerate()
@@ -895,12 +988,13 @@ fn load_default_store(
     spec: &StoreSpec,
     preloads: Vec<(&'static str, Value)>,
 ) -> Result<AssetCollection<Value>, AssetError> {
-    let preloaded = preloaded_assets_with(preloads);
+    let mut preloaded = preloaded_assets_with(preloads);
     let mut loaded: HashSet<String> = preloaded
         .iter()
         .map(|asset| asset.key.to_ascii_lowercase())
         .collect();
     let files = read_store_files(pack, spec.path)?;
+    let files = apply_preload_replacements(&mut preloaded, files);
     let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
     let mut all = preloaded;
     all.extend(ordered);
@@ -974,28 +1068,29 @@ fn merge_item_player_animations(parent: &mut Value, child: Value) {
     *parent = merged;
 }
 
-/// Only the `SoundEvent` key → id assignments are needed here; the typed store
-/// is part of T36.
-fn load_sound_event_indexes(pack: &AssetPack) -> Result<HashMap<String, i32>, AssetError> {
-    let preloaded = preloaded_assets_with(sound_event_preloads());
-    let mut loaded: HashSet<String> = preloaded
+/// Java loads code-defined preload assets first and then lets a pack file with
+/// the same (case-insensitive) key replace the asset value at the reserved
+/// index. The key spelling of the preload is retained by the case-insensitive
+/// map; the asset's own id comes from the file name.
+fn apply_preload_replacements(preloaded: &mut [RawAsset], files: Vec<RawAsset>) -> Vec<RawAsset> {
+    let mut positions: HashMap<String, usize> = preloaded
         .iter()
-        .map(|asset| asset.key.to_ascii_lowercase())
-        .collect();
-    let files = read_store_files(pack, SOUND_EVENT.path)?;
-    let ordered = assign_phase(
-        files,
-        &mut loaded,
-        MissingParentPolicy::Error,
-        SOUND_EVENT.name,
-    )?;
-    let mut all = preloaded;
-    all.extend(ordered);
-    Ok(all
-        .into_iter()
         .enumerate()
-        .map(|(index, asset)| (asset.key.to_ascii_lowercase(), index as i32))
-        .collect())
+        .map(|(index, asset)| (asset.key.to_ascii_lowercase(), index))
+        .collect();
+    let mut remaining = Vec::with_capacity(files.len());
+    for file in files {
+        if let Some(index) = positions.remove(&file.key.to_ascii_lowercase()) {
+            let slot = &mut preloaded[index];
+            slot.parent = file.parent;
+            slot.source = file.source;
+            slot.preloaded = false;
+            slot.value = file.value;
+        } else {
+            remaining.push(file);
+        }
+    }
+    remaining
 }
 
 fn preloaded_assets_with(preloads: Vec<(&'static str, Value)>) -> Vec<RawAsset> {
@@ -1012,23 +1107,76 @@ fn preloaded_assets_with(preloads: Vec<(&'static str, Value)>) -> Vec<RawAsset> 
         .collect()
 }
 
-/// Java `ConcurrentHashMap` table capacity for `size` insertions.
-fn chm_capacity(size: usize) -> u32 {
-    let mut capacity = 16u32;
-    while size as u64 >= capacity as u64 * 3 / 4 {
-        capacity <<= 1;
-    }
-    capacity
-}
-
-/// Java `ConcurrentHashMap` iteration slot (`spread(hash) & (capacity - 1)`).
-fn chm_slot(key: &str, capacity: u32) -> u32 {
+/// Java `ConcurrentHashMap` spread hash.
+fn chm_hash(key: &str) -> u32 {
     let mut hash: i32 = 0;
     for unit in key.encode_utf16() {
         hash = hash.wrapping_mul(31).wrapping_add(i32::from(unit));
     }
     let hash = hash as u32;
-    (hash ^ (hash >> 16)) & (capacity - 1)
+    hash ^ (hash >> 16)
+}
+
+/// Emulate Java `ConcurrentHashMap` insertion and resizing to obtain the
+/// `entrySet()` iteration order Java uses for `waitingForParent`.
+///
+/// The table starts at 16 bins, appends new nodes to a bin's tail, and doubles
+/// at 75% occupancy. `transfer` builds the split lists by *prepending* every
+/// node before the final same-bit run, so a resize reverses part of each bin.
+/// Reproducing that detail is what makes the two colliding `AudioCategory`
+/// keys (`AudioCat_Shield`, `AudioCat_NPC_Spirit_Root`) line up with Java.
+fn chm_iteration_order(keys: &[&str]) -> Vec<usize> {
+    let hashes: Vec<u32> = keys.iter().map(|key| chm_hash(key)).collect();
+    let mut capacity = 16usize;
+    let mut bins: Vec<Vec<usize>> = vec![Vec::new(); capacity];
+    let mut size = 0usize;
+
+    for (index, hash) in hashes.iter().enumerate() {
+        let slot = (*hash as usize) & (capacity - 1);
+        bins[slot].push(index);
+        size += 1;
+        while size > capacity - capacity / 4 {
+            let next_capacity = capacity << 1;
+            let mut next: Vec<Vec<usize>> = vec![Vec::new(); next_capacity];
+            for (slot, bin) in bins.iter().enumerate() {
+                if bin.is_empty() {
+                    continue;
+                }
+                let mask = capacity;
+                let mut run_bit = hashes[bin[0]] & mask as u32;
+                let mut last_run = 0usize;
+                for (position, node) in bin.iter().enumerate().skip(1) {
+                    let bit = hashes[*node] & mask as u32;
+                    if bit != run_bit {
+                        run_bit = bit;
+                        last_run = position;
+                    }
+                }
+                let mut low_list = Vec::new();
+                let mut high_list = Vec::new();
+                for node in &bin[..last_run] {
+                    if hashes[*node] & mask as u32 == 0 {
+                        low_list.push(*node);
+                    } else {
+                        high_list.push(*node);
+                    }
+                }
+                low_list.reverse();
+                high_list.reverse();
+                if run_bit == 0 {
+                    low_list.extend_from_slice(&bin[last_run..]);
+                } else {
+                    high_list.extend_from_slice(&bin[last_run..]);
+                }
+                next[slot] = low_list;
+                next[slot + capacity] = high_list;
+            }
+            bins = next;
+            capacity = next_capacity;
+        }
+    }
+
+    bins.into_iter().flatten().collect()
 }
 
 /// Apply the Java `loadedAssets` / `waitingForParent` two-phase commit order.
@@ -1055,8 +1203,12 @@ fn assign_phase(
         }
     }
 
-    let parented = waiting.len();
-    let capacity = chm_capacity(parented);
+    let keys: Vec<&str> = waiting.iter().map(|asset| asset.key.as_str()).collect();
+    let rank: HashMap<String, usize> = chm_iteration_order(&keys)
+        .into_iter()
+        .enumerate()
+        .map(|(position, index)| (waiting[index].key.to_ascii_lowercase(), position))
+        .collect();
     while !waiting.is_empty() {
         let mut ready = Vec::new();
         for (index, asset) in waiting.iter().enumerate() {
@@ -1084,15 +1236,17 @@ fn assign_phase(
         }
 
         // Java iterates ConcurrentHashMap bins in ascending slot order and the
-        // nodes inside one bin in insertion order.
-        let mut order: Vec<(u32, usize)> = ready
-            .iter()
-            .map(|index| (chm_slot(&waiting[*index].key, capacity), *index))
-            .collect();
-        order.sort_unstable();
+        // nodes inside one bin in the order the table holds them (including the
+        // partial reversal caused by resizes).
+        let mut order: Vec<usize> = ready;
+        order.sort_unstable_by_key(|index| {
+            rank.get(&waiting[*index].key.to_ascii_lowercase())
+                .copied()
+                .unwrap_or(usize::MAX)
+        });
 
         let mut keep = vec![true; waiting.len()];
-        for (_, index) in order {
+        for index in order {
             let asset = &waiting[index];
             loaded.insert(asset.key.to_ascii_lowercase());
             ordered.push(asset.clone());
@@ -1657,7 +1811,7 @@ fn flatten_java_hash_map(mut groups: Vec<(String, Vec<RawAsset>)>) -> Vec<RawAss
     let mut order: Vec<(u32, usize)> = groups
         .iter()
         .enumerate()
-        .map(|(index, (key, _))| (chm_slot(key, capacity), index))
+        .map(|(index, (key, _))| (chm_hash(key) & (capacity - 1), index))
         .collect();
     order.sort_unstable();
 
@@ -1723,6 +1877,24 @@ fn parse_tag_pattern(value: &Value) -> Result<TagPatternNode, String> {
             })
         }
         other => Err(format!("unknown TagPattern `Op` `{other}`")),
+    }
+}
+
+/// Java `BlockSoundSet` merges the inherited `SoundEvents` map
+/// (`MapUtil.combineUnmodifiable`) instead of replacing it wholesale.
+fn merge_block_sound_set(parent: &mut Value, child: Value) {
+    let parent_events = parent
+        .get("SoundEvents")
+        .and_then(Value::as_object)
+        .cloned();
+    let child_events = child.get("SoundEvents").and_then(Value::as_object).cloned();
+    let merged = crate::parent::merge_shallow(std::mem::take(parent), child);
+    *parent = merged;
+    if let (Some(mut parent_events), Some(child_events)) = (parent_events, child_events) {
+        parent_events.extend(child_events);
+        if let Value::Object(object) = parent {
+            object.insert("SoundEvents".to_string(), Value::Object(parent_events));
+        }
     }
 }
 
@@ -1882,6 +2054,34 @@ fn fluid_preloads() -> Vec<(&'static str, Value)> {
     vec![("Empty", json!({})), ("Unknown", json!({}))]
 }
 
+fn block_sound_set_preloads() -> Vec<(&'static str, Value)> {
+    vec![("EMPTY", json!({}))]
+}
+
+fn fluid_fx_preloads() -> Vec<(&'static str, Value)> {
+    vec![("Empty", json!({}))]
+}
+
+fn sound_event_preloads() -> Vec<(&'static str, Value)> {
+    vec![("EMPTY", json!({}))]
+}
+
+fn audio_state_preloads() -> Vec<(&'static str, Value)> {
+    vec![("EMPTY", json!({}))]
+}
+
+/// Java `AudioCategory.PRELOAD_ORDER` (reserved indices 0-5).
+fn audio_category_preloads() -> Vec<(&'static str, Value)> {
+    vec![
+        ("EMPTY", json!({})),
+        ("AudioCat_Music", json!({})),
+        ("AudioCat_Ambient", json!({})),
+        ("AudioCat_SFX", json!({})),
+        ("AudioCat_Voice", json!({})),
+        ("AudioCat_UI", json!({})),
+    ]
+}
+
 fn environment_preloads() -> Vec<(&'static str, Value)> {
     vec![("Unknown", json!({"WaterTint": "#0a3355"}))]
 }
@@ -1923,11 +2123,6 @@ fn item_quality_preloads() -> Vec<(&'static str, Value)> {
 fn item_reticle_preloads() -> Vec<(&'static str, Value)> {
     // Java `ItemReticleConfig.DEFAULT`.
     vec![("Default", json!({"Base": ["UI/Reticles/Default.png"]}))]
-}
-
-fn sound_event_preloads() -> Vec<(&'static str, Value)> {
-    // Java `SoundEvent.EMPTY_SOUND_EVENT` (`EMPTY_ID = 0`).
-    vec![("EMPTY", json!({}))]
 }
 
 fn item_preloads() -> Vec<(&'static str, Value)> {
