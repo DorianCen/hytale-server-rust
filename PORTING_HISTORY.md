@@ -153,4 +153,41 @@ This file records phase-2 sessions only.
   - T40 (`hytale-core`), T41 (universe/world lifecycle), T42 (persistent
     multi-session listener) start the M3 runtime track.
 
+---
+
+## Session 28 — `hytale-core` runtime services (2026-10-24)
+
+- **Goal:** give the M3 runtime shared config, logging, task, event and module
+  services without changing existing server behaviour.
+- **Landed:**
+  - `config`: `ServerConfig` with defaults (matching the current server name,
+    MOTD, worker/player limits), optional JSON file, `HYTALE_CORE_*` environment
+    overrides and typed CLI overrides. Precedence is defaults → file → env →
+    CLI. Unknown JSON fields and unknown `HYTALE_CORE_*` keys are rejected.
+  - `logging`: process-wide text/JSON tracing subscriber initialization.
+  - `tasks`: cloneable `ShutdownToken`, named task spawning, `TaskScheduler`
+    with graceful-deadline cancellation and force-abort, plus a `ShutdownReport`.
+    Dropping a scheduler cancels the token and aborts owned tasks.
+  - `events`: typed `EventBus` with deterministic subscriber order, synchronous
+    callbacks and bounded async channels; dropping a `Subscription` unsubscribes,
+    full channels drop with an accounting report.
+  - `modules`: `ModuleManifest`/`ModuleRegistry` with duplicate, unknown and
+    cycle detection and deterministic dependency-first resolution.
+  - Added unit tests for config precedence/validation, event ordering and
+    unsubscribe, shutdown/deadline behaviour and module registration.
+- **Verified:**
+  - `cargo test -p hytale-core` (23 tests).
+  - `cargo clippy -p hytale-core --all-targets -- -D warnings`.
+  - `cargo fmt -p hytale-core -- --check`.
+  - `cargo test --workspace`.
+- **Deviations:**
+  - The binary is not switched to these services yet, so existing output is
+    unchanged; T41/T42 compose them.
+  - The module registry is a manifest/dependency seam only; lifecycle hooks are
+    deferred to T60.
+- **Follow-ups:**
+  - T41 builds the universe/world lifecycle on the scheduler and config.
+  - T42 uses the event bus and shutdown token for the persistent listener.
+
+
 

@@ -1,14 +1,13 @@
-# Next steps — CoreServer rewrite, phase 2 (session 27)
+# Next steps — CoreServer rewrite, phase 2 (session 28)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next tasks:** T40 → T41 → T42 build the persistent runtime (shared
-`hytale-core` services, universe/world lifecycle, then the multi-session
-listener). With T39 complete, M2's asset foundation is finished and T42 can use
-the cached config burst.
+**Next tasks:** T41 (universe and world lifecycle), then T42 (persistent
+multi-session listener). T40 landed the shared `hytale-core` runtime services
+they build on.
 
 ## Current state
 
@@ -31,6 +30,9 @@ Landed and green:
   `UpdateTagPatterns`; pattern tags join the deterministic `TagRegistry`.
 - T39 final config order (17 packets), one encoded `ConfigAssets` shared by all
   sessions, `--validate-assets`, and client-bot packet recognition.
+- T40 `hytale-core`: typed layered config, text/JSON logging init, async task
+  scheduler with a shutdown deadline, ordered sync/async event bus, and the
+  module-manifest registry seam.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -46,7 +48,7 @@ cargo fmt --all -- --check
 ## Phase 2 sequence
 
 1. **M2 — asset completion:** T35 → T36/T37/T38 → T39.
-2. **M3 — runtime:** T40 → T41 → T42 (parallel with M2 after T34).
+2. **M3 — runtime:** T40 (done) → T41 → T42 (parallel with M2 after T34).
 3. **M4 — v1:** T43 → T44 → T45 → T46 → T47 → T48.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md)).
 

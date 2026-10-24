@@ -7,8 +7,8 @@ the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
 The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
-is **T40** (`hytale-core` runtime), followed by T41 and T42. M2 (asset
-completion) is finished with T35–T39; see [`NEXT_STEPS.md`](NEXT_STEPS.md).
+is **T41** (universe and world lifecycle), followed by T42 (persistent
+listener). T40's `hytale-core` runtime services are in place.
 
 ## 0. Baseline
 
@@ -18,8 +18,10 @@ Completed and not to be redone:
 - M2 done: P0 asset loader, deterministic ids, common assets, the ten child
   stores/packets and `UpdateTagPatterns`; the final 17-packet config burst is
   cached once and `--validate-assets` is green.
-- M3 partial: runtime chunks, BSON region/world/player storage, world config,
-  save boot, demand loading, world thread, chunk packets.
+- M3 partial: `hytale-core` now provides typed config, logging init, the async
+  task scheduler/shutdown token, event bus and module-manifest registry. Runtime
+  chunks, BSON region/world/player storage, world config, save boot, demand
+  loading, world thread and Java-ordered chunk packets are complete.
 - M4 partial: dev/insecure join, local EdDSA auth, asset streaming, Game
   transition, player list/self-spawn, time/gameplay packets, teleport exchange,
   persistent chunk stream and movement-driven view updates.
@@ -330,6 +332,7 @@ cargo run -p hytale-server -- --validate-assets
 
 ### T40 — `hytale-core` runtime
 
+**Status:** done (session 28)
 **Package:** `hytale-core`
 **Depends on:** T34
 **Agent fit:** medium

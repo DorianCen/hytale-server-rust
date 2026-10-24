@@ -1,6 +1,6 @@
 # T40 — `hytale-core` runtime
 
-**Status:** planned (session 25+)
+**Status:** done (session 28)
 **Package:** `hytale-core`
 **Depends on:** T34
 **Agent fit:** medium
@@ -53,3 +53,22 @@ cargo test --workspace
 
 - Full Java module discovery/classloading is out of scope; this is the Rust
   manifest/registry seam.
+- The config file is JSON. Unknown JSON fields are rejected; unknown
+  `HYTALE_CORE_*` environment keys are rejected; other environment variables are
+  ignored.
+- Logging initialization installs the global tracing subscriber but is not wired
+  into the existing binaries in this task, so their output is unchanged.
+- The task scheduler owns tasks in a `JoinSet`; dropping it cancels the token and
+  aborts the tasks. Shutdown waits for cooperative cancellation up to the
+  deadline, then force-aborts.
+- The event bus serializes delivery through one mutex. Sync callbacks must not
+  publish re-entrantly; async subscribers use bounded channels and report
+  dropped events instead of blocking.
+
+## Follow-ups
+
+- T41/T42 compose these services into the universe/listener runtime and switch
+  the binaries to `ServerConfig`/`init_logging`.
+- Add module lifecycle/factory hooks when T60 starts implementing builtin
+  modules; this task only resolves manifests and dependency order.
+

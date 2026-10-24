@@ -65,11 +65,13 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   deterministic Rust-owned tag index map. Session 27 wired the full 17-packet
   config burst into the join, caches the encoded `ConfigAssets` once per world
   thread, adds `hytale-server --validate-assets`, and extends `client-bot` to
-  assert the full config order. Phase 2 continues with the persistent
-  universe/listener, multiplayer tracking, block edits, the world clock, a
-  real-client trace and then gameplay/NPC/hardening; see
-  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
-  [`tasks/README.md`](tasks/README.md).
+  assert the full config order. Session 28 landed the shared `hytale-core`
+  runtime: typed layered config, text/JSON logging init, the async
+  scheduler/shutdown token, the ordered sync/async event bus and the module
+  manifest registry. Phase 2 continues with the persistent universe/listener,
+  multiplayer tracking, block edits, the world clock, a real-client trace and
+  then gameplay/NPC/hardening; see [`plan.md`](plan.md),
+  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/world-generation/ARCHITECTURE.md`](done/world-generation/ARCHITECTURE.md),
@@ -425,9 +427,15 @@ not part of v1.
 
 ## 9. Modules, events, plugins
 
+- `hytale-core` owns the shared runtime seams: layered `ServerConfig`, tracing
+  initialization, `ShutdownToken`/`TaskScheduler`, `EventBus<E>` and
+  `ModuleRegistry`.
 - Core modules are Rust crates registered in a startup manifest with explicit
-  dependencies, mirroring `PluginManifest` ordering.
-- Event bus: typed events, priorities, cancellable events, sync/async dispatch.
+  dependencies, mirroring `PluginManifest` ordering. `ModuleRegistry` resolves
+  the enabled set dependency-first; module lifecycle hooks are deferred to T60.
+- Event bus: typed events with deterministic per-subscriber ordering, sync
+  callbacks and bounded async channels; full async channels drop with an
+  accounting report rather than blocking the publisher.
 - Asset packs are the supported mod format from day one.
 - Third-party code plugins use a Rust plugin trait in v1. A dynamic-library or
   WASM ABI is a later decision; Java plugins are not supported.
