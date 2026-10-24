@@ -20,8 +20,9 @@ use hytale_protocol::generated::assets::{
 };
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{
-    Asset, BlockPosition, ComponentUpdate, MouseButtonEvent, MouseButtonState, MouseButtonType,
-    PlayerSkin, PongType, Position, TeleportAck, WorldInteraction,
+    Asset, BlockPosition, ClientDisconnectReason, ComponentUpdate, DisconnectType,
+    MouseButtonEvent, MouseButtonState, MouseButtonType, PlayerSkin, PongType, Position,
+    TeleportAck, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
@@ -303,6 +304,9 @@ pub struct DevJoinOptions {
     pub place_block_after_join: Option<(BlockPosition, String)>,
     /// Break this block after the join (left click).
     pub break_block_after_join: Option<BlockPosition>,
+    /// Send `ClientReady(readyForGameplay)` after the snapshot so the server
+    /// starts the teleport/time flow.
+    pub send_ready_for_gameplay: bool,
 }
 
 /// World-join state observed by the bot.
@@ -338,6 +342,8 @@ pub struct GameJoinReport {
     pub self_spawn_right_hand: Option<String>,
     /// Self-spawn left-hand item id.
     pub self_spawn_left_hand: Option<String>,
+    /// Self-spawn transform position (saved position restored on reconnect).
+    pub self_spawn_position: Option<Position>,
     /// `WorldGameplayConfig` payload.
     pub gameplay_config: Option<WorldGameplayConfig>,
     /// Initial `UpdateTimeSettings` payload.
@@ -523,6 +529,17 @@ pub async fn dev_join(
             .await
             .map_err(|error| DevJoinError::Game(error.to_string()))?;
 
+    if options.send_ready_for_gameplay {
+        writer
+            .write_packet(
+                &ClientReady {
+                    ready_for_chunks: false,
+                    ready_for_gameplay: true,
+                },
+                3,
+            )
+            .await?;
+    }
     if let Some(position) = options.movement_after_join.clone() {
         writer
             .write_packet(
@@ -534,13 +551,6 @@ pub async fn dev_join(
             )
             .await?;
     }
-    if let Some(after) = options.disconnect_after {
-        let connection = session.connection().clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(after).await;
-            connection.close(0u32.into(), b"client bot disconnect");
-        });
-    }
     if let Some((position, item)) = options.place_block_after_join.clone() {
         send_block_interaction(&mut writer, MouseButtonType::Right, position, Some(item)).await?;
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -548,6 +558,9 @@ pub async fn dev_join(
     if let Some(position) = options.break_block_after_join.clone() {
         send_block_interaction(&mut writer, MouseButtonType::Left, position, None).await?;
     }
+    let disconnect_at = options
+        .disconnect_after
+        .map(|after| tokio::time::Instant::now() + after);
     let observation = match options.observe_after_join {
         Some(window) => {
             observe_players(
@@ -556,6 +569,7 @@ pub async fn dev_join(
                 &mut chunks,
                 game.client_id,
                 window,
+                disconnect_at,
             )
             .await?
         }
@@ -612,16 +626,34 @@ async fn observe_players(
     chunks: &mut ChunkStreamReader,
     self_id: Option<i32>,
     window: Duration,
+    mut disconnect_at: Option<tokio::time::Instant>,
 ) -> Result<PlayerObservation, FrameStreamError> {
     let mut observation = PlayerObservation::default();
     let deadline = tokio::time::Instant::now() + window;
     let mut chunks_open = true;
     loop {
+        if let Some(at) = disconnect_at {
+            if tokio::time::Instant::now() >= at {
+                writer
+                    .write_packet(
+                        &ClientDisconnect {
+                            reason: ClientDisconnectReason::PlayerLeave,
+                            r#type: DisconnectType::Disconnect,
+                        },
+                        3,
+                    )
+                    .await?;
+                disconnect_at = None;
+            }
+        }
+        let until = disconnect_at.map_or(deadline, |at| at.min(deadline));
         tokio::select! {
-            frame = tokio::time::timeout_at(deadline, reader.next_frame()) => {
+            frame = tokio::time::timeout_at(until, reader.next_frame()) => {
                 let frame = match frame {
                     Ok(Ok(Some(frame))) => frame,
-                    Ok(Ok(None)) | Ok(Err(_)) | Err(_) => break,
+                    Ok(Ok(None)) | Ok(Err(_)) => break,
+                    Err(_) if !disconnect_at.is_some_and(|at| tokio::time::Instant::now() >= at) => break,
+                    Err(_) => continue,
                 };
                 match frame.packet_id {
                     AddToServerPlayerList::ID => {
@@ -1290,6 +1322,9 @@ fn record_self_spawn(packet: &EntityUpdates, game: &mut GameJoinReport) {
                 game.self_spawn_armor = update.armor_ids.clone();
                 game.self_spawn_right_hand = update.right_hand_item_id.clone();
                 game.self_spawn_left_hand = update.left_hand_item_id.clone();
+            }
+            ComponentUpdate::TransformUpdate(update) => {
+                game.self_spawn_position = update.transform.position.clone();
             }
             _ => {}
         }

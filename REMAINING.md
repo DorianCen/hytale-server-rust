@@ -107,3 +107,24 @@ v1 must be correct first. Deferred until the vertical slice works:
 - Binary compatibility with Java plugin jars.
 - Reproducing Java class files, package names, or reflection behavior.
 - Porting the 15k-line Java `Codec` library.
+
+## 10. Real-client trace constraints (T48)
+
+These were observed in a real-client log captured against a local server and are
+encoded in `testdata/golden/server/trace/v1-lifecycle.jsonl` /
+`tools/client-bot/tests/trace_fixture.rs`:
+
+- `ViewRadius` (packet id `32`) must be written on the **Chunks** stream after
+  `ClientReady`; writing it on the `Default` stream disconnects the client during
+  loading with `Packet ViewRadius (ID 32) is not valid on channel Default`.
+- The client handles the config asset burst and `UpdateTranslations` before
+  `JoinWorld`; `JoinWorld` is processed in the `Playing` stage.
+- The setup flow observed by the client is `AuthGrant` → `ServerAuthToken` →
+  `RequiredAssets` → config asset handlers → `JoinWorld`.
+- A default online client expects the live Hytale session authority. The local
+  EdDSA profile is intentionally offline/dev-only until the live session
+  provider adapter lands; the trace runbook documents the dev/insecure profile.
+- A full automated vanilla-client run (connect/spawn/move/edit/disconnect/
+  reconnect) is not available in this environment. `serve --trace` and
+  `testdata/golden/server/trace/README.md` are the capture seam; replace the
+  bot baseline when a client capture can be made.

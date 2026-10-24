@@ -28,7 +28,8 @@ pub use chunk_serve::{
     ChunkServeOptions, ChunkServeReport,
 };
 pub use chunk_streamer::{
-    default_compression_level, send_chunk, send_view, ChunkSessionError, ChunkStreamReport,
+    default_compression_level, send_chunk, send_updates, send_view, send_view_registered,
+    ChunkSessionError, ChunkStreamReport,
 };
 pub use generation::{GenerationError, GeneratorOptions, WorldGenerator};
 pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, HeadlessReport};
@@ -55,7 +56,7 @@ pub use world_config_tool::{
     WorldConfigToolReport,
 };
 pub use world_thread::{
-    LoadOutcome, TickReport, ViewReport, WorldEvent, WorldStartReport, WorldThread,
-    WorldThreadError, WorldThreadOptions, WorldTimeState,
+    LoadOutcome, PlayerSnapshot, TickReport, ViewId, ViewReport, WorldEvent, WorldStartReport,
+    WorldThread, WorldThreadError, WorldThreadOptions, WorldTimeState,
 };
 pub use world_tool::{run as run_chunk_tool, ChunkToolError, ChunkToolOptions, ChunkToolReport};

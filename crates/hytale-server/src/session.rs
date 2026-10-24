@@ -27,7 +27,7 @@ use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAss
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
 use hytale_net::{
     ChunkStreamError, ChunkStreamWriter, FrameReader, FrameStreamError, FrameWriter, PeerIdentity,
-    TransportError,
+    TraceRecorder, TraceSession, TransportError,
 };
 use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
@@ -60,11 +60,14 @@ use hytale_protocol::generated::world::{
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 use hytale_world::player_data::{PlayerAppearance, PlayerTransform};
+use hytale_world::world_config::WorldUuid;
 use thiserror::Error;
 
-use crate::chunk_streamer::{send_updates, send_view, ChunkSessionError, ChunkStreamReport};
+use crate::chunk_streamer::{
+    send_updates, send_view_registered, ChunkSessionError, ChunkStreamReport,
+};
 use crate::players::{self, PlayerJoinRequest, PlayerMessage, PlayerRegistry};
-use crate::world_thread::{WorldThread, WorldThreadError, WorldTimeState};
+use crate::world_thread::{ViewId, WorldThread, WorldThreadError, WorldTimeState};
 
 /// Java `CommonAssetModule.MAX_FRAME`: maximum bytes in one `AssetPart`.
 pub const MAX_COMMON_ASSET_FRAME: usize = 2_621_440;
@@ -128,6 +131,8 @@ pub struct SessionOptions {
     pub idle_timeout: Duration,
     /// Authentication mode.
     pub auth: AuthMode,
+    /// Optional packet trace recorder shared by every connection.
+    pub trace: Option<Arc<TraceRecorder>>,
 }
 
 impl Default for SessionOptions {
@@ -142,6 +147,7 @@ impl Default for SessionOptions {
             world_join_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             auth: AuthMode::Insecure,
+            trace: None,
         }
     }
 }
@@ -322,17 +328,19 @@ struct EnterGame {
     skin: Option<PlayerSkin>,
     world_time: WorldTimeState,
     gameplay_config: WorldGameplayConfig,
+    trace: Option<Arc<TraceSession>>,
 }
 
-struct LiveGame {
+struct LiveGame<'a> {
     center: (i32, i32),
     radius: u32,
-    transform: PlayerTransform,
     ready_for_gameplay: bool,
     world_time: WorldTimeState,
     network_id: i32,
     players: Arc<PlayerRegistry>,
     broadcasts: mpsc::Receiver<PlayerMessage>,
+    view: ViewId,
+    transform: &'a mut PlayerTransform,
 }
 
 /// Run authentication + setup on an accepted connection, transition to `Game`,
@@ -359,8 +367,16 @@ pub async fn serve_connection_with_registry(
     players: Arc<PlayerRegistry>,
 ) -> Result<SessionReport, SessionError> {
     let (send, recv) = connection.accept_bi().await?;
+    let trace = options
+        .trace
+        .as_ref()
+        .map(|recorder| recorder.begin_session());
     let mut writer = FrameWriter::new(send);
     let mut reader = FrameReader::new(recv);
+    if let Some(trace) = &trace {
+        writer = writer.with_trace(Arc::clone(trace) as Arc<dyn hytale_net::PacketTraceSink>);
+        reader = reader.with_trace(Arc::clone(trace) as Arc<dyn hytale_net::PacketTraceSink>);
+    }
 
     let config_assets = thread.config_asset_packets()?;
     let common_assets = thread.common_assets()?;
@@ -388,17 +404,26 @@ pub async fn serve_connection_with_registry(
         handshake.view_radius
     };
 
-    let player_transform = thread
-        .player_transform()?
-        .unwrap_or_else(default_player_transform);
+    let player_uuid: WorldUuid = handshake
+        .uuid
+        .to_string()
+        .parse()
+        .map_err(|_| SessionError::InvalidUuid(handshake.uuid.to_string()))?;
+    let player_state = thread.player_snapshot(player_uuid)?;
+    let mut player_transform = player_state.transform;
+    let appearance = player_state.appearance;
+    let player_chunk = (
+        block_to_chunk(player_transform.position.x),
+        block_to_chunk(player_transform.position.z),
+    );
     let world_time = thread.world_time()?;
     let gameplay_config = thread.gameplay_config()?;
-    let appearance = thread.player_appearance()?;
     let skin = handshake.skin.clone();
     let world_uuid: Uuid = start
         .world_uuid
         .parse()
         .map_err(|_| SessionError::InvalidUuid(start.world_uuid.clone()))?;
+    let view_id = thread.add_view(player_chunk.0, player_chunk.1, radius)?;
 
     let (message_tx, message_rx) = players::channel();
     let (player_session, join) = players.register(PlayerJoinRequest {
@@ -408,74 +433,92 @@ pub async fn serve_connection_with_registry(
         transform: player_transform,
         appearance: appearance.clone(),
         skin: skin.clone(),
-        view_center: start.player_chunk,
+        view_center: player_chunk,
         view_radius: radius,
         sender: message_tx,
     });
-    let _player_session = player_session;
-    send_player_list(
-        &mut writer,
-        &join.player_list,
-        &config_assets.tags,
-        options.chunk_compression_level,
-    )
-    .await?;
+    // Everything after registration runs under the teardown path below, so a
+    // failed setup/game loop still persists the player and releases the chunk
+    // view instead of leaking a registry entry or loaded chunks.
+    let game_result: Result<(GameReport, GameLoopReport, ChunkStreamReport), SessionError> =
+        async {
+            send_player_list(
+                &mut writer,
+                &join.player_list,
+                &config_assets.tags,
+                options.chunk_compression_level,
+            )
+            .await?;
+            let (mut game, mut chunks) = enter_game(
+                connection,
+                &mut reader,
+                &mut writer,
+                EnterGame {
+                    world_uuid,
+                    radius,
+                    network_id: join.network_id,
+                    player_transform,
+                    appearance,
+                    skin,
+                    world_time,
+                    gameplay_config,
+                    trace,
+                },
+                options,
+            )
+            .await?;
+            game.player_list = true;
 
-    let (mut game, mut chunks) = enter_game(
-        connection,
-        &mut reader,
-        &mut writer,
-        EnterGame {
-            world_uuid,
-            radius,
-            network_id: join.network_id,
-            player_transform,
-            appearance,
-            skin,
-            world_time,
-            gameplay_config,
-        },
-        options,
-    )
-    .await?;
-    game.player_list = true;
+            let mut stream = send_view_registered(
+                thread,
+                &mut chunks,
+                player_chunk.0,
+                player_chunk.1,
+                radius,
+                options.chunk_compression_level,
+            )
+            .await?;
 
-    let mut stream = send_view(
-        thread,
-        &mut chunks,
-        start.player_chunk.0,
-        start.player_chunk.1,
-        radius,
-        options.chunk_compression_level,
-    )
-    .await?;
+            let game_loop = run_game_loop(
+                connection,
+                thread,
+                &mut reader,
+                &mut writer,
+                &mut chunks,
+                LiveGame {
+                    center: player_chunk,
+                    radius,
+                    ready_for_gameplay: game.client_ready_for_gameplay,
+                    world_time,
+                    network_id: join.network_id,
+                    players: Arc::clone(&players),
+                    broadcasts: message_rx,
+                    view: view_id,
+                    transform: &mut player_transform,
+                },
+                options,
+            )
+            .await?;
+            game.client_ready_for_gameplay |= game_loop.ready_for_gameplay;
+            chunks.finish()?;
+            stream.chunks += game_loop.chunks;
+            stream.packets += game_loop.packets;
+            stream.frames += game_loop.frames;
+            stream.payload_bytes += game_loop.payload_bytes;
+            stream.unloaded += game_loop.unloaded;
+            Ok((game, game_loop, stream))
+        }
+        .await;
 
-    let game_loop = run_game_loop(
-        connection,
-        thread,
-        &mut reader,
-        &mut writer,
-        &mut chunks,
-        LiveGame {
-            center: start.player_chunk,
-            radius,
-            transform: player_transform,
-            ready_for_gameplay: game.client_ready_for_gameplay,
-            world_time,
-            network_id: join.network_id,
-            players: Arc::clone(&players),
-            broadcasts: message_rx,
-        },
-        options,
-    )
-    .await?;
-    game.client_ready_for_gameplay |= game_loop.ready_for_gameplay;
-    chunks.finish()?;
-    stream.chunks += game_loop.chunks;
-    stream.packets += game_loop.packets;
-    stream.frames += game_loop.frames;
-    stream.payload_bytes += game_loop.payload_bytes;
-    stream.unloaded += game_loop.unloaded;
+    let save_result = thread.save_player_transform(player_uuid, player_transform);
+    let view_report = thread.remove_view(view_id);
+    // Unregister after the save so a reconnect can never observe the old entity
+    // removal after the new player has already loaded its saved state.
+    drop(player_session);
+
+    let (game, game_loop, mut stream) = game_result?;
+    save_result?;
+    stream.unloaded += view_report?.unloaded;
 
     Ok(SessionReport {
         uuid: handshake.uuid,
@@ -906,8 +949,12 @@ async fn enter_game(
         skin,
         world_time,
         gameplay_config,
+        trace,
     } = start;
     let mut chunks = ChunkStreamWriter::open(connection).await?;
+    if let Some(trace) = trace {
+        chunks = chunks.with_trace(trace as Arc<dyn hytale_net::PacketTraceSink>);
+    }
     chunks
         .write_packet(&ClearChunks {}, options.chunk_compression_level)
         .await?;
@@ -1085,21 +1132,6 @@ async fn send_player_list(
     Ok(())
 }
 
-fn default_player_transform() -> PlayerTransform {
-    PlayerTransform::new(
-        hytale_world::player_data::Position {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        hytale_world::player_data::Rotation {
-            pitch: 0.0,
-            yaw: 0.0,
-            roll: 0.0,
-        },
-    )
-}
-
 fn self_spawn_packet(
     network_id: i32,
     transform: PlayerTransform,
@@ -1115,18 +1147,19 @@ async fn run_game_loop(
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
     chunks: &mut ChunkStreamWriter,
-    live: LiveGame,
+    live: LiveGame<'_>,
     options: &SessionOptions,
 ) -> Result<GameLoopReport, SessionError> {
     let LiveGame {
         mut center,
         mut radius,
-        mut transform,
         ready_for_gameplay,
         mut world_time,
         network_id,
         players,
         broadcasts,
+        view,
+        transform,
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
@@ -1146,7 +1179,7 @@ async fn run_game_loop(
 
     if ready_for_gameplay {
         report.ready_for_gameplay = true;
-        send_client_teleport(writer, transform, options).await?;
+        send_client_teleport(writer, *transform, options).await?;
         teleport_sent = true;
         report.teleport_sent = true;
     }
@@ -1174,7 +1207,7 @@ async fn run_game_loop(
                             report.ready_for_gameplay = true;
                         }
                         if ready.ready_for_gameplay && !teleport_sent {
-                            send_client_teleport(writer, transform, options).await?;
+                            send_client_teleport(writer, *transform, options).await?;
                             teleport_sent = true;
                             report.teleport_sent = true;
                         }
@@ -1200,7 +1233,7 @@ async fn run_game_loop(
                                     registry_center = next;
                                 }
                                 if next != center && report.teleport_acked {
-                                    thread.set_view(next.0, next.1, radius)?;
+                                    thread.update_view(view, next.0, next.1, radius)?;
                                     center = next;
                                     report.view_changes += 1;
                                 }
@@ -1219,7 +1252,7 @@ async fn run_game_loop(
                     }
                     MouseInteraction::ID => {
                         let interaction: MouseInteraction = frame.decode()?;
-                        if handle_block_interaction(thread, &players, &transform, &interaction) {
+                        if handle_block_interaction(thread, &players, transform, &interaction) {
                             report.block_edits += 1;
                         } else {
                             report.block_edit_rejections += 1;
@@ -1231,7 +1264,7 @@ async fn run_game_loop(
                             let next = ((packet.value as f32) / 32.0).ceil() as u32;
                             if next != radius {
                                 radius = next;
-                                thread.set_view(center.0, center.1, radius)?;
+                                thread.update_view(view, center.0, center.1, radius)?;
                                 players.update_view(network_id, registry_center, radius);
                             }
                         }
@@ -1251,6 +1284,7 @@ async fn run_game_loop(
                             .await?;
                     }
                     ClientDisconnect::ID => {
+                        let _disconnect: ClientDisconnect = frame.decode()?;
                         report.disconnected = true;
                         break;
                     }
@@ -1292,7 +1326,7 @@ async fn run_game_loop(
         if pending_movement
             && last_movement.is_none_or(|last| last.elapsed() >= Duration::from_millis(100))
         {
-            players.update_transform(network_id, transform);
+            players.update_transform(network_id, *transform);
             last_movement = Some(std::time::Instant::now());
             pending_movement = false;
         }

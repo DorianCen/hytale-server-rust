@@ -477,3 +477,110 @@ This file records phase-2 sessions only.
 
 
 
+---
+
+## Session 35 — Disconnect, reconnect and teardown (2026-10-24)
+
+- **Goal:** make the v1 lifecycle reliable: release every resource on leave,
+  survive server/client disconnects, and restore player/world state on
+  reconnect.
+- **Landed:**
+  - T47: session teardown now runs on every post-registration exit path. It
+    persists the live `Transform` for the session UUID, removes the session's
+    registered chunk view, and drops the `PlayerSession` so the registry
+    broadcasts the player-list/entity removal.
+  - `WorldThread` gained independently registered views (`ViewId`,
+    `add_view`/`update_view`/`remove_view`). Loaded chunks are the union of all
+    live views, so one player moving or leaving cannot unload another player's
+    terrain. The first session view replaces the startup/CLI base view, and the
+    last view leaving unloads session-owned chunks.
+  - Added `player_snapshot(uuid)` and `save_player_transform(uuid, transform)`.
+    They use the normal player storage path and preserve every other saved
+    component, so reconnecting resumes the saved position/appearance.
+  - `ClientDisconnect` is decoded and ends the game loop cleanly. The existing
+    idle-timeout `ServerDisconnect`, transport-close and half-closed-stream
+    paths now all flow through the same teardown.
+  - `client-bot` records the self-spawn transform and sends a real
+    `ClientDisconnect` while observing. The loopback test now covers join →
+    move → edit → graceful disconnect → reconnect with the same UUID, asserting
+    the saved transform and the edited block; a second test covers idle-timeout
+    teardown and a later join on the same listener.
+  - Added world-thread tests for view sharing/release and per-UUID transform
+    save/reload across a world restart.
+- **Verified:**
+  - `cargo test -p hytale-server` (8 lib tests; 7 world-thread tests including
+    registered views and player snapshot).
+  - `cargo test -p client-bot --test multi_join -- --ignored` (reconnect
+    transform/edit plus idle-timeout teardown).
+  - `cargo test -p client-bot --test auth_join -- --ignored` and
+    `--test dev_join -- --ignored`.
+  - `cargo test --workspace`, clippy and fmt.
+  - `tools/java-dumper/run-save-check.sh` on a fresh Rust-written save →
+    `whole-save check: ok`.
+
+- **Deviations:**
+  - Only the `Transform` is saved at teardown; live inventory/held-item state is
+    T49. Unknown/existing components are preserved as loaded.
+  - Chunk ownership is per view, but chunk load/unload events are still one
+    world-wide queue; per-view event fan-out is follow-up work.
+  - Reconnecting while the old session is still registered creates a second
+    player entry; duplicate-identity takeover is T62.
+  - The server closes the QUIC connection after teardown instead of waiting for
+    a client disconnect acknowledgement (no such packet exists).
+
+- **Follow-ups:**
+  - T48 verifies the lifecycle against a real-client trace.
+  - T49 persists inventory and held-item state.
+  - T62 adds rate limits/backpressure and duplicate-identity handling.
+  - T63 soak-tests repeated join/leave cycles.
+---
+
+## Session 36 — Real-client trace and v1 gate (2026-10-24)
+
+- **Goal:** close M4/v1 with a repeatable, committed packet trace and record the
+  real client's packet/channel requirements.
+- **Landed:**
+  - T48: `hytale-net::trace` defines the JSONL trace schema (packet id/name,
+    registry channel, setup/chunks stream, direction, per-session order, wire
+    payload length and SHA-256), a `PacketTraceSink` on the framed and chunk
+    streams, a per-session `TraceRecorder`, and `read_trace`/`write_trace`.
+  - `hytale-server serve --trace <path>` captures every session and flushes on
+    shutdown. No raw payload bytes are written.
+  - `client-bot` gained `send_ready_for_gameplay` so the dev join exercises the
+    teleport/time flow.
+  - Added the live `trace_gate`: actor + observer joins, actor move/edit,
+    disconnect and same-UUID reconnect/break, then compares a fresh server trace
+    with the committed fixture as an ordered per-session subsequence (stable
+    payload hashes included).
+  - Added a fast `trace_fixture` test that validates the committed fixture
+    against the generated packet registry and asserts the recorded config order,
+    `ViewRadius` on `Chunks`, `JoinWorld`, `ClientTeleport`, player-list/entity
+    events, chunk batches and `ServerSetBlock` placement/break.
+  - The server-side trace of the real client log (not redistributed) identified
+    the hard `ViewRadius (ID 32) must be on Chunks` rule; the fixture/gate now
+    covers it. The real-client capture runbook is committed under
+    `testdata/golden/server/trace/README.md`.
+- **Verified:**
+  - `cargo test -p hytale-net` (trace metadata round trip; raw payload not
+    present in the file).
+  - `cargo test -p client-bot --test trace_fixture` (default suite).
+  - `cargo test -p client-bot --test trace_gate -- --ignored`.
+  - `cargo test -p client-bot --test multi_join -- --ignored`, `auth_join` and
+    `dev_join`.
+  - `cargo test --workspace`, clippy and fmt.
+  - `tools/java-dumper/run-save-check.sh` on the T47 Rust-written save still
+    passes.
+- **Deviations:**
+  - The committed lifecycle fixture is a normalized server trace from the
+    bot-driven loopback, because the vanilla-client capture cannot be
+    redistributed or automated in this environment. `serve --trace` plus the
+    runbook are the replacement seam.
+  - The live gate is `#[ignore]`d (asset pack + loopback); the fixture/registry
+    validation runs in CI/default.
+  - The local EdDSA auth profile is not trusted by a default online client;
+    live-session auth remains an adapter and is called out in `REMAINING.md`.
+  - Dynamic payloads keep order/id/channel but drop hashes by design.
+- **Follow-ups:**
+  - T49 persists inventory/held-item state and extends the traced lifecycle.
+  - Replace/augment the baseline with a real-client capture when available.
+  - T62/T63 cover rate limits and repeated trace/soak runs.

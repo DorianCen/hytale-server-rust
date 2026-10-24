@@ -152,6 +152,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 observe_after_join: None,
                 disconnect_after: None,
                 keep_alive: false,
+                send_ready_for_gameplay: false,
                 place_block_after_join: None,
                 break_block_after_join: None,
             },

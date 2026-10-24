@@ -288,6 +288,125 @@ fn block_edits_resolve_items_and_survive_save_reload() {
 }
 
 #[test]
+fn registered_views_share_chunks_and_release_them_on_teardown() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("registered-views");
+    let options = WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, start) = WorldThread::spawn(options).expect("spawn the world thread");
+    let shared = (start.player_chunk.0 + 5, start.player_chunk.1 + 5);
+
+    // The first session view replaces the startup base view.
+    let first = thread
+        .add_view(shared.0, shared.1, 0)
+        .expect("register first view");
+    let second = thread
+        .add_view(shared.0, shared.1, 0)
+        .expect("register second view");
+    while thread.tick().expect("tick").remaining > 0 {}
+    assert!(thread
+        .loaded_chunks()
+        .expect("loaded chunks")
+        .contains(&shared));
+
+    // One viewer leaving keeps terrain its peer still needs.
+    let report = thread.remove_view(first).expect("remove first view");
+    assert_eq!(report.unloaded, 0);
+    assert!(thread
+        .loaded_chunks()
+        .expect("loaded chunks")
+        .contains(&shared));
+
+    // The last viewer releases it.
+    let report = thread.remove_view(second).expect("remove second view");
+    assert_eq!(report.unloaded, 1);
+    assert!(!thread
+        .loaded_chunks()
+        .expect("loaded chunks")
+        .contains(&shared));
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn player_snapshot_round_trips_a_session_transform() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("player-snapshot");
+    let options = || {
+        WorldThreadOptions::with_defaults(
+            hytale_server::GeneratorOptions {
+                assets_pack: repo_root().join("Assets/Assets.zip"),
+                assets_root: repo_root().join("Assets/extracted"),
+                world_dir: repo_root().join("testdata/Default"),
+                workers: 1,
+            },
+            save_dir.clone(),
+        )
+    };
+    let uuid: WorldUuid = "12345678-1234-5678-9abc-def012345678"
+        .parse()
+        .expect("player UUID");
+    let transform = hytale_world::player_data::PlayerTransform::new(
+        hytale_world::player_data::Position {
+            x: 41.5,
+            y: 200.0,
+            z: -17.25,
+        },
+        hytale_world::player_data::Rotation {
+            pitch: 0.25,
+            yaw: 1.5,
+            roll: 0.0,
+        },
+    );
+
+    let (thread, _start) = WorldThread::spawn(options()).expect("spawn the world thread");
+    let initial = thread.player_snapshot(uuid).expect("initial snapshot");
+    assert_eq!(
+        thread.player_snapshot(uuid).expect("second snapshot"),
+        initial
+    );
+    thread
+        .save_player_transform(uuid, transform)
+        .expect("save transform");
+    assert_eq!(
+        thread
+            .player_snapshot(uuid)
+            .expect("saved snapshot")
+            .transform,
+        transform
+    );
+    thread.shutdown().expect("shutdown");
+
+    let (thread, _start) = WorldThread::spawn(options()).expect("respawn the world thread");
+    assert_eq!(
+        thread
+            .player_snapshot(uuid)
+            .expect("reloaded snapshot")
+            .transform,
+        transform,
+        "the session transform must survive a world restart"
+    );
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn world_clock_progresses_pauses_and_survives_save_reload() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

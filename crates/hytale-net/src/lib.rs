@@ -62,6 +62,7 @@ pub mod chunk_stream;
 pub mod frame_stream;
 pub mod identity;
 pub mod tls;
+pub mod trace;
 pub mod transport;
 pub mod verify;
 
@@ -72,6 +73,10 @@ pub use frame_stream::{
 };
 pub use identity::PeerIdentity;
 pub use tls::{TlsIdentity, ALPN_HYTALE_V3};
+pub use trace::{
+    read_trace, write_trace, PacketTraceSink, TraceDirection, TraceFile, TraceHeader, TraceLine,
+    TraceRecord, TraceRecorder, TraceSession, TraceStream, TRACE_FORMAT_VERSION,
+};
 pub use transport::{
     connect, AcceptedConnection, ClientEndpoint, ClientSession, ServerEndpoint,
     ServerEndpointBuilder, TransportError,

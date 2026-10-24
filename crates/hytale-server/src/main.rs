@@ -368,6 +368,9 @@ struct ServeArgs {
     /// Seconds to wait for the client to close after its session ends.
     #[arg(long, default_value_t = 5)]
     close_timeout: u64,
+    /// Write a JSONL packet trace (ids, channels, order, payload hashes).
+    #[arg(long)]
+    trace: Option<PathBuf>,
     /// `ServerInfo.serverName`.
     #[arg(long, default_value = "Rust CoreServer")]
     server_name: String,
@@ -583,6 +586,7 @@ fn run_serve_command(args: ServeArgs) -> ExitCode {
         world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
         idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
         auth,
+        trace: None,
     };
     let options = ServeOptions {
         universe_root: args.universe,
@@ -600,6 +604,7 @@ fn run_serve_command(args: ServeArgs) -> ExitCode {
         session,
         shutdown_timeout: std::time::Duration::from_secs(args.shutdown_timeout),
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
+        trace_path: args.trace,
         bound_tx: None,
     };
     match run_serve(options) {
@@ -707,6 +712,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
             world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
             idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
             auth,
+            trace: None,
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };

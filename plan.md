@@ -8,8 +8,9 @@ the worldgen port remains archived in
 
 The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
 `GameplayConfig`), T44 (self-spawn appearance/equipment), T45 (other-player
-tracking) and T46 (block place/break) are done; the immediate next task is
-**T47** (disconnect, reconnect and session teardown), continuing M4's v1 path.
+tracking), T46 (block place/break), T47 (disconnect, reconnect and session
+teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete
+and M5 gameplay parity is next.
 
 ## 0. Baseline
 
@@ -432,6 +433,8 @@ cargo test -p client-bot --test auth_join -- --ignored
 
 ## M4 — v1 client join, multiplayer and edits
 
+**Status:** done (session 36) — the T48 trace gate closes M4/v1.
+
 ### T43 — World clock and `GameplayConfig`
 
 **Status:** done (session 31)
@@ -574,6 +577,7 @@ Make time advance and stop using protocol defaults for gameplay rules.
 
 ### T47 — Disconnect, reconnect and session teardown
 
+**Status:** done (session 35)
 **Package:** `hytale-server`, `client-bot`
 **Depends on:** T43–T46
 **Goal:** make the v1 lifecycle reliable.
@@ -592,10 +596,23 @@ Make time advance and stop using protocol defaults for gameplay rules.
 - Reconnect restores saved transform and world edits.
 - A failed disconnect does not block the world thread or listener.
 
+**Deviations**
+
+- Teardown persists the live `Transform` (and preserves all other components);
+  live inventory/held-item state is T49.
+- Sessions own registered views and the loaded-chunk set is their union; the
+  chunk event queue is still world-wide, so per-view event filtering is a
+  follow-up. The startup/CLI base view is replaced by the first session view.
+- Reconnect during a still-registered session creates a second player entry;
+  duplicate-identity takeover is T62.
+- The server closes the QUIC connection after `ServerDisconnect`/teardown rather
+  than waiting for a client acknowledgement (Java has no such packet).
+
 ---
 
 ### T48 — Real-client trace and v1 compatibility gate
 
+**Status:** done (session 36)
 **Package:** `tools/client-bot`, `testdata/golden/server`, docs
 **Depends on:** T47
 **Goal:** prove the join against a real client trace, not only the bot.
@@ -619,6 +636,19 @@ Make time advance and stop using protocol defaults for gameplay rules.
 - The recorded trace gate is repeatable in CI (or the manual runbook is
   verified and linked).
 - This closes `plan.md` M4 / v1.
+
+**Deviations**
+
+- `serve --trace` records server-side packet ids/channels/order/hashes in
+  `hytale-net::trace`; the committed fixture is the normalized bot lifecycle
+  baseline because a vanilla-client capture cannot be redistributed/automated
+  here. The real-client capture runbook is in
+  `testdata/golden/server/trace/README.md`.
+- The live gate is `#[ignore]`d (assets + loopback); the registry/fixture gate
+  runs in the default workspace suite.
+- The local EdDSA auth authority is not trusted by a default online vanilla
+  client; live-session auth remains an adapter, not a packet-order gap.
+- Dynamic payloads keep order/id/channel but intentionally drop hashes.
 
 ---
 

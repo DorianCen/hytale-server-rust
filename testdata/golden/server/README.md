@@ -12,7 +12,7 @@ subdirectory, never by hand.
 | `storage/` | `tools/java-dumper/run-storage.sh` | session 6: real Java world region files + BSON chunk documents; `hytale-storage` reads the container sample automatically |
 | `world-config/` | `tools/java-dumper/run-world-config.sh` | session 9: real Java `WorldConfig` v4 document |
 | `player-data/` | `tools/java-dumper/run-player-data.sh` | session 10: real Java `EntityStore` player holder |
-| `trace/` | `tools/packet-trace` | planned |
+| `trace/` | `hytale-server serve --trace` (`hytale-net::trace`) | session 36: normalized v1 lifecycle packet ids/channels/order/hashes + real-client capture runbook |
 
 Keep fast fixtures committed. Full-pack runs belong behind an environment
 variable or a separate script, never in the default `cargo test` path.

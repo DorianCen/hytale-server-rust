@@ -14,8 +14,10 @@ use hytale_protocol::generated::registry::packet_info;
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
 use quinn::{Connection, ReadExactError, RecvStream, SendStream};
+use std::sync::Arc;
 use thiserror::Error;
 
+use crate::trace::{trace_wire_frame, PacketTraceSink, TraceDirection, TraceStream};
 use crate::TransportError;
 
 /// Errors from reading or writing a chunk stream.
@@ -50,6 +52,7 @@ pub struct ChunkFrame {
 /// Writes chunk frames to a server-opened unidirectional stream.
 pub struct ChunkStreamWriter {
     send: SendStream,
+    trace: Option<Arc<dyn PacketTraceSink>>,
 }
 
 impl ChunkStreamWriter {
@@ -57,7 +60,14 @@ impl ChunkStreamWriter {
     pub async fn open(connection: &Connection) -> Result<Self, TransportError> {
         Ok(Self {
             send: connection.open_uni().await?,
+            trace: None,
         })
+    }
+
+    /// Attach a packet trace sink.
+    pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
+        self.trace = Some(trace);
+        self
     }
 
     /// Encode, compress (when required) and frame a packet.
@@ -82,6 +92,12 @@ impl ChunkStreamWriter {
     /// Write one complete frame (`[length][packet id][payload]`).
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<(), TransportError> {
         self.send.write_all(frame).await?;
+        trace_wire_frame(
+            &self.trace,
+            TraceStream::Chunks,
+            TraceDirection::Outbound,
+            frame,
+        );
         Ok(())
     }
 
@@ -107,6 +123,7 @@ impl ChunkStreamWriter {
 /// Reads chunk frames from a client-accepted unidirectional stream.
 pub struct ChunkStreamReader {
     recv: RecvStream,
+    trace: Option<Arc<dyn PacketTraceSink>>,
 }
 
 impl ChunkStreamReader {
@@ -114,7 +131,14 @@ impl ChunkStreamReader {
     pub async fn accept(connection: &Connection) -> Result<Self, TransportError> {
         Ok(Self {
             recv: connection.accept_uni().await?,
+            trace: None,
         })
+    }
+
+    /// Attach a packet trace sink.
+    pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
+        self.trace = Some(trace);
+        self
     }
 
     /// Read the next frame, or `None` on a clean stream end.
@@ -153,6 +177,14 @@ impl ChunkStreamReader {
             Err(error) => return Err(ChunkStreamError::Read(error)),
         }
 
+        if let Some(trace) = &self.trace {
+            trace.record(
+                TraceStream::Chunks,
+                TraceDirection::Inbound,
+                packet_id,
+                &payload,
+            );
+        }
         if info.compressed {
             payload = decompress_payload(&payload, info.max_size as usize)?;
         }

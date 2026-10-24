@@ -85,8 +85,16 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   game loop, and a two-bot loopback test covering mutual spawn, movement,
   disconnect and rejoin. Session 34 completed the v1 edit loop: validated
   `MouseInteraction` break/place, item→block resolution, dirty chunk saves and
-  view-filtered `ServerSetBlock` broadcasts. M3 is complete and M4 continues
-  with reconnect/teardown and a real-client trace, then gameplay/NPC/hardening;
+  view-filtered `ServerSetBlock` broadcasts. Session 35 added the v1 lifecycle:
+  per-session registered chunk views whose loaded set is the union of all live
+  views, `ClientDisconnect`/idle/transport teardown that saves the player
+  transform and removes the view/entity, per-UUID player snapshots for
+  reconnect, and loopback coverage for join → move → edit → disconnect →
+  reconnect plus idle-timeout teardown. Session 36 closed M4/v1 with
+  `hytale-net::trace`: server-side JSONL packet ids/channels/order/payload
+  hashes, a committed lifecycle fixture, a live replay gate, and a real-client
+  capture runbook that records the `ViewRadius`-on-Chunks requirement. M5
+  gameplay parity starts with T49;
   see [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -337,11 +345,16 @@ object the boot path owns. `hytale-server world-boot` loads or creates the
 config/player, loads every stored chunk, applies an optional edit and saves
 everything. `hytale-server::world_thread::WorldThread` owns the save, the
 shared `WorldGenerator` and the demand queue on one OS thread. A `ChunkView`
-plan orders missing chunks nearest-first; `SetView` replaces the queue
+plan orders missing chunks nearest-first; `SetView` replaces the base view
 (cancelling pending loads) and unloads chunks that left; `Tick` processes a
 bounded number of chunks and emits `WorldEvent::ChunkLoaded/ChunkUnloaded`.
-`load-chunk` remains the one-chunk editor. Chunk streaming, the live tick loop
-and per-player views are not wired yet.
+Session-owned views registered with `add_view` share one loaded set (the union
+of all live views): moving or leaving one player only unloads chunks no other
+view needs, and the first session view replaces the startup base view so the
+last session leaving releases session-owned terrain. `load-chunk` remains the
+one-chunk editor. Chunk streaming and the live tick loop are wired; chunk
+load/unload events still use one world-wide queue (per-view filtering is
+follow-up work).
 
 `WorldClock` (`hytale-world::world_clock`) follows Java
 `WorldTimeResource`: game time is an epoch instant, the configured daytime and
@@ -455,22 +468,33 @@ not part of v1.
   bidirectional QUIC stream; the chunk stream is server-opened unidirectional.
 - Chunk stream: `hytale-net::chunk_stream` opens a server→client unidirectional
   QUIC stream and writes the frames from `ChunkPacketBatch`. The reader validates
-  the registry id/max size and zstd-decompresses compressed packets. The exact
-  Java stream/channel mapping still needs a packet trace; one stream per
-  connection is the current model.
-- Session bridge: `hytale-server::chunk_streamer::send_view` sets the player
+  the registry id/max size and zstd-decompresses compressed packets. The
+  committed trace fixes the setup/chunks channel rules (notably `ViewRadius` on
+  `Chunks`); one stream per connection remains the model.
+- Session bridge: `hytale-server::chunk_streamer::send_view` sets the CLI/base
   view on `WorldThread`, ticks until the demand queue drains, and writes the
-  loaded view as nearest-first initial batches. `send_updates` forwards later
-  `ChunkLoaded` batches and `UnloadChunk` packets after a view change.
+  loaded view as nearest-first initial batches. `send_view_registered` does the
+  same for a session-owned view. `send_updates` forwards later `ChunkLoaded`
+  batches and `UnloadChunk` packets after a view change.
   `hytale-server::session` keeps the `Chunks` stream open after the snapshot,
-  ticks the world thread on a 50 ms loop, and calls `set_view`/`send_updates`
-  from `ClientMovement` so a moving player loads and unloads chunks.
+  ticks the world thread on a 50 ms loop, and calls
+  `update_view`/`send_updates` from `ClientMovement` so a moving player loads
+  and unloads chunks. Teardown always saves the session transform, removes its
+  view and unregisters the player. A reconnect loads the per-UUID player
+  snapshot before the registry join.
   `hytale-server::serve` now owns the persistent listener: one universe/world
   thread, one independent task per connection, a shared per-world config cache,
   one shared `PlayerRegistry`, connection limits, idle timeout and graceful
   shutdown. The registry fans player-list and view-filtered entity
   spawn/movement/removal messages into each session's queue; the game loop
   drains that queue on its 50 ms tick.
+- Packet tracing: `hytale-net::trace` is a `PacketTraceSink` hook on both framed
+  streams. `serve --trace <path>` writes one JSONL record per packet with the
+  session, stream, direction, packet id/name, registry channel, wire payload
+  length and SHA-256. Raw payloads are never stored. The normalized
+  `testdata/golden/server/trace/v1-lifecycle.jsonl` fixture and the live
+  `client-bot` trace gate replay the join/move/edit/disconnect/reconnect order;
+  `testdata/golden/server/trace/README.md` is the real-client capture runbook.
 - Auth providers: the current `AuthService` is the local EdDSA authority used by
   the private/offline profile. OAuth browser/device, external session and
   singleplayer token providers remain planned adapters behind the same
@@ -515,7 +539,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2); common-asset index + verified blob loading landed and stream in setup (M4) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
 | `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette, the packet builders and the `chunk::stream` batch/framer landed (M3/M4); all 46 `chunks-pkts` payloads and the batch order match Java |
-| `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading, the `WorldThread` view/scheduling loop and the chunk packet batch/framer landed (M3); universe lifecycle, per-player views and writing frames on a connection pending |
+| `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading, the `WorldThread` view/scheduling loop, per-session registered views and the chunk packet batch/framer landed (M3/M4); universe lifecycle and writing frames on a connection landed |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
 | `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence and per-second `UpdateTime` landed (M4); sleep/interpolation commands and moon-phase events pending (T54) |
@@ -523,7 +547,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::player_data` | saved model reference and inventory components decoded (M4); full `ModelAsset` protocol expansion and ECS lifecycle deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, and validated block place/break with `ServerSetBlock` broadcasts (M3/M4) landed |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, validated block place/break with `ServerSetBlock` broadcasts, and the JSONL packet-trace capture/gate (M3/M4) landed |
 | `CoreServer/.../auth/**` | `hytale-auth` | Ed25519 keys, EdDSA JWT claims/signature/time/scope validation, `cnf.x5t#S256` certificate binding and the local issuer/validator authority landed (M4); OAuth device/browser, session-service JWKS and credential-store adapters pending |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |

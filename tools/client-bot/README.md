@@ -123,3 +123,29 @@ The concurrent disconnect/rejoin loopback test is `#[ignore]`d:
 ```sh
 cargo test -p client-bot --test multi_join -- --ignored
 ```
+
+## Packet trace gate
+
+The server can capture a JSONL packet trace without storing raw payloads:
+
+```sh
+cargo run -p hytale-server -- serve --universe target/universe \
+  --bind 127.0.0.1:5520 --view-radius 0 --trace target/trace/v1.jsonl
+```
+
+The fast fixture check runs in the default suite:
+
+```sh
+cargo test -p client-bot --test trace_fixture
+```
+
+The live lifecycle replay (join → move → edit → disconnect → reconnect) is
+`#[ignore]`d because it needs the pack and loopback UDP:
+
+```sh
+cargo test -p client-bot --test trace_gate -- --ignored
+HYTALE_UPDATE_TRACE=1 cargo test -p client-bot --test trace_gate -- --ignored
+```
+
+See `testdata/golden/server/trace/README.md` for the format and the real-client
+capture runbook.

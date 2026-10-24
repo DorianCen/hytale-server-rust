@@ -6,7 +6,7 @@
 //! advances a bounded number of chunks so a live server can interleave other
 //! world work between loads.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::Arc;
@@ -18,7 +18,7 @@ use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::player_data::{PlayerAppearance, PlayerDataError, PlayerTransform};
-use hytale_world::view::{ChunkPlan, ChunkView};
+use hytale_world::view::ChunkView;
 use hytale_world::world::{WorldError, WorldSave};
 use hytale_world::world_clock::{format_iso8601, parse_iso8601, WorldClock, WorldClockSettings};
 use hytale_world::world_config::{WorldConfigError, WorldUuid};
@@ -124,6 +124,35 @@ pub struct ViewReport {
     pub unloaded: usize,
 }
 
+/// Identity of one independently registered chunk view.
+///
+/// The base view ([`ViewId::BASE`]) is the one driven by [`WorldThread::set_view`]
+/// for headless/CLI callers. A listener registers one view per session with
+/// [`WorldThread::add_view`], updates it as the player moves and removes it
+/// during teardown. Loaded chunks are the union of every live view, so one
+/// session leaving cannot unload another session's terrain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ViewId(u64);
+
+impl ViewId {
+    /// The startup/CLI view.
+    pub const BASE: Self = Self(0);
+
+    /// The stable numeric id (0 is the base view).
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+/// Per-player save state loaded for a joining session.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerSnapshot {
+    /// Saved transform, or the world spawn for a new player.
+    pub transform: PlayerTransform,
+    /// Saved appearance/equipment with unknown item ids resolved away.
+    pub appearance: PlayerAppearance,
+}
+
 /// Result of one demand-load tick.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TickReport {
@@ -185,6 +214,23 @@ enum Command {
         radius: u32,
         reply: SyncSender<Result<ViewReport, String>>,
     },
+    AddView {
+        center_x: i32,
+        center_z: i32,
+        radius: u32,
+        reply: SyncSender<Result<ViewId, String>>,
+    },
+    UpdateView {
+        view_id: ViewId,
+        center_x: i32,
+        center_z: i32,
+        radius: u32,
+        reply: SyncSender<Result<ViewReport, String>>,
+    },
+    RemoveView {
+        view_id: ViewId,
+        reply: SyncSender<Result<ViewReport, String>>,
+    },
     Tick {
         reply: SyncSender<Result<TickReport, String>>,
     },
@@ -237,6 +283,15 @@ enum Command {
     },
     PlayerTransform {
         reply: SyncSender<Result<Option<PlayerTransform>, String>>,
+    },
+    PlayerSnapshot {
+        uuid: WorldUuid,
+        reply: SyncSender<Result<PlayerSnapshot, String>>,
+    },
+    SavePlayerTransform {
+        uuid: WorldUuid,
+        transform: PlayerTransform,
+        reply: SyncSender<Result<(), String>>,
     },
     PlayerAppearance {
         reply: SyncSender<Result<PlayerAppearance, String>>,
@@ -326,6 +381,67 @@ impl WorldThread {
                 radius,
                 reply,
             })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Register an independent view for one session.
+    ///
+    /// The first registered session view replaces the startup base view, so a
+    /// served world's loaded chunks are owned entirely by live sessions.
+    pub fn add_view(
+        &self,
+        center_x: i32,
+        center_z: i32,
+        radius: u32,
+    ) -> Result<ViewId, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::AddView {
+                center_x,
+                center_z,
+                radius,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Move/restretch one registered view.
+    pub fn update_view(
+        &self,
+        view_id: ViewId,
+        center_x: i32,
+        center_z: i32,
+        radius: u32,
+    ) -> Result<ViewReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::UpdateView {
+                view_id,
+                center_x,
+                center_z,
+                radius,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Remove one session view and unload chunks no other view keeps alive.
+    pub fn remove_view(&self, view_id: ViewId) -> Result<ViewReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::RemoveView { view_id, reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -532,6 +648,41 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Load or create one player's transform/appearance for a joining session.
+    ///
+    /// Unlike [`Self::player_transform`], this is keyed by the session's UUID, so
+    /// reconnecting players resume their own saved position and equipment.
+    pub fn player_snapshot(&self, uuid: WorldUuid) -> Result<PlayerSnapshot, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlayerSnapshot { uuid, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Persist one player's live transform, preserving every other component.
+    pub fn save_player_transform(
+        &self,
+        uuid: WorldUuid,
+        transform: PlayerTransform,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SavePlayerTransform {
+                uuid,
+                transform,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// The loaded player's saved model, skin, armor and active held items.
     ///
     /// Unknown item ids are already dropped against the world's asset
@@ -643,13 +794,22 @@ fn run(
             gameplay_config,
             config_assets,
         }) => {
-            if ready.send(Ok(start)).is_err() {
+            if ready.send(Ok(start.clone())).is_err() {
                 generator.shutdown();
                 return;
             }
             let seed = save.config().seed as i32;
             let budget = options.chunks_per_tick.max(1);
             let mut last_clock = Instant::now();
+            let mut views = BTreeMap::from([(
+                ViewId::BASE,
+                ChunkView::new(
+                    start.player_chunk.0,
+                    start.player_chunk.1,
+                    options.view_radius,
+                ),
+            )]);
+            let mut next_view_id = 1u64;
             for command in commands {
                 match command {
                     Command::SetView {
@@ -658,15 +818,64 @@ fn run(
                         radius,
                         reply,
                     } => {
-                        let result = apply_view(
+                        views.insert(ViewId::BASE, ChunkView::new(center_x, center_z, radius));
+                        let result =
+                            apply_views(&mut save, &generator, &events, &views, &mut pending, true);
+                        let _ = reply.send(result);
+                    }
+                    Command::AddView {
+                        center_x,
+                        center_z,
+                        radius,
+                        reply,
+                    } => {
+                        // The first session-owned view takes over from the
+                        // startup base view so teardown can unload everything.
+                        if views.len() == 1 && views.contains_key(&ViewId::BASE) {
+                            views.remove(&ViewId::BASE);
+                        }
+                        let view_id = ViewId(next_view_id);
+                        next_view_id = if next_view_id == u64::MAX {
+                            1
+                        } else {
+                            next_view_id + 1
+                        };
+                        views.insert(view_id, ChunkView::new(center_x, center_z, radius));
+                        let result = apply_views(
                             &mut save,
                             &generator,
                             &events,
-                            center_x,
-                            center_z,
-                            radius,
+                            &views,
                             &mut pending,
-                        );
+                            false,
+                        )
+                        .map(|_| view_id);
+                        let _ = reply.send(result);
+                    }
+                    Command::UpdateView {
+                        view_id,
+                        center_x,
+                        center_z,
+                        radius,
+                        reply,
+                    } => {
+                        let result = if let Some(view) = views.get_mut(&view_id) {
+                            *view = ChunkView::new(center_x, center_z, radius);
+                            apply_views(&mut save, &generator, &events, &views, &mut pending, true)
+                        } else {
+                            Err(format!("view {} is not registered", view_id.get()))
+                        };
+                        let _ = reply.send(result);
+                    }
+                    Command::RemoveView { view_id, reply } => {
+                        let result = if views.remove(&view_id).is_some() {
+                            // A leaving client does not need unload packets, and
+                            // chunks outside every remaining view are invisible
+                            // to the other sessions too.
+                            apply_views(&mut save, &generator, &events, &views, &mut pending, false)
+                        } else {
+                            Ok(ViewReport::default())
+                        };
                         let _ = reply.send(result);
                     }
                     Command::Tick { reply } => {
@@ -739,6 +948,18 @@ fn run(
                     }
                     Command::PlayerTransform { reply } => {
                         let _ = reply.send(Ok(player_transform));
+                    }
+                    Command::PlayerSnapshot { uuid, reply } => {
+                        let result = player_snapshot(&mut save, &generator, uuid);
+                        let _ = reply.send(result);
+                    }
+                    Command::SavePlayerTransform {
+                        uuid,
+                        transform,
+                        reply,
+                    } => {
+                        let result = save_player_transform(&mut save, uuid, transform);
+                        let _ = reply.send(result);
                     }
                     Command::PlayerAppearance { reply } => {
                         let _ = reply.send(Ok(player_appearance.clone()));
@@ -914,36 +1135,56 @@ fn store_clock(clock: &WorldClock, save: &mut WorldSave) {
     save.config_mut().is_game_time_paused = clock.is_paused();
 }
 
-fn apply_view(
+fn apply_views(
     save: &mut WorldSave,
     generator: &WorldGenerator,
     events: &Sender<WorldEvent>,
-    center_x: i32,
-    center_z: i32,
-    radius: u32,
+    views: &BTreeMap<ViewId, ChunkView>,
     pending: &mut VecDeque<(i32, i32)>,
+    emit_unloads: bool,
 ) -> Result<ViewReport, String> {
-    let view = ChunkView::new(center_x, center_z, radius);
-    let plan: ChunkPlan = view.plan(save.world().loaded_chunk_coordinates());
+    let desired: BTreeSet<(i32, i32)> = views.values().flat_map(|view| view.desired()).collect();
     let codec = ChunkCodec::new(generator.assets());
+    let loaded: Vec<(i32, i32)> = save.world().loaded_chunk_coordinates();
     let mut unloaded = 0;
-    for (x, z) in plan.unloads {
+    for (x, z) in loaded {
+        if desired.contains(&(x, z)) {
+            continue;
+        }
         if save
             .world_mut()
             .unload_chunk(&codec, x, z)
             .map_err(|error| error.to_string())?
         {
             unloaded += 1;
-            let _ = events.send(WorldEvent::ChunkUnloaded { x, z });
+            if emit_unloads {
+                let _ = events.send(WorldEvent::ChunkUnloaded { x, z });
+            }
         }
     }
-    // Replacing the queue cancels every pending load outside the new view.
+
+    let loaded: BTreeSet<(i32, i32)> = save
+        .world()
+        .loaded_chunk_coordinates()
+        .into_iter()
+        .collect();
+    let mut loads: Vec<(i32, i32)> = desired.difference(&loaded).copied().collect();
+    loads.sort_by_key(|&(x, z)| (distance_to_nearest_view(views, x, z), x, z));
+    // Replacing the queue cancels every pending load outside the new union.
     pending.clear();
-    pending.extend(plan.loads.iter().copied());
+    pending.extend(loads);
     Ok(ViewReport {
         queued: pending.len(),
         unloaded,
     })
+}
+
+fn distance_to_nearest_view(views: &BTreeMap<ViewId, ChunkView>, x: i32, z: i32) -> i64 {
+    views
+        .values()
+        .map(|view| view.distance_squared(x, z))
+        .min()
+        .unwrap_or(i64::MAX)
 }
 
 fn tick(
@@ -1034,6 +1275,49 @@ fn load_chunk(
         generated: true,
     });
     Ok(LoadOutcome::Generated)
+}
+
+fn player_snapshot(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    uuid: WorldUuid,
+) -> Result<PlayerSnapshot, String> {
+    let (player, _created) = save
+        .load_or_create_player(uuid)
+        .map_err(|error| error.to_string())?;
+    let transform = player.transform().unwrap_or_else(|| {
+        PlayerTransform::new(
+            hytale_world::player_data::Position {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            hytale_world::player_data::Rotation {
+                pitch: 0.0,
+                yaw: 0.0,
+                roll: 0.0,
+            },
+        )
+    });
+    let mut appearance = player.appearance();
+    appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
+    Ok(PlayerSnapshot {
+        transform,
+        appearance,
+    })
+}
+
+fn save_player_transform(
+    save: &mut WorldSave,
+    uuid: WorldUuid,
+    transform: PlayerTransform,
+) -> Result<(), String> {
+    let (mut player, _created) = save
+        .load_or_create_player(uuid)
+        .map_err(|error| error.to_string())?;
+    player.set_transform(transform);
+    save.save_player(uuid, &player)
+        .map_err(|error| error.to_string())
 }
 
 fn set_block(

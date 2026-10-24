@@ -60,6 +60,30 @@ pub async fn send_view(
     compression_level: i32,
 ) -> Result<ChunkStreamReport, ChunkSessionError> {
     thread.set_view(center_x, center_z, radius)?;
+    send_view_registered(
+        thread,
+        writer,
+        center_x,
+        center_z,
+        radius,
+        compression_level,
+    )
+    .await
+}
+
+/// Send the initial snapshot for a view already registered with
+/// [`WorldThread::add_view`]/[`WorldThread::update_view`].
+///
+/// Listeners use this instead of [`send_view`] so a session never replaces the
+/// world thread's view for every other client.
+pub async fn send_view_registered(
+    thread: &WorldThread,
+    writer: &mut ChunkStreamWriter,
+    center_x: i32,
+    center_z: i32,
+    radius: u32,
+    compression_level: i32,
+) -> Result<ChunkStreamReport, ChunkSessionError> {
     // Forward unloads caused by the view change before the snapshot.
     let mut report = send_updates(thread, writer, compression_level).await?;
     loop {

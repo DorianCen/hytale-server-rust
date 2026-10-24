@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hytale_net::{ServerEndpointBuilder, TlsIdentity, TransportError};
+use hytale_net::{ServerEndpointBuilder, TlsIdentity, TraceRecorder, TransportError};
 use thiserror::Error;
 use tokio::runtime::Runtime;
 use tokio::sync::{oneshot, Semaphore};
@@ -46,6 +46,8 @@ pub struct ServeOptions {
     pub shutdown_timeout: Duration,
     /// How long to wait for a connection to close after its session ends.
     pub close_timeout: Duration,
+    /// Optional JSONL packet trace written for every accepted session.
+    pub trace_path: Option<PathBuf>,
     /// Optional test/CLI hook that receives the actual bound address.
     pub bound_tx: Option<oneshot::Sender<SocketAddr>>,
 }
@@ -69,6 +71,7 @@ impl ServeOptions {
             session,
             shutdown_timeout: Duration::from_secs(10),
             close_timeout: Duration::from_secs(5),
+            trace_path: None,
             bound_tx: None,
         }
     }
@@ -140,6 +143,15 @@ pub enum ServeError {
     /// QUIC setup/accept failed.
     #[error(transparent)]
     Transport(#[from] TransportError),
+    /// The packet trace file could not be created.
+    #[error("packet trace `{path}`: {source}")]
+    Trace {
+        /// Requested trace path.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
     /// The selected world does not exist.
     #[error("world `{0}` is not in the universe")]
     MissingWorld(String),
@@ -178,6 +190,17 @@ where
     runtime.start_world(&world_name)?;
     let thread = runtime.world_thread(&world_name)?;
     let thread_uuid = descriptor.uuid;
+
+    let mut session_options = options.session.clone();
+    if let Some(path) = &options.trace_path {
+        let recorder =
+            TraceRecorder::create(path, "hytale-server").map_err(|source| ServeError::Trace {
+                path: path.clone(),
+                source,
+            })?;
+        println!("packet trace: {}", path.display());
+        session_options.trace = Some(recorder);
+    }
 
     let identity = TlsIdentity::generate("localhost")?;
     let server = ServerEndpointBuilder::new(options.bind_addr, identity).bind()?;
@@ -218,7 +241,7 @@ where
                     options.max_connections.max(1) - semaphore.available_permits(),
                 );
                 let thread = Arc::clone(&thread);
-                let session = options.session.clone();
+                let session = session_options.clone();
                 let players = Arc::clone(&players);
                 let connection = accepted.connection().clone();
                 connections.push(connection.clone());
@@ -266,6 +289,9 @@ where
     drop(thread);
 
     let saved_chunks = runtime.shutdown()?;
+    if let Some(trace) = &session_options.trace {
+        let _ = trace.flush();
+    }
     summaries.sort_by(|left, right| left.username.cmp(&right.username));
 
     Ok(ServeReport {

@@ -10,7 +10,10 @@ use hytale_protocol::generated::registry::packet_info;
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
 use quinn::{ClosedStream, ReadExactError, RecvStream, SendStream, WriteError};
+use std::sync::Arc;
 use thiserror::Error;
+
+use crate::trace::{trace_wire_frame, PacketTraceSink, TraceDirection, TraceStream};
 
 /// Compression level used by Java `PacketIO` (zstd default).
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 3;
@@ -64,12 +67,19 @@ impl Frame {
 /// Writes frames to a QUIC send stream.
 pub struct FrameWriter {
     send: SendStream,
+    trace: Option<Arc<dyn PacketTraceSink>>,
 }
 
 impl FrameWriter {
     /// Wrap an open send stream.
     pub fn new(send: SendStream) -> Self {
-        Self { send }
+        Self { send, trace: None }
+    }
+
+    /// Attach a packet trace sink.
+    pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
+        self.trace = Some(trace);
+        self
     }
 
     /// Encode, compress (when required) and frame a packet.
@@ -121,6 +131,12 @@ impl FrameWriter {
     /// Write an already-framed packet.
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<(), FrameStreamError> {
         self.send.write_all(frame).await?;
+        trace_wire_frame(
+            &self.trace,
+            TraceStream::Setup,
+            TraceDirection::Outbound,
+            frame,
+        );
         Ok(())
     }
 
@@ -146,12 +162,19 @@ impl FrameWriter {
 /// Reads frames from a QUIC receive stream.
 pub struct FrameReader {
     recv: RecvStream,
+    trace: Option<Arc<dyn PacketTraceSink>>,
 }
 
 impl FrameReader {
     /// Wrap an open receive stream.
     pub fn new(recv: RecvStream) -> Self {
-        Self { recv }
+        Self { recv, trace: None }
+    }
+
+    /// Attach a packet trace sink.
+    pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
+        self.trace = Some(trace);
+        self
     }
 
     /// Read the next frame, or `None` on a clean stream end.
@@ -188,6 +211,14 @@ impl FrameReader {
             Ok(()) => {}
             Err(ReadExactError::FinishedEarly(_)) => return Err(FrameStreamError::Truncated),
             Err(error) => return Err(FrameStreamError::Read(error)),
+        }
+        if let Some(trace) = &self.trace {
+            trace.record(
+                TraceStream::Setup,
+                TraceDirection::Inbound,
+                packet_id,
+                &payload,
+            );
         }
         if info.compressed {
             payload = decompress_payload(&payload, info.max_size as usize)?;

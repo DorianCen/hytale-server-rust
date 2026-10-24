@@ -5,8 +5,8 @@
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** **T47** — disconnect, reconnect and session teardown, continuing
-M4's v1 client path.
+**Next task:** **T49** — inventory, containers and transactions, starting M5
+gameplay parity. M4/v1 closed with T48.
 
 ## Current state
 
@@ -57,6 +57,16 @@ Landed and green:
   resolution, `WorldThread::{get_block,place_block,block_id_for_item}`, dirty
   chunk persistence, view-filtered `ServerSetBlock` broadcasts, and a two-bot
   placement/break loopback.
+- T47 disconnect/reconnect/teardown: per-session registered views with shared
+  loaded-chunk ownership, `ClientDisconnect` handling, per-UUID player snapshot
+  and transform save on every exit path, registry/view/entity cleanup, a
+  reconnect loopback that restores the saved transform and edited block, and an
+  idle-timeout teardown test.
+- T48 real-client trace/v1 gate: `hytale-net::trace` (JSONL packet
+  ids/channels/order/hashes), `serve --trace`, a committed normalized
+  join/move/edit/disconnect/reconnect fixture, a live trace replay gate, a fast
+  registry fixture test, and the real-client capture runbook with the
+  `ViewRadius`-on-Chunks constraint recorded.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -73,8 +83,10 @@ cargo fmt --all -- --check
 
 1. **M2 — asset completion (done):** T35 → T36/T37/T38 → T39.
 2. **M3 — runtime:** T40 (done) → T41 (done) → T42 (done; parallel with M2 after T34).
-3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 → T48.
-4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md)).
+3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
+   → T48 (done). M4/v1 is closed.
+4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
+   M5 starts with T49.
 
 ## Try it
 
@@ -84,7 +96,8 @@ The phase-1 commands still work:
 cargo run -p hytale-server -- --validate-assets
 cargo run -p hytale-server -- universe --root target/universe create Alpha --seed 1
 cargo run -p hytale-server -- universe --root target/universe list
-cargo run -p hytale-server -- serve --universe target/universe --bind 127.0.0.1:5520
+cargo run -p hytale-server -- serve --universe target/universe --bind 127.0.0.1:5520 \
+  --trace target/trace/v1.jsonl
 cargo run -p hytale-server -- headless --save target/headless-world --chunk 4,-5
 cargo run -p hytale-server -- world-boot --save target/headless-world \
   --view-radius 1 --chunks-per-tick 4 --set-block 129,250,-159,4

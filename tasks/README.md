@@ -21,8 +21,8 @@ context. The main agent owns sequencing and shared-file edits.
 | [T44](T44-self-spawn-appearance.md) | Self-spawn equipment and cosmetics | T42 | medium | done (session 32) |
 | [T45](T45-other-player-tracking.md) | Other-player entity tracking and broadcast | T42, T44 | low/medium | done (session 33) |
 | [T46](T46-block-place-break.md) | Block place/break | T42 | medium | done (session 34) |
-| T47 | Disconnect, reconnect and session teardown | T43–T46 | medium | planned |
-| T48 | Real-client trace and v1 gate | T47 | low/medium | planned |
+| [T47](T47-disconnect-reconnect.md) | Disconnect, reconnect and session teardown | T43–T46 | medium | done (session 35) |
+| [T48](T48-real-client-trace.md) | Real-client trace and v1 gate | T47 | low/medium | done (session 36) |
 | T49 | Inventory, containers and transactions | T48 | low/medium | planned |
 | T50 | Interaction graph and block interactions | T49 | low/medium | planned |
 | T51 | Player movement physics and collision | T48 | low/medium | planned |
