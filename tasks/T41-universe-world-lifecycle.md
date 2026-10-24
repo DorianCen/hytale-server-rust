@@ -1,6 +1,6 @@
 # T41 — Universe and world lifecycle
 
-**Status:** planned (session 25+)
+**Status:** done (session 29)
 **Package:** `hytale-world`, `hytale-server`, `worldgen-server`
 **Depends on:** T40
 **Agent fit:** low/medium
@@ -53,4 +53,23 @@ cargo test --workspace
 ## Deviations
 
 - Lighting/weather/world-map state remains M5/M6 scope.
-- Provider-specific generation beyond `Default` can be a stub if documented.
+- Provider-specific generation beyond `Default` is a stub: `StaticWorldProvider`
+  returns empty columns for Flat/Void/Dummy, and `UniverseRuntime` only starts
+  Default worlds until M5 wires the stubs into the world thread.
+- `Universe` is a persistent catalog over normal `WorldSave` directories; live
+  chunk state belongs to each `WorldThread`. `unload_world` drops the in-memory
+  entry (and is rediscovered on reopen); `delete_world` removes the directory.
+- `UniverseRuntime` currently starts one `WorldGenerator` per world thread, so
+  the phase-2 assets are loaded once per world. T42 moves the shared registry and
+  config cache to the process-level runtime.
+- `universe save` saves the world config; live threads save dirty chunks and
+  players through their normal shutdown path.
+
+## Follow-ups
+
+- T42 moves the universe/listener ownership to the persistent process runtime
+  and shares the asset registry/config burst across worlds and sessions.
+- M5 replaces the Flat/Void/Dummy empty-column stubs with real provider parity.
+- T44/T47 should persist player transform/appearance updates on leave; T41 only
+  provides the player load/save seam.
+

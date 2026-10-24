@@ -45,6 +45,8 @@ enum Command {
     PlayerData(PlayerDataArgs),
     /// Boot a complete save: config, player and stored chunks.
     WorldBoot(WorldBootArgs),
+    /// Create/list/show/save/delete worlds in a persistent universe.
+    Universe(UniverseArgs),
     /// Serve one client's chunk stream over QUIC (transport demo, no auth).
     ChunkServe(ChunkServeArgs),
 }
@@ -184,6 +186,55 @@ struct WorldBootArgs {
 }
 
 #[derive(Debug, Args)]
+struct UniverseArgs {
+    /// Universe root (`universe.json` plus one directory per world).
+    #[arg(long, default_value = "target/universe")]
+    root: PathBuf,
+    #[command(subcommand)]
+    command: UniverseCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum UniverseCommand {
+    /// Create a world.
+    Create {
+        /// World name (directory-safe, unique case-insensitively).
+        name: String,
+        /// Generation seed.
+        #[arg(long, default_value_t = 0)]
+        seed: i64,
+        /// Chunk provider: default, flat, void or dummy.
+        #[arg(long, default_value = "default", value_parser = parse_world_provider)]
+        provider: hytale_world::universe::WorldProviderKind,
+    },
+    /// List catalogued worlds.
+    List,
+    /// Show one world's descriptor.
+    Show {
+        /// World name or UUID.
+        name: String,
+    },
+    /// Save one world's config (live threads save chunks themselves).
+    Save {
+        /// World name or UUID.
+        name: String,
+    },
+    /// Delete a world.
+    Delete {
+        /// World name or UUID.
+        name: String,
+        /// Keep the save directory and only remove the catalog entry.
+        #[arg(long)]
+        keep_files: bool,
+    },
+    /// Make a world the universe default.
+    Default {
+        /// World name or UUID.
+        name: String,
+    },
+}
+
+#[derive(Debug, Args)]
 struct ChunkServeArgs {
     /// Asset pack (zip or unpacked directory).
     #[arg(long, default_value = "Assets/Assets.zip")]
@@ -295,6 +346,10 @@ fn parse_block(value: &str) -> Result<(i32, i32, i32, i32), String> {
     ))
 }
 
+fn parse_world_provider(value: &str) -> Result<hytale_world::universe::WorldProviderKind, String> {
+    value.parse()
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     if cli.validate_assets {
@@ -306,6 +361,7 @@ fn main() -> ExitCode {
         Some(Command::WorldConfig(args)) => run_world_config_command(args),
         Some(Command::PlayerData(args)) => run_player_data_command(args),
         Some(Command::WorldBoot(args)) => run_world_boot_command(args),
+        Some(Command::Universe(args)) => run_universe_command(args),
         Some(Command::ChunkServe(args)) => run_chunk_serve_command(args),
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
@@ -522,6 +578,98 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
         }
         Err(error) => {
             eprintln!("chunk-serve failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_universe_command(args: UniverseArgs) -> ExitCode {
+    use hytale_world::universe::Universe;
+
+    let mut universe = match Universe::open(&args.root) {
+        Ok(universe) => universe,
+        Err(error) => {
+            eprintln!("universe open failed: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let result = match args.command {
+        UniverseCommand::Create {
+            name,
+            seed,
+            provider,
+        } => universe
+            .create_world(&name, seed, provider)
+            .map(|descriptor| {
+                println!(
+                    "created {} (uuid={} seed={} provider={} path={})",
+                    descriptor.name,
+                    descriptor.uuid,
+                    descriptor.seed,
+                    descriptor.provider,
+                    descriptor.save_dir.display()
+                );
+            }),
+        UniverseCommand::List => {
+            let default = universe.default_world().map(|world| world.uuid);
+            for descriptor in universe.list_worlds() {
+                let marker = if Some(descriptor.uuid) == default {
+                    "*"
+                } else {
+                    " "
+                };
+                println!(
+                    "{marker} {} uuid={} seed={} provider={} path={}",
+                    descriptor.name,
+                    descriptor.uuid,
+                    descriptor.seed,
+                    descriptor.provider,
+                    descriptor.save_dir.display()
+                );
+            }
+            println!(
+                "{} world(s) in {}",
+                universe.list_worlds().len(),
+                args.root.display()
+            );
+            Ok(())
+        }
+        UniverseCommand::Show { name } => universe.resolve(&name).map(|descriptor| {
+            println!("name: {}", descriptor.name);
+            println!("uuid: {}", descriptor.uuid);
+            println!("seed: {}", descriptor.seed);
+            println!("provider: {}", descriptor.provider);
+            println!("save_dir: {}", descriptor.save_dir.display());
+            println!("config: {}", descriptor.config_path().display());
+        }),
+        UniverseCommand::Save { name } => universe.save_world(&name).map(|()| {
+            println!("saved config for `{name}`");
+        }),
+        UniverseCommand::Delete { name, keep_files } => {
+            let operation = if keep_files {
+                universe.unload_world(&name)
+            } else {
+                universe.delete_world(&name)
+            };
+            operation.map(|()| {
+                println!(
+                    "{} `{name}`",
+                    if keep_files {
+                        "removed from catalog"
+                    } else {
+                        "deleted"
+                    }
+                );
+            })
+        }
+        UniverseCommand::Default { name } => universe.set_default_world(&name).map(|()| {
+            println!("default world is `{name}`");
+        }),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("universe command failed: {error}");
             ExitCode::FAILURE
         }
     }

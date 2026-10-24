@@ -68,9 +68,11 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   assert the full config order. Session 28 landed the shared `hytale-core`
   runtime: typed layered config, text/JSON logging init, the async
   scheduler/shutdown token, the ordered sync/async event bus and the module
-  manifest registry. Phase 2 continues with the persistent universe/listener,
-  multiplayer tracking, block edits, the world clock, a real-client trace and
-  then gameplay/NPC/hardening; see [`plan.md`](plan.md),
+  manifest registry. Session 29 added the persistent universe catalog, the
+  provider seam and per-world `UniverseRuntime` threads with save-on-unload and
+  the `universe` CLI. Phase 2 continues with the persistent multi-session
+  listener, multiplayer tracking, block edits, the world clock, a real-client
+  trace and then gameplay/NPC/hardening; see [`plan.md`](plan.md),
   [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.

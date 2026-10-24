@@ -15,7 +15,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T38](T38-tag-patterns.md) | TagPattern + `UpdateTagPatterns` | T35 | medium | done (session 26) |
 | [T39](T39-asset-wiring-validation.md) | Asset wiring, config cache, `--validate-assets` | T36, T37, T38 | medium | done (session 27) |
 | [T40](T40-hytale-core-runtime.md) | `hytale-core` runtime | T34 | medium | done (session 28) |
-| [T41](T41-universe-world-lifecycle.md) | Universe and world lifecycle | T40 | low/medium | planned |
+| [T41](T41-universe-world-lifecycle.md) | Universe and world lifecycle | T40 | low/medium | done (session 29) |
 | [T42](T42-persistent-listener.md) | Persistent listener and multi-session runtime | T39, T41 | low/medium | planned |
 | T43 | World clock and `GameplayConfig` | T42 | medium | planned |
 | T44 | Self-spawn equipment and cosmetics | T42 | medium | planned |

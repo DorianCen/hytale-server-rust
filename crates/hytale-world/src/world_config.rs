@@ -70,7 +70,7 @@ pub type Result<T> = std::result::Result<T, WorldConfigError>;
 
 /// A world UUID in the Java extended-JSON shape
 /// `{"$binary":"<base64>","$type":"04"}`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorldUuid {
     bytes: [u8; 16],
 }

@@ -11,6 +11,7 @@
 pub mod chunk;
 pub mod player_data;
 pub mod registry;
+pub mod universe;
 pub mod view;
 pub mod world;
 pub mod world_config;

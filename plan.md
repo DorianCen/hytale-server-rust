@@ -7,8 +7,8 @@ the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
 The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
-is **T41** (universe and world lifecycle), followed by T42 (persistent
-listener). T40's `hytale-core` runtime services are in place.
+is **T42** (persistent multi-session listener). T40's `hytale-core` services and
+T41's universe/world lifecycle are in place.
 
 ## 0. Baseline
 
@@ -19,7 +19,9 @@ Completed and not to be redone:
   stores/packets and `UpdateTagPatterns`; the final 17-packet config burst is
   cached once and `--validate-assets` is green.
 - M3 partial: `hytale-core` now provides typed config, logging init, the async
-  task scheduler/shutdown token, event bus and module-manifest registry. Runtime
+  task scheduler/shutdown token, event bus and module-manifest registry. T41
+  adds the persistent universe catalog, world provider seam, per-world
+  `UniverseRuntime` threads, player load/save seam and the `universe` CLI. Runtime
   chunks, BSON region/world/player storage, world config, save boot, demand
   loading, world thread and Java-ordered chunk packets are complete.
 - M4 partial: dev/insecure join, local EdDSA auth, asset streaming, Game
@@ -360,6 +362,7 @@ Create the shared runtime services every later task needs.
 
 ### T41 — Universe and world lifecycle
 
+**Status:** done (session 29)
 **Package:** `hytale-world`, `hytale-server`, `worldgen-server`
 **Depends on:** T40
 **Agent fit:** low/medium

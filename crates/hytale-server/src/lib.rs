@@ -12,6 +12,7 @@ pub mod generation;
 pub mod headless;
 pub mod player_data_tool;
 pub mod session;
+pub mod universe_runtime;
 pub mod world_boot;
 pub mod world_config_tool;
 pub mod world_thread;
@@ -36,6 +37,7 @@ pub use session::{
     serve_connection as serve_session_connection, AssetStreamReport, AuthMode, GameLoopReport,
     GameReport, SessionError, SessionOptions, SessionReport,
 };
+pub use universe_runtime::{UniverseRuntime, UniverseRuntimeError};
 pub use world_boot::{run as run_world_boot, WorldBootError, WorldBootOptions, WorldBootReport};
 pub use world_config_tool::{
     run as run_world_config_tool, WorldConfigToolError, WorldConfigToolOptions,

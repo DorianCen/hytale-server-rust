@@ -189,5 +189,44 @@ This file records phase-2 sessions only.
   - T41 builds the universe/world lifecycle on the scheduler and config.
   - T42 uses the event bus and shutdown token for the persistent listener.
 
+---
+
+## Session 29 — Universe and world lifecycle (2026-10-24)
+
+- **Goal:** own multiple worlds for the process lifetime instead of one scripted
+  save.
+- **Landed:**
+  - `hytale-world::universe`: persistent `Universe` catalog with `universe.json`,
+    create/list/resolve/default/save/delete/unload, name and UUID lookup, and
+    missing/corrupt-world errors. Worlds remain normal `WorldSave` directories.
+  - `WorldProviderKind` (`Default`/`Flat`/`Void`/`Dummy`) and the
+    `WorldProvider` trait; `StaticWorldProvider` produces empty columns for the
+    non-default stubs.
+  - Player load/save seam on the universe (`load_or_create_player`,
+    `save_player`).
+  - `hytale-server::UniverseRuntime`: one live `WorldThread` per started world,
+    create-and-start, start/stop, explicit save, save-on-unload and
+    save-on-shutdown, with clean `WorldThread` teardown.
+  - `hytale-server universe` CLI: create/list/show/save/delete/default with
+    `--root`, `--seed` and `--provider`.
+  - Tests: universe catalog/reopen/provider/player round-trips; a two-world
+    runtime test starts both, edits both, saves and reloads them from disk.
+- **Verified:**
+  - `cargo test -p hytale-world`.
+  - `cargo test -p hytale-server` (including the two-world lifecycle test).
+  - Universe CLI smoke: create/list/default/show/delete.
+  - Full workspace/clippy/fmt gates.
+- **Deviations:**
+  - Flat/Void/Dummy are empty-column stubs and `UniverseRuntime` only starts
+    Default worlds until M5.
+  - Each world thread still loads its own asset registry; T42 moves the shared
+    registry/config cache to the process runtime.
+  - Live player transform persistence remains T44/T47; T41 provides the
+    load/save seam.
+- **Follow-ups:**
+  - T42 builds the persistent listener and multi-session runtime on
+    `UniverseRuntime`.
+
+
 
 
