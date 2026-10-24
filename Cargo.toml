@@ -13,6 +13,7 @@ members = [
     "crates/hytale-storage",
     "crates/hytale-world",
     "crates/hytale-entities",
+    "crates/hytale-inventory",
     "crates/hytale-net",
     "crates/hytale-auth",
     "crates/hytale-commands",

@@ -9,8 +9,9 @@ the worldgen port remains archived in
 The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
 `GameplayConfig`), T44 (self-spawn appearance/equipment), T45 (other-player
 tracking), T46 (block place/break), T47 (disconnect, reconnect and session
-teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete
-and M5 gameplay parity is next.
+teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete,
+T49 (inventory containers/transactions) is done and M5 gameplay parity continues
+with T50.
 
 ## 0. Baseline
 
@@ -659,11 +660,24 @@ milestone starts. Each task must name its Java oracle and scripted scenario.
 
 ### T49 — Inventory, containers and transactions
 
+**Status:** done (session 37)
 **Package:** new `hytale-inventory` (or `hytale-entities` modules) + server/world
 **Goal:** item stacks, held item, inventory containers, pickup/drop, atomic
 transactions and save integration.
 **Acceptance:** scripted item move/split/merge/drop/pickup scenarios match Java;
 save/reload preserves inventory.
+
+**Deviations**
+
+- The pure `hytale-inventory` crate implements item stacks, six player
+  containers, active slots and atomic move/split/merge/swap/drop/pickup.
+  Inventory windows, block containers, item entities and the full
+  `MoveItemStack`/`SmartMoveItemStack` server path remain later gameplay work.
+- The server consumes the authoritative held block on placement and persists
+  inventory with the transform; a legacy session without a saved inventory
+  keeps the T46 packet-item fallback.
+- `DropItemStack` removes/resyncs the stack but does not spawn a world item
+  entity until T56.
 
 ### T50 — Interaction graph and block interactions
 

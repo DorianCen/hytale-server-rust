@@ -361,6 +361,7 @@ dependencies = [
  "hytale-net",
  "hytale-protocol",
  "hytale-server",
+ "serde_json",
  "sha2",
  "thiserror",
  "tokio",
@@ -830,6 +831,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hytale-inventory"
+version = "0.1.0"
+dependencies = [
+ "hytale-protocol",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hytale-math"
 version = "0.1.0"
 dependencies = [
@@ -872,6 +883,7 @@ dependencies = [
  "hytale-commands",
  "hytale-core",
  "hytale-entities",
+ "hytale-inventory",
  "hytale-net",
  "hytale-protocol",
  "hytale-storage",
@@ -899,6 +911,7 @@ version = "0.1.0"
 dependencies = [
  "bson",
  "hytale-assets",
+ "hytale-inventory",
  "hytale-math",
  "hytale-protocol",
  "hytale-storage",

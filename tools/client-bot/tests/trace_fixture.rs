@@ -101,6 +101,8 @@ fn the_fixture_covers_the_v1_lifecycle_and_real_client_constraints() {
     for milestone in [
         "JoinWorld",
         "ClientTeleport",
+        "UpdatePlayerInventory",
+        "SetActiveSlot",
         "AddToServerPlayerList",
         "RemoveFromServerPlayerList",
         "EntityUpdates",

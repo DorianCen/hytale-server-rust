@@ -14,7 +14,9 @@ Deferred to M5:
 - Player combat, damage, stats, status effects, stamina.
 - Crafting, recipes, item quality, drops, shops, rewards.
 - Projectiles, mounts, parkour, mantling, crouch-slide, safety roll.
-- Full inventory containers/transactions/UI.
+- Inventory windows/UI, block containers and dropped-item entities beyond the
+  T49 item-stack/container/transaction core (hotbar/utility/armor/storage/tools/
+  backpack, active slots, held-item consumption and save/reconnect are landed).
 - Interaction graph beyond basic block place/break.
 - Block physics/ticking/fluids beyond the minimum needed for a stable world.
 - Player movement physics, collision, anti-cheat and server-authoritative

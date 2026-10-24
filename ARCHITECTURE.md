@@ -93,8 +93,12 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   reconnect plus idle-timeout teardown. Session 36 closed M4/v1 with
   `hytale-net::trace`: server-side JSONL packet ids/channels/order/payload
   hashes, a committed lifecycle fixture, a live replay gate, and a real-client
-  capture runbook that records the `ViewRadius`-on-Chunks requirement. M5
-  gameplay parity starts with T49;
+  capture runbook that records the `ViewRadius`-on-Chunks requirement. Session
+  37 added the inventory core: the `hytale-inventory` crate (Java-compatible
+  item stacks, six player containers, atomic move/split/merge/swap/drop/pickup),
+  inventory save/load in player holders, initial inventory/active-slot packets,
+  authoritative held-item consumption on placement and inventory persistence
+  with the transform. M5 continues with T50;
   see [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -119,6 +123,7 @@ crates/
   hytale-core/       config/options, logging, event bus, registry, tasks, modules
   hytale-storage/    IndexedStorageFile, BSON component codecs, backups
   hytale-world/      universe, world, runtime chunks, heightmaps, lighting, player data
+  hytale-inventory/  item stacks, containers, player inventory and transactions
   hytale-entities/   ECS wrapper, components, systems, player/entity lifecycle
   hytale-net/        QUIC transport, streams, sessions, packet state machine
   hytale-auth/       EdDSA JWT keys/claims, certificate binding, local authority;
@@ -131,8 +136,7 @@ tools/
   protocol-dumper/     generated Java protocol sources → protocol IR
   protocol-gen/        protocol IR → Rust source
   asset-golden-dumper/ Java asset packet / decoded-store fixtures
-  packet-trace/        Java handshake/join packet traces
-  client-bot/          Rust scripted client for join/stream tests
+  client-bot/          Rust scripted client for join/stream/trace tests
 ```
 
 Planned dependency direction (arrows point from dependent to dependency):
@@ -144,6 +148,7 @@ hytale-server
   ├─ hytale-commands ─ hytale-core
   ├─ hytale-world ── hytale-assets ── hytale-protocol
   │                  hytale-storage ─┘
+  │                  hytale-inventory ─ hytale-protocol
   ├─ hytale-entities ─ hytale-world
   └─ hytale-core
 
@@ -369,10 +374,22 @@ Block edits enter through the client `MouseInteraction` packet. The session
 validates the pressed left/right button, block target, reach and held item, then
 resolves an item with a `BlockType` to its block id and applies the edit through
 `WorldThread` (`set_block` / `place_block`), which marks the chunk dirty for the
-normal region save. `PlayerRegistry::broadcast_block` sends the authoritative
-`ServerSetBlock` on each interested session's chunks stream, including the
-editor. Concurrent writes are serialized by the single world thread; network
-broadcasts are queued per session.
+normal region save. Placement consumes one item from the authoritative active
+hotbar stack (legacy sessions without saved inventory keep the packet-item
+fallback) and resyncs `UpdatePlayerInventory`. `PlayerRegistry::broadcast_block`
+sends the authoritative `ServerSetBlock` on each interested session's chunks
+stream, including the editor. Concurrent writes are serialized by the single
+world thread; network broadcasts are queued per session.
+
+Inventory state lives in `hytale-inventory`: `ItemStack` mirrors Java's codec,
+`SimpleItemContainer` implements the Java merge/move/remove transaction rules,
+and `PlayerInventory` owns hotbar/utility/armor/storage/tools/backpack with
+active-slot clamping. `PlayerData::inventory()` loads modern `*Inventory`
+components (legacy `Inventory` fallback), and teardown writes the live transform
+and inventory together. Sessions send `UpdatePlayerInventory` plus the
+hotbar/utility/tools `SetActiveSlot` packets after self-spawn; active-slot and
+held-item changes fan out as equipment entity updates. Inventory windows, block
+containers and world item entities remain later gameplay work.
 
 ---
 
@@ -543,7 +560,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
 | `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence and per-second `UpdateTime` landed (M4); sleep/interpolation commands and moon-phase events pending (T54) |
-| `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-world::player_data` + `hytale-server::session` | core holder codec, model/skin/inventory component decoding, legacy `Inventory` fallback and self-spawn equipment mapping landed (M4); per-session player identity and live inventory updates pending |
+| `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); windows and world item entities deferred |
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::player_data` | saved model reference and inventory components decoded (M4); full `ModelAsset` protocol expansion and ECS lifecycle deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |

@@ -14,6 +14,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use hytale_assets::{AssetPack, CommonAssetRegistry};
+use hytale_inventory::PlayerInventory;
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
@@ -151,6 +152,8 @@ pub struct PlayerSnapshot {
     pub transform: PlayerTransform,
     /// Saved appearance/equipment with unknown item ids resolved away.
     pub appearance: PlayerAppearance,
+    /// Saved inventory components.
+    pub inventory: PlayerInventory,
 }
 
 /// Result of one demand-load tick.
@@ -291,6 +294,12 @@ enum Command {
     SavePlayerTransform {
         uuid: WorldUuid,
         transform: PlayerTransform,
+        reply: SyncSender<Result<(), String>>,
+    },
+    SavePlayerState {
+        uuid: WorldUuid,
+        transform: PlayerTransform,
+        inventory: Box<PlayerInventory>,
         reply: SyncSender<Result<(), String>>,
     },
     PlayerAppearance {
@@ -683,6 +692,29 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Persist the live transform and inventory together, preserving every
+    /// other saved component.
+    pub fn save_player_state(
+        &self,
+        uuid: WorldUuid,
+        transform: PlayerTransform,
+        inventory: PlayerInventory,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SavePlayerState {
+                uuid,
+                transform,
+                inventory: Box::new(inventory),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// The loaded player's saved model, skin, armor and active held items.
     ///
     /// Unknown item ids are already dropped against the world's asset
@@ -959,6 +991,15 @@ fn run(
                         reply,
                     } => {
                         let result = save_player_transform(&mut save, uuid, transform);
+                        let _ = reply.send(result);
+                    }
+                    Command::SavePlayerState {
+                        uuid,
+                        transform,
+                        inventory,
+                        reply,
+                    } => {
+                        let result = save_player_state(&mut save, uuid, transform, &inventory);
                         let _ = reply.send(result);
                     }
                     Command::PlayerAppearance { reply } => {
@@ -1301,9 +1342,11 @@ fn player_snapshot(
     });
     let mut appearance = player.appearance();
     appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
+    let inventory = player.inventory().map_err(|error| error.to_string())?;
     Ok(PlayerSnapshot {
         transform,
         appearance,
+        inventory,
     })
 }
 
@@ -1316,6 +1359,21 @@ fn save_player_transform(
         .load_or_create_player(uuid)
         .map_err(|error| error.to_string())?;
     player.set_transform(transform);
+    save.save_player(uuid, &player)
+        .map_err(|error| error.to_string())
+}
+
+fn save_player_state(
+    save: &mut WorldSave,
+    uuid: WorldUuid,
+    transform: PlayerTransform,
+    inventory: &PlayerInventory,
+) -> Result<(), String> {
+    let (mut player, _created) = save
+        .load_or_create_player(uuid)
+        .map_err(|error| error.to_string())?;
+    player.set_transform(transform);
+    player.set_inventory(inventory);
     save.save_player(uuid, &player)
         .map_err(|error| error.to_string())
 }

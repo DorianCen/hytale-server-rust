@@ -281,6 +281,28 @@ impl PlayerRegistry {
         }
     }
 
+    /// Update the authoritative active held items and notify visible viewers.
+    pub fn update_equipment(
+        &self,
+        network_id: i32,
+        right_hand: Option<String>,
+        left_hand: Option<String>,
+    ) -> bool {
+        let mut inner = self.inner.lock().expect("player registry poisoned");
+        let Some(target) = inner.players.get_mut(&network_id) else {
+            return false;
+        };
+        target.appearance.right_hand = right_hand.clone();
+        target.appearance.left_hand = left_hand.clone();
+        let updates = equipment_entity_updates(network_id, right_hand, left_hand);
+        for (viewer_id, viewer) in &inner.players {
+            if *viewer_id != network_id && viewer.visible.contains(&network_id) {
+                queue(viewer, PlayerMessage::EntityUpdates(updates.clone()));
+            }
+        }
+        true
+    }
+
     /// Number of registered players.
     pub fn len(&self) -> usize {
         self.inner
@@ -455,6 +477,26 @@ pub fn transform_entity_updates(network_id: i32, transform: PlayerTransform) -> 
             removed: None,
             updates: Some(vec![ComponentUpdate::TransformUpdate(TransformUpdate {
                 transform: model_transform(transform),
+            })]),
+        }]),
+    }
+}
+
+/// Build an equipment-only update for the active held items.
+pub fn equipment_entity_updates(
+    network_id: i32,
+    right_hand: Option<String>,
+    left_hand: Option<String>,
+) -> EntityUpdates {
+    EntityUpdates {
+        removed: None,
+        updates: Some(vec![EntityUpdate {
+            network_id,
+            removed: None,
+            updates: Some(vec![ComponentUpdate::EquipmentUpdate(EquipmentUpdate {
+                armor_ids: None,
+                right_hand_item_id: Some(right_hand.unwrap_or_else(|| EMPTY_ITEM_ID.to_string())),
+                left_hand_item_id: Some(left_hand.unwrap_or_else(|| EMPTY_ITEM_ID.to_string())),
             })]),
         }]),
     }

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 hytale-assets = { path = "../hytale-assets" }
+hytale-inventory = { path = "../hytale-inventory" }
 hytale-math = { path = "../hytale-math" }
 hytale-protocol = { path = "../hytale-protocol" }
 hytale-storage = { path = "../hytale-storage" }

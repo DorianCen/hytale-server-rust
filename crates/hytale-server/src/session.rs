@@ -25,6 +25,7 @@ use std::time::Duration;
 
 use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets};
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
+use hytale_inventory::{PlayerInventory, Section};
 use hytale_net::{
     ChunkStreamError, ChunkStreamWriter, FrameReader, FrameStreamError, FrameWriter, PeerIdentity,
     TraceRecorder, TraceSession, TransportError,
@@ -42,6 +43,7 @@ use hytale_protocol::generated::connection::{
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo};
+use hytale_protocol::generated::inventory::{DropItemStack, SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
     SetGameMode,
@@ -190,6 +192,10 @@ pub struct GameReport {
     pub time: bool,
     /// `SetGameMode` was written.
     pub game_mode: bool,
+    /// The player's `UpdatePlayerInventory` was written.
+    pub inventory: bool,
+    /// The initial hotbar/utility/tools `SetActiveSlot` packets were written.
+    pub active_slots: bool,
 }
 
 /// What the live game loop produced.
@@ -225,6 +231,8 @@ pub struct GameLoopReport {
     pub block_edits: usize,
     /// Block interactions rejected (reach, unknown item, occupied target).
     pub block_edit_rejections: usize,
+    /// Inventory updates written after an active-slot or held-item change.
+    pub inventory_updates: usize,
     /// The client disconnected (or the connection closed) cleanly.
     pub disconnected: bool,
     /// The server disconnected the client for idling.
@@ -328,6 +336,7 @@ struct EnterGame {
     skin: Option<PlayerSkin>,
     world_time: WorldTimeState,
     gameplay_config: WorldGameplayConfig,
+    inventory: PlayerInventory,
     trace: Option<Arc<TraceSession>>,
 }
 
@@ -341,6 +350,7 @@ struct LiveGame<'a> {
     broadcasts: mpsc::Receiver<PlayerMessage>,
     view: ViewId,
     transform: &'a mut PlayerTransform,
+    inventory: &'a mut PlayerInventory,
 }
 
 /// Run authentication + setup on an accepted connection, transition to `Game`,
@@ -412,6 +422,7 @@ pub async fn serve_connection_with_registry(
     let player_state = thread.player_snapshot(player_uuid)?;
     let mut player_transform = player_state.transform;
     let appearance = player_state.appearance;
+    let mut inventory = player_state.inventory;
     let player_chunk = (
         block_to_chunk(player_transform.position.x),
         block_to_chunk(player_transform.position.z),
@@ -462,6 +473,7 @@ pub async fn serve_connection_with_registry(
                     skin,
                     world_time,
                     gameplay_config,
+                    inventory: inventory.clone(),
                     trace,
                 },
                 options,
@@ -495,6 +507,7 @@ pub async fn serve_connection_with_registry(
                     broadcasts: message_rx,
                     view: view_id,
                     transform: &mut player_transform,
+                    inventory: &mut inventory,
                 },
                 options,
             )
@@ -510,7 +523,7 @@ pub async fn serve_connection_with_registry(
         }
         .await;
 
-    let save_result = thread.save_player_transform(player_uuid, player_transform);
+    let save_result = thread.save_player_state(player_uuid, player_transform, inventory);
     let view_report = thread.remove_view(view_id);
     // Unregister after the save so a reconnect can never observe the old entity
     // removal after the new player has already loaded its saved state.
@@ -949,6 +962,7 @@ async fn enter_game(
         skin,
         world_time,
         gameplay_config,
+        inventory,
         trace,
     } = start;
     let mut chunks = ChunkStreamWriter::open(connection).await?;
@@ -1067,6 +1081,27 @@ async fn enter_game(
         .await?;
     game.self_spawn = true;
 
+    // Java `PlayerSystems` sends the full inventory and the three active-slot
+    // selections after the self spawn.
+    send_inventory(writer, &inventory, options.chunk_compression_level).await?;
+    game.inventory = true;
+    for section in [Section::Hotbar, Section::Utility, Section::Tools] {
+        let active_slot = inventory
+            .active_container(section)
+            .and_then(|container| container.active_slot)
+            .map_or(-1, i32::from);
+        writer
+            .write_packet(
+                &SetActiveSlot {
+                    inventory_section_id: section.section_id(),
+                    active_slot,
+                },
+                options.chunk_compression_level,
+            )
+            .await?;
+    }
+    game.active_slots = true;
+
     writer
         .write_packet(&gameplay_config, options.chunk_compression_level)
         .await?;
@@ -1141,6 +1176,16 @@ fn self_spawn_packet(
     players::spawn_entity_updates(network_id, transform, appearance, auth_skin)
 }
 
+async fn send_inventory(
+    writer: &mut FrameWriter,
+    inventory: &PlayerInventory,
+    compression_level: i32,
+) -> Result<(), SessionError> {
+    let packet: UpdatePlayerInventory = inventory.to_update_packet();
+    writer.write_packet(&packet, compression_level).await?;
+    Ok(())
+}
+
 async fn run_game_loop(
     connection: &quinn::Connection,
     thread: &WorldThread,
@@ -1160,6 +1205,7 @@ async fn run_game_loop(
         broadcasts,
         view,
         transform,
+        inventory,
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
@@ -1252,10 +1298,58 @@ async fn run_game_loop(
                     }
                     MouseInteraction::ID => {
                         let interaction: MouseInteraction = frame.decode()?;
-                        if handle_block_interaction(thread, &players, transform, &interaction) {
-                            report.block_edits += 1;
-                        } else {
-                            report.block_edit_rejections += 1;
+                        match handle_block_interaction(
+                            thread,
+                            &players,
+                            transform,
+                            inventory,
+                            &interaction,
+                        ) {
+                            Some(consumed) => {
+                                report.block_edits += 1;
+                                if consumed {
+                                    send_inventory(
+                                        writer,
+                                        inventory,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?;
+                                    report.inventory_updates += 1;
+                                    broadcast_held_items(&players, network_id, inventory);
+                                }
+                            }
+                            None => report.block_edit_rejections += 1,
+                        }
+                    }
+                    SetActiveSlot::ID => {
+                        let packet: SetActiveSlot = frame.decode()?;
+                        let Some(section) = Section::from_section_id(packet.inventory_section_id)
+                        else {
+                            continue;
+                        };
+                        if inventory.set_active_slot(section, packet.active_slot) {
+                            broadcast_held_items(&players, network_id, inventory);
+                        }
+                    }
+                    DropItemStack::ID => {
+                        let packet: DropItemStack = frame.decode()?;
+                        let Some(section) = Section::from_section_id(packet.inventory_section_id)
+                        else {
+                            continue;
+                        };
+                        let Ok(slot) = u16::try_from(packet.slot_id) else {
+                            continue;
+                        };
+                        if packet.quantity <= 0 {
+                            continue;
+                        }
+                        if let Ok(Some(_)) =
+                            inventory.drop_from_slot(section, slot, packet.quantity)
+                        {
+                            send_inventory(writer, inventory, options.chunk_compression_level)
+                                .await?;
+                            report.inventory_updates += 1;
+                            broadcast_held_items(&players, network_id, inventory);
                         }
                     }
                     ViewRadius::ID => {
@@ -1440,15 +1534,16 @@ fn handle_block_interaction(
     thread: &WorldThread,
     players: &PlayerRegistry,
     transform: &PlayerTransform,
+    inventory: &mut PlayerInventory,
     interaction: &MouseInteraction,
-) -> bool {
-    match parse_block_edit(transform, interaction) {
-        Some(BlockEdit::Break { x, y, z }) => {
+) -> Option<bool> {
+    match parse_block_edit(transform, interaction)? {
+        BlockEdit::Break { x, y, z } => {
             let Ok((before, after)) = thread.set_block(x, y, z, 0) else {
-                return false;
+                return None;
             };
             if before == 0 || before == after {
-                return false;
+                return None;
             }
             players.broadcast_block(ServerSetBlock {
                 x,
@@ -1458,15 +1553,25 @@ fn handle_block_interaction(
                 filler: 0,
                 rotation: 0,
             });
-            true
+            Some(false)
         }
-        Some(BlockEdit::Place { x, y, z, item_id }) => {
+        BlockEdit::Place { x, y, z, item_id } => {
+            // The inventory is authoritative. The packet's item id remains a
+            // compatibility fallback for sessions/tests without a saved
+            // inventory (creative/debug joins).
+            let (item_id, from_inventory) = inventory
+                .right_hand()
+                .map(|stack| (stack.item_id.clone(), true))
+                .unwrap_or((item_id, false));
             let Ok(Some(block_id)) = thread.block_id_for_item(&item_id) else {
-                return false;
+                return None;
             };
             let Ok(Some((_before, after))) = thread.place_block(x, y, z, block_id) else {
-                return false;
+                return None;
             };
+            if from_inventory && !matches!(inventory.consume_right_hand(1), Ok(Some(_))) {
+                return None;
+            }
             players.broadcast_block(ServerSetBlock {
                 x,
                 y,
@@ -1475,10 +1580,17 @@ fn handle_block_interaction(
                 filler: 0,
                 rotation: 0,
             });
-            true
+            Some(from_inventory)
         }
-        None => false,
     }
+}
+
+fn broadcast_held_items(players: &PlayerRegistry, network_id: i32, inventory: &PlayerInventory) {
+    players.update_equipment(
+        network_id,
+        inventory.right_hand().map(|stack| stack.item_id.clone()),
+        inventory.left_hand().map(|stack| stack.item_id.clone()),
+    );
 }
 
 async fn send_client_teleport(

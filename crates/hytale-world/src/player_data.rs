@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hytale_inventory::{InventoryError, PlayerInventory};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
@@ -78,6 +79,9 @@ pub enum PlayerDataError {
     /// A UUID argument is malformed.
     #[error("invalid player UUID `{0}`")]
     InvalidUuid(String),
+    /// An inventory component is malformed.
+    #[error(transparent)]
+    Inventory(#[from] InventoryError),
 }
 
 /// Result alias for player data operations.
@@ -344,6 +348,17 @@ impl PlayerData {
             WORLD_GEN_ID_COMPONENT.to_string(),
             json!({ "WorldGenId": world_gen_id }),
         );
+    }
+
+    /// Decode the full player inventory (modern components, legacy fallback).
+    pub fn inventory(&self) -> std::result::Result<PlayerInventory, InventoryError> {
+        PlayerInventory::from_components(&self.components)
+    }
+
+    /// Write the full player inventory back into the component map, preserving
+    /// every non-inventory component.
+    pub fn set_inventory(&mut self, inventory: &PlayerInventory) {
+        inventory.write_components(&mut self.components);
     }
 
     /// Decode the saved model, skin, armor and active held items.

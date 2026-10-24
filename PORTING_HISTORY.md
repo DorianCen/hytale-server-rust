@@ -584,3 +584,61 @@ This file records phase-2 sessions only.
   - T49 persists inventory/held-item state and extends the traced lifecycle.
   - Replace/augment the baseline with a real-client capture when available.
   - T62/T63 cover rate limits and repeated trace/soak runs.
+---
+
+## Session 37 — Inventory, containers and transactions (2026-10-24)
+
+- **Goal:** replace appearance-only inventory decoding with real item stacks,
+  containers and held-item gameplay state, and preserve it across save/reload.
+- **Landed:**
+  - T49: new `hytale-inventory` crate with a Java-codec-compatible `ItemStack`
+    (`Id`, `Quantity`, `Durability`, `MaxDurability`, `QualityOverride`,
+    `Metadata`, `OverrideDroppedItemAnimation`) and an `ItemRules` seam for
+    asset-provided max stack/durability/quality.
+  - `SimpleItemContainer` implements Java's partial-add, all-or-nothing-remove,
+    target-slot move/merge/swap and clear transactions. `PlayerInventory` covers
+    hotbar, utility, armor, storage, tools and backpack, active-slot clamping,
+    modern `*Inventory` components and the legacy `Inventory` fallback.
+  - `PlayerData` gained `inventory()`/`set_inventory()`; the world thread loads
+    the inventory in `PlayerSnapshot` and saves transform + inventory together
+    on teardown.
+  - Sessions send the initial `UpdatePlayerInventory` plus hotbar/utility/tools
+    `SetActiveSlot` packets after self-spawn. `SetActiveSlot` and
+    `DropItemStack` are handled; held-item changes broadcast an equipment update
+    to visible players.
+  - Block placement uses the authoritative active hotbar stack, consumes one
+    item and sends an inventory resync. The old packet-item fallback remains for
+    sessions without a saved inventory, keeping T46's debug loopback green.
+  - `client-bot` decodes `UpdatePlayerInventory`/`SetActiveSlot`; a new
+    `inventory_join` loopback seeds `Rock_Stone ×5`, places one, reconnects and
+    asserts the saved `×4` stack returns. The trace fixture now includes the
+    inventory/active-slot packets.
+  - Scripted crate tests cover merge/split/swap/drop/pickup, Java fixture
+    component round-trip, legacy fallback and packet-section conversion. The
+    world-thread test now round-trips transform + inventory across a restart.
+- **Verified:**
+  - `cargo test -p hytale-inventory` (9 scenarios + doc tests).
+  - `cargo test -p hytale-world`, `cargo test -p hytale-server`.
+  - `cargo test -p client-bot --test inventory_join -- --ignored`.
+  - `cargo test -p client-bot --test multi_join`, `auth_join`, `dev_join`,
+    `trace_gate` and `trace_fixture` (as applicable).
+  - `cargo test --workspace`, clippy and fmt.
+  - `tools/java-dumper/run-player-data.sh --probe` on the Rust-written player
+    holder (inventory components included) → `java player data check: ok`.
+  - The existing T46/T47 whole-save Java gate remains green; the T49 world is a
+    generated universe world, so its config UUID is not the fixture config UUID
+    the whole-save script assumes.
+- **Deviations:**
+  - Inventory windows, block containers, item entities and the
+    `MoveItemStack`/`SmartMoveItemStack` server packet path are later gameplay
+    work; the pure container transactions are implemented/tested.
+  - `DropItemStack` removes/resyncs the stack without spawning a world item
+    entity (T56).
+  - Legacy/debug sessions with no saved inventory keep the T46 packet-item
+    placement fallback.
+  - The server sends all six inventory sections on join; saves only write
+    present/non-empty components.
+- **Follow-ups:**
+  - T50/T56 wire block containers and dropped/runtime item entities.
+  - T53 consumes item utility/stat metadata.
+  - T57 adds inventory UI presentation.

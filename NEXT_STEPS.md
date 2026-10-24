@@ -5,8 +5,8 @@
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** **T49** — inventory, containers and transactions, starting M5
-gameplay parity. M4/v1 closed with T48.
+**Next task:** **T50** — interaction graph and block interactions, continuing
+M5 gameplay parity.
 
 ## Current state
 
@@ -67,6 +67,12 @@ Landed and green:
   join/move/edit/disconnect/reconnect fixture, a live trace replay gate, a fast
   registry fixture test, and the real-client capture runbook with the
   `ViewRadius`-on-Chunks constraint recorded.
+- T49 inventory: new `hytale-inventory` crate with Java-compatible item stacks,
+  six player containers, active slots and atomic move/split/merge/swap/drop/
+  pickup; `PlayerData` inventory save/load; initial inventory/active-slot
+  packets; authoritative held-item consumption on placement; inventory saves
+  with the transform; a seeded hotbar loopback proving `×5` → place → `×4` →
+  reconnect restores `×4`.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -86,7 +92,7 @@ cargo fmt --all -- --check
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   M5 starts with T49.
+   M5 continues with T50 after T49.
 
 ## Try it
 

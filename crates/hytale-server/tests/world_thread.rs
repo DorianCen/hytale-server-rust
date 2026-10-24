@@ -381,26 +381,43 @@ fn player_snapshot_round_trips_a_session_transform() {
         thread.player_snapshot(uuid).expect("second snapshot"),
         initial
     );
+    let mut inventory = initial.inventory.clone();
+    inventory
+        .hotbar
+        .container
+        .set_slot(
+            0,
+            Some(
+                hytale_inventory::ItemStack::from_fields(
+                    "Rock_Stone",
+                    5,
+                    0.0,
+                    0.0,
+                    None,
+                    None,
+                    false,
+                )
+                .expect("inventory stack"),
+            ),
+        )
+        .expect("set hotbar");
     thread
-        .save_player_transform(uuid, transform)
-        .expect("save transform");
-    assert_eq!(
-        thread
-            .player_snapshot(uuid)
-            .expect("saved snapshot")
-            .transform,
-        transform
-    );
+        .save_player_state(uuid, transform, inventory.clone())
+        .expect("save player state");
+    let saved = thread.player_snapshot(uuid).expect("saved snapshot");
+    assert_eq!(saved.transform, transform);
+    assert_eq!(saved.inventory, inventory);
     thread.shutdown().expect("shutdown");
 
     let (thread, _start) = WorldThread::spawn(options()).expect("respawn the world thread");
+    let reloaded = thread.player_snapshot(uuid).expect("reloaded snapshot");
     assert_eq!(
-        thread
-            .player_snapshot(uuid)
-            .expect("reloaded snapshot")
-            .transform,
-        transform,
+        reloaded.transform, transform,
         "the session transform must survive a world restart"
+    );
+    assert_eq!(
+        reloaded.inventory, inventory,
+        "the session inventory must survive a world restart"
     );
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();

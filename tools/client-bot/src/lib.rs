@@ -4,6 +4,7 @@
 //! packets until the server disconnects or the timeout expires. Packet handlers
 //! and the full join flow land in later tasks.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use hytale_auth::{AuthService, SCOPE_CLIENT};
@@ -30,6 +31,7 @@ use hytale_protocol::generated::connection::{
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
+use hytale_protocol::generated::inventory::{SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
 };
@@ -346,6 +348,10 @@ pub struct GameJoinReport {
     pub self_spawn_position: Option<Position>,
     /// `WorldGameplayConfig` payload.
     pub gameplay_config: Option<WorldGameplayConfig>,
+    /// Latest `UpdatePlayerInventory` payload.
+    pub inventory: Option<UpdatePlayerInventory>,
+    /// Latest `SetActiveSlot` selections keyed by inventory section id.
+    pub active_slots: BTreeMap<i32, i32>,
     /// Initial `UpdateTimeSettings` payload.
     pub time_settings: Option<UpdateTimeSettings>,
     /// Initial `UpdateTime` value.
@@ -521,7 +527,7 @@ pub async fn dev_join(
         }
     }
 
-    let (game, mut chunks, mut pending) = enter_game_client(session, &mut reader, &mut writer)
+    let (mut game, mut chunks, mut pending) = enter_game_client(session, &mut reader, &mut writer)
         .await
         .map_err(|error| DevJoinError::Game(error.to_string()))?;
     let chunk_packets =
@@ -570,6 +576,7 @@ pub async fn dev_join(
                 game.client_id,
                 window,
                 disconnect_at,
+                &mut game,
             )
             .await?
         }
@@ -627,6 +634,7 @@ async fn observe_players(
     self_id: Option<i32>,
     window: Duration,
     mut disconnect_at: Option<tokio::time::Instant>,
+    game: &mut GameJoinReport,
 ) -> Result<PlayerObservation, FrameStreamError> {
     let mut observation = PlayerObservation::default();
     let deadline = tokio::time::Instant::now() + window;
@@ -669,6 +677,14 @@ async fn observe_players(
                     EntityUpdates::ID => {
                         let packet: EntityUpdates = frame.decode()?;
                         record_observed_entities(&packet, &mut observation, self_id);
+                    }
+                    UpdatePlayerInventory::ID => {
+                        game.inventory = Some(frame.decode()?);
+                    }
+                    SetActiveSlot::ID => {
+                        let packet: SetActiveSlot = frame.decode()?;
+                        game.active_slots
+                            .insert(packet.inventory_section_id, packet.active_slot);
                     }
                     Ping::ID => answer_ping(writer, &frame).await?,
                     ServerDisconnect::ID => return Ok(observation),
@@ -1273,6 +1289,14 @@ async fn enter_game_client(
             WorldGameplayConfig::ID => {
                 game.gameplay_config = Some(frame.decode()?);
             }
+            UpdatePlayerInventory::ID => {
+                game.inventory = Some(frame.decode()?);
+            }
+            SetActiveSlot::ID => {
+                let packet: SetActiveSlot = frame.decode()?;
+                game.active_slots
+                    .insert(packet.inventory_section_id, packet.active_slot);
+            }
             UpdateTimeSettings::ID => {
                 game.time_settings = Some(frame.decode()?);
             }
@@ -1384,6 +1408,14 @@ async fn finish_game(
             }
             WorldGameplayConfig::ID => {
                 game.gameplay_config = Some(frame.decode()?);
+            }
+            UpdatePlayerInventory::ID => {
+                game.inventory = Some(frame.decode()?);
+            }
+            SetActiveSlot::ID => {
+                let packet: SetActiveSlot = frame.decode()?;
+                game.active_slots
+                    .insert(packet.inventory_section_id, packet.active_slot);
             }
             UpdateTimeSettings::ID => {
                 game.time_settings = Some(frame.decode()?);

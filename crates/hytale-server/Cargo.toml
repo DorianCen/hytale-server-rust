@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 hytale-assets = { path = "../hytale-assets" }
+hytale-inventory = { path = "../hytale-inventory" }
 hytale-auth = { path = "../hytale-auth" }
 hytale-commands = { path = "../hytale-commands" }
 hytale-core = { path = "../hytale-core" }
