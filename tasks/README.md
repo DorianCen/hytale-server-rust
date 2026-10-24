@@ -18,7 +18,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T41](T41-universe-world-lifecycle.md) | Universe and world lifecycle | T40 | low/medium | done (session 29) |
 | [T42](T42-persistent-listener.md) | Persistent listener and multi-session runtime | T39, T41 | low/medium | done (session 30) |
 | [T43](T43-world-clock-gameplay-config.md) | World clock and `GameplayConfig` | T42 | medium | done (session 31) |
-| T44 | Self-spawn equipment and cosmetics | T42 | medium | planned |
+| [T44](T44-self-spawn-appearance.md) | Self-spawn equipment and cosmetics | T42 | medium | done (session 32) |
 | T45 | Other-player entity tracking and broadcast | T42, T44 | low/medium | planned |
 | T46 | Block place/break | T42 | medium | planned |
 | T47 | Disconnect, reconnect and session teardown | T43–T46 | medium | planned |

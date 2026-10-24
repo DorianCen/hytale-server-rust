@@ -241,21 +241,26 @@ Java boot validates it normally.
 
 Session 10 added `player-data/12345678-1234-5678-9abc-def012345678.json`, a real
 `EntityStore` holder document written with `EntityStore.REGISTRY.serialize` and
-`BsonUtil.writeDocument` (the `DiskPlayerStorageProvider` save path):
+`BsonUtil.writeDocument` (the `DiskPlayerStorageProvider` save path). Session 32
+added `22345678-1234-5678-9abc-def012345678.json` with a saved
+`PersistentModel` reference and full armor/hotbar/utility inventories:
 
 | Fixture | Contents | Gate |
 |---|---|---|
-| `<uuid>.json` | core `UUID`, `Transform` (position + radians rotation) and `WorldGenId` components | `crates/hytale-world/tests/player_data.rs` |
-| `README.md` | value table, regeneration and reverse-check commands | — |
+| `12345678-….json` | core `UUID`, `Transform` (position + radians rotation) and `WorldGenId` components | `crates/hytale-world/tests/player_data.rs` |
+| `22345678-….json` | core components + `Model` (`ModelReference(Player, 1.0)`), `ArmorInventory` (4 slots), `HotbarInventory` (sword + active slot) and `UtilityInventory` (potion + active slot) | `crates/hytale-world/tests/player_data.rs`, `crates/hytale-server/tests/world_thread.rs` |
+| `README.md` | value tables, regeneration and reverse-check commands | — |
 
-The Rust gate checks every component, round-trips the document and verifies that
+The Rust gate checks every component, round-trips the documents and verifies that
 unknown components (a full Java player save has many) survive a save.
-`crates/hytale-server/tests/player_data.rs` covers the CLI copy/create path.
+`crates/hytale-server/tests/player_data.rs` covers the CLI copy/create path, and
+the world-thread test checks item selection plus unknown-item fallback.
 Regenerate with `tools/java-dumper/run-player-data.sh --check`.
 
-The reverse gate needs no committed fixture: the CLI loads the Java file, writes
-a Rust one, and `run-player-data.sh --probe` deserializes it with the real
-`EntityStore` registry, checks the components, and re-serializes the holder.
+The reverse gate needs no committed fixture: the CLI loads a Java file, writes a
+Rust one, and `run-player-data.sh --probe` / `--probe-equipment` deserializes it
+with the real `EntityStore` registry, checks the components, and re-serializes
+the holder.
 
 Session 11 added the whole-save gate:
 

@@ -160,6 +160,68 @@ fn ticks_the_view_and_unloads_chunks_that_leave_it() {
 }
 
 #[test]
+fn saved_equipment_loads_and_unknown_items_fall_back() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("equipment");
+    let players_dir = save_dir.join("players");
+    std::fs::create_dir_all(&players_dir).expect("create players directory");
+    let source = std::fs::read_to_string(
+        repo_root()
+            .join("testdata/golden/server/player-data/22345678-1234-5678-9abc-def012345678.json"),
+    )
+    .expect("read the Java equipment fixture")
+    .replace("Weapon_Longsword_Adamantite", "Missing_Hotbar_Item")
+    .replace("Armor_Adamantite_Chest", "Missing_Armor_Item");
+    std::fs::write(
+        players_dir.join("22345678-1234-5678-9abc-def012345678.json"),
+        source,
+    )
+    .expect("write the player save");
+
+    let options = WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, start) = WorldThread::spawn(options).expect("spawn the world thread");
+    assert_eq!(start.player_uuid, "22345678-1234-5678-9abc-def012345678");
+
+    let appearance = thread.player_appearance().expect("player appearance");
+    let model = appearance.model.expect("saved model");
+    assert_eq!(model.id, "Player");
+    assert_eq!(model.scale, 1.0);
+    assert_eq!(
+        appearance.armor[0].as_deref(),
+        Some("Armor_Adamantite_Head")
+    );
+    assert_eq!(appearance.armor[1], None, "unknown armor id must fall back");
+    assert_eq!(
+        appearance.armor[2].as_deref(),
+        Some("Armor_Adamantite_Hands")
+    );
+    assert_eq!(
+        appearance.armor[3].as_deref(),
+        Some("Armor_Adamantite_Legs")
+    );
+    assert_eq!(
+        appearance.right_hand, None,
+        "unknown hotbar item must fall back"
+    );
+    assert_eq!(appearance.left_hand.as_deref(), Some("Potion_Health"));
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn world_clock_progresses_pauses_and_survives_save_reload() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

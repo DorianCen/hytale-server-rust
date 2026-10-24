@@ -33,8 +33,8 @@ use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, Serv
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
     ComponentUpdate, Direction, DisconnectType, EntityUpdate, EquipmentUpdate, FormattedMessage,
-    GameMode, InstantData, ModelTransform, ModelUpdate, PlayerSkinUpdate, PongType, Position,
-    TransformUpdate, UpdateType,
+    GameMode, InstantData, Model, ModelTransform, ModelUpdate, PlayerSkin, PlayerSkinUpdate,
+    PongType, Position, TransformUpdate, UpdateType,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -56,7 +56,9 @@ use hytale_protocol::generated::world::ClearChunks;
 use hytale_protocol::generated::world::{UpdateTime, UpdateTimeSettings, WorldGameplayConfig};
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
-use hytale_world::player_data::PlayerTransform;
+use hytale_world::player_data::{
+    PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
+};
 use thiserror::Error;
 
 use crate::chunk_streamer::{send_updates, send_view, ChunkSessionError, ChunkStreamReport};
@@ -294,6 +296,7 @@ pub enum SessionError {
 struct Handshake {
     uuid: Uuid,
     username: String,
+    skin: Option<PlayerSkin>,
     view_radius: u32,
     auth_mode: &'static str,
     assets: AssetStreamReport,
@@ -303,6 +306,8 @@ struct EnterGame {
     world_uuid: Uuid,
     radius: u32,
     player_transform: PlayerTransform,
+    appearance: PlayerAppearance,
+    skin: Option<PlayerSkin>,
     world_time: WorldTimeState,
     gameplay_config: WorldGameplayConfig,
 }
@@ -357,6 +362,8 @@ pub async fn serve_connection(
         .unwrap_or_else(default_player_transform);
     let world_time = thread.world_time()?;
     let gameplay_config = thread.gameplay_config()?;
+    let appearance = thread.player_appearance()?;
+    let skin = handshake.skin.clone();
     let world_uuid: Uuid = start
         .world_uuid
         .parse()
@@ -379,6 +386,8 @@ pub async fn serve_connection(
             world_uuid,
             radius,
             player_transform,
+            appearance,
+            skin,
             world_time,
             gameplay_config,
         },
@@ -468,6 +477,7 @@ async fn perform_handshake(
                 Identity {
                     uuid: player.uuid,
                     username: player.username,
+                    skin: player.skin,
                 },
                 "insecure",
             )
@@ -595,7 +605,14 @@ async fn perform_handshake(
                     DEFAULT_COMPRESSION_LEVEL,
                 )
                 .await?;
-            (Identity { uuid, username }, "local")
+            (
+                Identity {
+                    uuid,
+                    username,
+                    skin: None,
+                },
+                "local",
+            )
         }
     };
 
@@ -692,6 +709,7 @@ async fn perform_handshake(
     Ok(Handshake {
         uuid: identity.uuid,
         username: identity.username,
+        skin: identity.skin,
         view_radius,
         auth_mode,
         assets,
@@ -701,6 +719,7 @@ async fn perform_handshake(
 struct Identity {
     uuid: Uuid,
     username: String,
+    skin: Option<PlayerSkin>,
 }
 
 async fn send_common_assets(
@@ -835,6 +854,8 @@ async fn enter_game(
         world_uuid,
         radius,
         player_transform,
+        appearance,
+        skin,
         world_time,
         gameplay_config,
     } = start;
@@ -943,7 +964,7 @@ async fn enter_game(
         .await?;
     writer
         .write_packet(
-            &self_spawn_packet(player_transform),
+            &self_spawn_packet(player_transform, &appearance, skin),
             options.chunk_compression_level,
         )
         .await?;
@@ -1061,7 +1082,19 @@ fn model_transform(transform: PlayerTransform) -> ModelTransform {
     }
 }
 
-fn self_spawn_packet(transform: PlayerTransform) -> EntityUpdates {
+fn self_spawn_packet(
+    transform: PlayerTransform,
+    appearance: &PlayerAppearance,
+    auth_skin: Option<PlayerSkin>,
+) -> EntityUpdates {
+    // Java keeps the auth skin on `PlayerSkinComponent`; a saved skin is the
+    // Rust-side fallback when the client did not advertise one.
+    let skin = auth_skin.or_else(|| appearance.skin.as_ref().map(skin_packet));
+    let armor_ids = appearance
+        .armor
+        .iter()
+        .map(|item| item.clone().unwrap_or_default())
+        .collect();
     EntityUpdates {
         removed: None,
         updates: Some(vec![EntityUpdate {
@@ -1069,20 +1102,70 @@ fn self_spawn_packet(transform: PlayerTransform) -> EntityUpdates {
             removed: None,
             updates: Some(vec![
                 ComponentUpdate::ModelUpdate(ModelUpdate {
-                    model: None,
+                    model: appearance.model.as_ref().map(model_packet),
                     entity_scale: 1.0,
                 }),
-                ComponentUpdate::PlayerSkinUpdate(PlayerSkinUpdate { skin: None }),
+                ComponentUpdate::PlayerSkinUpdate(PlayerSkinUpdate { skin }),
                 ComponentUpdate::EquipmentUpdate(EquipmentUpdate {
-                    armor_ids: Some(Vec::new()),
-                    right_hand_item_id: None,
-                    left_hand_item_id: None,
+                    armor_ids: Some(armor_ids),
+                    right_hand_item_id: Some(
+                        appearance
+                            .right_hand
+                            .clone()
+                            .unwrap_or_else(|| EMPTY_ITEM_ID.to_string()),
+                    ),
+                    left_hand_item_id: Some(
+                        appearance
+                            .left_hand
+                            .clone()
+                            .unwrap_or_else(|| EMPTY_ITEM_ID.to_string()),
+                    ),
                 }),
                 ComponentUpdate::TransformUpdate(TransformUpdate {
                     transform: model_transform(transform),
                 }),
             ]),
         }]),
+    }
+}
+
+/// Build the protocol model from the saved `PersistentModel` reference.
+///
+/// The full `ModelAsset` expansion (geometry path, textures, animation sets,
+/// attachments) is not ported yet; the reference id and scale are enough for
+/// the client to resolve/ignore the model without failing the join. Java's
+/// `Model.toPacket` uses the unknown texture when the asset has no path.
+fn model_packet(reference: &PlayerModelReference) -> Model {
+    Model {
+        asset_id: Some(reference.id.clone()),
+        texture: Some("textures/Unknown.png".to_string()),
+        scale: reference.scale,
+        ..Model::default()
+    }
+}
+
+fn skin_packet(skin: &PlayerSkinData) -> PlayerSkin {
+    PlayerSkin {
+        body_characteristic: skin.body_characteristic.clone(),
+        underwear: skin.underwear.clone(),
+        face: skin.face.clone(),
+        eyes: skin.eyes.clone(),
+        ears: skin.ears.clone(),
+        mouth: skin.mouth.clone(),
+        facial_hair: skin.facial_hair.clone(),
+        haircut: skin.haircut.clone(),
+        eyebrows: skin.eyebrows.clone(),
+        pants: skin.pants.clone(),
+        overpants: skin.overpants.clone(),
+        undertop: skin.undertop.clone(),
+        overtop: skin.overtop.clone(),
+        shoes: skin.shoes.clone(),
+        head_accessory: skin.head_accessory.clone(),
+        face_accessory: skin.face_accessory.clone(),
+        ear_accessory: skin.ear_accessory.clone(),
+        skin_feature: skin.skin_feature.clone(),
+        gloves: skin.gloves.clone(),
+        cape: skin.cape.clone(),
     }
 }
 
@@ -1318,4 +1401,149 @@ async fn expect<T: Packet + Wire>(
         });
     }
     Ok(frame.decode()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hytale_world::player_data::{PlayerSkinData, Position, Rotation};
+
+    fn transform() -> PlayerTransform {
+        PlayerTransform::new(
+            Position {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            Rotation {
+                pitch: 0.0,
+                yaw: 0.0,
+                roll: 0.0,
+            },
+        )
+    }
+
+    fn updates(packet: &EntityUpdates) -> &[ComponentUpdate] {
+        packet.updates.as_ref().expect("updates")[0]
+            .updates
+            .as_deref()
+            .expect("component updates")
+    }
+
+    #[test]
+    fn empty_save_uses_java_empty_equipment_defaults() {
+        let packet = self_spawn_packet(transform(), &PlayerAppearance::default(), None);
+        let updates = updates(&packet);
+        match &updates[0] {
+            ComponentUpdate::ModelUpdate(update) => assert!(update.model.is_none()),
+            other => panic!("expected ModelUpdate, got {other:?}"),
+        }
+        match &updates[1] {
+            ComponentUpdate::PlayerSkinUpdate(update) => assert!(update.skin.is_none()),
+            other => panic!("expected PlayerSkinUpdate, got {other:?}"),
+        }
+        match &updates[2] {
+            ComponentUpdate::EquipmentUpdate(update) => {
+                assert_eq!(
+                    update.armor_ids,
+                    Some(vec![
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new()
+                    ])
+                );
+                assert_eq!(update.right_hand_item_id.as_deref(), Some(EMPTY_ITEM_ID));
+                assert_eq!(update.left_hand_item_id.as_deref(), Some(EMPTY_ITEM_ID));
+            }
+            other => panic!("expected EquipmentUpdate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn saved_appearance_populates_model_equipment_and_skin() {
+        let appearance = PlayerAppearance {
+            model: Some(PlayerModelReference {
+                id: "Player".to_string(),
+                scale: 1.0,
+                ..PlayerModelReference::default()
+            }),
+            skin: Some(PlayerSkinData {
+                face: Some("FaceA".to_string()),
+                haircut: Some("HairA".to_string()),
+                ..PlayerSkinData::default()
+            }),
+            armor: [
+                Some("Armor_Adamantite_Head".to_string()),
+                Some("Armor_Adamantite_Chest".to_string()),
+                Some("Armor_Adamantite_Hands".to_string()),
+                Some("Armor_Adamantite_Legs".to_string()),
+            ],
+            right_hand: Some("Weapon_Longsword_Adamantite".to_string()),
+            left_hand: Some("Potion_Health".to_string()),
+        };
+        let packet = self_spawn_packet(transform(), &appearance, None);
+        let updates = updates(&packet);
+
+        match &updates[0] {
+            ComponentUpdate::ModelUpdate(update) => {
+                let model = update.model.as_ref().expect("model");
+                assert_eq!(model.asset_id.as_deref(), Some("Player"));
+                assert_eq!(model.scale, 1.0);
+            }
+            other => panic!("expected ModelUpdate, got {other:?}"),
+        }
+        match &updates[1] {
+            ComponentUpdate::PlayerSkinUpdate(update) => {
+                let skin = update.skin.as_ref().expect("saved skin");
+                assert_eq!(skin.face.as_deref(), Some("FaceA"));
+                assert_eq!(skin.haircut.as_deref(), Some("HairA"));
+            }
+            other => panic!("expected PlayerSkinUpdate, got {other:?}"),
+        }
+        match &updates[2] {
+            ComponentUpdate::EquipmentUpdate(update) => {
+                assert_eq!(
+                    update.armor_ids,
+                    Some(vec![
+                        "Armor_Adamantite_Head".to_string(),
+                        "Armor_Adamantite_Chest".to_string(),
+                        "Armor_Adamantite_Hands".to_string(),
+                        "Armor_Adamantite_Legs".to_string(),
+                    ])
+                );
+                assert_eq!(
+                    update.right_hand_item_id.as_deref(),
+                    Some("Weapon_Longsword_Adamantite")
+                );
+                assert_eq!(update.left_hand_item_id.as_deref(), Some("Potion_Health"));
+            }
+            other => panic!("expected EquipmentUpdate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn auth_skin_wins_over_the_saved_skin() {
+        let appearance = PlayerAppearance {
+            skin: Some(PlayerSkinData {
+                face: Some("SavedFace".to_string()),
+                ..PlayerSkinData::default()
+            }),
+            ..PlayerAppearance::default()
+        };
+        let auth_skin = PlayerSkin {
+            face: Some("AuthFace".to_string()),
+            ..PlayerSkin::default()
+        };
+        let packet = self_spawn_packet(transform(), &appearance, Some(auth_skin));
+        match &updates(&packet)[1] {
+            ComponentUpdate::PlayerSkinUpdate(update) => {
+                assert_eq!(
+                    update.skin.as_ref().unwrap().face.as_deref(),
+                    Some("AuthFace")
+                );
+            }
+            other => panic!("expected PlayerSkinUpdate, got {other:?}"),
+        }
+    }
 }

@@ -76,10 +76,13 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   31 added the Java-compatible world clock (`WorldClock`), the internal
   `GameplayConfig` store with a tag-resolved `WorldGameplayConfig` join packet,
   per-second `UpdateTime` broadcasts, and `GameTime`/pause persistence through
-  `config.json`. M3 is complete and M4 continues with self-spawn appearance,
-  multiplayer tracking, block edits, a real-client trace and then
-  gameplay/NPC/hardening; see [`plan.md`](plan.md),
-  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
+  `config.json`. Session 32 decoded the saved model/skin/inventory components and
+  the insecure handshake skin into the self-spawn `EntityUpdates`, with item-id
+  validation and Java empty-slot defaults; a Java equipment fixture covers the
+  codecs. M3 is complete and M4 continues with other-player tracking, block
+  edits, a real-client trace and then gameplay/NPC/hardening; see
+  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/world-generation/ARCHITECTURE.md`](done/world-generation/ARCHITECTURE.md),
@@ -360,7 +363,11 @@ broadcast once per real second while time runs.
 
 The initial component set is deliberately small: transform, UUID, player,
 persistent display name, world-gen id, movement/velocity, and the components
-needed by block placement. Gameplay components arrive in M5.
+needed by block placement. `hytale-world::player_data` also decodes the saved
+`Model` reference and inventory containers into a server-side
+`PlayerAppearance`; the session maps that plus the auth skin into the self-spawn
+`ModelUpdate`/`PlayerSkinUpdate`/`EquipmentUpdate`. Gameplay components arrive
+in M5.
 
 ---
 
@@ -379,9 +386,11 @@ Target: vanilla `IndexedStorage` compatibility.
   legacy heightmap uses `ShortBytePalette`.
 - Player data: `DiskPlayerStorageProvider` layout in
   `hytale_world::player_data`. `<world>/players/<uuid>.json` is the
-  `EntityStore` holder (`{"Components": ...}`), with typed `UUID`, `Transform`
-  and `WorldGenId` and opaque preservation of all other components. The
-  Java-written fixture and the Java read-back probe are the gates.
+  `EntityStore` holder (`{"Components": ...}`), with typed `UUID`, `Transform`,
+  `WorldGenId`, saved `Model` (`ModelReference`), optional `PlayerSkin` and the
+  modern armor/hotbar/utility inventory containers (plus the legacy `Inventory`
+  fallback). Other components remain opaque. The Java-written core/equipment
+  fixtures and the Java read-back probes are the gates.
 - World config: `WorldConfig` v4 (`config.json`) lands in
   `hytale_world::world_config`: typed server-owned fields, opaque provider
   sections, Java extended-JSON UUIDs, `.bak` + atomic save, and unknown-field
@@ -492,6 +501,8 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
 | `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence and per-second `UpdateTime` landed (M4); sleep/interpolation commands and moon-phase events pending (T54) |
+| `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-world::player_data` + `hytale-server::session` | core holder codec, model/skin/inventory component decoding, legacy `Inventory` fallback and self-spawn equipment mapping landed (M4); per-session player identity and live inventory updates pending |
+| `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::player_data` | saved model reference and inventory components decoded (M4); full `ModelAsset` protocol expansion and ECS lifecycle deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, and the persistent multi-session listener (M3/M4) landed; other-player tracking and block interactions pending |

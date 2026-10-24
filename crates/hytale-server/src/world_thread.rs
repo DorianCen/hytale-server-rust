@@ -17,7 +17,7 @@ use hytale_assets::{AssetPack, CommonAssetRegistry};
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
-use hytale_world::player_data::{PlayerDataError, PlayerTransform};
+use hytale_world::player_data::{PlayerAppearance, PlayerDataError, PlayerTransform};
 use hytale_world::view::{ChunkPlan, ChunkView};
 use hytale_world::world::{WorldError, WorldSave};
 use hytale_world::world_clock::{format_iso8601, parse_iso8601, WorldClock, WorldClockSettings};
@@ -220,6 +220,9 @@ enum Command {
     },
     PlayerTransform {
         reply: SyncSender<Result<Option<PlayerTransform>, String>>,
+    },
+    PlayerAppearance {
+        reply: SyncSender<Result<PlayerAppearance, String>>,
     },
     WorldTime {
         reply: SyncSender<Result<WorldTimeState, String>>,
@@ -456,6 +459,21 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// The loaded player's saved model, skin, armor and active held items.
+    ///
+    /// Unknown item ids are already dropped against the world's asset
+    /// registry; the self-spawn falls back to Java's empty values.
+    pub fn player_appearance(&self) -> Result<PlayerAppearance, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlayerAppearance { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// The world clock snapshot sent on join.
     pub fn world_time(&self) -> Result<WorldTimeState, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -547,6 +565,7 @@ fn run(
             mut pending,
             start,
             player_transform,
+            player_appearance,
             mut clock,
             gameplay_config,
             config_assets,
@@ -626,6 +645,9 @@ fn run(
                     Command::PlayerTransform { reply } => {
                         let _ = reply.send(Ok(player_transform));
                     }
+                    Command::PlayerAppearance { reply } => {
+                        let _ = reply.send(Ok(player_appearance.clone()));
+                    }
                     Command::WorldTime { reply } => {
                         advance_clock(&mut clock, &mut last_clock);
                         let _ = reply.send(Ok(clock.state()));
@@ -669,6 +691,7 @@ struct Started {
     pending: VecDeque<(i32, i32)>,
     start: WorldStartReport,
     player_transform: Option<PlayerTransform>,
+    player_appearance: PlayerAppearance,
     clock: WorldClock,
     gameplay_config: WorldGameplayConfig,
     config_assets: Arc<hytale_assets::ConfigAssets>,
@@ -712,6 +735,8 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     };
     let (player, player_created) = save.load_or_create_player(player_uuid)?;
     let player_transform = player.transform();
+    let mut player_appearance = player.appearance();
+    player_appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
     save.save_player(player_uuid, &player)?;
 
     // The gameplay config id comes from `config.json`; a missing asset (or a
@@ -775,6 +800,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         pending,
         start,
         player_transform,
+        player_appearance,
         clock,
         gameplay_config,
         config_assets,

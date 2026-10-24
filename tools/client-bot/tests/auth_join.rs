@@ -149,6 +149,19 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     assert!(report.game.join_world);
     assert!(report.game.player_list);
     assert!(report.game.self_spawn);
+    assert_eq!(report.game.self_spawn_model, None);
+    assert_eq!(report.game.self_spawn_skin, None);
+    assert_eq!(
+        report.game.self_spawn_armor,
+        Some(vec![
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new()
+        ])
+    );
+    assert_eq!(report.game.self_spawn_right_hand.as_deref(), Some("Empty"));
+    assert_eq!(report.game.self_spawn_left_hand.as_deref(), Some("Empty"));
     assert_eq!(report.game.client_id, Some(1));
     assert!(report.game.sent_ready_for_chunks);
     let gameplay = report

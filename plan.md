@@ -7,8 +7,9 @@ the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
 The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
-`GameplayConfig`) is done; the immediate next task is **T44** (self-spawn
-equipment and cosmetics from the player save), continuing M4's v1 path.
+`GameplayConfig`) and T44 (self-spawn appearance/equipment) are done; the
+immediate next task is **T45** (other-player entity tracking and broadcast),
+continuing M4's v1 path.
 
 ## 0. Baseline
 
@@ -473,6 +474,7 @@ Make time advance and stop using protocol defaults for gameplay rules.
 
 ### T44 — Self-spawn equipment and cosmetics from the player save
 
+**Status:** done (session 32)
 **Package:** `hytale-server`, `hytale-world`
 **Depends on:** T42
 **Goal:** replace the empty self-spawn model/skin/equipment payloads.
@@ -490,6 +492,17 @@ Make time advance and stop using protocol defaults for gameplay rules.
 - A saved player with equipment spawns with those items/components.
 - An empty/default save still spawns with Java-compatible defaults.
 - Unknown ids fall back without failing the join.
+
+**Deviations**
+
+- The `ModelUpdate` payload is built from the saved `ModelReference` (asset id
+  and scale, with Java's unknown texture) because the `ModelAsset` store and its
+  geometry/animation expansion are not ported yet.
+- The insecure handshake's `skin` is the primary cosmetic source (matching
+  Java); a saved `PlayerSkin` component is a fallback. The local JWT profile
+  does not carry cosmetic claims yet.
+- The world thread still owns one loaded player; per-session identity and save
+  are T45/T47.
 
 ---
 

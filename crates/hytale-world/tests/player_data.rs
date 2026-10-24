@@ -11,6 +11,11 @@ fn fixture() -> PathBuf {
         .join("../../testdata/golden/server/player-data/12345678-1234-5678-9abc-def012345678.json")
 }
 
+fn equipment_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/golden/server/player-data/22345678-1234-5678-9abc-def012345678.json")
+}
+
 fn uuid() -> WorldUuid {
     "12345678-1234-5678-9abc-def012345678".parse().unwrap()
 }
@@ -37,6 +42,7 @@ fn reads_the_java_player_fixture() {
         data.component_names().collect::<Vec<_>>(),
         vec!["WorldGenId", "Transform", "UUID"]
     );
+    assert_eq!(data.appearance(), Default::default());
 
     let transform = data.transform().expect("Transform component");
     assert_eq!(
@@ -54,6 +60,35 @@ fn reads_the_java_player_fixture() {
             }
         )
     );
+}
+
+#[test]
+fn reads_the_java_equipment_model_and_inventory_fixture() {
+    let data = PlayerData::from_json(&std::fs::read_to_string(equipment_fixture()).unwrap())
+        .expect("load");
+    assert_eq!(
+        data.uuid(),
+        Some("22345678-1234-5678-9abc-def012345678".parse().unwrap())
+    );
+
+    let appearance = data.appearance();
+    let model = appearance.model.expect("saved model");
+    assert_eq!(model.id, "Player");
+    assert_eq!(model.scale, 1.0);
+    assert_eq!(
+        appearance.armor,
+        [
+            Some("Armor_Adamantite_Head".to_string()),
+            Some("Armor_Adamantite_Chest".to_string()),
+            Some("Armor_Adamantite_Hands".to_string()),
+            Some("Armor_Adamantite_Legs".to_string()),
+        ]
+    );
+    assert_eq!(
+        appearance.right_hand.as_deref(),
+        Some("Weapon_Longsword_Adamantite")
+    );
+    assert_eq!(appearance.left_hand.as_deref(), Some("Potion_Health"));
 }
 
 #[test]

@@ -1,12 +1,12 @@
-# Next steps — CoreServer rewrite, phase 2 (session 31)
+# Next steps — CoreServer rewrite, phase 2 (session 32)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** **T44** — self-spawn equipment and cosmetics from the player
-save, continuing M4's v1 client path.
+**Next task:** **T45** — other-player entity tracking and broadcast, continuing
+M4's v1 client path.
 
 ## Current state
 
@@ -45,6 +45,10 @@ Landed and green:
   internal eight-asset `GameplayConfig` store with tag-resolved
   `WorldGameplayConfig`, per-second `UpdateTime` broadcasts, and save/reload
   through `config.json`.
+- T44 self-spawn appearance: saved `Model`/`PlayerSkin`/inventory decoding
+  (modern components plus legacy `Inventory`), item-id validation with
+  empty-slot fallback, the insecure handshake skin, and a Java equipment
+  fixture checked by the real entity-store codec.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -61,7 +65,7 @@ cargo fmt --all -- --check
 
 1. **M2 — asset completion (done):** T35 → T36/T37/T38 → T39.
 2. **M3 — runtime:** T40 (done) → T41 (done) → T42 (done; parallel with M2 after T34).
-3. **M4 — v1:** T43 (done) → T44 → T45 → T46 → T47 → T48.
+3. **M4 — v1:** T43 (done) → T44 (done) → T45 → T46 → T47 → T48.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md)).
 
 ## Try it

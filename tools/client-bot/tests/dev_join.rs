@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use client_bot::{dev_join, DevJoinOptions};
 use hytale_net::{connect, ServerEndpointBuilder, TlsIdentity};
+use hytale_protocol::generated::common::PlayerSkin;
 use hytale_protocol::io::Uuid;
 use hytale_server::{
     serve_session_connection, GeneratorOptions, SessionOptions, WorldThread, WorldThreadOptions,
@@ -93,6 +94,11 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
             uuid: Uuid::new(1, 2),
             username: "TestBot".to_string(),
             view_radius_chunks: 0,
+            skin: Some(PlayerSkin {
+                face: Some("FaceA".to_string()),
+                haircut: Some("HairA".to_string()),
+                ..PlayerSkin::default()
+            }),
         },
     )
     .await
@@ -106,6 +112,25 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     assert!(report.game.join_world);
     assert!(report.game.player_list);
     assert!(report.game.self_spawn);
+    assert_eq!(report.game.self_spawn_model, None);
+    let skin = report
+        .game
+        .self_spawn_skin
+        .as_ref()
+        .expect("skin from InsecurePlayerOptions");
+    assert_eq!(skin.face.as_deref(), Some("FaceA"));
+    assert_eq!(skin.haircut.as_deref(), Some("HairA"));
+    assert_eq!(
+        report.game.self_spawn_armor,
+        Some(vec![
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new()
+        ])
+    );
+    assert_eq!(report.game.self_spawn_right_hand.as_deref(), Some("Empty"));
+    assert_eq!(report.game.self_spawn_left_hand.as_deref(), Some("Empty"));
     assert_eq!(report.game.client_id, Some(1));
     assert!(report.game.sent_ready_for_chunks);
     assert_eq!(report.chunks.len(), 21);

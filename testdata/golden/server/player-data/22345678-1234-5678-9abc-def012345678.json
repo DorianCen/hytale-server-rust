@@ -1,0 +1,106 @@
+{
+  "Components": {
+    "ArmorInventory": {
+      "Inventory": {
+        "Id": "Simple",
+        "Capacity": 4,
+        "Items": {
+          "0": {
+            "Id": "Armor_Adamantite_Head",
+            "Quantity": 1,
+            "Durability": 0.0,
+            "MaxDurability": 0.0,
+            "QualityOverride": 0,
+            "OverrideDroppedItemAnimation": false
+          },
+          "2": {
+            "Id": "Armor_Adamantite_Hands",
+            "Quantity": 1,
+            "Durability": 0.0,
+            "MaxDurability": 0.0,
+            "QualityOverride": 0,
+            "OverrideDroppedItemAnimation": false
+          },
+          "1": {
+            "Id": "Armor_Adamantite_Chest",
+            "Quantity": 1,
+            "Durability": 0.0,
+            "MaxDurability": 0.0,
+            "QualityOverride": 0,
+            "OverrideDroppedItemAnimation": false
+          },
+          "3": {
+            "Id": "Armor_Adamantite_Legs",
+            "Quantity": 1,
+            "Durability": 0.0,
+            "MaxDurability": 0.0,
+            "QualityOverride": 0,
+            "OverrideDroppedItemAnimation": false
+          }
+        }
+      }
+    },
+    "UtilityInventory": {
+      "Inventory": {
+        "Id": "Simple",
+        "Capacity": 4,
+        "Items": {
+          "0": {
+            "Id": "Potion_Health",
+            "Quantity": 3,
+            "Durability": 0.0,
+            "MaxDurability": 0.0,
+            "QualityOverride": 0,
+            "OverrideDroppedItemAnimation": false
+          }
+        }
+      },
+      "ActiveSlot": 0
+    },
+    "HotbarInventory": {
+      "Inventory": {
+        "Id": "Simple",
+        "Capacity": 9,
+        "Items": {
+          "0": {
+            "Id": "Weapon_Longsword_Adamantite",
+            "Quantity": 1,
+            "Durability": 0.0,
+            "MaxDurability": 0.0,
+            "QualityOverride": 0,
+            "OverrideDroppedItemAnimation": false
+          }
+        }
+      },
+      "ActiveSlot": 0
+    },
+    "Model": {
+      "Model": {
+        "Id": "Player",
+        "Scale": 1.0,
+        "Static": false
+      }
+    },
+    "WorldGenId": {
+      "WorldGenId": 42
+    },
+    "Transform": {
+      "Position": {
+        "X": 10.5,
+        "Y": 80.0,
+        "Z": -3.5
+      },
+      "Rotation": {
+        "Pitch": 0.25,
+        "Yaw": 1.5707963705062866,
+        "Roll": -0.125
+      }
+    },
+    "UUID": {
+      "UUID": {
+        "$binary": "IjRWeBI0VniavN7wEjRWeA==",
+        "$type": "04"
+      }
+    }
+  }
+}

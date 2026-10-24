@@ -19,12 +19,14 @@ use hytale_protocol::generated::assets::{
     UpdateItems, UpdatePhysicalMaterials, UpdateSoundEvents, UpdateTagPatterns, UpdateTranslations,
 };
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
-use hytale_protocol::generated::common::{Asset, PongType, Position, TeleportAck};
+use hytale_protocol::generated::common::{
+    Asset, ComponentUpdate, PlayerSkin, PongType, Position, TeleportAck,
+};
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
-use hytale_protocol::generated::entities::SetEntitySeed;
+use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::AddToServerPlayerList;
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, SetClientId,
@@ -283,6 +285,8 @@ pub struct DevJoinOptions {
     pub username: String,
     /// Requested view radius, in chunks.
     pub view_radius_chunks: u32,
+    /// Optional skin advertised through `InsecurePlayerOptions`.
+    pub skin: Option<PlayerSkin>,
 }
 
 /// World-join state observed by the bot.
@@ -306,6 +310,16 @@ pub struct GameJoinReport {
     pub player_list: bool,
     /// The self `EntityUpdates` spawn arrived.
     pub self_spawn: bool,
+    /// Self-spawn model asset id (`ModelUpdate.model.assetId`).
+    pub self_spawn_model: Option<String>,
+    /// Self-spawn skin (`PlayerSkinUpdate.skin`).
+    pub self_spawn_skin: Option<PlayerSkin>,
+    /// Self-spawn armor ids (`EquipmentUpdate.armorIds`).
+    pub self_spawn_armor: Option<Vec<String>>,
+    /// Self-spawn right-hand item id.
+    pub self_spawn_right_hand: Option<String>,
+    /// Self-spawn left-hand item id.
+    pub self_spawn_left_hand: Option<String>,
     /// `WorldGameplayConfig` payload.
     pub gameplay_config: Option<WorldGameplayConfig>,
     /// Initial `UpdateTimeSettings` payload.
@@ -384,7 +398,7 @@ pub async fn dev_join(
                         &InsecurePlayerOptions {
                             uuid: options.uuid,
                             username: options.username.clone(),
-                            skin: None,
+                            skin: options.skin.clone(),
                         },
                         3,
                     )
@@ -933,7 +947,9 @@ async fn enter_game_client(
     loop {
         let frame = reader.next_frame().await?.ok_or(AuthJoinError::Closed)?;
         match frame.packet_id {
-            hytale_protocol::generated::entities::EntityUpdates::ID => {
+            EntityUpdates::ID => {
+                let packet: EntityUpdates = frame.decode()?;
+                record_self_spawn(&packet, &mut game);
                 game.self_spawn = true;
                 break;
             }
@@ -961,6 +977,38 @@ async fn enter_game_client(
     }
 
     Ok((game, chunks, pending))
+}
+
+/// Record the self-spawn components the server sent for the joining player.
+fn record_self_spawn(packet: &EntityUpdates, game: &mut GameJoinReport) {
+    let Some(updates) = &packet.updates else {
+        return;
+    };
+    let Some(entity) = updates.first() else {
+        return;
+    };
+    let Some(components) = &entity.updates else {
+        return;
+    };
+    for component in components {
+        match component {
+            ComponentUpdate::ModelUpdate(update) => {
+                game.self_spawn_model = update
+                    .model
+                    .as_ref()
+                    .and_then(|model| model.asset_id.clone());
+            }
+            ComponentUpdate::PlayerSkinUpdate(update) => {
+                game.self_spawn_skin = update.skin.clone();
+            }
+            ComponentUpdate::EquipmentUpdate(update) => {
+                game.self_spawn_armor = update.armor_ids.clone();
+                game.self_spawn_right_hand = update.right_hand_item_id.clone();
+                game.self_spawn_left_hand = update.left_hand_item_id.clone();
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Number of packets the initial snapshot contains for a view radius.

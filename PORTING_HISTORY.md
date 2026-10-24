@@ -318,6 +318,62 @@ This file records phase-2 sessions only.
   - T44 gives the self-spawn packet real equipment/cosmetics.
   - T54 owns weather, sleep/day-time interpolation and moon-phase events.
 
+---
+
+## Session 32 — Self-spawn appearance and equipment (2026-10-24)
+
+- **Goal:** replace the empty self-spawn model/skin/equipment components with
+  data decoded from the player save and the auth handshake.
+- **Landed:**
+  - T44: `PlayerData::appearance` decodes the saved `Model`
+    (`PersistentModel.ModelReference`: id, scale, static, random attachments), an
+    optional `PlayerSkin` component, modern `ArmorInventory`/`HotbarInventory`/
+    `UtilityInventory` containers (capacity, items, active slots) and the legacy
+    `Inventory` (`Armor`/`HotBar`/`Utility` + active slot fields) fallback.
+  - Added `PlayerAppearance` with four armor slots, right/left held items and
+    `resolve_items`, which drops ids the asset registry does not know.
+  - `WorldThread::player_appearance()` loads and resolves the player's saved
+    appearance alongside the transform.
+  - Self-spawn `EntityUpdates` now sends a `ModelUpdate` from the saved model
+    reference, a `PlayerSkinUpdate` from the insecure
+    `InsecurePlayerOptions.skin` (falling back to a saved skin), and an
+    `EquipmentUpdate` with four armor ids and Java's `"Empty"` held-item values.
+  - `client-bot` records the self-spawn model/skin/armor/hand values; the dev
+    join advertises a test skin, and the authenticated join asserts the empty
+    defaults.
+  - Extended the Java `WorldPlayerDumper` with a second golden fixture
+    (`22345678-…json`) containing the saved model and full armor/hotbar/utility
+    set, plus `write-equipment`/`probe-equipment` modes. `run-player-data.sh`
+    now writes, checks and probes both fixtures.
+  - Rust reads the new Java fixture and the reverse Rust-write → Java
+    `--probe-equipment` gate is green.
+- **Verified:**
+  - `cargo test -p hytale-world` (player-data unit/integration tests).
+  - `cargo test -p hytale-server` (self-spawn mapping and equipment world-thread
+    test).
+  - `cargo test -p client-bot --test dev_join -- --ignored` (skin over the
+    insecure handshake).
+  - `cargo test -p client-bot --test auth_join -- --ignored`,
+    `--test multi_join -- --ignored`.
+  - `cargo test --workspace`, clippy and fmt.
+  - `tools/java-dumper/run-player-data.sh --check` and
+    `--probe-equipment`.
+- **Deviations:**
+  - `ModelUpdate` uses the saved reference id/scale and Java's unknown texture;
+    full `ModelAsset` geometry/animation/attachment expansion is a follow-up.
+  - Skin comes from the insecure handshake (as in Java); the local JWT profile
+    has no cosmetic claims, and a saved `PlayerSkin` component is the fallback.
+  - The world thread still loads one player; per-session player identity/save is
+    T45/T47.
+  - Armor visibility from `GameplayConfig.PlayerConfig` is not applied to the
+    self-spawn payload yet.
+- **Follow-ups:**
+  - T45 adds other-player tracking and needs the same appearance/equipment
+    payload for remote entities.
+  - T46 can reuse the equipment item ids for held-item consistency.
+  - Full `ModelAsset` resolution should land before the real-client gate if the
+    vanilla client requires it.
+
 
 
 

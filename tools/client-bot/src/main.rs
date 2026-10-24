@@ -147,6 +147,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 ),
                 username: cli.username.clone(),
                 view_radius_chunks: cli.view_radius,
+                skin: None,
             },
         )
         .await?;

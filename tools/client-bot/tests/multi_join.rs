@@ -98,11 +98,13 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         uuid: Uuid::new(1, 1),
         username: "FirstBot".to_string(),
         view_radius_chunks: 0,
+        skin: None,
     };
     let second_options = DevJoinOptions {
         uuid: Uuid::new(1, 2),
         username: "SecondBot".to_string(),
         view_radius_chunks: 0,
+        skin: None,
     };
     let (first_report, second_report) = tokio::join!(
         dev_join(&first, &first_options),
@@ -137,6 +139,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             uuid: Uuid::new(1, 3),
             username: "ThirdBot".to_string(),
             view_radius_chunks: 0,
+            skin: None,
         },
     )
     .await

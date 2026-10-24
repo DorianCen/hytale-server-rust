@@ -17,6 +17,7 @@
 //! - `CoreServer/.../modules/entity/component/WorldGenId.java`
 //! - `Component/.../ComponentRegistry.java` (the `Components` holder codec)
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,26 @@ pub const UUID_COMPONENT: &str = "UUID";
 pub const TRANSFORM_COMPONENT: &str = "Transform";
 /// Component id of `WorldGenId`.
 pub const WORLD_GEN_ID_COMPONENT: &str = "WorldGenId";
+/// Component id of Java `PersistentModel` (`EntityModule` registers it as
+/// `Model`).
+pub const MODEL_COMPONENT: &str = "Model";
+/// Component id of the persisted player skin. Java keeps the live skin on the
+/// auth session; this port accepts an optional saved component so a Rust- or
+/// plugin-written save can carry cosmetics.
+pub const SKIN_COMPONENT: &str = "PlayerSkin";
+/// Component id of Java `InventoryComponent.Armor`.
+pub const ARMOR_INVENTORY_COMPONENT: &str = "ArmorInventory";
+/// Component id of Java `InventoryComponent.Hotbar`.
+pub const HOTBAR_INVENTORY_COMPONENT: &str = "HotbarInventory";
+/// Component id of Java `InventoryComponent.Utility`.
+pub const UTILITY_INVENTORY_COMPONENT: &str = "UtilityInventory";
+/// Legacy `Inventory` component (`Inventory.CODEC`, version 4).
+pub const LEGACY_INVENTORY_COMPONENT: &str = "Inventory";
+
+/// Number of armor slots (`ItemArmorSlot.VALUES.length`).
+pub const ARMOR_SLOTS: usize = 4;
+/// Java `BlockType.EMPTY_KEY`, used for empty held items.
+pub const EMPTY_ITEM_ID: &str = "Empty";
 
 /// Errors from the player data codec and store.
 #[derive(Debug, Error)]
@@ -105,6 +126,120 @@ impl PlayerTransform {
     /// Build a transform from position and rotation.
     pub const fn new(position: Position, rotation: Rotation) -> Self {
         Self { position, rotation }
+    }
+}
+
+/// A saved `PersistentModel.Model` reference (`Model.ModelReference`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerModelReference {
+    /// Model asset id (`Id`).
+    pub id: String,
+    /// Scale (`Scale`); non-positive values are normalized to `1.0`.
+    pub scale: f32,
+    /// Static model flag (`Static`).
+    pub static_model: bool,
+    /// Random attachment selections (`RandomAttachments`).
+    pub random_attachments: BTreeMap<String, String>,
+}
+
+impl Default for PlayerModelReference {
+    fn default() -> Self {
+        Self {
+            // `TempAssetIdUtil.DEFAULT_PLAYER_MODEL_NAME`.
+            id: "Player".to_string(),
+            scale: 1.0,
+            static_model: false,
+            random_attachments: BTreeMap::new(),
+        }
+    }
+}
+
+/// A persisted player skin (the protocol `PlayerSkin` fields).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlayerSkinData {
+    /// `bodyCharacteristic`.
+    pub body_characteristic: Option<String>,
+    /// `underwear`.
+    pub underwear: Option<String>,
+    /// `face`.
+    pub face: Option<String>,
+    /// `eyes`.
+    pub eyes: Option<String>,
+    /// `ears`.
+    pub ears: Option<String>,
+    /// `mouth`.
+    pub mouth: Option<String>,
+    /// `facialHair`.
+    pub facial_hair: Option<String>,
+    /// `haircut`.
+    pub haircut: Option<String>,
+    /// `eyebrows`.
+    pub eyebrows: Option<String>,
+    /// `pants`.
+    pub pants: Option<String>,
+    /// `overpants`.
+    pub overpants: Option<String>,
+    /// `undertop`.
+    pub undertop: Option<String>,
+    /// `overtop`.
+    pub overtop: Option<String>,
+    /// `shoes`.
+    pub shoes: Option<String>,
+    /// `headAccessory`.
+    pub head_accessory: Option<String>,
+    /// `faceAccessory`.
+    pub face_accessory: Option<String>,
+    /// `earAccessory`.
+    pub ear_accessory: Option<String>,
+    /// `skinFeature`.
+    pub skin_feature: Option<String>,
+    /// `gloves`.
+    pub gloves: Option<String>,
+    /// `cape`.
+    pub cape: Option<String>,
+}
+
+/// Player appearance and equipment decoded from a save.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PlayerAppearance {
+    /// Saved model reference (`Model` component), if any.
+    pub model: Option<PlayerModelReference>,
+    /// Saved skin (`PlayerSkin` component), if any.
+    pub skin: Option<PlayerSkinData>,
+    /// Armor item ids by `ItemArmorSlot` (Head, Chest, Hands, Legs).
+    pub armor: [Option<String>; ARMOR_SLOTS],
+    /// Active hotbar item, used as the right-hand item.
+    pub right_hand: Option<String>,
+    /// Active utility item, used as the left-hand item.
+    pub left_hand: Option<String>,
+}
+
+impl PlayerAppearance {
+    /// Drop item ids the caller's asset registry does not know.
+    ///
+    /// This is the "unknown id" fallback: the join still succeeds and the
+    /// self-spawn uses Java's empty armor/held-item values.
+    pub fn resolve_items<F>(&mut self, exists: F)
+    where
+        F: Fn(&str) -> bool,
+    {
+        for slot in &mut self.armor {
+            if let Some(id) = slot {
+                if !exists(id) {
+                    *slot = None;
+                }
+            }
+        }
+        if let Some(id) = &self.right_hand {
+            if !exists(id) {
+                self.right_hand = None;
+            }
+        }
+        if let Some(id) = &self.left_hand {
+            if !exists(id) {
+                self.left_hand = None;
+            }
+        }
     }
 }
 
@@ -211,6 +346,74 @@ impl PlayerData {
         );
     }
 
+    /// Decode the saved model, skin, armor and active held items.
+    ///
+    /// Modern per-inventory components (`ArmorInventory`, `HotbarInventory`,
+    /// `UtilityInventory`) win; the legacy `Inventory` component is used as a
+    /// fallback when the modern component is absent. Missing or malformed
+    /// components produce [`PlayerAppearance::default`] values instead of an
+    /// error.
+    pub fn appearance(&self) -> PlayerAppearance {
+        let mut appearance = PlayerAppearance::default();
+        if let Some(value) = self.components.get(MODEL_COMPONENT) {
+            appearance.model = parse_model(value);
+        }
+        if let Some(value) = self.components.get(SKIN_COMPONENT) {
+            appearance.skin = parse_skin(value);
+        }
+
+        let mut has_modern_armor = false;
+        let mut has_modern_hotbar = false;
+        let mut has_modern_utility = false;
+
+        if let Some(value) = self.components.get(ARMOR_INVENTORY_COMPONENT) {
+            if let Some(container) = parse_component_container(value) {
+                has_modern_armor = true;
+                copy_armor(&container, &mut appearance.armor);
+            }
+        }
+        if let Some(value) = self.components.get(HOTBAR_INVENTORY_COMPONENT) {
+            if let Some(container) = parse_component_container(value) {
+                has_modern_hotbar = true;
+                appearance.right_hand = active_item(&container);
+            }
+        }
+        if let Some(value) = self.components.get(UTILITY_INVENTORY_COMPONENT) {
+            if let Some(container) = parse_component_container(value) {
+                has_modern_utility = true;
+                appearance.left_hand = active_item(&container);
+            }
+        }
+
+        if let Some(legacy) = self.components.get(LEGACY_INVENTORY_COMPONENT) {
+            if !has_modern_armor {
+                if let Some(value) = legacy.get("Armor") {
+                    if let Some(container) = parse_container(value) {
+                        copy_armor(&container, &mut appearance.armor);
+                    }
+                }
+            }
+            if !has_modern_hotbar {
+                if let Some(value) = legacy.get("HotBar") {
+                    if let Some(container) = parse_container(value) {
+                        appearance.right_hand =
+                            legacy_active_item(&container, legacy.get("ActiveHotbarSlot"));
+                    }
+                }
+            }
+            if !has_modern_utility {
+                if let Some(value) = legacy.get("Utility") {
+                    if let Some(container) = parse_container(value) {
+                        appearance.left_hand =
+                            legacy_active_item(&container, legacy.get("ActiveUtilitySlot"));
+                    }
+                }
+            }
+        }
+
+        appearance
+    }
+
     /// Parse a document string (`{"Components": ...}`).
     pub fn from_json(text: &str) -> std::result::Result<Self, serde_json::Error> {
         serde_json::from_str(text)
@@ -222,6 +425,162 @@ impl PlayerData {
         text.push('\n');
         Ok(text)
     }
+}
+
+/// A parsed `ItemContainer` (the `Inventory` field of an inventory component).
+#[derive(Debug, Clone, Default)]
+struct ParsedContainer {
+    items: BTreeMap<usize, String>,
+    active_slot: Option<i32>,
+}
+
+fn parse_component_container(value: &Value) -> Option<ParsedContainer> {
+    let mut container = parse_container(value.get("Inventory")?)?;
+    if let Some(slot) = int_field(value, "ActiveSlot") {
+        container.active_slot = Some(slot);
+    }
+    Some(container)
+}
+
+fn parse_container(value: &Value) -> Option<ParsedContainer> {
+    let mut container = ParsedContainer::default();
+    match value.get("Items") {
+        Some(Value::Object(items)) => {
+            for (slot, item) in items {
+                let Ok(slot) = slot.parse::<usize>() else {
+                    continue;
+                };
+                if let Some(id) = item_id(item) {
+                    container.items.insert(slot, id);
+                }
+            }
+        }
+        Some(Value::Array(items)) => {
+            for (slot, item) in items.iter().enumerate() {
+                if let Some(id) = item_id(item) {
+                    container.items.insert(slot, id);
+                }
+            }
+        }
+        _ => {}
+    }
+    Some(container)
+}
+
+fn item_id(value: &Value) -> Option<String> {
+    let id = value.get("Id")?.as_str()?;
+    if id.is_empty() || id == EMPTY_ITEM_ID {
+        return None;
+    }
+    Some(id.to_string())
+}
+
+fn int_field(value: &Value, name: &str) -> Option<i32> {
+    value
+        .get(name)
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
+}
+
+fn active_item(container: &ParsedContainer) -> Option<String> {
+    let slot = container.active_slot.unwrap_or(0);
+    if slot < 0 {
+        return None;
+    }
+    container.items.get(&(slot as usize)).cloned()
+}
+
+fn legacy_active_item(container: &ParsedContainer, value: Option<&Value>) -> Option<String> {
+    let slot = value
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
+        .unwrap_or(0);
+    if slot < 0 {
+        return None;
+    }
+    container.items.get(&(slot as usize)).cloned()
+}
+
+fn copy_armor(container: &ParsedContainer, armor: &mut [Option<String>; ARMOR_SLOTS]) {
+    for (slot, target) in armor.iter_mut().enumerate() {
+        *target = container.items.get(&slot).cloned();
+    }
+}
+
+fn parse_model(value: &Value) -> Option<PlayerModelReference> {
+    // Java `PersistentModel.CODEC` stores `{"Model": {...}}`; accept a direct
+    // reference too for hand-written or future saves.
+    let reference = value.get("Model").unwrap_or(value);
+    if !reference.is_object() {
+        return None;
+    }
+    let id = reference.get("Id")?.as_str()?;
+    if id.is_empty() {
+        return None;
+    }
+    let scale = reference
+        .get("Scale")
+        .and_then(Value::as_f64)
+        .filter(|scale| *scale > 0.0)
+        .unwrap_or(1.0) as f32;
+    let static_model = reference
+        .get("Static")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let random_attachments = reference
+        .get("RandomAttachments")
+        .and_then(Value::as_object)
+        .map(|attachments| {
+            attachments
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(PlayerModelReference {
+        id: id.to_string(),
+        scale,
+        static_model,
+        random_attachments,
+    })
+}
+
+fn parse_skin(value: &Value) -> Option<PlayerSkinData> {
+    let skin = value.get("Skin").unwrap_or(value);
+    if !skin.is_object() {
+        return None;
+    }
+    Some(PlayerSkinData {
+        body_characteristic: string_field(skin, "bodyCharacteristic"),
+        underwear: string_field(skin, "underwear"),
+        face: string_field(skin, "face"),
+        eyes: string_field(skin, "eyes"),
+        ears: string_field(skin, "ears"),
+        mouth: string_field(skin, "mouth"),
+        facial_hair: string_field(skin, "facialHair"),
+        haircut: string_field(skin, "haircut"),
+        eyebrows: string_field(skin, "eyebrows"),
+        pants: string_field(skin, "pants"),
+        overpants: string_field(skin, "overpants"),
+        undertop: string_field(skin, "undertop"),
+        overtop: string_field(skin, "overtop"),
+        shoes: string_field(skin, "shoes"),
+        head_accessory: string_field(skin, "headAccessory"),
+        face_accessory: string_field(skin, "faceAccessory"),
+        ear_accessory: string_field(skin, "earAccessory"),
+        skin_feature: string_field(skin, "skinFeature"),
+        gloves: string_field(skin, "gloves"),
+        cape: string_field(skin, "cape"),
+    })
+}
+
+fn string_field(value: &Value, name: &str) -> Option<String> {
+    value
+        .get(name)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }
 
 /// Player save files under `<world>/players/`.
@@ -400,5 +759,155 @@ mod tests {
         let text = data.to_json_pretty().unwrap();
         let reloaded = PlayerData::from_json(&text).unwrap();
         assert_eq!(reloaded.component("Inventory").unwrap()["Version"], 3);
+    }
+
+    #[test]
+    fn appearance_decodes_model_armor_and_active_items() {
+        let source = r#"{
+            "Components": {
+                "Model": {"Model": {"Id": "Player", "Scale": 1.0, "Static": false,
+                    "RandomAttachments": {"Head": "VariantA"}}},
+                "ArmorInventory": {
+                    "Inventory": {
+                        "Id": "Simple",
+                        "Capacity": 4,
+                        "Items": {
+                            "0": {"Id": "Armor_Adamantite_Head"},
+                            "1": {"Id": "Armor_Adamantite_Chest"},
+                            "2": {"Id": "Armor_Adamantite_Hands"},
+                            "3": {"Id": "Armor_Adamantite_Legs"}
+                        }
+                    }
+                },
+                "HotbarInventory": {
+                    "Inventory": {
+                        "Id": "Simple",
+                        "Capacity": 9,
+                        "Items": {"0": {"Id": "Weapon_Longsword_Adamantite"}}
+                    },
+                    "ActiveSlot": 0
+                },
+                "UtilityInventory": {
+                    "Inventory": {
+                        "Id": "Simple",
+                        "Capacity": 4,
+                        "Items": {"2": {"Id": "Potion_Health"}}
+                    },
+                    "ActiveSlot": 2
+                }
+            }
+        }"#;
+        let appearance = PlayerData::from_json(source).unwrap().appearance();
+        let model = appearance.model.expect("model");
+        assert_eq!(model.id, "Player");
+        assert_eq!(model.scale, 1.0);
+        assert_eq!(
+            model.random_attachments.get("Head").map(String::as_str),
+            Some("VariantA")
+        );
+        assert_eq!(
+            appearance.armor[0].as_deref(),
+            Some("Armor_Adamantite_Head")
+        );
+        assert_eq!(
+            appearance.armor[3].as_deref(),
+            Some("Armor_Adamantite_Legs")
+        );
+        assert_eq!(
+            appearance.right_hand.as_deref(),
+            Some("Weapon_Longsword_Adamantite")
+        );
+        assert_eq!(appearance.left_hand.as_deref(), Some("Potion_Health"));
+    }
+
+    #[test]
+    fn appearance_falls_back_to_the_legacy_inventory_component() {
+        let source = r#"{
+            "Components": {
+                "Inventory": {
+                    "Armor": {
+                        "Id": "Simple",
+                        "Capacity": 4,
+                        "Items": {"0": {"Id": "Armor_Bronze_Head"}}
+                    },
+                    "HotBar": {
+                        "Id": "Simple",
+                        "Capacity": 9,
+                        "Items": {"3": {"Id": "Weapon_Longsword_Adamantite"}}
+                    },
+                    "ActiveHotbarSlot": 3,
+                    "Utility": {
+                        "Id": "Simple",
+                        "Capacity": 4,
+                        "Items": {"1": {"Id": "Potion_Health"}}
+                    },
+                    "ActiveUtilitySlot": 1
+                }
+            }
+        }"#;
+        let appearance = PlayerData::from_json(source).unwrap().appearance();
+        assert_eq!(appearance.armor[0].as_deref(), Some("Armor_Bronze_Head"));
+        assert_eq!(
+            appearance.right_hand.as_deref(),
+            Some("Weapon_Longsword_Adamantite")
+        );
+        assert_eq!(appearance.left_hand.as_deref(), Some("Potion_Health"));
+    }
+
+    #[test]
+    fn empty_save_has_java_compatible_empty_appearance() {
+        let appearance = PlayerData::default().appearance();
+        assert_eq!(appearance, PlayerAppearance::default());
+        assert_eq!(appearance.armor, [None, None, None, None]);
+        assert!(appearance.model.is_none());
+        assert!(appearance.skin.is_none());
+        assert!(appearance.right_hand.is_none());
+        assert!(appearance.left_hand.is_none());
+    }
+
+    #[test]
+    fn resolve_items_drops_unknown_ids() {
+        let mut appearance = PlayerAppearance {
+            armor: [
+                Some("Known".to_string()),
+                Some("Unknown".to_string()),
+                None,
+                None,
+            ],
+            right_hand: Some("Unknown".to_string()),
+            left_hand: Some("Known".to_string()),
+            ..PlayerAppearance::default()
+        };
+        appearance.resolve_items(|id| id == "Known");
+        assert_eq!(appearance.armor[0].as_deref(), Some("Known"));
+        assert_eq!(appearance.armor[1], None);
+        assert_eq!(appearance.right_hand, None);
+        assert_eq!(appearance.left_hand.as_deref(), Some("Known"));
+    }
+
+    #[test]
+    fn saved_skin_component_is_decoded() {
+        let source = r#"{
+            "Components": {
+                "PlayerSkin": {
+                    "Skin": {
+                        "bodyCharacteristic": "BodyA",
+                        "face": "FaceA",
+                        "haircut": "HairA",
+                        "cape": "CapeA"
+                    }
+                }
+            }
+        }"#;
+        let skin = PlayerData::from_json(source)
+            .unwrap()
+            .appearance()
+            .skin
+            .expect("skin");
+        assert_eq!(skin.body_characteristic.as_deref(), Some("BodyA"));
+        assert_eq!(skin.face.as_deref(), Some("FaceA"));
+        assert_eq!(skin.haircut.as_deref(), Some("HairA"));
+        assert_eq!(skin.cape.as_deref(), Some("CapeA"));
+        assert!(skin.gloves.is_none());
     }
 }

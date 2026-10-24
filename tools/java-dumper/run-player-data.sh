@@ -18,6 +18,7 @@ ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 COMMITTED="$ROOT/testdata/golden/server/player-data"
 MAIN="com.hypixel.hytale.tools.golden.WorldPlayerDumper"
 FILE="12345678-1234-5678-9abc-def012345678.json"
+EQUIPMENT_FILE="22345678-1234-5678-9abc-def012345678.json"
 
 # The holder map order comes from the component archetype; keep the canonical
 # single-worker decode used by the other fixtures.
@@ -37,8 +38,12 @@ if [ "${1:-}" = "--check" ]; then
     echo "== player data dump 1/2 =="
     DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="write $FIRST/$FILE" \
         "$SCRIPT_DIR/run.sh" "$FIRST"
+    DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="write-equipment $FIRST/$EQUIPMENT_FILE" \
+        "$SCRIPT_DIR/run.sh" "$FIRST"
     echo "== player data dump 2/2 =="
     DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="write $SECOND/$FILE" \
+        "$SCRIPT_DIR/run.sh" "$SECOND"
+    DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="write-equipment $SECOND/$EQUIPMENT_FILE" \
         "$SCRIPT_DIR/run.sh" "$SECOND"
 
     echo "== comparing the two runs =="
@@ -49,23 +54,29 @@ if [ "${1:-}" = "--check" ]; then
     echo "deterministic: both player data dumps produced byte-identical files"
 
     echo "== comparing the fresh dump with $COMMITTED =="
-    if [ ! -f "$COMMITTED/$FILE" ]; then
-        echo "error: $COMMITTED/$FILE does not exist; run without --check first" >&2
-        exit 1
-    fi
-    if ! diff -u "$COMMITTED/$FILE" "$FIRST/$FILE"; then
-        echo "error: the committed player data differs from a fresh dump" >&2
-        echo "       Review the change, then regenerate with tools/java-dumper/run-player-data.sh." >&2
-        exit 1
-    fi
+    for fixture in "$FILE" "$EQUIPMENT_FILE"; do
+        if [ ! -f "$COMMITTED/$fixture" ]; then
+            echo "error: $COMMITTED/$fixture does not exist; run without --check first" >&2
+            exit 1
+        fi
+        if ! diff -u "$COMMITTED/$fixture" "$FIRST/$fixture"; then
+            echo "error: the committed player data differs from a fresh dump: $fixture" >&2
+            echo "       Review the change, then regenerate with tools/java-dumper/run-player-data.sh." >&2
+            exit 1
+        fi
+    done
     echo "up to date: $COMMITTED matches a fresh dump"
     exit 0
 fi
 
-if [ "${1:-}" = "--probe" ]; then
+if [ "${1:-}" = "--probe" ] || [ "${1:-}" = "--probe-equipment" ]; then
     if [ "$#" -ne 2 ]; then
-        echo "usage: $0 --probe <player.json>" >&2
+        echo "usage: $0 --probe|--probe-equipment <player.json>" >&2
         exit 2
+    fi
+    MODE="probe"
+    if [ "${1:-}" = "--probe-equipment" ]; then
+        MODE="probe-equipment"
     fi
     PLAYER="$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hytale-player-data-probe.XXXXXX")"
@@ -73,7 +84,7 @@ if [ "${1:-}" = "--probe" ]; then
         rm -rf "$TMP_DIR"
     }
     trap cleanup EXIT
-    DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="probe $PLAYER" \
+    DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="$MODE $PLAYER" \
         "$SCRIPT_DIR/run.sh" "$TMP_DIR"
     exit 0
 fi
@@ -82,6 +93,9 @@ OUT_DIR="${1:-$COMMITTED}"
 mkdir -p "$OUT_DIR"
 DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="write $OUT_DIR/$FILE" \
     "$SCRIPT_DIR/run.sh" "$OUT_DIR"
+DUMPER_MAIN="$MAIN" DUMPER_EXTRA_ARGS="write-equipment $OUT_DIR/$EQUIPMENT_FILE" \
+    "$SCRIPT_DIR/run.sh" "$OUT_DIR"
 # The Java writer keeps a .bak when it replaces an existing file; fixtures only
 # commit the canonical document.
 rm -f "$OUT_DIR/$FILE.bak" "$OUT_DIR/$FILE.tmp"
+rm -f "$OUT_DIR/$EQUIPMENT_FILE.bak" "$OUT_DIR/$EQUIPMENT_FILE.tmp"
