@@ -20,6 +20,7 @@
 //! local.
 
 use std::collections::BTreeMap;
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets};
@@ -32,9 +33,7 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    ComponentUpdate, Direction, DisconnectType, EntityUpdate, EquipmentUpdate, FormattedMessage,
-    GameMode, InstantData, Model, ModelTransform, ModelUpdate, PlayerSkin, PlayerSkinUpdate,
-    PongType, Position, TransformUpdate, UpdateType,
+    DisconnectType, FormattedMessage, GameMode, InstantData, PlayerSkin, PongType, UpdateType,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -56,12 +55,11 @@ use hytale_protocol::generated::world::ClearChunks;
 use hytale_protocol::generated::world::{UpdateTime, UpdateTimeSettings, WorldGameplayConfig};
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
-use hytale_world::player_data::{
-    PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
-};
+use hytale_world::player_data::{PlayerAppearance, PlayerTransform};
 use thiserror::Error;
 
 use crate::chunk_streamer::{send_updates, send_view, ChunkSessionError, ChunkStreamReport};
+use crate::players::{self, PlayerJoinRequest, PlayerMessage, PlayerRegistry};
 use crate::world_thread::{WorldThread, WorldThreadError, WorldTimeState};
 
 /// Java `CommonAssetModule.MAX_FRAME`: maximum bytes in one `AssetPart`.
@@ -211,6 +209,8 @@ pub struct GameLoopReport {
     pub time_updates: usize,
     /// `UpdateTimeSettings` packets written after a pause-state change.
     pub time_settings_updates: usize,
+    /// Queued player list/entity packets written during the loop.
+    pub player_messages: usize,
     /// The client disconnected (or the connection closed) cleanly.
     pub disconnected: bool,
     /// The server disconnected the client for idling.
@@ -305,6 +305,7 @@ struct Handshake {
 struct EnterGame {
     world_uuid: Uuid,
     radius: u32,
+    network_id: i32,
     player_transform: PlayerTransform,
     appearance: PlayerAppearance,
     skin: Option<PlayerSkin>,
@@ -318,14 +319,33 @@ struct LiveGame {
     transform: PlayerTransform,
     ready_for_gameplay: bool,
     world_time: WorldTimeState,
+    network_id: i32,
+    players: Arc<PlayerRegistry>,
+    broadcasts: mpsc::Receiver<PlayerMessage>,
 }
 
 /// Run authentication + setup on an accepted connection, transition to `Game`,
 /// then stream the player view.
+///
+/// This creates a private registry, which is enough for a single-session demo
+/// and the existing loopback tests. A listener that serves multiple sessions
+/// must share one [`PlayerRegistry`] and call
+/// [`serve_connection_with_registry`].
 pub async fn serve_connection(
     connection: &quinn::Connection,
     thread: &WorldThread,
     options: &SessionOptions,
+) -> Result<SessionReport, SessionError> {
+    serve_connection_with_registry(connection, thread, options, Arc::new(PlayerRegistry::new()))
+        .await
+}
+
+/// Run one session against a listener-owned player registry.
+pub async fn serve_connection_with_registry(
+    connection: &quinn::Connection,
+    thread: &WorldThread,
+    options: &SessionOptions,
+    players: Arc<PlayerRegistry>,
 ) -> Result<SessionReport, SessionError> {
     let (send, recv) = connection.accept_bi().await?;
     let mut writer = FrameWriter::new(send);
@@ -368,11 +388,23 @@ pub async fn serve_connection(
         .world_uuid
         .parse()
         .map_err(|_| SessionError::InvalidUuid(start.world_uuid.clone()))?;
+
+    let (message_tx, message_rx) = players::channel();
+    let (player_session, join) = players.register(PlayerJoinRequest {
+        uuid: handshake.uuid,
+        username: handshake.username.clone(),
+        world_uuid,
+        transform: player_transform,
+        appearance: appearance.clone(),
+        skin: skin.clone(),
+        view_center: start.player_chunk,
+        view_radius: radius,
+        sender: message_tx,
+    });
+    let _player_session = player_session;
     send_player_list(
         &mut writer,
-        handshake.uuid,
-        &handshake.username,
-        world_uuid,
+        &join.player_list,
         &config_assets.tags,
         options.chunk_compression_level,
     )
@@ -385,6 +417,7 @@ pub async fn serve_connection(
         EnterGame {
             world_uuid,
             radius,
+            network_id: join.network_id,
             player_transform,
             appearance,
             skin,
@@ -418,6 +451,9 @@ pub async fn serve_connection(
             transform: player_transform,
             ready_for_gameplay: game.client_ready_for_gameplay,
             world_time,
+            network_id: join.network_id,
+            players: Arc::clone(&players),
+            broadcasts: message_rx,
         },
         options,
     )
@@ -853,6 +889,7 @@ async fn enter_game(
     let EnterGame {
         world_uuid,
         radius,
+        network_id,
         player_transform,
         appearance,
         skin,
@@ -936,7 +973,9 @@ async fn enter_game(
         .await?;
     writer
         .write_packet(
-            &SetClientId { client_id: 1 },
+            &SetClientId {
+                client_id: network_id,
+            },
             options.chunk_compression_level,
         )
         .await?;
@@ -964,7 +1003,7 @@ async fn enter_game(
         .await?;
     writer
         .write_packet(
-            &self_spawn_packet(player_transform, &appearance, skin),
+            &self_spawn_packet(network_id, player_transform, &appearance, skin),
             options.chunk_compression_level,
         )
         .await?;
@@ -1012,9 +1051,7 @@ async fn enter_game(
 
 async fn send_player_list(
     writer: &mut FrameWriter,
-    uuid: Uuid,
-    username: &str,
-    world_uuid: Uuid,
+    players: &[ServerPlayerListPlayer],
     tags: &BTreeMap<String, i32>,
     compression_level: i32,
 ) -> Result<(), SessionError> {
@@ -1029,14 +1066,7 @@ async fn send_player_list(
     writer
         .write_packet(
             &AddToServerPlayerList {
-                players: vec![ServerPlayerListPlayer {
-                    uuid,
-                    username: Some(username.to_string()),
-                    world_uuid: Some(world_uuid),
-                    ping: 0,
-                    spectating: false,
-                    lives_remaining: None,
-                }],
+                players: players.to_vec(),
             },
             compression_level,
         )
@@ -1059,114 +1089,13 @@ fn default_player_transform() -> PlayerTransform {
     )
 }
 
-fn model_transform(transform: PlayerTransform) -> ModelTransform {
-    let position = Position {
-        x: transform.position.x,
-        y: transform.position.y,
-        z: transform.position.z,
-    };
-    let body = Direction {
-        yaw: transform.rotation.yaw,
-        pitch: 0.0,
-        roll: 0.0,
-    };
-    let look = Direction {
-        yaw: transform.rotation.yaw,
-        pitch: transform.rotation.pitch,
-        roll: transform.rotation.roll,
-    };
-    ModelTransform {
-        position: Some(position),
-        body_orientation: Some(body),
-        look_orientation: Some(look),
-    }
-}
-
 fn self_spawn_packet(
+    network_id: i32,
     transform: PlayerTransform,
     appearance: &PlayerAppearance,
     auth_skin: Option<PlayerSkin>,
 ) -> EntityUpdates {
-    // Java keeps the auth skin on `PlayerSkinComponent`; a saved skin is the
-    // Rust-side fallback when the client did not advertise one.
-    let skin = auth_skin.or_else(|| appearance.skin.as_ref().map(skin_packet));
-    let armor_ids = appearance
-        .armor
-        .iter()
-        .map(|item| item.clone().unwrap_or_default())
-        .collect();
-    EntityUpdates {
-        removed: None,
-        updates: Some(vec![EntityUpdate {
-            network_id: 1,
-            removed: None,
-            updates: Some(vec![
-                ComponentUpdate::ModelUpdate(ModelUpdate {
-                    model: appearance.model.as_ref().map(model_packet),
-                    entity_scale: 1.0,
-                }),
-                ComponentUpdate::PlayerSkinUpdate(PlayerSkinUpdate { skin }),
-                ComponentUpdate::EquipmentUpdate(EquipmentUpdate {
-                    armor_ids: Some(armor_ids),
-                    right_hand_item_id: Some(
-                        appearance
-                            .right_hand
-                            .clone()
-                            .unwrap_or_else(|| EMPTY_ITEM_ID.to_string()),
-                    ),
-                    left_hand_item_id: Some(
-                        appearance
-                            .left_hand
-                            .clone()
-                            .unwrap_or_else(|| EMPTY_ITEM_ID.to_string()),
-                    ),
-                }),
-                ComponentUpdate::TransformUpdate(TransformUpdate {
-                    transform: model_transform(transform),
-                }),
-            ]),
-        }]),
-    }
-}
-
-/// Build the protocol model from the saved `PersistentModel` reference.
-///
-/// The full `ModelAsset` expansion (geometry path, textures, animation sets,
-/// attachments) is not ported yet; the reference id and scale are enough for
-/// the client to resolve/ignore the model without failing the join. Java's
-/// `Model.toPacket` uses the unknown texture when the asset has no path.
-fn model_packet(reference: &PlayerModelReference) -> Model {
-    Model {
-        asset_id: Some(reference.id.clone()),
-        texture: Some("textures/Unknown.png".to_string()),
-        scale: reference.scale,
-        ..Model::default()
-    }
-}
-
-fn skin_packet(skin: &PlayerSkinData) -> PlayerSkin {
-    PlayerSkin {
-        body_characteristic: skin.body_characteristic.clone(),
-        underwear: skin.underwear.clone(),
-        face: skin.face.clone(),
-        eyes: skin.eyes.clone(),
-        ears: skin.ears.clone(),
-        mouth: skin.mouth.clone(),
-        facial_hair: skin.facial_hair.clone(),
-        haircut: skin.haircut.clone(),
-        eyebrows: skin.eyebrows.clone(),
-        pants: skin.pants.clone(),
-        overpants: skin.overpants.clone(),
-        undertop: skin.undertop.clone(),
-        overtop: skin.overtop.clone(),
-        shoes: skin.shoes.clone(),
-        head_accessory: skin.head_accessory.clone(),
-        face_accessory: skin.face_accessory.clone(),
-        ear_accessory: skin.ear_accessory.clone(),
-        skin_feature: skin.skin_feature.clone(),
-        gloves: skin.gloves.clone(),
-        cape: skin.cape.clone(),
-    }
+    players::spawn_entity_updates(network_id, transform, appearance, auth_skin)
 }
 
 async fn run_game_loop(
@@ -1181,9 +1110,12 @@ async fn run_game_loop(
     let LiveGame {
         mut center,
         mut radius,
-        transform,
+        mut transform,
         ready_for_gameplay,
         mut world_time,
+        network_id,
+        players,
+        broadcasts,
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
@@ -1195,6 +1127,11 @@ async fn run_game_loop(
     // running (Java `TimePacketSystem.BROADCAST_INTERVAL`).
     let mut last_time_paused = world_time.time_paused;
     let mut teleport_sent = false;
+    // Registry view center follows the player's chunk even before the client
+    // acknowledges the teleport (the chunk view itself still waits for the ack).
+    let mut registry_center = center;
+    let mut pending_movement = false;
+    let mut last_movement: Option<std::time::Instant> = None;
 
     if ready_for_gameplay {
         report.ready_for_gameplay = true;
@@ -1207,6 +1144,11 @@ async fn run_game_loop(
         if connection.close_reason().is_some() {
             report.disconnected = true;
             break;
+        }
+
+        while let Ok(message) = broadcasts.try_recv() {
+            players::write_message(writer, message, options.chunk_compression_level).await?;
+            report.player_messages += 1;
         }
 
         let wait = interval.saturating_sub(ticker.elapsed());
@@ -1233,13 +1175,34 @@ async fn run_game_loop(
                         }
                         if let Some(position) = movement.absolute_position {
                             if position.x.is_finite() && position.z.is_finite() {
+                                transform.position = hytale_world::player_data::Position {
+                                    x: position.x,
+                                    y: position.y,
+                                    z: position.z,
+                                };
+                                pending_movement = true;
+
                                 let next = (block_to_chunk(position.x), block_to_chunk(position.z));
+                                if next != registry_center {
+                                    players.update_view(network_id, next, radius);
+                                    registry_center = next;
+                                }
                                 if next != center && report.teleport_acked {
                                     thread.set_view(next.0, next.1, radius)?;
                                     center = next;
                                     report.view_changes += 1;
                                 }
                             }
+                        }
+                        if let Some(orientation) =
+                            movement.body_orientation.or(movement.look_orientation)
+                        {
+                            transform.rotation = hytale_world::player_data::Rotation {
+                                pitch: orientation.pitch,
+                                yaw: orientation.yaw,
+                                roll: orientation.roll,
+                            };
+                            pending_movement = true;
                         }
                     }
                     ViewRadius::ID => {
@@ -1249,6 +1212,7 @@ async fn run_game_loop(
                             if next != radius {
                                 radius = next;
                                 thread.set_view(center.0, center.1, radius)?;
+                                players.update_view(network_id, registry_center, radius);
                             }
                         }
                     }
@@ -1305,6 +1269,14 @@ async fn run_game_loop(
             ticker = std::time::Instant::now();
         }
 
+        if pending_movement
+            && last_movement.is_none_or(|last| last.elapsed() >= Duration::from_millis(100))
+        {
+            players.update_transform(network_id, transform);
+            last_movement = Some(std::time::Instant::now());
+            pending_movement = false;
+        }
+
         if time_ticker.elapsed() >= Duration::from_secs(1) {
             world_time = thread.world_time()?;
             if world_time.time_paused != last_time_paused {
@@ -1354,7 +1326,7 @@ async fn send_client_teleport(
                 teleport_id: 0,
                 ignored_transform_fields: 0,
                 relative_transform_fields: 0,
-                model_transform: model_transform(transform),
+                model_transform: players::model_transform(transform),
                 reset_velocity: true,
             },
             options.chunk_compression_level,
@@ -1406,7 +1378,10 @@ async fn expect<T: Packet + Wire>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hytale_world::player_data::{PlayerSkinData, Position, Rotation};
+    use hytale_protocol::generated::common::ComponentUpdate;
+    use hytale_world::player_data::{
+        PlayerModelReference, PlayerSkinData, Position, Rotation, EMPTY_ITEM_ID,
+    };
 
     fn transform() -> PlayerTransform {
         PlayerTransform::new(
@@ -1432,7 +1407,7 @@ mod tests {
 
     #[test]
     fn empty_save_uses_java_empty_equipment_defaults() {
-        let packet = self_spawn_packet(transform(), &PlayerAppearance::default(), None);
+        let packet = self_spawn_packet(1, transform(), &PlayerAppearance::default(), None);
         let updates = updates(&packet);
         match &updates[0] {
             ComponentUpdate::ModelUpdate(update) => assert!(update.model.is_none()),
@@ -1482,7 +1457,7 @@ mod tests {
             right_hand: Some("Weapon_Longsword_Adamantite".to_string()),
             left_hand: Some("Potion_Health".to_string()),
         };
-        let packet = self_spawn_packet(transform(), &appearance, None);
+        let packet = self_spawn_packet(1, transform(), &appearance, None);
         let updates = updates(&packet);
 
         match &updates[0] {
@@ -1535,7 +1510,7 @@ mod tests {
             face: Some("AuthFace".to_string()),
             ..PlayerSkin::default()
         };
-        let packet = self_spawn_packet(transform(), &appearance, Some(auth_skin));
+        let packet = self_spawn_packet(1, transform(), &appearance, Some(auth_skin));
         match &updates(&packet)[1] {
             ComponentUpdate::PlayerSkinUpdate(update) => {
                 assert_eq!(

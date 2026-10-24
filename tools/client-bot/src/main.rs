@@ -148,6 +148,10 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 username: cli.username.clone(),
                 view_radius_chunks: cli.view_radius,
                 skin: None,
+                movement_after_join: None,
+                observe_after_join: None,
+                disconnect_after: None,
+                keep_alive: false,
             },
         )
         .await?;

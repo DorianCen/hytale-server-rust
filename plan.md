@@ -7,8 +7,8 @@ the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
 The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
-`GameplayConfig`) and T44 (self-spawn appearance/equipment) are done; the
-immediate next task is **T45** (other-player entity tracking and broadcast),
+`GameplayConfig`), T44 (self-spawn appearance/equipment) and T45 (other-player
+tracking) are done; the immediate next task is **T46** (block place/break),
 continuing M4's v1 path.
 
 ## 0. Baseline
@@ -508,7 +508,8 @@ Make time advance and stop using protocol defaults for gameplay rules.
 
 ### T45 — Other-player entity tracking and broadcast
 
-**Package:** `hytale-server`, `hytale-entities`
+**Status:** done (session 33)
+**Package:** `hytale-server`, `client-bot`
 **Depends on:** T42, T44
 **Goal:** make multiplayer observable.
 
@@ -525,6 +526,15 @@ Make time advance and stop using protocol defaults for gameplay rules.
 - Two clients see each other spawn, move and disconnect.
 - No entity update leaks after a player leaves.
 - Player list and self identity remain correct.
+
+**Deviations**
+
+- The world thread still owns one loaded player appearance, so sessions share
+  that appearance until per-session player data lands in T47.
+- Entity traffic is filtered by the square chunk view; the server player list is
+  global.
+- Movement updates are throttled to 10 Hz and flushed after a stop.
+- Player-message queues are unbounded; backpressure is T62.
 
 ---
 

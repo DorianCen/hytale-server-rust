@@ -27,7 +27,7 @@ use hytale_protocol::generated::connection::{
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
-use hytale_protocol::generated::interface_::AddToServerPlayerList;
+use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, SetClientId,
 };
@@ -287,6 +287,17 @@ pub struct DevJoinOptions {
     pub view_radius_chunks: u32,
     /// Optional skin advertised through `InsecurePlayerOptions`.
     pub skin: Option<PlayerSkin>,
+    /// Move to this position after the initial chunk snapshot.
+    pub movement_after_join: Option<Position>,
+    /// Keep reading the setup stream for this long after the join and collect
+    /// other-player list/entity broadcasts (`None` = stop immediately).
+    pub observe_after_join: Option<Duration>,
+    /// Close the connection this long after `dev_join` starts (for disconnect
+    /// visibility tests while another bot is observing).
+    pub disconnect_after: Option<Duration>,
+    /// Keep the setup/chunk streams alive in a background task after the report
+    /// is built, so the session stays registered for later joins.
+    pub keep_alive: bool,
 }
 
 /// World-join state observed by the bot.
@@ -308,6 +319,8 @@ pub struct GameJoinReport {
     pub update_rate: Option<i32>,
     /// `AddToServerPlayerList` arrived.
     pub player_list: bool,
+    /// UUIDs in the initial `AddToServerPlayerList`.
+    pub player_list_uuids: Vec<Uuid>,
     /// The self `EntityUpdates` spawn arrived.
     pub self_spawn: bool,
     /// Self-spawn model asset id (`ModelUpdate.model.assetId`).
@@ -339,6 +352,34 @@ pub struct DevJoinReport {
     pub game: GameJoinReport,
     /// Decoded chunk packets received after setup.
     pub chunks: Vec<ChunkPacketSummary>,
+    /// Player-list and entity broadcasts collected after the join.
+    pub observation: PlayerObservation,
+}
+
+/// One entity update seen during the post-join observation window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObservedEntityUpdate {
+    /// Entity network id.
+    pub network_id: i32,
+    /// The entity was removed (`EntityUpdates.removed`).
+    pub removed: bool,
+    /// The last transform position carried by the update.
+    pub position: Option<Position>,
+    /// The model asset id carried by a spawn.
+    pub model_asset: Option<String>,
+    /// Armor ids carried by a spawn.
+    pub armor: Option<Vec<String>>,
+}
+
+/// Player-list and entity broadcasts observed after a join.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PlayerObservation {
+    /// Player UUIDs added to the server player list.
+    pub added: Vec<Uuid>,
+    /// Player UUIDs removed from the server player list.
+    pub removed: Vec<Uuid>,
+    /// Entity spawn/update/removal batches.
+    pub entities: Vec<ObservedEntityUpdate>,
 }
 
 /// Errors from the dev join.
@@ -457,14 +498,168 @@ pub async fn dev_join(
     let (game, mut chunks, mut pending) = enter_game_client(session, &mut reader, &mut writer)
         .await
         .map_err(|error| DevJoinError::Game(error.to_string()))?;
-    let chunks = receive_initial_snapshot(&mut chunks, &mut pending, options.view_radius_chunks)
-        .await
-        .map_err(|error| DevJoinError::Game(error.to_string()))?;
+    let chunk_packets =
+        receive_initial_snapshot(&mut chunks, &mut pending, options.view_radius_chunks)
+            .await
+            .map_err(|error| DevJoinError::Game(error.to_string()))?;
+
+    if let Some(position) = options.movement_after_join.clone() {
+        writer
+            .write_packet(
+                &ClientMovement {
+                    absolute_position: Some(position),
+                    ..ClientMovement::default()
+                },
+                3,
+            )
+            .await?;
+    }
+    if let Some(after) = options.disconnect_after {
+        let connection = session.connection().clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            connection.close(0u32.into(), b"client bot disconnect");
+        });
+    }
+    let observation = match options.observe_after_join {
+        Some(window) => observe_players(&mut reader, &mut writer, game.client_id, window).await?,
+        None => PlayerObservation::default(),
+    };
+    if options.keep_alive {
+        tokio::spawn(keep_alive(reader, writer, chunks));
+    }
+
     Ok(DevJoinReport {
         handshake_packets,
         game,
-        chunks,
+        chunks: chunk_packets,
+        observation,
     })
+}
+
+/// Hold the setup and chunk streams open for a connected bot.
+///
+/// The server ends a session when its control stream reaches EOF, so a bot that
+/// wants to remain visible to later joins must keep reading the stream even
+/// after its join report has been produced.
+async fn keep_alive(
+    mut reader: FrameReader,
+    mut writer: FrameWriter,
+    mut chunks: ChunkStreamReader,
+) {
+    let mut chunks_open = true;
+    loop {
+        tokio::select! {
+            frame = reader.next_frame() => match frame {
+                Ok(Some(frame)) if frame.packet_id == Ping::ID => {
+                    let _ = answer_ping(&mut writer, &frame).await;
+                }
+                Ok(Some(frame)) if frame.packet_id == ServerDisconnect::ID => break,
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => break,
+            },
+            frame = chunks.next_frame(), if chunks_open => match frame {
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => chunks_open = false,
+            },
+        }
+    }
+}
+
+/// Read player-list/entity broadcasts for `window`, answering pings.
+///
+/// A closed connection ends the observation gracefully: the collected data is
+/// still returned so a disconnect test can assert what the other client saw.
+async fn observe_players(
+    reader: &mut FrameReader,
+    writer: &mut FrameWriter,
+    self_id: Option<i32>,
+    window: Duration,
+) -> Result<PlayerObservation, FrameStreamError> {
+    let mut observation = PlayerObservation::default();
+    let deadline = tokio::time::Instant::now() + window;
+    loop {
+        let frame = match tokio::time::timeout_at(deadline, reader.next_frame()).await {
+            Ok(Ok(Some(frame))) => frame,
+            Ok(Ok(None)) | Ok(Err(_)) | Err(_) => break,
+        };
+        match frame.packet_id {
+            AddToServerPlayerList::ID => {
+                let packet: AddToServerPlayerList = frame.decode()?;
+                observation
+                    .added
+                    .extend(packet.players.into_iter().map(|player| player.uuid));
+            }
+            RemoveFromServerPlayerList::ID => {
+                let packet: RemoveFromServerPlayerList = frame.decode()?;
+                observation.removed.extend(packet.players);
+            }
+            EntityUpdates::ID => {
+                let packet: EntityUpdates = frame.decode()?;
+                record_observed_entities(&packet, &mut observation, self_id);
+            }
+            Ping::ID => answer_ping(writer, &frame).await?,
+            ServerDisconnect::ID => break,
+            _ => {}
+        }
+    }
+    Ok(observation)
+}
+
+fn record_observed_entities(
+    packet: &EntityUpdates,
+    observation: &mut PlayerObservation,
+    self_id: Option<i32>,
+) {
+    if let Some(removed) = &packet.removed {
+        for network_id in removed {
+            if Some(*network_id) == self_id {
+                continue;
+            }
+            observation.entities.push(ObservedEntityUpdate {
+                network_id: *network_id,
+                removed: true,
+                position: None,
+                model_asset: None,
+                armor: None,
+            });
+        }
+    }
+    let Some(updates) = &packet.updates else {
+        return;
+    };
+    for update in updates {
+        if Some(update.network_id) == self_id {
+            continue;
+        }
+        let mut observed = ObservedEntityUpdate {
+            network_id: update.network_id,
+            removed: false,
+            position: None,
+            model_asset: None,
+            armor: None,
+        };
+        if let Some(components) = &update.updates {
+            for component in components {
+                match component {
+                    ComponentUpdate::ModelUpdate(model) => {
+                        observed.model_asset = model
+                            .model
+                            .as_ref()
+                            .and_then(|model| model.asset_id.clone());
+                    }
+                    ComponentUpdate::EquipmentUpdate(equipment) => {
+                        observed.armor = equipment.armor_ids.clone();
+                    }
+                    ComponentUpdate::TransformUpdate(transform) => {
+                        observed.position = transform.transform.position.clone();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        observation.entities.push(observed);
+    }
 }
 
 /// One common asset the bot received and verified.
@@ -864,6 +1059,8 @@ async fn enter_game_client(
         let frame = reader.next_frame().await?.ok_or(AuthJoinError::Closed)?;
         match frame.packet_id {
             AddToServerPlayerList::ID => {
+                let packet: AddToServerPlayerList = frame.decode()?;
+                game.player_list_uuids = packet.players.iter().map(|player| player.uuid).collect();
                 game.player_list = true;
             }
             JoinWorld::ID => {

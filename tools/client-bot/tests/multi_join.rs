@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use client_bot::{dev_join, DevJoinOptions};
 use hytale_net::{connect, TlsIdentity};
+use hytale_protocol::generated::common::Position;
 use hytale_protocol::io::Uuid;
 use hytale_server::{serve_listener, GeneratorOptions, ServeOptions, SessionOptions};
 use tokio::sync::oneshot;
@@ -99,19 +100,42 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         username: "FirstBot".to_string(),
         view_radius_chunks: 0,
         skin: None,
+        movement_after_join: Some(Position {
+            x: 4.0,
+            y: 0.0,
+            z: 4.0,
+        }),
+        observe_after_join: Some(Duration::from_secs(4)),
+        disconnect_after: Some(Duration::from_millis(2_500)),
+        keep_alive: false,
     };
     let second_options = DevJoinOptions {
         uuid: Uuid::new(1, 2),
         username: "SecondBot".to_string(),
         view_radius_chunks: 0,
         skin: None,
+        movement_after_join: Some(Position {
+            x: 8.0,
+            y: 0.0,
+            z: 8.0,
+        }),
+        observe_after_join: Some(Duration::from_secs(3)),
+        disconnect_after: None,
+        keep_alive: true,
     };
-    let (first_report, second_report) = tokio::join!(
-        dev_join(&first, &first_options),
-        dev_join(&second, &second_options)
-    );
+
+    // The second bot joins while the first is still observing, so both see
+    // each other's spawn and movement. The first disconnects itself 2.5 s after
+    // starting, while the second is still observing.
+    let first_future = dev_join(&first, &first_options);
+    let second_future = async {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        dev_join(&second, &second_options).await
+    };
+    let (first_report, second_report) = tokio::join!(first_future, second_future);
     let first_report = first_report.expect("first join");
     let second_report = second_report.expect("second join");
+
     for report in [&first_report, &second_report] {
         assert_eq!(report.chunks.len(), 21);
         assert!(report.game.join_world);
@@ -119,11 +143,88 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         assert!(report.game.self_spawn);
     }
 
-    // Closing one session must not stop the listener.
-    first.connection().close(0u32.into(), b"first bot done");
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    let first_id = first_report.game.client_id.expect("first network id");
+    let second_id = second_report.game.client_id.expect("second network id");
+    assert_ne!(first_id, second_id, "network ids must be unique");
 
-    // A new connection joins after the first disconnect, without a restart.
+    // The second client is added to the first client's player list (or was
+    // already in its join list, depending on registration order).
+    assert!(
+        first_report.observation.added.contains(&Uuid::new(1, 2))
+            || first_report
+                .game
+                .player_list_uuids
+                .contains(&Uuid::new(1, 2)),
+        "first client did not learn about the second: {:?} / {:?}",
+        first_report.observation.added,
+        first_report.game.player_list_uuids
+    );
+    assert!(
+        second_report
+            .game
+            .player_list_uuids
+            .contains(&Uuid::new(1, 1)),
+        "second client did not see the first in its player list: {:?}",
+        second_report.game.player_list_uuids
+    );
+
+    // Each client sees the other's entity and the other's movement position.
+    assert!(
+        first_report
+            .observation
+            .entities
+            .iter()
+            .any(|entity| entity.network_id == second_id),
+        "first client did not see the second entity: {:?}",
+        first_report.observation.entities
+    );
+    assert!(
+        second_report
+            .observation
+            .entities
+            .iter()
+            .any(|entity| entity.network_id == first_id),
+        "second client did not see the first entity: {:?}",
+        second_report.observation.entities
+    );
+    assert!(
+        first_report.observation.entities.iter().any(|entity| {
+            entity.position.as_ref().is_some_and(|position| {
+                (position.x - 8.0).abs() < 0.01 && (position.z - 8.0).abs() < 0.01
+            })
+        }),
+        "first client did not see the second player's movement: {:?}",
+        first_report.observation.entities
+    );
+    assert!(
+        second_report.observation.entities.iter().any(|entity| {
+            entity.position.as_ref().is_some_and(|position| {
+                (position.x - 4.0).abs() < 0.01 && (position.z - 4.0).abs() < 0.01
+            })
+        }),
+        "second client did not see the first player's movement: {:?}",
+        second_report.observation.entities
+    );
+
+    // Closing the first session removes its entity and player-list entry from
+    // the still-connected second client.
+    assert!(
+        second_report.observation.removed.contains(&Uuid::new(1, 1)),
+        "second client did not get the player-list removal: {:?}",
+        second_report.observation.removed
+    );
+    assert!(
+        second_report
+            .observation
+            .entities
+            .iter()
+            .any(|entity| entity.removed && entity.network_id == first_id),
+        "second client did not get the entity removal: {:?}",
+        second_report.observation.entities
+    );
+
+    // A new connection joins after the first disconnect, without a restart,
+    // and sees the still-connected second player in its player list.
     let third_identity = TlsIdentity::generate("multi-client-3").expect("client cert");
     let third = connect(
         SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
@@ -140,15 +241,26 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             username: "ThirdBot".to_string(),
             view_radius_chunks: 0,
             skin: None,
+            movement_after_join: None,
+            observe_after_join: None,
+            disconnect_after: None,
+            keep_alive: false,
         },
     )
     .await
     .expect("third join");
     assert_eq!(third_report.chunks.len(), 21);
+    assert!(
+        third_report
+            .game
+            .player_list_uuids
+            .contains(&Uuid::new(1, 2)),
+        "third client did not see the second player: {:?}",
+        third_report.game.player_list_uuids
+    );
 
     second.connection().close(0u32.into(), b"second bot done");
     third.connection().close(0u32.into(), b"third bot done");
-    drop(first);
 
     let _ = shutdown_tx.send(());
     let report = tokio::time::timeout(Duration::from_secs(30), server_task)

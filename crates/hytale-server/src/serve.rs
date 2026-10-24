@@ -19,9 +19,8 @@ use tokio::task::JoinSet;
 use tokio::time::{timeout, Instant};
 
 use crate::generation::GeneratorOptions;
-use crate::session::{
-    serve_connection as serve_session, SessionError, SessionOptions, SessionReport,
-};
+use crate::players::PlayerRegistry;
+use crate::session::{serve_connection_with_registry, SessionError, SessionOptions, SessionReport};
 use crate::universe_runtime::{UniverseRuntime, UniverseRuntimeError};
 
 /// Options for the persistent listener.
@@ -192,6 +191,7 @@ where
     );
 
     let semaphore = Arc::new(Semaphore::new(options.max_connections.max(1)));
+    let players = Arc::new(PlayerRegistry::new());
     let mut sessions: JoinSet<Result<SessionReport, SessionError>> = JoinSet::new();
     let mut summaries = Vec::new();
     let mut errors = Vec::new();
@@ -219,12 +219,15 @@ where
                 );
                 let thread = Arc::clone(&thread);
                 let session = options.session.clone();
+                let players = Arc::clone(&players);
                 let connection = accepted.connection().clone();
                 connections.push(connection.clone());
                 let close_timeout = options.close_timeout;
                 sessions.spawn(async move {
                     let _permit = permit;
-                    let result = serve_session(&connection, &thread, &session).await;
+                    let result =
+                        serve_connection_with_registry(&connection, &thread, &session, players)
+                            .await;
                     connection.close(0u32.into(), b"session complete");
                     let _ = timeout(close_timeout, connection.closed()).await;
                     result

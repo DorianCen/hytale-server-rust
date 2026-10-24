@@ -79,8 +79,12 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   `config.json`. Session 32 decoded the saved model/skin/inventory components and
   the insecure handshake skin into the self-spawn `EntityUpdates`, with item-id
   validation and Java empty-slot defaults; a Java equipment fixture covers the
-  codecs. M3 is complete and M4 continues with other-player tracking, block
-  edits, a real-client trace and then gameplay/NPC/hardening; see
+  codecs. Session 33 added the per-world `PlayerRegistry`: unique network ids,
+  full player-list snapshots/add/removes, view-filtered entity
+  spawn/movement/removal broadcasts, a per-session message queue drained by the
+  game loop, and a two-bot loopback test covering mutual spawn, movement,
+  disconnect and rejoin. M3 is complete and M4 continues with block edits, a
+  real-client trace and then gameplay/NPC/hardening; see
   [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -110,7 +114,8 @@ crates/
   hytale-auth/       EdDSA JWT keys/claims, certificate binding, local authority;
                      OAuth/session-service adapters planned
   hytale-commands/   command framework, argument parsing, built-in commands
-  hytale-server/     binary, startup wiring, module registration
+  hytale-server/     binary, startup wiring, session/listener runtime, player
+                     registry, module registration
 
 tools/
   protocol-dumper/     generated Java protocol sources → protocol IR
@@ -451,8 +456,10 @@ not part of v1.
   from `ClientMovement` so a moving player loads and unloads chunks.
   `hytale-server::serve` now owns the persistent listener: one universe/world
   thread, one independent task per connection, a shared per-world config cache,
-  connection limits, idle timeout and graceful shutdown. Sessions still do not
-  see each other (T45).
+  one shared `PlayerRegistry`, connection limits, idle timeout and graceful
+  shutdown. The registry fans player-list and view-filtered entity
+  spawn/movement/removal messages into each session's queue; the game loop
+  drains that queue on its 50 ms tick.
 - Auth providers: the current `AuthService` is the local EdDSA authority used by
   the private/offline profile. OAuth browser/device, external session and
   singleplayer token providers remain planned adapters behind the same
@@ -505,7 +512,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::player_data` | saved model reference and inventory components decoded (M4); full `ModelAsset` protocol expansion and ECS lifecycle deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
-| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, and the persistent multi-session listener (M3/M4) landed; other-player tracking and block interactions pending |
+| `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, and the per-world player registry with view-filtered entity broadcasts (M3/M4) landed; block interactions pending |
 | `CoreServer/.../auth/**` | `hytale-auth` | Ed25519 keys, EdDSA JWT claims/signature/time/scope validation, `cnf.x5t#S256` certificate binding and the local issuer/validator authority landed (M4); OAuth device/browser, session-service JWKS and credential-store adapters pending |
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |

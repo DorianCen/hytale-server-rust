@@ -1,12 +1,11 @@
-# Next steps — CoreServer rewrite, phase 2 (session 32)
+# Next steps — CoreServer rewrite, phase 2 (session 33)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** **T45** — other-player entity tracking and broadcast, continuing
-M4's v1 client path.
+**Next task:** **T46** — block place/break, continuing M4's v1 client path.
 
 ## Current state
 
@@ -49,6 +48,10 @@ Landed and green:
   (modern components plus legacy `Inventory`), item-id validation with
   empty-slot fallback, the insecure handshake skin, and a Java equipment
   fixture checked by the real entity-store codec.
+- T45 other-player tracking: one shared `PlayerRegistry` per served world,
+  unique network ids, full player-list snapshots/add/remove, view-filtered
+  entity spawn/movement/removal broadcasts, 10 Hz movement throttling, and a
+  two-bot loopback test covering mutual spawn, movement, disconnect and rejoin.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -65,7 +68,7 @@ cargo fmt --all -- --check
 
 1. **M2 — asset completion (done):** T35 → T36/T37/T38 → T39.
 2. **M3 — runtime:** T40 (done) → T41 (done) → T42 (done; parallel with M2 after T34).
-3. **M4 — v1:** T43 (done) → T44 (done) → T45 → T46 → T47 → T48.
+3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 → T47 → T48.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md)).
 
 ## Try it

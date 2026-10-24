@@ -374,6 +374,57 @@ This file records phase-2 sessions only.
   - Full `ModelAsset` resolution should land before the real-client gate if the
     vanilla client requires it.
 
+---
+
+## Session 33 — Other-player entity tracking and broadcast (2026-10-24)
+
+- **Goal:** make multiple sessions on one world visible to each other.
+- **Landed:**
+  - T45: `hytale-server::players::PlayerRegistry`, owned once by the `serve`
+    listener. It assigns unique network ids, stores UUID/username/world,
+    transform, appearance, auth skin, view centre/radius and a per-session
+    message queue, and tracks each viewer's visible entity set.
+  - Join: the new client receives the complete `AddToServerPlayerList`
+    snapshot; existing clients receive an add entry; visible entities spawn in
+    both directions. The self spawn and `SetClientId` use the assigned network
+    id.
+  - Leave: the player-list entry is removed everywhere and the entity removal
+    only goes to viewers that had it visible. The `PlayerSession` guard
+    unregisters on every session exit/error/abort path.
+  - Movement: `ClientMovement` updates the registry transform (10 Hz throttle,
+    flushing the final position) and sends `TransformUpdate` only to viewers
+    whose square chunk view contains the entity.
+  - View changes: chunk and `ViewRadius` changes recompute visibility and emit
+    spawns/removals for entities entering/leaving the view.
+  - The session loop drains the queue every 50 ms and writes list/entity
+    packets; `serve` shares one registry across accepted sessions. Single-
+    session `serve_connection` still creates a private registry.
+  - `client-bot`: decodes initial player-list UUIDs and post-join
+    add/remove/entity events; supports movement-after-join, an observation
+    window, self-disconnect and a keep-alive task for the setup/chunk streams.
+  - The multi-client loopback test now covers mutual spawn, mutual movement,
+    disconnect removal and a third rejoin with the still-connected player in
+    its list.
+- **Verified:**
+  - `cargo test -p hytale-server` (registry unit tests + session mapping).
+  - `cargo test -p client-bot --test multi_join -- --ignored` (spawn/move/
+    disconnect/rejoin).
+  - `cargo test -p client-bot --test auth_join -- --ignored` and
+    `--test dev_join -- --ignored`.
+  - `cargo test --workspace`, clippy and fmt.
+- **Deviations:**
+  - The world thread still loads one player appearance; all sessions share it
+    until per-session player data lands in T47.
+  - The server player list is global; entity spawn/update/removal is
+    view-filtered with a square chunk radius.
+  - Movement broadcasts are 10 Hz, and the registry queue is unbounded.
+  - Remote look orientation shares the body rotation until a dedicated pose
+    component exists.
+- **Follow-ups:**
+  - T46 applies block edits and can reuse the registry for interested sessions.
+  - T47 should load/save per-session player data and persist live transforms.
+  - T62 adds queue backpressure/rate limits.
+
 
 
 
