@@ -1,6 +1,6 @@
 # T37 — Item child stores and packet encoders
 
-**Status:** planned (session 25+)
+**Status:** done (session 26)
 **Package:** `hytale-assets`
 **Depends on:** T35
 **Agent fit:** medium
@@ -64,3 +64,22 @@ cargo fmt -p hytale-assets -- --check
 - `EntityStatType` is a module store outside the 54-store inventory; item
   utility/stat HUD resolution is part of T53, not this task.
 - Tool/weapon/armor/glider/ability payloads remain deferred (M5).
+- `ItemReticleConfig.ServerEvents` keys use Java's global tag index. That order
+  is not reproducible, so Rust assigns deterministic alphabetical indexes; the
+  current pack resolves to the same values as the golden.
+- `InteractionEffects.ItemPlayerAnimationsId` containment is not collected: the
+  Interaction store is not part of the canonical asset-only boot and contributes
+  no keys to the 181-key golden.
+- `ItemQuality.QualityValue` has no protocol field and is intentionally not
+  emitted.
+- Item quality/entity/sound/reticle/player-animation fields now have zero
+  residual differences over all 3,971 Java items, so the old 818/61
+  `itemEntity`/`playerAnimationsId` exceptions are closed.
+
+## Follow-ups
+
+- T39 wires the five item child packets into the join in dependency order.
+- Fold `item_local` into a typed item record once item nested payloads land.
+- Resolve item interaction animation containment when the Interaction store is
+  booted (M5).
+

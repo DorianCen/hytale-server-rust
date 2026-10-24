@@ -1,13 +1,13 @@
-# Next steps — CoreServer rewrite, phase 2 (session 25)
+# Next steps — CoreServer rewrite, phase 2 (session 26)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next tasks:** T36, T37 and T38 can run in parallel now that the child-store
-goldens exist. T36 adds the block/fluid child stores and their packets; T37 does
-the item child stores; T38 adds `TagPattern`. T39 wires them into the join.
+**Next tasks:** T39 wires the child-store packets into the join and adds
+`--validate-assets`. T40–T42 (runtime/universe/listener) remain the parallel
+runtime track; T42 depends on T39's cached config packets.
 
 ## Current state
 
@@ -18,6 +18,16 @@ Landed and green:
   `40`, `54`.
 - T35 child-store goldens (26 stores, 21 payloads) with selector/closure support
   in `AssetDumper`; `BlockSet` and `GameplayConfig` gaps are recorded.
+- T36 block/fluid child stores (`BlockBreakingDecal`, `BlockParticleSet`,
+  `BlockSoundSet`, `FluidFX`, `SoundEvent` + audio deps); all five payloads are
+  byte-identical to Java and `BlockType`/`Fluid`/`Environment` child indexes
+  resolve.
+- T37 item child stores (`ItemSoundSet`, `ItemQuality`, `ItemReticleConfig`,
+  `ItemCategory`, `ItemPlayerAnimations`); all five payloads are byte-identical
+  and the item quality/entity/sound/reticle/animation fields have zero residual
+  differences over all 3,971 Java items.
+- T38 `TagPattern` (196 assets, exact Java key/id parity) and
+  `UpdateTagPatterns`; pattern tags join the deterministic `TagRegistry`.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
