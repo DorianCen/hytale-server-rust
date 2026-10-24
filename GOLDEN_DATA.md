@@ -99,11 +99,10 @@ Sessions 18/22/23 consumer: `crates/hytale-assets/tests/asset_packets.rs` and
 `Environment.bin`/`Fluid.bin` are compared on every non-tag/non-child-index
 field. `BlockType.bin`/`Item.bin` are decoded and compared by asset key: block
 ids, group ids and tag indexes are Rust-owned (published through the same
-registry and `ServerTags`), and the documented parent-processed/child-store
-fields are excluded. `FluidFX`/`BlockSoundSet`/`ItemSoundSet`/`ItemQuality`
-indexes are 0 until those child stores are streamed. Item `State` contained
-assets (`*<item>_State_<name>`) are extracted so every Java item key has a
-packet entry.
+registry and `ServerTags`). `FluidFX`/`BlockSoundSet`/`ItemSoundSet`/
+`ItemQuality` indexes are resolved by session 26. Item `State` contained assets
+(`*<item>_State_<name>`) are extracted so every Java item key has a packet
+entry.
 
 Session 25 consumer: `crates/hytale-assets/tests/child_store_packets.rs` decodes
 every phase-2 child-store payload and verifies each `index.json` size/hash
@@ -111,6 +110,15 @@ against the committed file. The default dumper set is P0 + P1 + the child-store
 dependency roots; `BlockSet` records `packetError` because its generator needs
 an un-booted server module, and `GameplayConfig` has no loaded assets in the
 canonical boot.
+
+Session 26 consumers:
+`crates/hytale-assets/tests/child_store_golden.rs` (block/fluid stores),
+`item_child_store_packets.rs` (item stores and all 3,971 item fields) and
+`tag_pattern_packets.rs` (196 patterns, op trees and `ServerTags`
+consistency). The five block/fluid packets and five item packets are
+byte-identical to the committed payloads. `UpdateTagPatterns` is compared by op
+tree/size because Rust owns tag indexes; its key/id mapping matches
+`index.json` exactly.
 
 ### 3.3 `chunks-pkts/`
 

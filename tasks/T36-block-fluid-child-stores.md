@@ -1,6 +1,6 @@
 # T36 — Block/fluid child stores and packet encoders
 
-**Status:** planned (session 25+)
+**Status:** done (session 26)
 **Package:** `hytale-assets`
 **Depends on:** T35
 **Agent fit:** medium
@@ -60,3 +60,19 @@ cargo fmt -p hytale-assets -- --check
 - Stores outside the selected closure stay deferred (P2/P3 backlog).
 - Child indexes remain Rust-owned when the Java id order is not reproducible;
   publish consistency through the packet + `ServerTags`/index registries.
+- `AudioCategory`/`AudioState` are loaded as `SoundEvent` dependencies but have
+  no init packet in this task.
+- `AudioCategoryDuckingRule.targetAudioCategoryIndex` is emitted as `NOT_FOUND`
+  to match the canonical dumper payload; Java resolves it in a runtime
+  `LoadedAssetsEvent` that the asset-only boot does not run.
+- The `ConcurrentHashMap` wave-order model was refined to include resize-time
+  partial reversals. This reproduces the two colliding `AudioCategory` ids and
+  also affects the Rust-owned `BlockType` order beyond the fixed preload
+  prefix; P0 registry/golden tests remain green.
+
+## Follow-ups
+
+- T39 wires the five child packets into the join in dependency order.
+- Add `AudioCategory`/`AudioState` streaming if a later client path needs them.
+- Resolve ducking targets at audio-runtime load time rather than in the pure
+  asset encoder.

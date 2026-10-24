@@ -69,3 +69,45 @@ This file records phase-2 sessions only.
 - **Follow-ups:**
   - T36 (block/fluid child stores), T37 (item child stores) and T38 (TagPattern)
     can now start in parallel; T39 wires them into the join.
+
+---
+
+## Session 26 — Block/fluid, item and tag-pattern child stores (2026-10-24)
+
+- **Goal:** finish the M2 child-store work in parallel: block/fluid indexes, item
+  indexes and `TagPattern`.
+- **Landed:**
+  - T36: `BlockBreakingDecal`, `BlockParticleSet`, `BlockSoundSet`, `FluidFX`
+    and `SoundEvent` load through `AssetRegistry::load_phase2`, with
+    `AudioCategory`/`AudioState` as `SoundEvent` dependencies. All five init
+    packets are byte-identical to the Java goldens. `BlockType.blockSoundSetIndex`,
+    `Fluid.fluidFxIndex`, `Fluid.blockSoundSetIndex` and
+    `Environment.fluidParticles` resolve from the stores.
+  - T37: `ItemSoundSet`, `ItemQuality`, `ItemReticleConfig`, `ItemCategory` and
+    `ItemPlayerAnimations` load (181 animations = 160 files + 21 contained).
+    All five init packets are byte-identical. `qualityIndex`, quality-driven
+    `itemEntity`, `itemSoundSetIndex`, `reticleIndex` and `playerAnimationsId`
+    now match Java for all 3,971 items, so the old residual list is empty.
+  - T38: `TagPattern` loads 196 assets (11 files + 185 contained) with exact
+    Java key/id parity. `UpdateTagPatterns` emits the same op trees and payload
+    size as Java and is sent before `BlockType`/`Item`. `TagRegistry` includes
+    pattern-only `Equals` tags. The server's `WorldGenerator` uses
+    `load_phase2` so the join streams patterns.
+  - Merged the three branches into one integration branch and reconciled the
+    shared `AssetRegistry`, `packets/mod.rs`, preloads and `load_phase2`.
+- **Verified:**
+  - `cargo test -p hytale-assets` (all child-store suites).
+  - `cargo test --workspace`.
+  - `cargo clippy --workspace --all-targets -- -D warnings`.
+  - `cargo fmt --all -- --check`.
+- **Deviations:**
+  - `UpdateTagPatterns` cannot be byte-compared because Rust owns tag indexes;
+    op trees/size match and every index resolves in `ServerTags`.
+  - `AudioCategoryDuckingRule.targetAudioCategoryIndex` stays `NOT_FOUND` to
+    match the dumper; Java resolves it in a runtime load event.
+  - `AudioCategory`/`AudioState` are loaded but not streamed.
+  - `ItemReticleConfig.ServerEvents` indexes are deterministic but Rust-owned.
+- **Follow-ups:**
+  - T39 wires all new packets into the final config order, caches encoded
+    `ConfigAssets`, and adds `--validate-assets`.
+

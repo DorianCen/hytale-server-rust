@@ -86,7 +86,8 @@ impl WorldGenerator {
         }
 
         let pack = AssetPack::open(&options.assets_pack)?;
-        let assets = AssetRegistry::load_p0(&pack)?;
+        // Phase 2 adds TagPatterns so the join can stream UpdateTagPatterns.
+        let assets = AssetRegistry::load_phase2(&pack)?;
         let registries = Arc::new(registries_from_assets(&assets)?);
         let config = WorldGenConfig::new(
             options.world_dir.clone(),

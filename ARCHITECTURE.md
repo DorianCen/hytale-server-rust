@@ -58,10 +58,15 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   contained assets and the Rust-owned group registry, so all six self-contained
   P0 config packets stream during setup. The first vertical slice is archived in
   [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md).
-  Phase 2 covers child asset stores, the persistent universe/listener,
-  multiplayer tracking, block edits, the world clock, a real-client trace and
-  then gameplay/NPC/hardening; see [`plan.md`](plan.md),
-  [`NEXT_STEPS.md`](NEXT_STEPS.md) and [`tasks/README.md`](tasks/README.md).
+  Session 26 completed the M2 child stores: block decals/particles/sounds,
+  FluidFX and SoundEvent; item sounds/qualities/reticles/categories/player
+  animations; and the TagPattern store with `UpdateTagPatterns`. All ten child
+  packets are byte-identical to Java; tag patterns match Java's op trees with a
+  deterministic Rust-owned tag index map. Phase 2 continues with T39 wiring,
+  the persistent universe/listener, multiplayer tracking, block edits, the world
+  clock, a real-client trace and then gameplay/NPC/hardening; see
+  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/world-generation/ARCHITECTURE.md`](done/world-generation/ARCHITECTURE.md),

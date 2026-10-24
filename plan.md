@@ -6,9 +6,10 @@ completed slice is archived in
 the worldgen port remains archived in
 [`done/world-generation/`](done/world-generation/README.md).
 
-The task board is [`tasks/README.md`](tasks/README.md). The immediate next tasks
-are **T36, T37 and T38** (block/fluid child stores, item child stores, and
-`TagPattern`), which can run in parallel; T39 wires them into the join.
+The task board is [`tasks/README.md`](tasks/README.md). The immediate next task
+is **T39** (wire the child packets, cache config assets, add
+`--validate-assets`). T36, T37 and T38 are complete; T40–T42 can still run in
+parallel on the runtime track.
 
 ## 0. Baseline
 
@@ -16,7 +17,8 @@ Completed and not to be redone:
 
 - M1: protocol codegen, framing, QUIC/mTLS, transport.
 - M2 partial: P0 asset loader, deterministic ids, common assets, and the six
-  self-contained config packets (`41`, `87`, `83`, `61`, `40`, `54`).
+  self-contained config packets (`41`, `87`, `83`, `61`, `40`, `54`), plus the
+  T36–T38 child stores, their packet encoders and `UpdateTagPatterns`.
 - M3 partial: runtime chunks, BSON region/world/player storage, world config,
   save boot, demand loading, world thread, chunk packets.
 - M4 partial: dev/insecure join, local EdDSA auth, asset streaming, Game
@@ -173,6 +175,7 @@ tools/java-dumper/run-assets.sh --check
 
 ### T36 — Block/fluid child stores and packet encoders
 
+**Status:** done (session 26)
 **Package:** `hytale-assets`
 **Depends on:** T35
 **Agent fit:** medium
@@ -211,6 +214,7 @@ cargo test --workspace
 
 ### T37 — Item child stores and packet encoders
 
+**Status:** done (session 26)
 **Package:** `hytale-assets`
 **Depends on:** T35
 **Agent fit:** medium
@@ -248,6 +252,7 @@ cargo test --workspace
 
 ### T38 — TagPattern store and `UpdateTagPatterns`
 
+**Status:** done (session 26)
 **Package:** `hytale-assets`, `hytale-server`
 **Depends on:** T35
 **Agent fit:** medium

@@ -175,8 +175,14 @@ pub(crate) fn block_type_packet(
                 random_rotation: random_rotation(json.get("RandomRotation")),
                 variant_rotation: variant_rotation(json.get("VariantRotation")),
                 rotation_yaw_placement_offset: rotation(json.get("RotationYawPlacementOffset")),
-                // The BlockSoundSet store is not streamed yet.
-                block_sound_set_index: 0,
+                // Java `BlockType.processConfig`: `EMPTY` (the field default) is
+                // index 0 and an unknown set falls back to the empty set.
+                block_sound_set_index: json
+                    .get("BlockSoundSetId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.eq_ignore_ascii_case("EMPTY"))
+                    .and_then(|id| registry.block_sound_sets.id_of(id))
+                    .unwrap_or(0),
                 physical_material_index: registry
                     .physical_materials
                     .id_of(
