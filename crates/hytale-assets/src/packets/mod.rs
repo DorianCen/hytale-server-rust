@@ -31,8 +31,8 @@ use hytale_protocol::generated::common::{
     EntityPart, Fluid, FluidDrawType, FluidParticle, Hitbox, ItemAnimation, ItemCategory,
     ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
     ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
-    ModelParticle, Opacity, PhysicalMaterial, Rangef, ShaderType, SubCategoryDefinition, UpdateType,
-    WiggleWeights, WorldEnvironment,
+    ModelParticle, Opacity, PhysicalMaterial, Rangef, ShaderType, SubCategoryDefinition,
+    UpdateType, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
