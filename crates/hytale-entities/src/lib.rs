@@ -8,4 +8,7 @@
 
 #![deny(clippy::all)]
 
+pub mod damage;
+pub mod effects;
 pub mod movement;
+pub mod stats;

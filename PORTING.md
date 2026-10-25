@@ -194,8 +194,8 @@ For the server, “exact” also applies to:
   `{"Components": ...}` holder shape, type only components the server owns, and
   preserve every other component verbatim until its system is ported.
 - Block health/fragility belongs in the per-section `BlockHealthSection` BSON
-  component, not the transient simulation map. T52d defines that codec and the
-  legacy `BlockHealthChunk` migration; an empty section must not gain a
+  component, not a transient simulation map. T52d implements the v0 codec and
+  the legacy `BlockHealthChunk` migration; an empty section must not gain a
   component that Java would not write.
 - A bootable save is a `hytale-world::world::WorldSave`: `config.json`,
   `players/` and `chunks/` belong together. Save dirty chunks through its
@@ -230,15 +230,18 @@ For the server, “exact” also applies to:
 - Block simulation runs on the world thread (`BlockSimulation::tick`) and only
   emits `BlockChange`/`FluidChange` values; the session broadcasts them through
   the player queues. Do not mutate chunks from network/command threads.
-  `BlockSection.tick_requests` and `World.block_health` are transient and must
-  never enter the section/chunk BSON layout; Java `BlockHealthSection` storage
-  remains a later format task.
+  `BlockSection.tick_requests` and the transient support values must never
+  enter the section/chunk BSON layout. Block health/fragility is stored only
+  through the section's Java `BlockHealthSection` component.
 
 ---
 
 ## 8. ECS and threading rules
 
 - Use `bevy_ecs` for entities; use the custom chunk store for chunks.
+  `hytale-entities::{stats,effects,damage}` are deterministic Rust-native
+  gameplay components: preserve Java clamping/overlap/resistance behavior, not
+  the Java ECS/component API.
 - All world state is mutated on the world thread. Async tasks send messages;
   they do not touch `Store`/`World` directly.
 - `WorldThread` owns the demand queue: change the view with `SetView`, process a

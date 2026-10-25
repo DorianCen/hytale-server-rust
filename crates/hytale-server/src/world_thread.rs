@@ -25,6 +25,7 @@ use hytale_world::collision::{BlockCollisionTable, Vec3, WorldCollision};
 use hytale_world::player_data::{PlayerAppearance, PlayerDataError, PlayerTransform};
 use hytale_world::simulation::{BlockDrop, BlockSimulation, SimulationReport, SimulationTables};
 use hytale_world::view::ChunkView;
+use hytale_world::weather::{environment_forecasts, EnvironmentForecast, WeatherState};
 use hytale_world::world::{WorldError, WorldSave};
 use hytale_world::world_clock::{format_iso8601, parse_iso8601, WorldClock, WorldClockSettings};
 use hytale_world::world_config::{WorldConfigError, WorldUuid};
@@ -326,11 +327,24 @@ enum Command {
         level: i8,
         reply: SyncSender<Result<bool, String>>,
     },
+    SetLocalLight {
+        x: i32,
+        y: i32,
+        z: i32,
+        value: u16,
+        reply: SyncSender<Result<bool, String>>,
+    },
     GetFluid {
         x: i32,
         y: i32,
         z: i32,
         reply: SyncSender<Result<Option<(i32, i8)>, String>>,
+    },
+    WeatherAt {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<i32>, String>>,
     },
     BlockDrops {
         block_id: i32,
@@ -803,6 +817,44 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Set one packed local-light value (test/diagnostic seam for the
+    /// `SpreadTo` light gate).
+    pub fn set_local_light(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        value: u16,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetLocalLight {
+                x,
+                y,
+                z,
+                value,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Effective weather index at a block position (`None` when the
+    /// environment has no forecast).
+    pub fn weather_at(&self, x: i32, y: i32, z: i32) -> Result<Option<i32>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::WeatherAt { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Read one fluid id/level, or `None` when the chunk is not loaded.
     pub fn get_fluid(&self, x: i32, y: i32, z: i32) -> Result<Option<(i32, i8)>, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -1128,6 +1180,8 @@ fn run(
             movement_settings,
             collision,
             mut simulation,
+            mut weather,
+            weather_forecasts,
             config_assets,
             interactions,
         }) => {
@@ -1303,6 +1357,7 @@ fn run(
                         let _ = reply.send(Ok(result));
                     }
                     Command::Simulate { dt, reply } => {
+                        simulation.set_sunlight_factor(clock.sunlight_factor());
                         let result = simulation.tick(save.world_mut(), dt);
                         let _ = reply.send(Ok(result));
                     }
@@ -1319,6 +1374,39 @@ fn run(
                             .set_fluid(x, y, z, fluid_id, level)
                             .map_err(|error| error.to_string());
                         let _ = reply.send(result);
+                    }
+                    Command::WeatherAt { x, y, z, reply } => {
+                        let hour = clock.current_hour();
+                        weather.update(
+                            hour,
+                            clock.game_time().seconds,
+                            save.config().seed,
+                            &weather_forecasts,
+                        );
+                        let environment = save.world().get_environment(x, y, z);
+                        let _ = reply.send(Ok(weather.effective_weather(environment)));
+                    }
+                    Command::SetLocalLight {
+                        x,
+                        y,
+                        z,
+                        value,
+                        reply,
+                    } => {
+                        let result = save
+                            .world_mut()
+                            .chunk_mut(x >> 5, z >> 5)
+                            .and_then(|column| column.ensure_section(y))
+                            .map(|section| {
+                                let index =
+                                    (((y & 31) << 10) | ((z & 31) << 5) | (x & 31)) as usize;
+                                let mut light = section.block.local_light().clone();
+                                light.set(index, value);
+                                section.block.set_local_light(light);
+                                true
+                            })
+                            .unwrap_or(false);
+                        let _ = reply.send(Ok(result));
                     }
                     Command::GetFluid { x, y, z, reply } => {
                         let result = if save.world().chunk(x >> 5, z >> 5).is_some() {
@@ -1453,6 +1541,8 @@ struct Started {
     movement_settings: MovementSettings,
     collision: BlockCollisionTable,
     simulation: BlockSimulation,
+    weather: WeatherState,
+    weather_forecasts: BTreeMap<i32, EnvironmentForecast>,
     config_assets: Arc<hytale_assets::ConfigAssets>,
     interactions: Arc<InteractionCatalog>,
 }
@@ -1527,10 +1617,18 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     // re-derives this in `MovementManager.resetFly`.
     movement_settings.fly = movement_asset.fly.unwrap_or(FlyMode::Disabled);
     let collision = BlockCollisionTable::from_assets(generator.assets());
-    let simulation = BlockSimulation::new(
+    let mut simulation = BlockSimulation::new(
         SimulationTables::from_assets(generator.assets()),
         save.config().seed,
     );
+    simulation.set_disabled_fluid_tickers(&save.config().disabled_fluid_tickers);
+    let weather_forecasts = environment_forecasts(generator.assets());
+    let forced_weather = save
+        .config()
+        .forced_weather
+        .as_deref()
+        .and_then(|id| generator.assets().weather_id(id));
+    let weather = WeatherState::new(forced_weather);
     let clock_settings = WorldClockSettings {
         daytime_duration_seconds: save
             .config()
@@ -1589,6 +1687,8 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         movement_settings,
         collision,
         simulation,
+        weather,
+        weather_forecasts,
         config_assets,
         interactions,
     })

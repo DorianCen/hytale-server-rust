@@ -116,6 +116,22 @@ const ITEM: StoreSpec = P0_STORES[5];
 const PHYSICAL_MATERIAL: StoreSpec = P0_STORES[6];
 const PREFAB_LIST: StoreSpec = P0_STORES[7];
 
+/// `EntityStatType` store (`Server/Entity/Stats`). Used to resolve item
+/// `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` names to ids and by the
+/// gameplay stat map. Java preloads `Unknown` at id 0.
+pub const ENTITY_STAT_TYPE: StoreSpec = StoreSpec {
+    name: "EntityStatType",
+    path: "Server/Entity/Stats",
+    map: MapKind::IndexedLookupTable,
+};
+
+/// `Weather` store (`Server/Weathers`). Java preloads `Unknown` at id 0.
+pub const WEATHER: StoreSpec = StoreSpec {
+    name: "Weather",
+    path: "Server/Weathers",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// Internal `MovementConfig` store (no asset packet; selected by
 /// `GameplayConfig.Player.MovementConfig` and sent through
 /// `UpdateMovementSettings`).
@@ -714,6 +730,10 @@ pub struct AssetRegistry {
     /// Internal `MovementConfig` store (no packet; selected by the gameplay
     /// config and sent through `UpdateMovementSettings`).
     pub movement_configs: AssetCollection<MovementConfigAsset>,
+    /// `EntityStatType` store (`Server/Entity/Stats`, `Unknown` preloaded at 0).
+    pub entity_stat_types: AssetCollection<Value>,
+    /// `Weather` store (`Server/Weathers`, `Unknown` preloaded at 0).
+    pub weathers: AssetCollection<Value>,
     /// `ItemSoundSet` (loaded by [`Self::load_phase2`]).
     pub item_sound_sets: AssetCollection<Value>,
     /// `ItemQuality` (loaded by [`Self::load_phase2`]).
@@ -782,6 +802,13 @@ impl AssetRegistry {
             Vec::new(),
             MovementConfigAsset::from_value,
         )?;
+        let entity_stat_types = load_indexed_store(
+            pack,
+            &ENTITY_STAT_TYPE,
+            entity_stat_type_preloads(),
+            parse_key_asset,
+        )?;
+        let weathers = load_indexed_store(pack, &WEATHER, weather_preloads(), parse_key_asset)?;
 
         Ok(Self {
             block_types,
@@ -795,6 +822,8 @@ impl AssetRegistry {
             tag_patterns: AssetCollection::new(TAG_PATTERN_STORE.name, Vec::new())?,
             gameplay_configs,
             movement_configs,
+            entity_stat_types,
+            weathers,
             item_sound_sets: AssetCollection::empty(),
             item_qualities: AssetCollection::empty(),
             item_reticles: AssetCollection::empty(),
@@ -874,6 +903,16 @@ impl AssetRegistry {
     /// Java `Fluid.getAssetMap().getAsset(key)`.
     pub fn fluid(&self, key: &str) -> Option<&FluidAsset> {
         self.fluids.get(key).map(|record| &record.value)
+    }
+
+    /// Resolve an `EntityStatType` asset name to its deterministic id.
+    pub fn entity_stat_id(&self, key: &str) -> Option<i32> {
+        self.entity_stat_types.id_of(key)
+    }
+
+    /// Resolve a `Weather` asset name to its deterministic id.
+    pub fn weather_id(&self, key: &str) -> Option<i32> {
+        self.weathers.id_of(key)
     }
 
     /// The source item document before `Parent` resolution (`None` for a key
@@ -2119,6 +2158,14 @@ fn block_type_preloads() -> Vec<(&'static str, Value)> {
             json!({"DrawType": "Model", "Material": "Empty"}),
         ),
     ]
+}
+
+fn entity_stat_type_preloads() -> Vec<(&'static str, Value)> {
+    vec![("Unknown", json!({}))]
+}
+
+fn weather_preloads() -> Vec<(&'static str, Value)> {
+    vec![("Unknown", json!({}))]
 }
 
 fn fluid_preloads() -> Vec<(&'static str, Value)> {

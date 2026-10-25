@@ -74,3 +74,12 @@ tools/java-dumper/run-reload-check.sh target/headless-smoke 4 -5 129 250 -159 De
 `run-reload-check.sh` runs `WorldStorageProbe`, which opens the region with the
 real `IndexedStorageFile`, deserializes with `ChunkStore.REGISTRY` and checks the
 block name in the real `BlockType` map.
+
+## Block health fixture
+
+`block-health-section.bson` is written by
+`tools/java-dumper/run-block-health.sh` with the real
+`BlockHealthSection.CODEC` (version 0). It contains two damaged entries
+(indices 17 and 1024) and two fragile entries (17 and 2048); the Rust gate in
+`crates/hytale-world/tests/world_storage.rs` decodes every health, last-damage
+and fragility value and checks that an empty section omits the component.

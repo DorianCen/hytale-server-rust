@@ -230,6 +230,39 @@ impl WorldClock {
         self.game_time = clamp_instant(game_time);
     }
 
+    /// Current in-game hour (`0..24`).
+    pub fn current_hour(&self) -> i32 {
+        self.game_time.second_of_day() / 3_600
+    }
+
+    /// Java `WorldTimeResource` moon phase: the weekly phase swaps at midday.
+    pub fn moon_phase(&self) -> i8 {
+        let total = self.settings.total_moon_phases.max(1);
+        let day = day_of_year(self.game_time.seconds);
+        let week_day = (day - 1).rem_euclid(i64::from(total));
+        let phase = if self.current_hour() < 12 {
+            if week_day == 0 {
+                i64::from(total) - 1
+            } else {
+                week_day - 1
+            }
+        } else {
+            week_day
+        };
+        phase as i8
+    }
+
+    /// Java `WorldTimeResource.getSunlightFactor()`.
+    ///
+    /// The fixed 60/40 day split places sunrise at half of the night; the
+    /// sunlight curve peaks at midday and bottoms out at night.
+    pub fn sunlight_factor(&self) -> f32 {
+        let day_progress = self.game_time.second_of_day() as f32;
+        let half_night = (SECONDS_PER_DAY as f32 - DAYTIME_SECONDS as f32) * 0.5;
+        let dawn_relative = (day_progress - half_night) / SECONDS_PER_DAY as f32;
+        ((std::f32::consts::TAU * dawn_relative).sin() + 0.2).clamp(0.0, 1.0)
+    }
+
     /// Snapshot for `UpdateTime`/`UpdateTimeSettings`.
     pub fn state(&self) -> WorldClockState {
         WorldClockState {
@@ -444,6 +477,22 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
+/// Day of the year (`1..=366`) for a Unix timestamp.
+fn day_of_year(seconds: i64) -> i64 {
+    let days = seconds.div_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    const MONTH_DAYS: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut ordinal = day;
+    for (index, count) in MONTH_DAYS.iter().enumerate() {
+        if index + 1 >= month as usize {
+            break;
+        }
+        ordinal += count + i64::from(leap && index == 1);
+    }
+    ordinal
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,6 +539,26 @@ mod tests {
     fn zero_year_is_midnight_utc() {
         assert_eq!(GameInstant::ZERO_YEAR.second_of_day(), 0);
         assert_eq!(instant("0001-01-01T05:30:00Z").second_of_day(), 19_800);
+    }
+
+    #[test]
+    fn current_hour_and_moon_phase_swap_at_midday() {
+        let mut clock = WorldClock::from_game_time(
+            Some(GameInstant::new(ZERO_YEAR_SECONDS + 3_600, 0)),
+            WorldClockSettings {
+                total_moon_phases: 5,
+                ..WorldClockSettings::default()
+            },
+            false,
+        );
+        assert_eq!(clock.current_hour(), 1);
+        let morning = clock.moon_phase();
+        clock.set_game_time(GameInstant::new(ZERO_YEAR_SECONDS + 12 * 3_600, 0));
+        assert_eq!(clock.current_hour(), 12);
+        let noon = clock.moon_phase();
+        // Day 1 at midday is phase 0; before midday it is the previous phase.
+        assert_eq!(noon, 0);
+        assert_eq!(morning, 4);
     }
 
     #[test]

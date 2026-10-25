@@ -308,15 +308,34 @@ committed packet payload because the simulation state is transient:
 | `Water_Source`/`Water` max levels, spread target and demotion support | same |
 | `Debug_Falling_Barrel` `SupportDropType: Fall` + `FallingBlockSettings` | same |
 | Support removal/drop, falling land, grass spread, water spread and health regeneration | `crates/hytale-world/src/simulation.rs` unit tests and `crates/hytale-server/tests/simulation.rs` |
-| Java-written region/player/config reads still pass after the transient tick/health fields | `crates/hytale-world/tests/world_storage.rs`, `run-save-check.sh` |
+| Java-written region/player/config reads still pass after the block-health component | `crates/hytale-world/tests/world_storage.rs`, `run-save-check.sh` |
+| `fluid/fluid-tickers.json` Java `blocksFluidFrom` + ticker fields | `crates/hytale-world/tests/simulation.rs`, `tests/fluid_simulation.rs`; regenerate with `tools/java-dumper/run-fluid.sh --check` |
+| `storage/block-health-section.bson` Java `BlockHealthSection` v0 | `crates/hytale-world/tests/world_storage.rs`; regenerate with `tools/java-dumper/run-block-health.sh --check` |
 
 The random-tick ordering uses a deterministic Rust RNG, not Java's
 `SplittableRandom`; the procedure semantics and asset metadata are the gate.
-Fluid face coverage, light-gated growth, block-damage packets, item-entity drops
-and Java `BlockHealthSection` persistence are split into
-`tasks/T52b-fluid-ticker-parity.md`, `tasks/T52c-support-random-tick-parity.md`
-and `tasks/T52d-block-health-storage.md`; item entities and damage packets stay
-T56/T57.
+T52b/T52c/T52d now cover partial-hitbox fluid coverage, waterlogging,
+finite/fire tickers, disabled tickers, support-distance chains, filler/self-face
+support, light/fluid gates, weighted placement, scheduled growth and Java
+`BlockHealthSection` persistence. Sound playback, item-entity drops and damage
+packets stay T56/T57; builtin module lifecycle stays T60.
+
+### 3.10 Entity gameplay (real-pack checks, no committed payload)
+
+Session 42 started T53 with the entity gameplay core. The oracle is the real
+pack documents plus the Java `EntityStatType`/`EntityEffect`/`DamageCause`
+algorithms:
+
+| Check | Gate |
+|---|---|
+| `Unknown` stat id 0; `Health`/`Stamina` initial/min/max/reset/regeneration fields | `crates/hytale-entities/tests/entity_gameplay.rs` |
+| Stat clamp, static min/max modifiers, reset and interval regeneration | `crates/hytale-entities/src/stats.rs` tests |
+| Effect overlap/expiry/invulnerability and resistance aggregation | `crates/hytale-entities/src/effects.rs` tests |
+| Damage-cause inheritance, flat/percent resistance, outgoing modifiers, death at zero | `crates/hytale-entities/src/damage.rs` tests |
+| Item `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` name resolution | `crates/hytale-assets/tests/block_item_packets.rs` (real-pack `Item.bin` gate) |
+
+Full condition evaluation, damage calculators, client stat/effect/damage packets
+and Java-authored gameplay fixtures remain T53 follow-up/T57/T59 work.
 
 ### 3.9 `trace/`
 

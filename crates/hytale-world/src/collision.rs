@@ -156,22 +156,98 @@ impl BlockShape {
     ///
     /// Java stores `(roll * 16) + (pitch * 4) + yaw` (`RotationTuple.index`).
     pub fn world_boxes(&self, rotation: i32, origin: (i32, i32, i32), out: &mut Vec<Aabb>) {
-        let rotation = rotation.rem_euclid(64) as u8;
-        let yaw = rotation % 4;
-        let pitch = (rotation / 4) % 4;
-        let roll = rotation / 16;
         let offset = Vec3::new(
             f64::from(origin.0),
             f64::from(origin.1),
             f64::from(origin.2),
         );
+        let start = out.len();
+        self.rotated_boxes(rotation, out);
+        for boxed in &mut out[start..] {
+            *boxed = boxed.translated(offset);
+        }
+    }
+
+    /// Rotate the local boxes by a Java `RotationTuple` index without
+    /// translating them (the fluid face-coverage checks operate in block space).
+    pub fn rotated_boxes(&self, rotation: i32, out: &mut Vec<Aabb>) {
+        let rotation = rotation.rem_euclid(64) as u8;
+        let yaw = rotation % 4;
+        let pitch = (rotation / 4) % 4;
+        let roll = rotation / 16;
         for base in &self.boxes {
             let mut min = base.min;
             let mut max = base.max;
             rotate_box(&mut min, &mut max, yaw, pitch, roll);
             normalize(&mut min, &mut max);
-            let local = Aabb::new(min, max);
-            out.push(local.translated(offset));
+            out.push(Aabb::new(min, max));
+        }
+    }
+
+    /// Union of all detail boxes after rotation (`RotatedVariantBoxes.boundingBox`).
+    pub fn rotated_bounding_box(&self, rotation: i32) -> Option<Aabb> {
+        let mut boxes = Vec::with_capacity(self.boxes.len());
+        self.rotated_boxes(rotation, &mut boxes);
+        let first = boxes.first().copied()?;
+        Some(boxes[1..].iter().fold(first, |acc, boxed| Aabb {
+            min: Vec3::new(
+                acc.min.x.min(boxed.min.x),
+                acc.min.y.min(boxed.min.y),
+                acc.min.z.min(boxed.min.z),
+            ),
+            max: Vec3::new(
+                acc.max.x.max(boxed.max.x),
+                acc.max.y.max(boxed.max.y),
+                acc.max.z.max(boxed.max.z),
+            ),
+        }))
+    }
+
+    /// Java `BlockBoundingBoxes.protrudesUnitBox` reduced to the base boxes.
+    ///
+    /// Rotating a box that stays inside `0..1` keeps it inside, so a box that
+    /// only protrudes after rotation must already protrude before it.
+    pub fn protrudes_unit_box(&self) -> bool {
+        self.boxes.iter().any(|boxed| {
+            boxed.min.x < 0.0
+                || boxed.max.x > 1.0
+                || boxed.min.y < 0.0
+                || boxed.max.y > 1.0
+                || boxed.min.z < 0.0
+                || boxed.max.z > 1.0
+        })
+    }
+
+    /// Parse a `BlockBoundingBoxes` asset document.
+    pub fn from_hitbox(value: &Value) -> Option<Self> {
+        let boxes = value.get("Boxes").and_then(Value::as_array)?;
+        let mut parsed = Vec::with_capacity(boxes.len());
+        for entry in boxes {
+            let min = entry.get("Min");
+            let max = entry.get("Max");
+            let component = |vector: Option<&Value>, name: &str| -> f64 {
+                vector
+                    .and_then(|value| value.get(name))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+            };
+            parsed.push(Aabb::new(
+                Vec3::new(
+                    component(min, "X"),
+                    component(min, "Y"),
+                    component(min, "Z"),
+                ),
+                Vec3::new(
+                    component(max, "X"),
+                    component(max, "Y"),
+                    component(max, "Z"),
+                ),
+            ));
+        }
+        if parsed.is_empty() {
+            None
+        } else {
+            Some(Self { boxes: parsed })
         }
     }
 }
@@ -351,40 +427,11 @@ impl BlockCollisionTable {
 }
 
 fn block_shape(assets: &AssetRegistry, hitbox_name: &str) -> BlockShape {
-    let Some(record) = assets.block_bounding_boxes.get(hitbox_name) else {
-        return BlockShape::unit();
-    };
-    let Some(boxes) = record.value.get("Boxes").and_then(Value::as_array) else {
-        return BlockShape::unit();
-    };
-    let mut parsed = Vec::with_capacity(boxes.len());
-    for entry in boxes {
-        let min = entry.get("Min");
-        let max = entry.get("Max");
-        let component = |vector: Option<&Value>, name: &str| -> f64 {
-            vector
-                .and_then(|value| value.get(name))
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0)
-        };
-        parsed.push(Aabb::new(
-            Vec3::new(
-                component(min, "X"),
-                component(min, "Y"),
-                component(min, "Z"),
-            ),
-            Vec3::new(
-                component(max, "X"),
-                component(max, "Y"),
-                component(max, "Z"),
-            ),
-        ));
-    }
-    if parsed.is_empty() {
-        BlockShape::unit()
-    } else {
-        BlockShape { boxes: parsed }
-    }
+    assets
+        .block_bounding_boxes
+        .get(hitbox_name)
+        .and_then(|record| BlockShape::from_hitbox(&record.value))
+        .unwrap_or_else(BlockShape::unit)
 }
 
 /// A source of world-space block collision boxes.
@@ -435,11 +482,9 @@ impl CollisionWorld for WorldCollision<'_> {
     }
 }
 
-/// Java `FillerBlockUtil.unpackX/Y/Z`.
-fn filler_origin(x: i32, y: i32, z: i32, filler: i32) -> (i32, i32, i32) {
-    if filler == 0 {
-        return (x, y, z);
-    }
+/// Java `FillerBlockUtil.unpackX/Y/Z` — the offset of a filler cell from its
+/// base block. `NO_FILLER` (`0`) unpacks to `(0, 0, 0)`.
+pub fn filler_offset(filler: i32) -> (i32, i32, i32) {
     const BITS: u32 = 5;
     const MASK: i32 = (1 << BITS) - 1;
     const INVERT: i32 = (!0) << BITS;
@@ -451,10 +496,19 @@ fn filler_origin(x: i32, y: i32, z: i32, filler: i32) -> (i32, i32, i32) {
         result
     };
     (
-        x - unpack(filler),
-        y - unpack(filler >> (BITS * 2)),
-        z - unpack(filler >> BITS),
+        unpack(filler),
+        unpack(filler >> (BITS * 2)),
+        unpack(filler >> BITS),
     )
+}
+
+/// Java `FillerBlockUtil.unpackX/Y/Z`.
+fn filler_origin(x: i32, y: i32, z: i32, filler: i32) -> (i32, i32, i32) {
+    if filler == 0 {
+        return (x, y, z);
+    }
+    let (offset_x, offset_y, offset_z) = filler_offset(filler);
+    (x - offset_x, y - offset_y, z - offset_z)
 }
 
 /// Convenience: all solid boxes overlapping one player AABB at `position`.

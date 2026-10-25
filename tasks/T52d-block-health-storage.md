@@ -1,6 +1,6 @@
 # T52d — Block health storage and fragility persistence
 
-**Status:** planned
+**Status:** done (session 41)
 **Package:** `hytale-world`, `hytale-server`, `tools/java-dumper`
 **Depends on:** T52 (T57 consumes the presentation seam)
 **Agent fit:** medium
@@ -88,3 +88,16 @@ tools/java-dumper/run-save-check.sh <rust-save> <chunkX> <chunkZ> <blockX> <bloc
   it; document the decision.
 - Any storage version bump must be justified against the Java codec and covered
   by the read-back probe.
+
+## Result (session 41)
+
+Implemented and verified against the real pack and the Java oracle. See
+[`../PORTING_HISTORY.md`](../PORTING_HISTORY.md) session 41 for the changed
+files and the remaining narrower deviations (sound playback, builtin module
+lifecycle and client presentation stay with their later tasks).
+
+**Remaining deviation:** the committed Java fixture is the real
+`BlockHealthSection.CODEC` document, and Rust save/reload is covered, but the
+Java whole-save probe (`run-save-check.sh`) does not yet read health/fragility
+back from a Rust-written region. Extend `WorldStorageProbe` with the health
+component before using this as a full reverse storage gate.

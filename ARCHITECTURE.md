@@ -111,9 +111,15 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   `BlockSection`, `hytale-world::simulation` (deterministic random ticks,
   support loss, falling blocks, default fluid flow/collision, gathering drops
   and transient block health) and one simulation pass per 50 ms in the server
-  loop with view-filtered block/fluid broadcasts. M5 continues with T53; see
-  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
-  [`tasks/README.md`](tasks/README.md).
+  loop with view-filtered block/fluid broadcasts. Session 41 closed the T52
+  parity follow-ups: T52b adds partial-hitbox fluid face coverage, waterlogging,
+  finite/fire tickers, disabled tickers and Java ticker inheritance; T52c adds
+  support-distance chains, filler/self-face rules, `WAITING_CHUNK`, light/fluid
+  `SpreadTo` gates, weighted placement, scheduled growth and a tick-suppression
+  seam; T52d stores health/fragility in the Java `BlockHealthSection` component
+  with legacy `BlockHealthChunk` migration and pending deltas for T57. M5
+  continues with T53; see [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
+  and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
 - **Archived worldgen docs:** [`done/world-generation/ARCHITECTURE.md`](done/world-generation/ARCHITECTURE.md),
@@ -376,6 +382,15 @@ one-chunk editor. Chunk streaming and the live tick loop are wired; chunk
 load/unload events still use one world-wide queue (per-view filtering is
 follow-up work).
 
+Weather (`hytale-world::weather`) loads the `Weather` store (`Unknown` at 0),
+parses each environment's 24-hour weighted forecast, applies
+`WorldConfig.ForcedWeather`, and reselects deterministically on an in-game hour
+boundary using the world seed and forecast seed key. `WorldThread::weather_at`
+exposes the effective index for a position; sessions send `UpdateWeather` with
+the Java join/change transition durations. `WorldClock::current_hour` and
+`moon_phase` complete the time model; presentation-only weather documents stay
+with T57.
+
 `WorldClock` (`hytale-world::world_clock`) follows Java
 `WorldTimeResource`: game time is an epoch instant, the configured daytime and
 nighttime durations are real seconds that map onto the fixed 60/40 game-day
@@ -420,15 +435,17 @@ a transient `(tick, index)` scheduled queue; `begin_tick` moves due requests
 into the ticking set and `finish_tick` applies Java's `BlockTickStrategy`. One
 simulation pass drains changed blocks (scheduling the 3×3×3 neighbourhood),
 processes fluid/support/scheduled ticks, runs deterministic random ticks,
-advances one-cell falling blocks and regenerates transient block health.
-`SimulationTables` parses `Support`/`Supporting`, `SupportDropType`,
-`Gathering`, `RandomTickProcedure`, `FallingBlockSettings` and the default
-`Fluid` ticker from the merged assets. The server calls `simulate(0.05)` each
-50 ms game-loop tick and broadcasts block/fluid changes to viewers. Fluid face
-coverage, light-gated growth, block-damage packets, item-entity drops and the
-builtin module lifecycle remain later work. T52b (fluid ticker parity), T52c
-(support/random-tick parity) and T52d (Java `BlockHealthSection` storage) are
-the explicit follow-up tasks; T57/T60 consume their seams.
+advances one-cell falling blocks and ticks health/fragility. `SimulationTables`
+parses `Support`/`Supporting` (including `MaxSupportDistance`, filler and
+`SupportsRequiredFor`), `SupportDropType`, `Gathering`, the full
+`RandomTickProcedure`/`TickProcedure` set, `FallingBlockSettings`, the
+`BlockBoundingBoxes` hitboxes and the `Default`/`Finite`/`Fire` fluid tickers
+from the merged assets. The server calls `simulate(0.05)` each 50 ms game-loop
+tick, sets the clock's sunlight factor for light gates and broadcasts
+block/fluid changes to viewers. Per-section health/fragility lives in the Java
+`BlockHealthSection` v0 component (legacy `BlockHealthChunk` is migrated on
+read) and `SimulationReport::health_deltas` is the T57 replication seam. Sound
+playback, item-entity drops and the builtin module lifecycle remain T56/T57/T60.
 
 ---
 
@@ -448,7 +465,14 @@ the explicit follow-up tasks; T57/T60 consume their seams.
 
 The initial component set is deliberately small: transform, UUID, player,
 persistent display name, world-gen id, movement/velocity, and the components
-needed by block placement. `hytale-entities::movement` owns the player AABB
+needed by block placement. Session 42 started the gameplay layer:
+`hytale-entities::stats` owns `EntityStatType`/values/maps with clamps, static
+min/max modifiers, regeneration and reset behavior; `effects` owns active
+effects, overlap/expiry and invulnerability aggregation; `damage` owns causes,
+resistance/outgoing modifiers, health subtraction and the death result. The
+asset registry loads `Server/Entity/Stats` and item stat arrays resolve names to
+ids. Client packets, condition evaluation and the full damage-calculator graph
+remain T57/T59. `hytale-entities::movement` owns the player AABB
 (`0.65 × 1.85 × 0.65`), the Y→X→Z collision sweep with one-block step-up, and
 the deterministic gravity/jump/fly/climb integrator used by tests and later NPC
 work. `hytale-world::collision` turns `BlockType` materials and
@@ -605,10 +629,11 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading, the `WorldThread` view/scheduling loop, per-session registered views and the chunk packet batch/framer landed (M3/M4); universe lifecycle and writing frames on a connection landed |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
-| `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence and per-second `UpdateTime` landed (M4); sleep/interpolation commands and moon-phase events pending (T54) |
+| `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence, per-second `UpdateTime`, current hour and moon phase landed (M4/T54); weather state/forecasts, `WorldThread::weather_at` and session `UpdateWeather` landed (T54 done; full `UpdateWeathers` asset packet is a split follow-up) |
 | `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); windows and world item entities deferred |
 | `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes and door state broadcasts landed (M5); selectors/effects/cooldowns, item/entity roots and windows deferred |
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::{collision,player_data}` | saved model reference and inventory components decoded (M4); `movement` AABB sweep, one-block step, bounds and gravity/jump/fly/climb integrator plus the internal `MovementConfig` join packet landed (M5); full `ModelAsset` protocol expansion, ECS lifecycle, fluids/triggers and entity collisions deferred |
+| `CoreServer/.../modules/entitystats/**`, `asset/type/entityeffect/**`, `modules/entity/damage/**` | `hytale-entities::{stats,effects,damage}` | stat types/values/maps, static modifiers, regeneration/reset, active effects with overlap/expiry/invulnerability, damage causes/resistance/outgoing and health/death core landed (M5, T53 in progress); conditions, calculators and packets deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, validated block place/break with `ServerSetBlock` broadcasts, and the JSONL packet-trace capture/gate (M3/M4) landed |

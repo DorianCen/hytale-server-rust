@@ -3,6 +3,8 @@
 use std::path::PathBuf;
 
 use hytale_server::{GeneratorOptions, WorldThread, WorldThreadOptions};
+use hytale_world::world::WorldSave;
+use hytale_world::world_config::WorldUuid;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -150,6 +152,11 @@ fn a_forced_random_tick_spreads_grass_to_tagged_soil() {
     thread.set_block(4, 199, 16, stone).expect("floor");
     thread.set_block(4, 200, 16, grass).expect("grass");
     thread.set_block(5, 200, 16, dirt).expect("dirt");
+    // Java `SpreadTo` requires the default light level 6; the generator does
+    // not compute local light, so give the block above full sky light.
+    thread
+        .set_local_light(4, 201, 16, 0xF000)
+        .expect("sky light");
     let report = thread
         .force_random_tick(4, 200, 16)
         .expect("force random tick");
@@ -196,6 +203,56 @@ fn a_water_source_spreads_into_the_adjacent_cell() {
     assert_eq!(level, 7, "{report:?}");
     assert!(!report.fluid_changes.is_empty(), "{report:?}");
 
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn forced_weather_overrides_the_real_environment_forecast() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let save_dir = temp_dir("forced-weather");
+    let uuid = WorldUuid::derive(7, "forced-weather");
+    let (mut save, _) = WorldSave::open(&save_dir, 7, Some("ForcedWeather".to_string()), uuid)
+        .expect("create the save");
+    save.config_mut().forced_weather = Some("Zone1_Cloudy_Medium".to_string());
+    save.save_config().expect("save config");
+    drop(save);
+
+    let options = WorldThreadOptions::with_defaults(
+        GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, _start) = WorldThread::spawn(options).expect("spawn the world thread");
+    while thread.tick().expect("tick").remaining > 0 {}
+    let weather = thread
+        .weather_at(4, 200, 16)
+        .expect("weather lookup")
+        .expect("forced weather");
+    assert!(weather > 0);
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn weather_at_resolves_the_real_environment_forecast() {
+    let Some((thread, save_dir)) = world("weather") else {
+        return;
+    };
+    let weather = thread
+        .weather_at(4, 200, 16)
+        .expect("weather lookup")
+        .expect("the default environment has a forecast");
+    assert!(weather > 0, "Unknown must not win the forecast: {weather}");
+    // Forced/live weather packets are covered by the world-clock/weather state
+    // tests; this checks the world-thread asset wiring.
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();
 }

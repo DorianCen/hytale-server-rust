@@ -1,6 +1,6 @@
 # T52c — Support and random-tick parity follow-up
 
-**Status:** planned
+**Status:** done (session 41)
 **Package:** `hytale-world`
 **Depends on:** T52
 **Agent fit:** medium
@@ -84,3 +84,16 @@ cargo fmt --all -- --check
 - Tick suppression volumes, builtin proc registration and plugin toggles remain
   T60; this task adds the core lookup seam and tests.
 - Prefab block components/entity state that participate in support are T56.
+
+## Result (session 41)
+
+Implemented and verified against the real pack and the Java oracle. See
+[`../PORTING_HISTORY.md`](../PORTING_HISTORY.md) session 41 for the changed
+files and the remaining narrower deviations (sound playback, builtin module
+lifecycle and client presentation stay with their later tasks).
+
+**Remaining deviation:** the support/random-tick scenarios are covered by
+synthetic `hytale-world` unit tests plus the real-asset parser checks. A
+Java-side support-distance harness was not added in session 41; the Java oracle
+for fluids and `BlockHealthSection` is committed. Random-tick scheduling order
+is intentionally deterministic Rust, per `GOLDEN_DATA.md`.

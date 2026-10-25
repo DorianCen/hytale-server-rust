@@ -62,7 +62,8 @@ use hytale_protocol::generated::setup::{
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::ClearChunks;
 use hytale_protocol::generated::world::{
-    ServerSetBlock, ServerSetFluid, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
+    ServerSetBlock, ServerSetFluid, UpdateTime, UpdateTimeSettings, UpdateWeather,
+    WorldGameplayConfig,
 };
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
@@ -196,6 +197,8 @@ pub struct GameReport {
     pub gameplay_config: bool,
     /// `UpdateTimeSettings`/`UpdateTime` were written.
     pub time: bool,
+    /// `UpdateWeather` was written.
+    pub weather: bool,
     /// `SetGameMode` was written.
     pub game_mode: bool,
     /// The player's `UpdatePlayerInventory` was written.
@@ -243,6 +246,8 @@ pub struct GameLoopReport {
     pub unloaded: usize,
     /// Periodic `UpdateTime` packets written.
     pub time_updates: usize,
+    /// `UpdateWeather` change packets written.
+    pub weather_updates: usize,
     /// `UpdateTimeSettings` packets written after a pause-state change.
     pub time_settings_updates: usize,
     /// Queued player list/entity packets written during the loop.
@@ -359,6 +364,7 @@ struct EnterGame {
     appearance: PlayerAppearance,
     skin: Option<PlayerSkin>,
     world_time: WorldTimeState,
+    weather: Option<i32>,
     gameplay_config: WorldGameplayConfig,
     movement_settings: MovementSettings,
     inventory: PlayerInventory,
@@ -370,6 +376,7 @@ struct LiveGame<'a> {
     radius: u32,
     ready_for_gameplay: bool,
     world_time: WorldTimeState,
+    weather: Option<i32>,
     network_id: i32,
     players: Arc<PlayerRegistry>,
     broadcasts: mpsc::Receiver<PlayerMessage>,
@@ -454,6 +461,11 @@ pub async fn serve_connection_with_registry(
         block_to_chunk(player_transform.position.z),
     );
     let world_time = thread.world_time()?;
+    let weather = thread.weather_at(
+        player_transform.position.x.floor() as i32,
+        player_transform.position.y.floor() as i32,
+        player_transform.position.z.floor() as i32,
+    )?;
     let gameplay_config = thread.gameplay_config()?;
     let movement_settings = thread.movement_settings()?;
     let skin = handshake.skin.clone();
@@ -500,6 +512,7 @@ pub async fn serve_connection_with_registry(
                     appearance,
                     skin,
                     world_time,
+                    weather,
                     gameplay_config,
                     movement_settings,
                     inventory: inventory.clone(),
@@ -531,6 +544,7 @@ pub async fn serve_connection_with_registry(
                     radius,
                     ready_for_gameplay: game.client_ready_for_gameplay,
                     world_time,
+                    weather,
                     network_id: join.network_id,
                     players: Arc::clone(&players),
                     broadcasts: message_rx,
@@ -991,6 +1005,7 @@ async fn enter_game(
         appearance,
         skin,
         world_time,
+        weather,
         gameplay_config,
         movement_settings,
         inventory,
@@ -1159,6 +1174,18 @@ async fn enter_game(
             options.chunk_compression_level,
         )
         .await?;
+    if let Some(weather_index) = weather {
+        writer
+            .write_packet(
+                &UpdateWeather {
+                    weather_index,
+                    transition_seconds: 0.5,
+                },
+                options.chunk_compression_level,
+            )
+            .await?;
+        game.weather = true;
+    }
     writer
         .write_packet(
             &SetGameMode {
@@ -1240,6 +1267,7 @@ async fn run_game_loop(
         mut radius,
         ready_for_gameplay,
         mut world_time,
+        mut weather,
         network_id,
         players,
         broadcasts,
@@ -1581,6 +1609,26 @@ async fn run_game_loop(
         }
 
         if time_ticker.elapsed() >= Duration::from_secs(1) {
+            let current_weather = thread.weather_at(
+                transform.position.x.floor() as i32,
+                transform.position.y.floor() as i32,
+                transform.position.z.floor() as i32,
+            )?;
+            if weather != current_weather {
+                if let Some(weather_index) = current_weather {
+                    writer
+                        .write_packet(
+                            &UpdateWeather {
+                                weather_index,
+                                transition_seconds: 10.0,
+                            },
+                            options.chunk_compression_level,
+                        )
+                        .await?;
+                    report.weather_updates += 1;
+                }
+                weather = current_weather;
+            }
             world_time = thread.world_time()?;
             if world_time.time_paused != last_time_paused {
                 writer

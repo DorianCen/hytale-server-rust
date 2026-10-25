@@ -145,7 +145,7 @@ fn item_base(
         weapon: None,
         armor: None,
         glider_config: None,
-        utility: Some(utility(json.get("Utility"))),
+        utility: Some(utility(registry, json.get("Utility"))),
         block_selector_tool: None,
         builder_tool_data: None,
         item_entity,
@@ -170,7 +170,10 @@ fn item_base(
         dropped_item_animation: string(json, "DroppedItemAnimation"),
         tag_indexes: tags.expanded(json.get("Tags")),
         item_appearance_conditions: None,
-        display_entity_stats_hud: display_entity_stats_hud(json.get("DisplayEntityStatsHUD")),
+        display_entity_stats_hud: display_entity_stats_hud(
+            registry,
+            json.get("DisplayEntityStatsHUD"),
+        ),
         pullback_config: None,
         clips_geometry: boolean(json, "ClipsGeometry", false),
         render_deployable_preview: boolean(json, "RenderDeployablePreview", false),
@@ -351,7 +354,7 @@ fn resource_types(value: Option<&Value>) -> Option<Vec<ItemResourceType>> {
     )
 }
 
-fn utility(value: Option<&Value>) -> ItemUtility {
+fn utility(registry: &AssetRegistry, value: Option<&Value>) -> ItemUtility {
     let object = value.and_then(Value::as_object);
     ItemUtility {
         usable: object
@@ -362,25 +365,11 @@ fn utility(value: Option<&Value>) -> ItemUtility {
             .and_then(|object| object.get("Compatible"))
             .and_then(Value::as_bool)
             .unwrap_or(false),
-        // `EntityStatsToClear` is a string array resolved through the
-        // `EntityStatType` store, which is not loaded yet. Numeric ids are
-        // accepted for fixtures that already use resolved indexes.
         entity_stats_to_clear: object
             .and_then(|object| object.get("EntityStatsToClear"))
-            .and_then(numeric_ids),
+            .and_then(|value| resolve_entity_stats(registry, value)),
         stat_modifiers: None,
     }
-}
-
-fn numeric_ids(value: &Value) -> Option<Vec<i32>> {
-    let values = value.as_array()?;
-    values
-        .iter()
-        .map(|value| {
-            let id = value.as_i64()?;
-            i32::try_from(id).ok()
-        })
-        .collect()
 }
 
 /// Decode an explicit/inherited `ItemEntityConfig`, or `None` when the field
@@ -613,7 +602,22 @@ fn interaction_config(json: &Value) -> InteractionConfiguration {
 /// Java `EntityStatsModule.resolveEntityStats` maps stat names to ids. The
 /// `EntityStatType` store is not loaded yet, so only numeric arrays can be
 /// emitted; string-only arrays are left unset.
-fn display_entity_stats_hud(value: Option<&Value>) -> Option<Vec<i32>> {
-    let ids = numeric_ids(value?)?;
+fn display_entity_stats_hud(registry: &AssetRegistry, value: Option<&Value>) -> Option<Vec<i32>> {
+    let ids = resolve_entity_stats(registry, value?)?;
     (!ids.is_empty()).then_some(ids)
+}
+
+/// Java `EntityStatsModule.resolveEntityStats`: map names to the loaded
+/// `EntityStatType` ids; numeric ids are accepted for already-resolved data.
+fn resolve_entity_stats(registry: &AssetRegistry, value: &Value) -> Option<Vec<i32>> {
+    let values = value.as_array()?;
+    values
+        .iter()
+        .map(|value| {
+            if let Some(id) = value.as_i64() {
+                return i32::try_from(id).ok();
+            }
+            registry.entity_stat_id(value.as_str()?)
+        })
+        .collect()
 }

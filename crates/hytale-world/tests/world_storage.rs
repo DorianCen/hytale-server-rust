@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use bson::Bson;
 use hytale_world::chunk::column::{ChunkColumn, Heightmap};
 use hytale_world::chunk::palette::NameLookup;
 use hytale_world::chunk::storage::ChunkCodec;
@@ -112,4 +113,89 @@ fn world_loads_mutates_and_saves_back() {
         assert_eq!(world.get_block(4 * 32 + 31, 33, -5 * 32 + 31), 9);
     }
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn block_health_and_fragility_survive_save_reload() {
+    let dir = temp_dir("health");
+    let names = TestNames;
+    let codec = ChunkCodec::from_lookups(&names, &names, &names);
+    let source = column(1, 2);
+    {
+        let mut world = World::new(WorldStorage::new(&dir));
+        world.insert_chunk(source);
+        assert!(world.damage_block(32, 32, 64, 0.25) < 1.0);
+        world.make_block_fragile(32, 33, 64, 2.5);
+        assert_eq!(world.save_all(&codec).expect("save"), 1);
+    }
+    {
+        let mut world = World::new(WorldStorage::new(&dir));
+        assert!(world.load_chunk(&codec, 1, 2).expect("load"));
+        assert!((world.block_health(32, 32, 64) - 0.75).abs() < 1e-6);
+        assert!((world.block_fragility(32, 33, 64) - 2.5).abs() < 1e-6);
+        let section = world
+            .chunk(1, 2)
+            .and_then(|column| column.section(32))
+            .expect("section");
+        assert!(!section.health.is_empty());
+        // Replacing the block clears its health entry.
+        assert!(world.set_block(32, 32, 64, 12).expect("replace"));
+        assert!(world.block_health(32, 32, 64) > 0.999);
+    }
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn an_undamaged_chunk_has_no_block_health_component() {
+    let names = TestNames;
+    let codec = ChunkCodec::from_lookups(&names, &names, &names);
+    let bytes = codec.encode(&column(0, 0)).expect("encode");
+    let document = bson::Document::from_reader(bytes.as_slice()).expect("decode bson");
+    let components = document
+        .get_document("Components")
+        .expect("chunk components");
+    let column = components
+        .get_document("ChunkColumn")
+        .expect("column component");
+    let bson::Bson::Array(sections) = column.get("Sections").expect("sections") else {
+        panic!("sections are an array");
+    };
+    for section in sections {
+        let bson::Bson::Document(holder) = section else {
+            continue;
+        };
+        let components = holder
+            .get_document("Components")
+            .expect("section components");
+        assert!(
+            !components.contains_key("BlockHealthSection"),
+            "empty sections must not gain a BlockHealthSection component"
+        );
+    }
+}
+
+#[test]
+fn java_block_health_fixture_decodes_exactly() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/golden/server/storage/block-health-section.bson");
+    let bytes = std::fs::read(&path).expect("read the Java BlockHealthSection fixture");
+    let document = bson::Document::from_reader(bytes.as_slice()).expect("decode BSON");
+    let section =
+        hytale_world::chunk::section::BlockHealthSection::decode_bson(&document).expect("section");
+    assert!((section.health(17) - 0.75).abs() < 1e-6);
+    assert!((section.health(1024) - 0.25).abs() < 1e-6);
+    assert!((section.fragility(17) - 3.5).abs() < 1e-6);
+    assert!((section.fragility(2048) - 0.5).abs() < 1e-6);
+    let encoded = section.encode_bson();
+    assert_eq!(
+        encoded.get_document("Health").expect("health").len(),
+        document.get_document("Health").expect("health").len()
+    );
+    let Bson::Document(health) = encoded.get("Health").unwrap() else {
+        panic!("health document");
+    };
+    assert!(matches!(
+        health.get("17"),
+        Some(Bson::Document(entry)) if matches!(entry.get("LastDamage"), Some(Bson::Int64(_)))
+    ));
 }

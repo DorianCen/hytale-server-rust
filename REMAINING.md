@@ -11,7 +11,9 @@ it is part of M2 and listed in [`tasks/README.md`](tasks/README.md).
 Deferred to M5:
 
 - NPC AI, pathfinding, flocking, spawning and combat (`NPC/`, 1,051 files).
-- Player combat, damage, stats, status effects, stamina.
+- Player combat, damage, stats, status effects, stamina beyond T53's core:
+  T53 lands the stat/effect/damage models, but conditions, damage calculators,
+  effect DoT and client presentation remain T57/T59.
 - Crafting, recipes, item quality, drops, shops, rewards.
 - Projectiles, mounts, parkour, mantling, crouch-slide, safety roll.
 - Inventory windows/UI, block containers and dropped-item entities beyond the
@@ -20,13 +22,14 @@ Deferred to M5:
 - Interaction graph beyond the T50 block `Use`/door/state core: item and entity
   roots, selectors, effects/sounds, cooldowns, client-chain sync and
   container/bench windows (T53/T55/T57).
-- Block physics/ticking/fluids beyond T52's native core: partial-hitbox fluid
-  face coverage, waterlogging, fire/finite tickers, disabled-ticker config,
-  light-gated growth, `MaxSupportDistance` chains, support/filler edge rules
-  and builtin `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks` module
-  lifecycle (T60). Explicit follow-ups: T52b (fluid ticker parity), T52c
-  (support/random-tick parity) and T52d (block-health storage/fragility).
-  Item-entity drops are T56; damage/fragility packets are T57.
+- Block physics/ticking/fluids beyond T52/T52b/T52c: builtin
+  `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks`/`Fluid` module
+  lifecycle (T60), weather-driven fire (T54), sound playback and
+  damage/fragility presentation (T57). T52b/d cover partial-hitbox fluid
+  coverage, waterlogging, finite/fire tickers, disabled tickers,
+  `MaxSupportDistance` chains, filler/self-face support, light/fluid gates,
+  weighted placement, scheduled growth and `BlockHealthSection` storage.
+  Item-entity drops are T56.
 - Player movement beyond the T51 authority core: the server now validates
   finite/world bounds, resolves solid-block collision (sweep + one-block step),
   sends correction teleports and exposes a deterministic gravity/jump/fly/climb
@@ -34,6 +37,9 @@ Deferred to M5:
   triggers, mounts, traversal and entity collisions remain T52/T55/T58.
 - Instances, encounters, portals, adventure plugins.
 - World map UI, markers, live map rendering.
+- Weather presentation beyond T54's state/forecast/transition core: full
+  `UpdateWeathers` asset-document parity, particles/screen effects/audio and the
+  editor preview lock (T57/T60).
 
 Deferred to M6:
 

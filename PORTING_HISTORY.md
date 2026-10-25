@@ -809,3 +809,97 @@ This file records phase-2 sessions only.
     block T53.
   - T56 item entities/drops; T57 damage/fragility presentation; T58 NPC block
     interaction; T60 builtin toggles.
+
+---
+
+## Session 41 — T52 parity follow-ups (2026-10-25)
+
+- **Goal:** close the T52 fluid, support/random-tick and block-health parity
+  gaps before T53.
+- **Landed:**
+  - T52b: `hytale-world::collision` exposes rotated hitbox boxes, union bounds,
+    protrusion and filler offsets; `simulation` ports Java
+    `blocksFluidFrom`/`isFullySolid`, waterlogging, `Default`/`Finite`/`Fire`
+    tickers, ticker `Parent` inheritance, collision `PlaceFluid`/sound fields
+    and the world `DisabledFluidTickers` set. `tools/java-dumper/run-fluid.sh`
+    emits `testdata/golden/server/fluid/fluid-tickers.json` from the real
+    `FluidTicker.blocksFluidFrom` and decoded tickers.
+  - T52c: `MaxSupportDistance` chains, `SupportsRequiredFor`, filler/self-face
+    rules, multi-cell protruding hitboxes, `WAITING_CHUNK`, `SpreadTo` light and
+    fluid/revert gates, weighted `PlaceBlock`, `Basic/SplitChanceBlockGrowth`
+    and the `TickSuppressionRegistry` seam. `WorldClock::sunlight_factor`
+    matches Java and feeds the light gate. Random ticks use Java's stable
+    once-per-cycle walk plus unstable picks.
+  - T52d: new `chunk::section::block_health` with the Java
+    `BlockHealthSection` v0 BSON layout, legacy `BlockHealthChunk` v2
+    migration, section-backed damage/fragility/regeneration and
+    `SimulationReport::health_deltas`. `tools/java-dumper/run-block-health.sh`
+    emits the Java section fixture.
+  - Tests: real-pack fluid edge cases, Java fluid fixture parity, support
+    chain/disallowed/face rules, light/revert, weighted placement, health
+    round-trip/save-reload and the Java health fixture.
+- **Verified:**
+  - `cargo test -p hytale-world`, `cargo test -p hytale-server --test simulation`.
+  - `cargo clippy -p hytale-world -p hytale-server --all-targets -- -D warnings`.
+  - `cargo fmt --all -- --check`.
+  - Java probes: `run-fluid.sh` and `run-block-health.sh`.
+- **Deviations:**
+  - Fluid sound events are parsed but not played (presentation follows T57).
+  - Fire rain/weather input is behind the seam and lands with T54.
+  - Random-tick ordering is deterministic Rust, not Java `SplittableRandom`
+    (per `GOLDEN_DATA.md`, schedule-dependent order is not a gate).
+  - The `TickSuppressionRegistry` producer and builtin module lifecycle remain
+    T60; this session provides the core suppression set and checks.
+  - Legacy `BlockHealthChunk` is read/migrated; it is not written back.
+- **Follow-ups:** T53; T56 item-entity drops; T57 damage/fragility packets and
+  audio; T60 builtin module toggles.
+
+---
+
+## Session 42 — T53 start: entity gameplay core (in progress)
+
+- **Goal:** begin entity stats, effects and combat basics.
+- **Landed so far:**
+  - `hytale-entities::stats`: `EntityStatType`, values, maps, static
+    min/max modifiers, regeneration timers, reset behavior and pending update
+    seam.
+  - `hytale-entities::effects`: effect assets, active instances, overlap
+    (`Ignore`/`Overwrite`/`Extend`), expiry, invulnerability and stat/damage
+    modifier carrying.
+  - `hytale-entities::damage`: damage causes/inheritance, resistance and
+    outgoing modifiers, health-stat damage and death results.
+  - `hytale-assets`: `Server/Entity/Stats` loaded into the P0 registry with
+    `Unknown` at id 0; item `Utility.EntityStatsToClear` and
+    `DisplayEntityStatsHUD` names now resolve through it.
+- **Verified:**
+  - `cargo test -p hytale-entities`.
+  - `cargo test -p hytale-assets --test block_item_packets`.
+  - `cargo clippy -p hytale-entities -p hytale-assets --all-targets -- -D warnings`.
+- **Still open:** server/ECS component registration, condition evaluation,
+  effect damage-over-time/calculators, damage/effect/stat packets, Java asset
+  fixtures for effects/damage causes, and NPC/combat producers.
+
+---
+
+## Session 43 — T54 time and weather
+
+- **Goal:** begin the time/weather milestone after T53's core.
+- **Landed so far:**
+  - `Server/Weathers` loaded into the P0 registry with Java's preloaded
+    `Unknown` at id 0.
+  - `hytale-world::weather`: per-environment 24-hour `WeatherForecasts`
+    parsing, `WeatherForecastSeed`, Java weighted-selection epsilon rule,
+    deterministic hourly selection, `ForcedWeather`, effective weather and
+    environment lookup.
+  - `WorldClock::current_hour`/`moon_phase` with the midday phase swap.
+  - `WorldThread::weather_at`; sessions send `UpdateWeather` on join (0.5 s)
+    and on effective-weather change (10 s).
+  - Real-pack weather/environment tests, a forced-weather world-thread test and
+    clock/weather unit tests.
+- **Verified:**
+  - `cargo test -p hytale-world -p hytale-server`.
+  - `cargo clippy --workspace --all-targets -- -D warnings`.
+  - `cargo fmt --all -- --check`.
+- **Split follow-ups:** `UpdateWeathers` full asset-document parity/goldens and
+  config-burst wiring, weather particles/screen effects/audio, forced-weather
+  commands/editor preview and a live weather transition loopback test.

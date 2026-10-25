@@ -15,6 +15,7 @@ pub mod registry;
 pub mod simulation;
 pub mod universe;
 pub mod view;
+pub mod weather;
 pub mod world;
 pub mod world_clock;
 pub mod world_config;

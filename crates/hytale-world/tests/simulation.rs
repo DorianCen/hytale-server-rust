@@ -3,7 +3,9 @@
 use std::path::PathBuf;
 
 use hytale_assets::{AssetPack, AssetRegistry};
-use hytale_world::simulation::{MatchSelf, RandomTickProcedure, SimulationTables, SupportDropType};
+use hytale_world::simulation::{
+    MatchSelf, RandomTickProcedure, SimulationTables, SupportDropType, SupportMatch,
+};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -91,7 +93,8 @@ fn grass_random_tick_and_plant_support_match_the_assets() {
     assert!(
         bush.support
             .iter()
-            .any(|rule| rule.match_self == MatchSelf::Ignored && !rule.required),
+            .any(|rule| rule.match_self == MatchSelf::Ignored
+                && rule.support == SupportMatch::Disallowed),
         "the Tilled disallowed rule is parsed"
     );
 }
@@ -135,5 +138,129 @@ fn falling_barrels_are_parsed_as_fall_on_lost_support() {
                 && rule.face_type.as_deref() == Some("Full")),
         "{:?}",
         barrel.support
+    );
+}
+
+#[test]
+fn fluid_tickers_parse_their_variant_and_collisions() {
+    let Some((registry, tables)) = registry_and_tables() else {
+        return;
+    };
+    use hytale_world::simulation::FluidTickerKind;
+
+    let source = registry.fluids.id_of("Water_Source").expect("Water_Source");
+    let source = tables.fluid(source).expect("source behavior");
+    assert_eq!(source.kind, FluidTickerKind::Default);
+    assert!(source.tags.contains("Fluid=Water"), "{:?}", source.tags);
+    let collision = source
+        .collisions
+        .iter()
+        .find(|collision| collision.other == registry.fluids.id_of("Lava").unwrap())
+        .expect("water/lava collision");
+    assert_eq!(
+        collision.block_to_place,
+        registry.block_types.id_of("Rock_Stone_Cobble")
+    );
+    assert!(!collision.place_fluid);
+    assert_eq!(collision.sound_event.as_deref(), Some("SFX_Flame_Break"));
+
+    let finite = registry.fluids.id_of("Water_Finite").expect("Water_Finite");
+    assert_eq!(
+        tables.fluid(finite).expect("finite behavior").kind,
+        FluidTickerKind::Finite
+    );
+
+    let fire = registry.fluids.id_of("Fire").expect("Fire");
+    let fire = tables.fluid(fire).expect("fire behavior");
+    assert_eq!(fire.kind, FluidTickerKind::Fire);
+    assert!(!fire.flammability.is_empty());
+    assert!(fire
+        .flammability
+        .iter()
+        .any(|config| config.pattern.is_some()));
+}
+
+#[test]
+fn partial_hitboxes_apply_the_java_face_coverage_rules() {
+    let Some((registry, tables)) = registry_and_tables() else {
+        return;
+    };
+    let simulation = hytale_world::simulation::BlockSimulation::new(tables, 1);
+
+    let stairs = registry
+        .block_types
+        .id_of("Build_Black_Stairs")
+        .expect("stairs");
+    // East-west flow: 0.5 + 0.25 of the face, so water passes through.
+    for (dx, dz) in [(1, 0), (-1, 0)] {
+        assert!(
+            !simulation.blocks_fluid_from(stairs, 0, dx, dz, 0),
+            "stairs must not block x flow from ({dx}, {dz})"
+        );
+    }
+    // North-south flow covers the full face (0.5 + 0.5), so it is blocked
+    // when entering from the tall side.
+    assert!(simulation.blocks_fluid_from(stairs, 0, 0, 1, 0));
+    assert!(!simulation.blocks_fluid_from(stairs, 0, 0, -1, 0));
+
+    let flat = registry
+        .block_types
+        .id_of("Cloth_Roof_Blue_Flat")
+        .expect("flat roof");
+    assert!(!simulation.blocks_fluid_from(flat, 0, 1, 0, 0));
+
+    let vertical = registry
+        .block_types
+        .id_of("Deco_Bone_Skulls_Feran_Wall")
+        .expect("vertical slab");
+    assert!(!simulation.blocks_fluid_from(vertical, 0, 1, 0, 0));
+    assert!(!simulation.blocks_fluid_from(vertical, 0, -1, 0, 0));
+    assert!(simulation.blocks_fluid_from(vertical, 0, 0, 1, 0));
+
+    let stone = registry.block_types.id_of("Rock_Stone").expect("stone");
+    assert!(simulation.is_fully_solid(stone));
+    for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+        assert!(simulation.blocks_fluid_from(stone, 0, dx, dz, 0));
+    }
+}
+
+#[test]
+fn fire_flammability_prioritises_and_matches_block_tags() {
+    let Some((registry, tables)) = registry_and_tables() else {
+        return;
+    };
+    let fire = registry.fluids.id_of("Fire").expect("Fire");
+    let fire = tables.fluid(fire).expect("fire behavior");
+    let wood = registry
+        .block_types
+        .id_of("Wood_Trunk_Oak")
+        .or_else(|| {
+            registry
+                .block_types
+                .iter()
+                .find(|record| {
+                    record
+                        .value
+                        .json
+                        .get("Tags")
+                        .and_then(|tags| tags.get("Type"))
+                        .and_then(|values| values.as_array())
+                        .is_some_and(|values| values.iter().any(|value| value == "Wood"))
+                })
+                .and_then(|record| record.id)
+        })
+        .expect("a wood block");
+    let wood = tables.block(wood).expect("wood behavior");
+    let mut configs: Vec<_> = fire.flammability.iter().collect();
+    configs.sort_by_key(|config| std::cmp::Reverse(config.priority));
+    assert!(
+        configs
+            .iter()
+            .any(|config| config.pattern.as_ref().is_some_and(|pattern| {
+                config.matches(&wood.tags)
+                    && matches!(pattern, hytale_assets::TagPatternNode::And { .. })
+            })),
+        "the wood flammability rule must match a wood block: {:?}",
+        wood.tags
     );
 }

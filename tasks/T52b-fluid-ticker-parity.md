@@ -1,6 +1,6 @@
 # T52b — Fluid ticker parity follow-up
 
-**Status:** planned
+**Status:** done (session 41)
 **Package:** `hytale-world`, `hytale-server`
 **Depends on:** T52
 **Agent fit:** medium
@@ -86,3 +86,10 @@ cargo fmt --all -- --check
   rain input behind a seam.
 - Builtin `Fluid` plugin lifecycle and `DisabledFluidTickers` command/config
   registration remain T60 unless this task needs the config field earlier.
+
+## Result (session 41)
+
+Implemented and verified against the real pack and the Java oracle. See
+[`../PORTING_HISTORY.md`](../PORTING_HISTORY.md) session 41 for the changed
+files and the remaining narrower deviations (sound playback, builtin module
+lifecycle and client presentation stay with their later tasks).

@@ -1,0 +1,239 @@
+{
+  "blocks": {
+    "Rock_Stone": {
+      "fullySolid": true,
+      "solid": true,
+      "blocksFluidFrom": {
+        "east": true,
+        "north": true,
+        "west": true,
+        "south": true
+      }
+    },
+    "Build_Black_Stairs": {
+      "fullySolid": false,
+      "solid": false,
+      "blocksFluidFrom": {
+        "east": false,
+        "north": false,
+        "west": false,
+        "south": true
+      }
+    },
+    "Cloth_Roof_Blue_Flat": {
+      "fullySolid": false,
+      "solid": false,
+      "blocksFluidFrom": {
+        "east": false,
+        "north": false,
+        "west": false,
+        "south": false
+      }
+    },
+    "Deco_Bone_Skulls_Feran_Wall": {
+      "fullySolid": false,
+      "solid": false,
+      "blocksFluidFrom": {
+        "east": false,
+        "north": false,
+        "west": false,
+        "south": true
+      }
+    }
+  },
+  "fluids": {
+    "Water_Source": {
+      "ticker": "DefaultFluidTicker",
+      "maxFluidLevel": 1,
+      "flowRate": 0.5,
+      "canDemote": false,
+      "spreadFluid": "Water",
+      "collisions": {
+        "Lava": {
+          "blockToPlace": "Rock_Stone_Cobble",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        },
+        "Lava_Source": {
+          "blockToPlace": "Rock_Magma_Cooled",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        }
+      },
+      "flammability": []
+    },
+    "Water": {
+      "ticker": "DefaultFluidTicker",
+      "maxFluidLevel": 8,
+      "flowRate": 0.5,
+      "canDemote": true,
+      "supportedBy": "Water_Source",
+      "spreadFluid": "Water",
+      "collisions": {
+        "Lava": {
+          "blockToPlace": "Rock_Stone_Cobble",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        },
+        "Lava_Source": {
+          "blockToPlace": "Rock_Magma_Cooled",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        }
+      },
+      "flammability": []
+    },
+    "Water_Finite": {
+      "ticker": "FiniteFluidTicker",
+      "maxFluidLevel": 8,
+      "flowRate": 0.5,
+      "canDemote": false,
+      "collisions": {},
+      "flammability": []
+    },
+    "Lava_Source": {
+      "ticker": "DefaultFluidTicker",
+      "maxFluidLevel": 1,
+      "flowRate": 2.0,
+      "canDemote": false,
+      "spreadFluid": "Lava",
+      "collisions": {
+        "Water": {
+          "blockToPlace": "Rock_Stone_Cobble",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        },
+        "Water_Source": {
+          "blockToPlace": "Rock_Stone",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        }
+      },
+      "flammability": []
+    },
+    "Lava": {
+      "ticker": "DefaultFluidTicker",
+      "maxFluidLevel": 8,
+      "flowRate": 2.0,
+      "canDemote": true,
+      "supportedBy": "Lava_Source",
+      "spreadFluid": "Lava",
+      "collisions": {
+        "Water": {
+          "blockToPlace": "Rock_Stone_Cobble",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        },
+        "Water_Source": {
+          "blockToPlace": "Rock_Stone",
+          "soundEvent": "SFX_Flame_Break",
+          "placeFluid": false
+        }
+      },
+      "flammability": []
+    },
+    "Fire": {
+      "ticker": "FireFluidTicker",
+      "maxFluidLevel": 8,
+      "flowRate": 2.0,
+      "canDemote": false,
+      "supportedBy": "Fire",
+      "spreadFluid": "Fire",
+      "collisions": {},
+      "flammability": [
+        {
+          "priority": 0,
+          "burnLevel": 3,
+          "burnChance": 0.9,
+          "resultingBlock": "Empty",
+          "tagPattern": "*Fire_Ticker_Flammability_0_TagPattern"
+        },
+        {
+          "priority": 0,
+          "burnLevel": 3,
+          "burnChance": 0.9,
+          "resultingBlock": "Empty",
+          "tagPattern": "*Fire_Ticker_Flammability_1_TagPattern"
+        },
+        {
+          "priority": 0,
+          "burnLevel": 6,
+          "burnChance": 0.5,
+          "resultingBlock": "Empty",
+          "tagPattern": "*Fire_Ticker_Flammability_2_TagPattern"
+        },
+        {
+          "priority": 1,
+          "burnLevel": 4,
+          "burnChance": 0.9,
+          "resultingBlock": "Empty",
+          "tagPattern": "*Fire_Ticker_Flammability_3_TagPattern"
+        },
+        {
+          "priority": 10,
+          "burnLevel": 6,
+          "burnChance": 0.85,
+          "resultingBlock": "Wood_Burnt_Trunk",
+          "tagPattern": "*Fire_Ticker_Flammability_4_TagPattern"
+        },
+        {
+          "priority": 8,
+          "burnLevel": 5,
+          "burnChance": 0.85,
+          "resultingBlock": "Wood_Burnt_Branch_Long",
+          "tagPattern": "*Fire_Ticker_Flammability_5_TagPattern"
+        },
+        {
+          "priority": 9,
+          "burnLevel": 5,
+          "burnChance": 0.85,
+          "resultingBlock": "Wood_Burnt_Branch_Short",
+          "tagPattern": "*Fire_Ticker_Flammability_6_TagPattern"
+        },
+        {
+          "priority": 9,
+          "burnLevel": 5,
+          "burnChance": 0.85,
+          "resultingBlock": "Wood_Burnt_Branch_Corner",
+          "tagPattern": "*Fire_Ticker_Flammability_7_TagPattern"
+        },
+        {
+          "priority": 15,
+          "burnLevel": 1,
+          "burnChance": 1.0,
+          "resultingBlock": "Empty",
+          "resultingState": "Exploding",
+          "tagPattern": "*Fire_Ticker_Flammability_8_TagPattern"
+        }
+      ]
+    },
+    "Dungeon_Fire_NoSpread": {
+      "ticker": "FireFluidTicker",
+      "maxFluidLevel": 8,
+      "flowRate": 2.0,
+      "canDemote": false,
+      "supportedBy": "Dungeon_Fire_NoSpread",
+      "collisions": {},
+      "flammability": []
+    },
+    "Tar_Source": {
+      "ticker": "DefaultFluidTicker",
+      "maxFluidLevel": 1,
+      "flowRate": 12.0,
+      "canDemote": false,
+      "spreadFluid": "Tar",
+      "collisions": {},
+      "flammability": []
+    },
+    "Tar": {
+      "ticker": "DefaultFluidTicker",
+      "maxFluidLevel": 8,
+      "flowRate": 12.0,
+      "canDemote": true,
+      "supportedBy": "Tar_Source",
+      "spreadFluid": "Tar",
+      "collisions": {},
+      "flammability": []
+    }
+  }
+}

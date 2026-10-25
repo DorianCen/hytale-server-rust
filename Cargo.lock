@@ -826,9 +826,11 @@ dependencies = [
 name = "hytale-entities"
 version = "0.1.0"
 dependencies = [
+ "hytale-assets",
  "hytale-core",
  "hytale-protocol",
  "hytale-world",
+ "serde_json",
 ]
 
 [[package]]

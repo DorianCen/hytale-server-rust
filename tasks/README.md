@@ -27,11 +27,11 @@ context. The main agent owns sequencing and shared-file edits.
 | [T50](T50-interaction-graph.md) | Interaction graph and block interactions | T49 | low/medium | done (session 38) |
 | [T51](T51-movement-physics.md) | Player movement physics and collision | T48 | low/medium | done (session 39) |
 | [T52](T52-block-simulation.md) | Block simulation: ticks, fluids, support | T49, T51 | low/medium | done (session 40) |
-| [T52b](T52b-fluid-ticker-parity.md) | Fluid ticker parity follow-up | T52 | medium | planned |
-| [T52c](T52c-support-random-tick-parity.md) | Support/random-tick parity follow-up | T52 | medium | planned |
-| [T52d](T52d-block-health-storage.md) | Block health storage and fragility | T52 | medium | planned |
-| T53 | Entity stats, effects and combat basics | T48 | low/medium | planned |
-| T54 | Time and weather | T43, T48 | medium | planned |
+| [T52b](T52b-fluid-ticker-parity.md) | Fluid ticker parity follow-up | T52 | medium | done (session 41) |
+| [T52c](T52c-support-random-tick-parity.md) | Support/random-tick parity follow-up | T52 | medium | done (session 41) |
+| [T52d](T52d-block-health-storage.md) | Block health storage and fragility | T52 | medium | done (session 41) |
+| [T53](T53-entity-stats-effects-combat.md) | Entity stats, effects and combat basics | T48 | low/medium | in progress (session 42) |
+| [T54](T54-time-weather.md) | Time and weather | T43, T48 | medium | done (session 43) |
 | T55 | Projectiles and traversal | T51, T53 | low/medium | planned |
 | T56 | Prefab spawner and runtime entities | T45, T50 | low/medium | planned |
 | T57 | UI basics and block-health presentation | T46, T53 | low/medium | planned |
@@ -44,8 +44,9 @@ context. The main agent owns sequencing and shared-file edits.
 | T64 | Packaging, docs and plugin/mod API | T60 | medium | planned |
 
 Task files for T43–T64 are created when their milestone starts; the milestone
-scope is in [`../plan.md`](../plan.md). T52b–T52d are the explicit follow-ups
-for the parity gaps recorded by T52; they do not block T53.
+scope is in [`../plan.md`](../plan.md). T52b–T52d closed the parity gaps
+recorded by T52 in session 41. T53's gameplay core and T54's time/weather core
+are landed; M5 continues with their scoped residuals.
 
 ## Rules
 

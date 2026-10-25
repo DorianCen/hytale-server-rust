@@ -11,8 +11,9 @@ The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
 tracking), T46 (block place/break), T47 (disconnect, reconnect and session
 teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete,
 T49 (inventory containers/transactions), T50 (interaction graph and block
-interactions), T51 (movement physics and collision authority) and T52 (block
-simulation) are done and M5 gameplay parity continues with T53.
+interactions), T51 (movement physics and collision authority), T52 (block
+simulation) and its parity follow-ups T52b–T52d are done; M5 gameplay parity
+continues with T53.
 
 ## 0. Baseline
 
@@ -732,7 +733,7 @@ documented tolerance; no rubber-banding in the bot loop.
 
 ### T52 — Block simulation: ticks, fluids and support
 
-**Status:** done (session 40)
+**Status:** done (session 40; parity follow-ups T52b–T52d done in session 41)
 **Package:** `hytale-world`, `hytale-server`
 **Goal:** random/block ticks, fluid flow, support propagation, falling blocks,
 block health and drops.
@@ -745,31 +746,28 @@ remain Java-readable.
   default fluid ticker, falling-block movement and transient block health are
   native. The builtin `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks`/
   `Fluid` module lifecycle remains T60.
-- Fluids ignore partial-hitbox face coverage, waterlogging, fire/finite tickers,
-  disabled-ticker config and sound events.
-- Support is direct-face only (`MaxSupportDistance` chains, filler-specific
-  support, `SelfFaceType` and tick suppression are not fully evaluated).
-- `SpreadTo` ignores light; `PlaceBlock` takes the first candidate; random tick
-  ordering uses a deterministic Rust RNG, not Java's `SplittableRandom`.
+- T52b closes the fluid gaps: partial-hitbox face coverage, waterlogging,
+  finite/fire tickers, disabled-ticker config and collision conversion.
+- T52c closes support/random-tick gaps: `MaxSupportDistance` chains,
+  filler/self-face rules, chunk-boundary waiting, light/fluid gates, weighted
+  placement, scheduled growth and the tick-suppression seam.
+- Random-tick ordering still uses a deterministic Rust RNG, not Java's
+  `SplittableRandom`; `GOLDEN_DATA.md` does not gate schedule-dependent order.
 - Falling blocks are block movement, not ECS entities, and have no impact
   break/explode effect.
-- Block health/fragility is transient (no Java `BlockHealthSection` storage yet)
-  and damage/fragility packets are T57.
+- T52d stores health/fragility in the Java `BlockHealthSection` component and
+  migrates the legacy `BlockHealthChunk`; damage/fragility packets remain T57.
 - Simulation drops are reported but item entities/inventory pickup are T56.
 
 **Follow-ups**
 
-- **T52b** owns full fluid parity (partial-hitbox face coverage, waterlogging,
-  finite/fire tickers, disabled tickers, collision details).
-- **T52c** owns support/random-tick parity (support-distance chains,
-  filler/self-face rules, chunk-boundary waiting, light/fluid gates, weighted
-  placement, scheduled growth, tick-suppression seam).
-- **T52d** owns Java `BlockHealthSection` storage/migration/fragility; T57
-  consumes its pending deltas for damage packets.
-- These are scheduled follow-ups, not blockers for T53.
+- T52b (fluid ticker parity), T52c (support/random-tick parity) and T52d
+  (block-health storage) are done; T57 consumes the pending health deltas.
+- Sound-event playback and builtin module lifecycle stay with T57/T60.
 
 ### T53 — Entity stats, effects and combat basics
 
+**Status:** in progress (session 42)
 **Package:** `hytale-entities`
 **Goal:** entity stat maps, effects, damage causes, health/death, basic combat.
 Also load the `EntityStatType` module store for item utility/stat HUD payloads.
@@ -778,6 +776,7 @@ indexes resolve.
 
 ### T54 — Time and weather
 
+**Status:** done (session 43)
 **Package:** `hytale-world`, `hytale-server`
 **Goal:** weather state/assets and transitions; completed time integration.
 **Acceptance:** scripted weather transition and time scenario match Java.

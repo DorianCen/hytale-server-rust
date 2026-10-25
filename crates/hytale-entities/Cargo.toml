@@ -8,3 +8,7 @@ license.workspace = true
 hytale-core = { path = "../hytale-core" }
 hytale-protocol = { path = "../hytale-protocol" }
 hytale-world = { path = "../hytale-world" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+hytale-assets = { path = "../hytale-assets" }

@@ -1,12 +1,12 @@
-# Next steps — CoreServer rewrite, phase 2 (session 40)
+# Next steps — CoreServer rewrite, phase 2 (session 41)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** **T53** — entity stats, effects and combat basics, continuing M5
-gameplay parity.
+**Tasks landed:** **T53** (entity stats/effects/combat core) and **T54**
+(time and weather); M5 continues with their scoped residuals.
 
 ## Current state
 
@@ -88,11 +88,31 @@ Landed and green:
   rubber-band free.
 - T52 block simulation: `BlockSection` scheduled-tick queue, deterministic
   random ticks, support loss (`Break`/`Destroy`/`Fall`), one-cell falling
-  blocks, water/lava flow with collision conversion, native gathering drops and
-  transient block health with Java regeneration; the server runs one simulation
-  pass per 50 ms and broadcasts block/fluid changes. The remaining T52 parity
-  gaps are explicitly owned by T52b (fluids), T52c (support/random ticks) and
-  T52d (block-health storage); none blocks T53.
+  blocks, water/lava flow, native gathering drops and block health; the server
+  runs one simulation pass per 50 ms and broadcasts block/fluid changes.
+- T52b fluid parity: partial-hitbox face coverage, waterlogging, finite/fire
+  tickers, `DisabledFluidTickers`, collision conversion and Java ticker-field
+  inheritance. A Java `FluidTickerProbe` fixture covers hitbox/ticker fields.
+- T52c support/random-tick parity: `MaxSupportDistance` chains, filler/self-face
+  rules, `WAITING_CHUNK`, `SpreadTo` light/fluid/revert gates, weighted
+  `PlaceBlock`, scheduled chance growth and the tick-suppression seam.
+- T52d block-health storage: per-section Java `BlockHealthSection` v0 BSON,
+  legacy `BlockHealthChunk` migration, fragility countdown and pending health
+  deltas for T57. A Java `BlockHealthDumper` fixture gates the codec.
+- T53 (in progress): `hytale-entities` now has the stat type/value/map core
+  (clamp, static min/max modifiers, regeneration, reset behavior), active
+  entity effects with overlap/expiry/invulnerability, and the damage-cause/
+  resistance/outgoing/health/death core. `Server/Entity/Stats` is loaded by the
+  P0 registry and item `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD`
+  names resolve to deterministic stat ids. Client packets, conditions and full
+  damage calculators remain T57/T59.
+- T54 (done): `Server/Weathers` loads with `Unknown` at id 0;
+  environment forecasts are parsed from the real 24-hour tables;
+  `hytale_world::weather` selects deterministic weather per hour, honors
+  `ForcedWeather`, and exposes the effective index through `WorldThread`.
+  `WorldClock` now has current-hour and moon-phase helpers. Sessions send
+  `UpdateWeather` on join and when the effective weather changes. Full
+  `UpdateWeathers` asset-document parity and presentation remain follow-ups.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -112,8 +132,7 @@ cargo fmt --all -- --check
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   M5 continues with T53 after T52; T52b–T52d are scheduled T52 parity
-   follow-ups and may run after T53/T56/T57.
+   M5 continues with T53 residuals and the T54 presentation/asset-packet split.
 
 ## Try it
 

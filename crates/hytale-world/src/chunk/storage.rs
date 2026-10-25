@@ -39,7 +39,9 @@ use thiserror::Error;
 
 use crate::chunk::column::{ChunkColumn, Heightmap, NO_HEIGHT, SECTION_COUNT};
 use crate::chunk::palette::{NameLookup, NamedKey};
-use crate::chunk::section::{BlockSection, EnvironmentSection, FluidSection, SectionError};
+use crate::chunk::section::{
+    BlockHealth, BlockHealthSection, BlockSection, EnvironmentSection, FluidSection, SectionError,
+};
 use crate::chunk::tint::TintPalette;
 
 /// Version written for `BlockChunk`.
@@ -50,6 +52,8 @@ pub const BLOCK_SECTION_VERSION: i32 = 7;
 pub const FLUID_SECTION_VERSION: i32 = 0;
 /// Version written for `Environment`.
 pub const ENVIRONMENT_SECTION_VERSION: i32 = 0;
+/// Version written for `BlockHealthSection`.
+pub const BLOCK_HEALTH_SECTION_VERSION: i32 = 0;
 /// Default blob count of a region file.
 pub const REGION_BLOB_COUNT: u32 = hytale_storage::DEFAULT_BLOB_COUNT;
 /// Default segment size of a region file.
@@ -290,6 +294,12 @@ impl<'a> ChunkCodec<'a> {
                         "Environment",
                         Bson::Document(component_bytes(environment_data)),
                     );
+                    if !section.health.is_empty() {
+                        components.insert(
+                            "BlockHealthSection",
+                            Bson::Document(section.health.encode_bson()),
+                        );
+                    }
                     components
                 }
                 None => empty_section_components(environment_names)?,
@@ -417,6 +427,10 @@ impl<'a> ChunkCodec<'a> {
                             environment_names.fallback_id(),
                         )?;
                     }
+
+                    if let Ok(health) = section_components.get_document("BlockHealthSection") {
+                        section.health = BlockHealthSection::decode_bson(health)?;
+                    }
                 }
             }
         }
@@ -427,8 +441,89 @@ impl<'a> ChunkCodec<'a> {
             }
         }
 
+        if let Ok(legacy) = components.get_document("BlockHealthChunk") {
+            if let Some(Bson::Binary(data)) = legacy.get("Data") {
+                migrate_legacy_block_health(&mut column, &data.bytes)?;
+            }
+        }
+
         Ok(column)
     }
+}
+
+fn read_be_i32(bytes: &[u8], offset: usize) -> Result<i32> {
+    let slice = bytes.get(offset..offset + 4).ok_or_else(|| {
+        ChunkStorageError::InvalidDocument("legacy BlockHealthChunk is truncated".to_string())
+    })?;
+    Ok(i32::from_be_bytes(slice.try_into().unwrap()))
+}
+
+fn read_be_f32(bytes: &[u8], offset: usize) -> Result<f32> {
+    Ok(f32::from_bits(read_be_i32(bytes, offset)? as u32))
+}
+
+fn read_be_i64(bytes: &[u8], offset: usize) -> Result<i64> {
+    let slice = bytes.get(offset..offset + 8).ok_or_else(|| {
+        ChunkStorageError::InvalidDocument("legacy BlockHealthChunk is truncated".to_string())
+    })?;
+    Ok(i64::from_be_bytes(slice.try_into().unwrap()))
+}
+
+/// Read the deprecated column-level `BlockHealthChunk` v2 payload and move its
+/// absolute entries into the matching section components.
+fn migrate_legacy_block_health(column: &mut ChunkColumn, bytes: &[u8]) -> Result<()> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let version = bytes[0];
+    let mut offset = 1;
+    let health_count = read_be_i32(bytes, offset)?;
+    offset += 4;
+    if health_count < 0 {
+        return Err(ChunkStorageError::InvalidDocument(
+            "legacy BlockHealthChunk health count is negative".to_string(),
+        ));
+    }
+    for _ in 0..health_count {
+        let x = read_be_i32(bytes, offset)?;
+        let y = read_be_i32(bytes, offset + 4)?;
+        let z = read_be_i32(bytes, offset + 8)?;
+        let health = read_be_f32(bytes, offset + 12)?;
+        let last_damage_millis = read_be_i64(bytes, offset + 16)?;
+        offset += 24;
+        if let Some(section) = column.ensure_section(y) {
+            section.health.put_health_if_absent(
+                hytale_math::chunk_util::index_block(x & 31, y & 31, z & 31) as u16,
+                BlockHealth {
+                    health,
+                    last_damage_millis,
+                },
+            );
+        }
+    }
+    if version > 1 {
+        let fragility_count = read_be_i32(bytes, offset)?;
+        offset += 4;
+        if fragility_count < 0 {
+            return Err(ChunkStorageError::InvalidDocument(
+                "legacy BlockHealthChunk fragility count is negative".to_string(),
+            ));
+        }
+        for _ in 0..fragility_count {
+            let x = read_be_i32(bytes, offset)?;
+            let y = read_be_i32(bytes, offset + 4)?;
+            let z = read_be_i32(bytes, offset + 8)?;
+            let seconds = read_be_f32(bytes, offset + 12)?;
+            offset += 16;
+            if let Some(section) = column.ensure_section(y) {
+                section.health.put_fragility_if_absent(
+                    hytale_math::chunk_util::index_block(x & 31, y & 31, z & 31) as u16,
+                    seconds,
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn empty_section_components(environment_names: &dyn NameLookup) -> Result<Document> {

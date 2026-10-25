@@ -14,7 +14,7 @@ use worldgen_model::chunk::{GeneratedChunk, ENVIRONMENT_UNKNOWN_ID};
 use worldgen_model::registry::Registries;
 
 use crate::chunk::palette::Palette;
-use crate::chunk::section::{BlockSection, EnvironmentSection, FluidSection};
+use crate::chunk::section::{BlockHealthSection, BlockSection, EnvironmentSection, FluidSection};
 use crate::chunk::tint::TintPalette;
 
 /// Number of 32³ sections in a legacy full-height column.
@@ -25,7 +25,7 @@ pub const COLUMN_COUNT: usize = (SIZE * SIZE) as usize;
 pub const BLOCK_COUNT: usize = (SIZE * SIZE * HEIGHT) as usize;
 
 /// One section's block, fluid and environment components.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ChunkSection {
     /// Block/filler/rotation palettes, ticking and light.
     pub block: BlockSection,
@@ -33,6 +33,8 @@ pub struct ChunkSection {
     pub fluid: FluidSection,
     /// Vertical environment runs.
     pub environment: EnvironmentSection,
+    /// Per-block damage and fragility.
+    pub health: BlockHealthSection,
 }
 
 /// Chunk flags mirrored from Java's `ChunkFlag`.
@@ -82,7 +84,7 @@ impl Heightmap {
 }
 
 /// A runtime chunk column.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChunkColumn {
     index: i64,
     x: i32,
@@ -161,6 +163,13 @@ impl ChunkColumn {
     /// Sections in Java order (`0..10`).
     pub fn sections(&self) -> impl Iterator<Item = Option<&ChunkSection>> {
         self.sections.iter().map(|section| section.as_deref())
+    }
+
+    /// Mutable sections in Java order; only allocated sections are yielded.
+    pub fn sections_mut(&mut self) -> impl Iterator<Item = &mut ChunkSection> {
+        self.sections
+            .iter_mut()
+            .filter_map(|section| section.as_deref_mut())
     }
 
     /// Allocate a section if needed.
@@ -268,6 +277,9 @@ impl ChunkColumn {
             .block
             .set_block(x, y & (SIZE - 1), z, block_id, rotation, filler)?;
         if changed {
+            section
+                .health
+                .clear_health(hytale_math::chunk_util::index_block(x, y & (SIZE - 1), z) as u16);
             self.flags.needs_saving = true;
         }
         Ok(changed)

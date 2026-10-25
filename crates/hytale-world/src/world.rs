@@ -196,15 +196,6 @@ impl std::fmt::Debug for WorldStorage {
     }
 }
 
-/// Damage state of one block (`BlockHealth`).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BlockHealthState {
-    /// Remaining health from `0.0` (destroyed) to `1.0` (undamaged).
-    pub health: f32,
-    /// World tick of the last damage.
-    pub last_damage_tick: u64,
-}
-
 /// Loaded runtime chunks of one world plus their dirty state.
 #[derive(Debug)]
 pub struct World {
@@ -215,8 +206,8 @@ pub struct World {
     tick: u64,
     /// Blocks touched since the simulation last drained this set.
     changed_blocks: BTreeSet<(i32, i32, i32)>,
-    /// Transient block-health map (`BlockHealthSection` is not yet stored).
-    block_health: BTreeMap<(i32, i32, i32), BlockHealthState>,
+    /// Transient Java `BlockPhysics` support values (`0..=15`, `15` = deco).
+    block_support: BTreeMap<(i32, i32, i32), u8>,
 }
 
 impl World {
@@ -228,7 +219,7 @@ impl World {
             dirty: BTreeSet::new(),
             tick: 0,
             changed_blocks: BTreeSet::new(),
-            block_health: BTreeMap::new(),
+            block_support: BTreeMap::new(),
         }
     }
 
@@ -302,7 +293,7 @@ impl World {
         if changed {
             self.dirty.insert(index);
             self.changed_blocks.insert((x, y, z));
-            self.block_health.remove(&(x, y, z));
+            self.block_support.remove(&(x, y, z));
         }
         Ok(changed)
     }
@@ -339,9 +330,16 @@ impl World {
         if changed {
             self.dirty.insert(index);
             self.changed_blocks.insert((x, y, z));
-            self.block_health.remove(&(x, y, z));
+            self.block_support.remove(&(x, y, z));
         }
         Ok(changed)
+    }
+
+    /// Effective environment at a block (`UNKNOWN` when absent).
+    pub fn get_environment(&self, x: i32, y: i32, z: i32) -> i32 {
+        self.chunk(x >> 5, z >> 5)
+            .map(|column| column.get_environment(x & 31, y, z & 31))
+            .unwrap_or(0)
     }
 
     /// Read one fluid id on a loaded chunk.
@@ -392,9 +390,9 @@ impl World {
 
     /// Remaining block health (`1.0` when undamaged).
     pub fn block_health(&self, x: i32, y: i32, z: i32) -> f32 {
-        self.block_health
-            .get(&(x, y, z))
-            .map_or(1.0, |state| state.health)
+        self.chunk(x >> 5, z >> 5)
+            .and_then(|column| column.section(y))
+            .map_or(1.0, |section| section.health.health(index_local(x, y, z)))
     }
 
     /// Java `BlockHealthSection.damage`: subtract `amount` and return the rest.
@@ -402,45 +400,117 @@ impl World {
         if !amount.is_finite() || amount <= 0.0 {
             return self.block_health(x, y, z);
         }
-        let current = self.block_health(x, y, z);
-        let next = current - amount;
-        if next > 0.0 && next < 1.0 {
-            self.block_health.insert(
-                (x, y, z),
-                BlockHealthState {
-                    health: next,
-                    last_damage_tick: self.tick,
-                },
-            );
-        } else {
-            self.block_health.remove(&(x, y, z));
+        let now_millis = (self.tick as i64).saturating_mul(50);
+        let Some(column) = self.chunks.get_mut(&index_chunk(x >> 5, z >> 5)) else {
+            return self.block_health(x, y, z);
+        };
+        let Some(section) = column.ensure_section(y) else {
+            return 1.0;
+        };
+        let remaining = section
+            .health
+            .damage(index_local(x, y, z), amount, now_millis);
+        self.dirty.insert(index_chunk(x >> 5, z >> 5));
+        remaining
+    }
+
+    /// Mark a block fragile for `seconds`.
+    pub fn make_block_fragile(&mut self, x: i32, y: i32, z: i32, seconds: f32) {
+        let Some(column) = self.chunks.get_mut(&index_chunk(x >> 5, z >> 5)) else {
+            return;
+        };
+        if let Some(section) = column.ensure_section(y) {
+            section.health.make_fragile(index_local(x, y, z), seconds);
+            self.dirty.insert(index_chunk(x >> 5, z >> 5));
         }
-        next
+    }
+
+    /// Remaining fragility seconds for one block (`0.0` when not fragile).
+    pub fn block_fragility(&self, x: i32, y: i32, z: i32) -> f32 {
+        self.chunk(x >> 5, z >> 5)
+            .and_then(|column| column.section(y))
+            .map_or(0.0, |section| {
+                section.health.fragility(index_local(x, y, z))
+            })
+    }
+
+    /// Java `BlockPhysics.get`: transient support distance (`0` when unset).
+    pub fn support_value(&self, x: i32, y: i32, z: i32) -> i32 {
+        self.block_support
+            .get(&(x, y, z))
+            .map_or(0, |value| i32::from(*value))
+    }
+
+    /// Java `BlockPhysics.set`: store a `0..=15` support distance.
+    pub fn set_support_value(&mut self, x: i32, y: i32, z: i32, value: i32) -> bool {
+        let value = value.clamp(0, 15) as u8;
+        if value == 0 {
+            self.block_support.remove(&(x, y, z)).is_some()
+        } else {
+            self.block_support.insert((x, y, z), value);
+            true
+        }
     }
 
     /// Clear one block-health entry (e.g. after replacing the block).
     pub fn clear_block_health(&mut self, x: i32, y: i32, z: i32) -> bool {
-        self.block_health.remove(&(x, y, z)).is_some()
+        self.chunks
+            .get_mut(&index_chunk(x >> 5, z >> 5))
+            .and_then(|column| column.section_mut(y))
+            .is_some_and(|section| section.health.clear_health(index_local(x, y, z)))
     }
 
-    /// Regenerate damaged blocks after the Java delay and set the tick.
+    /// Regenerate damaged blocks and count down fragility.
+    ///
+    /// Java `BlockHealthSystems` uses the game-time instant; the native world
+    /// maps one 50 ms tick to one game millisecond until T54 owns the clock.
     pub(crate) fn tick_block_health(&mut self, dt: f32) {
-        if self.block_health.is_empty() || dt <= 0.0 {
+        if dt <= 0.0 {
             return;
         }
-        const SECONDS_UNTIL_REGENERATION: u64 = 5;
+        const SECONDS_UNTIL_REGENERATION: i64 = 5;
         const HEALING_PER_SECOND: f32 = 0.1;
-        // One world tick is 50 ms in the current loop.
-        let delay_ticks = SECONDS_UNTIL_REGENERATION * 20;
-        let healing = HEALING_PER_SECOND * dt;
-        let tick = self.tick;
-        self.block_health.retain(|_, state| {
-            if tick.saturating_sub(state.last_damage_tick) < delay_ticks {
-                return true;
+        let now_millis = (self.tick as i64).saturating_mul(50);
+        for column in self.chunks.values_mut() {
+            let mut changed = false;
+            for section in column.sections_mut() {
+                if section.health.is_empty() {
+                    continue;
+                }
+                changed = true;
+                section.health.tick_fragility(dt);
+                section.health.tick_regeneration(
+                    now_millis,
+                    dt,
+                    SECONDS_UNTIL_REGENERATION,
+                    HEALING_PER_SECOND,
+                );
             }
-            state.health += healing;
-            state.health < 1.0
-        });
+            if changed {
+                self.dirty.insert(column.index());
+            }
+        }
+    }
+
+    /// Drain pending health deltas as absolute `(x, y, z, delta)` entries.
+    pub fn take_block_health_deltas(&mut self) -> Vec<(i32, i32, i32, f32)> {
+        let mut out = Vec::new();
+        for (chunk_index, column) in &mut self.chunks {
+            let chunk_x = (*chunk_index >> 32) as i32;
+            let chunk_z = *chunk_index as i32;
+            for (section_index, section) in column.sections_mut().enumerate() {
+                for (index, delta) in section.health.take_pending_deltas() {
+                    let index = usize::from(index);
+                    out.push((
+                        (chunk_x << 5) + (index & 31) as i32,
+                        (section_index as i32 * 32) + ((index >> 10) & 31) as i32,
+                        (chunk_z << 5) + ((index >> 5) & 31) as i32,
+                        delta,
+                    ));
+                }
+            }
+        }
+        out
     }
 
     /// Save one loaded chunk if it is dirty.
@@ -517,6 +587,10 @@ impl World {
         self.chunks.remove(&index);
         Ok(true)
     }
+}
+
+fn index_local(x: i32, y: i32, z: i32) -> u16 {
+    hytale_math::chunk_util::index_block(x & 31, y & 31, z & 31) as u16
 }
 
 /// Chunk coordinates in a square around a center chunk, sorted by Z then X.

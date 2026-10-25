@@ -5,11 +5,13 @@
 //! `FluidSection` and `EnvironmentSection` storage/packet formats.
 
 pub mod block;
+pub mod block_health;
 pub mod environment;
 pub mod fluid;
 pub mod light;
 
 pub use block::{BlockSection, BlockSectionPacket, BlockTickStrategy};
+pub use block_health::{BlockHealth, BlockHealthSection};
 pub use environment::{EnvironmentSection, SectionEnvironmentsMode};
 pub use fluid::FluidSection;
 pub use light::{LightData, LIGHT_BLOCK_COUNT};
