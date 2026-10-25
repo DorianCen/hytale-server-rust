@@ -71,6 +71,26 @@ absolute). See
 for the default selection, schema, sizes, known gaps and the deterministic
 map-order canonicalization.
 
+## Entity gameplay dump
+
+`EntityGameplayDumper` boots the same real asset pipeline and writes the loaded
+`EntityStatType`, `EntityEffect`, `DamageCause`, legacy `Projectile` and
+new-style `ProjectileConfig` stores with their ids/keys and the gameplay-core
+fields to `testdata/golden/server/entity/entity-gameplay.json`:
+
+```sh
+tools/java-dumper/run-entity-gameplay.sh                     # committed fixture
+tools/java-dumper/run-entity-gameplay.sh /tmp/entity-golden   # arbitrary output directory
+tools/java-dumper/run-entity-gameplay.sh --check              # two isolated runs + diff
+```
+
+The dump opts into the entity-condition and projectile-physics codec variants
+so `Health`/`Stamina`, all 260 effects and the 188 `ProjectileConfig` assets
+decode. The P0 asset dump deliberately keeps the previous boot, because
+registering them would load more contained interactions/items and change the
+committed P0 payloads. See
+[`../../testdata/golden/server/entity/README.md`](../../testdata/golden/server/entity/README.md).
+
 ## Chunk-packet dump
 
 `ChunkPacketDumper` boots the same real Default-world generator as `ChunkDumper`

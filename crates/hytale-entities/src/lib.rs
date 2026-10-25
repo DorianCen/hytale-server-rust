@@ -1,14 +1,16 @@
-//! `hytale-entities` — entity and player component store.
+//! `hytale-entities` — entity and player gameplay components.
 //!
-//! A thin Rust-native wrapper over `bevy_ecs` providing the component registry,
-//! systems/schedules, and player/entity lifecycle used by worlds. Components are
-//! serializable Rust structs with stable ids; block entities reference their
-//! position in the owning world. Exact Java ECS API parity is deliberately not a
-//! goal.
+//! Deterministic Rust-native components and systems used by worlds: movement
+//! collision integration, entity stats, active effects and damage. The world
+//! thread currently owns its entities directly; later NPC/combat producers
+//! attach [`components::EntityGameplay`] to them. Exact Java ECS API parity is
+//! deliberately not a goal.
 
 #![deny(clippy::all)]
 
+pub mod components;
 pub mod damage;
 pub mod effects;
 pub mod movement;
+pub mod projectile;
 pub mod stats;

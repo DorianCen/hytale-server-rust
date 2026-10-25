@@ -37,11 +37,31 @@ fn default_pack_validates_and_reports_every_config_packet() {
     assert!(report.packets.iter().all(|packet| packet.bytes > 0));
     assert!(report.tag_count > 0);
     assert!(report.checked_tag_indexes > 0);
-    assert_eq!(report.stores.len(), 22);
+    assert_eq!(report.stores.len(), 27);
     assert!(report
         .stores
         .iter()
         .any(|store| store.name == "Item" && store.count == 4008));
+    assert!(report
+        .stores
+        .iter()
+        .any(|store| store.name == "EntityStatType" && store.count == 13));
+    assert!(report
+        .stores
+        .iter()
+        .any(|store| store.name == "EntityEffect" && store.count == 260));
+    assert!(report
+        .stores
+        .iter()
+        .any(|store| store.name == "DamageCause" && store.count == 20));
+    assert!(report
+        .stores
+        .iter()
+        .any(|store| store.name == "Projectile" && store.count == 86));
+    assert!(report
+        .stores
+        .iter()
+        .any(|store| store.name == "ProjectileConfig" && store.count == 188));
     assert!(report
         .stores
         .iter()

@@ -12,10 +12,18 @@ Deferred to M5:
 
 - NPC AI, pathfinding, flocking, spawning and combat (`NPC/`, 1,051 files).
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
-  T53 lands the stat/effect/damage models, but conditions, damage calculators,
-  effect DoT and client presentation remain T57/T59.
+  T53 lands the stat/effect/damage models, the Java asset fixture and the
+  `EntityGameplay` component seam, but condition evaluation, damage calculators,
+  effect DoT and per-entity/client presentation remain T57/T59.
 - Crafting, recipes, item quality, drops, shops, rewards.
-- Projectiles, mounts, parkour, mantling, crouch-slide, safety roll.
+- Projectiles beyond T55's deterministic core (legacy flight, block/entity hit,
+  bounce/stick/TTL, new-config seam): density/drag/buoyancy/rolling and
+  `GroundFollow` physics, predicted/pierce/DirectionalHitBox projectiles,
+  explosions, particles/sounds and spawn/despawn packets (T56/T57/T59).
+- Mounts, parkour, mantling, crouch-slide and safety roll beyond T55's
+  slide/roll/mantle state machine and rider/seat seam: world mount entities,
+  traversal animation/anti-cheat and the builtin parkour checkpoints
+  (T58/T59/T60/T62).
 - Inventory windows/UI, block containers and dropped-item entities beyond the
   T49 item-stack/container/transaction core (hotbar/utility/armor/storage/tools/
   backpack, active slots, held-item consumption and save/reconnect are landed).
@@ -30,11 +38,12 @@ Deferred to M5:
   `MaxSupportDistance` chains, filler/self-face support, light/fluid gates,
   weighted placement, scheduled growth and `BlockHealthSection` storage.
   Item-entity drops are T56.
-- Player movement beyond the T51 authority core: the server now validates
-  finite/world bounds, resolves solid-block collision (sweep + one-block step),
-  sends correction teleports and exposes a deterministic gravity/jump/fly/climb
-  integrator. Per-packet speed/teleport anti-cheat remains T62; fluids,
-  triggers, mounts, traversal and entity collisions remain T52/T55/T58.
+- Player movement beyond the T51 authority core and T55 traversal state: the
+  server validates finite/world bounds, resolves solid-block collision
+  (sweep + one-block step), sends correction teleports and exposes a
+  deterministic gravity/jump/fly/climb/slide/roll integrator with a mantle
+  helper. Per-packet speed/teleport anti-cheat remains T62; fluids, triggers,
+  world mount entities and entity collisions remain T52/T56/T58.
 - Instances, encounters, portals, adventure plugins.
 - World map UI, markers, live map rendering.
 - Weather presentation beyond T54's state/forecast/transition core: full

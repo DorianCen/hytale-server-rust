@@ -1,6 +1,6 @@
 # T53 — Entity stats, effects and combat basics
 
-**Status:** in progress (session 42)
+**Status:** done (session 44)
 **Package:** `hytale-entities`, `hytale-assets`, `hytale-server`
 **Depends on:** T48 (and T52d for block-health presentation later)
 **Agent fit:** low/medium
@@ -93,9 +93,32 @@ cargo fmt --all -- --check
 - A Java dumper for stats/effects/damage is added when the asset fixtures are
   generated; do not invent expected ids.
 
+## Landed (session 44)
+
+- `Server/Entity/Effects` and `Server/Entity/Damage` are loaded by the P0
+  registry with Java id order; `DamageCause` uses Java's non-inheriting
+  `Parent` rule (only `DeathMessageKey` is inherited).
+- `EntityEffectAsset::from_value` decodes duration/overlap/removal/infinite/
+  debuff/icon/invulnerability/value type, named stat values, `RawStatModifiers`,
+  damage resistance/outgoing modifiers and the raw damage calculator/apply
+  conditions. Java defaults (`Ignore`, `Complete`, `Absolute`) are honoured.
+- `hytale-entities::components::EntityGameplay` bundles the stat map, active
+  effects, effect-modifier sync, damage application, death state and the
+  region/revive seam for T55/T57/T59.
+- `Regenerating.ClampAtZero` is parsed and applied.
+- `tools/java-dumper/run-entity-gameplay.sh` emits
+  `testdata/golden/server/entity/entity-gameplay.json` (13 stats incl.
+  `Unknown`, 260 effects, 20 damage causes) from the real pipeline, including
+  the entity-condition codec variants that the P0 asset goldens intentionally
+  do not register.
+- `crates/hytale-entities/tests/entity_gameplay.rs` checks every id and the
+  modelled fields against that fixture; `--validate-assets` now reports 25
+  stores.
+
 ## Follow-ups
 
 - T55 projectiles and traversal consume the damage model.
-- T57 adds stat/effect/damage presentation packets.
+- T57 adds stat/effect/damage presentation packets and the
+  `UpdateEntityStatTypes`/`UpdateEntityEffects` config-burst parity.
 - T59 NPC combat and encounters use the same stat/effect/damage core.
 - T60 maps the stat/effect/damage systems into the builtin module lifecycle.

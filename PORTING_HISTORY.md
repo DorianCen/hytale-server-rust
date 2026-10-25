@@ -903,3 +903,111 @@ This file records phase-2 sessions only.
 - **Split follow-ups:** `UpdateWeathers` full asset-document parity/goldens and
   config-burst wiring, weather particles/screen effects/audio, forced-weather
   commands/editor preview and a live weather transition loopback test.
+
+---
+
+## Session 44 — T53 completion: entity assets, fixture and component seam (2026-10-25)
+
+- **Goal:** close T53 by loading the remaining gameplay stores, adding the
+  Java-authored fixture and a component seam for later combat producers.
+- **Landed:**
+  - `hytale-assets` loads `Server/Entity/Effects` (`EntityEffect`) and
+    `Server/Entity/Damage` (`DamageCause`) with Java id order. `DamageCause`
+    uses a custom `Parent` hook: Java only inherits `DeathMessageKey`, so the
+    child's durability/stamina/bypass/animation fields are not polluted by
+    `Physical`/`Environment`.
+  - `EntityEffectAsset::from_value` decodes duration, overlap/removal behavior,
+    infinite/debuff/icon, invulnerability, value type, named stat values,
+    `RawStatModifiers`, damage resistance/outgoing modifiers, the raw damage
+    calculator and apply conditions. Unknown stat names fail the load. Java's
+    defaults (`Ignore`/`Complete`/`Absolute`) are kept.
+  - `Regenerating.ClampAtZero` is parsed and applied so negative stamina
+    regeneration cannot cross zero while the stat's minimum is negative.
+  - New `hytale-entities::components::EntityGameplay`: stat map + effect
+    controller + death state, with effect-modifier sync, damage application,
+    tick/expiry and revive seams for T55/T57/T59.
+  - `EntityGameplayDumper` + `run-entity-gameplay.sh` emit
+    `testdata/golden/server/entity/entity-gameplay.json` (13 stats, 260 effects,
+    20 damage causes) from the real pipeline. The dumper opts into the
+    entity-condition codec variants during boot; the P0 asset goldens keep the
+    previous boot so their item counts/payloads are unchanged.
+  - `entity_gameplay.rs` now checks every fixture id and modelled field
+    (including `Health`'s two `Percentage` regeneration rules and `Stamina`'s
+    `ClampAtZero` rules). `--validate-assets` reports 25 stores.
+- **Verified:**
+  - `cargo test -p hytale-entities`, `-p hytale-assets`, `-p hytale-server`.
+  - `cargo test --workspace`, clippy `-D warnings` and fmt.
+  - `cargo run -q -p hytale-server -- --validate-assets` → 25 stores, 17
+    packets, 579 tags, 24,397 references, `validation: ok`.
+  - `tools/java-dumper/run-entity-gameplay.sh --check` (two isolated runs and
+    the committed fixture are byte-identical).
+- **Deviations:**
+  - `EntityGameplay` is not attached to the world thread or an entity ECS yet;
+    NPC/combat producers are T59.
+  - Full condition evaluation, damage calculators, effect DoT, knockback,
+    animations/particles/sounds and per-entity stat/effect packets remain
+    T55/T57/T59.
+  - The `UpdateEntityStatTypes`/`UpdateEntityEffects` asset-document packets are
+    not in the join burst yet (T57).
+- **Follow-ups:**
+  - T55 consumes `Damage`/`EntityGameplay` for projectiles/traversal.
+  - T57 adds config-burst and per-entity stat/effect presentation plus the
+    `UpdateWeathers` split.
+  - T59 adds NPC producers and full combat/encounters; T60 maps the systems into
+    the builtin lifecycle.
+
+---
+
+## Session 45 — T55 projectiles and traversal (2026-10-25)
+
+- **Goal:** add deterministic projectile flight/hit and the server-side
+  traversal/mount seam on top of T51/T53.
+- **Landed:**
+  - `hytale-assets` loads `Server/Projectiles` (86, legacy `DefaultAssetMap`)
+    and `Server/ProjectileConfigs` (188, new config map) with name lookups.
+    `ProjectileConfig` uses recursive parent merging so a child `Physics`
+    object inherits the parent's `StandardPhysicsConfig` fields like Java.
+  - `hytale-entities::projectile`: legacy `ProjectileAsset` and new
+    `ProjectileConfigAsset`/`StandardPhysics` decoders; Java
+    `computeStartOffset`/`vectorFromAngles` launch math; deterministic gravity,
+    terminal-velocity cap, swept block/entity AABB collision, bounce with
+    `bounciness * (1 - ImpactSlowdown)`, stick/rest, TTL and hit/miss/death
+    timers; `damage_instance()` feeds `EntityGameplay::apply_damage`.
+  - `movement`: slide/roll/mantle flags, `TraversalState` using
+    `MinSlideEntrySpeed`/`SlideExitSpeed`/roll window/duration,
+    `try_mantle` for a two-block ledge and `MountState` rider/seat transforms.
+    Low-profile collision now covers sliding/rolling; the server maps the
+    client's sliding/rolling/mantling states.
+  - `EntityGameplayDumper` now emits sorted legacy `projectiles` and
+    `projectileConfigs`; it opts into the `PhysicsConfig` `Standard`/
+    `GroundFollow` variants. The P0 asset dump does not opt in (loading the
+    config store would change contained-interaction ids and the committed item
+    payload), so `run-assets.sh --check` stays green.
+  - `--validate-assets` reports 27 stores. `entity_gameplay.rs` checks every
+    modelled projectile/config field and scripts the real `Arrow_NoCharge`
+    arc/wall miss and `Ice_Ball` entity hit + T53 health damage.
+- **Verified:**
+  - `cargo test -p hytale-entities`, `-p hytale-assets`, `-p hytale-server`.
+  - `cargo test --workspace`, clippy `-D warnings` and fmt.
+  - `cargo run -q -p hytale-server -- --validate-assets` → 27 stores,
+    `validation: ok`.
+  - `tools/java-dumper/run-entity-gameplay.sh --check`.
+- **Deviations:**
+  - Legacy `Projectile` drives the scripted flight. `StandardPhysics`
+    density/drag/buoyancy/rolling and `GroundFollow` snap-to-ground are decoded
+    but not simulated.
+  - Slide/roll/mantle are the deterministic server model of Java's
+    client-authoritative movement states; mounts are a rider/seat seam, not
+    world entities.
+  - Java's nested `appendInherited` spawn-rotation conversion applies
+    degrees→radians twice to inherited components, so presentation spawn
+    rotation is omitted from the config fixture until T57.
+  - Projectile spawn/despawn/effect packets, explosions, particles/sounds,
+    prediction, pierce/directional hitboxes and anti-cheat remain
+    T56/T57/T59/T62.
+- **Follow-ups:**
+  - T56 spawns/persists projectile and item entities.
+  - T57 adds projectile/effect/damage presentation and `UpdateProjectileConfigs`
+    to the config burst.
+  - T58/T59 feed NPC targets/mount entities and simulate the new physics; T62
+    adds spawn/rate limits.

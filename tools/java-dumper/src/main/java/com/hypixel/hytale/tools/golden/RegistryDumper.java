@@ -54,7 +54,27 @@ import com.hypixel.hytale.server.core.asset.type.soundevent.config.SoundEvent;
 import com.hypixel.hytale.server.core.asset.type.tagpattern.config.TagPattern;
 import com.hypixel.hytale.server.core.asset.type.trail.config.Trail;
 import com.hypixel.hytale.server.core.entity.entities.player.movement.MovementConfig;
+import com.hypixel.hytale.server.core.modules.entity.condition.AliveCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.ChargingCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.CheckPlayerGameModeCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.Condition;
+import com.hypixel.hytale.server.core.modules.entity.condition.EnvironmentCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.GlidingCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.HasEffectCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.InFluidCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.IsPlayerCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.LogicCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.NoDamageTakenCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.OutOfCombatCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.RegenHealthCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.SprintingCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.StatCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.SuffocatingCondition;
+import com.hypixel.hytale.server.core.modules.entity.condition.WieldingCondition;
 import com.hypixel.hytale.server.core.modules.entity.hitboxcollision.HitboxCollisionConfig;
+import com.hypixel.hytale.server.core.modules.projectile.config.GroundFollowPhysicsConfig;
+import com.hypixel.hytale.server.core.modules.projectile.config.PhysicsConfig;
+import com.hypixel.hytale.server.core.modules.projectile.config.StandardPhysicsConfig;
 import com.hypixel.hytale.server.core.modules.entity.repulsion.RepulsionConfig;
 import com.hypixel.hytale.server.core.modules.entitystats.asset.EntityStatType;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.UnarmedInteractions;
@@ -148,6 +168,13 @@ final class RegistryDumper {
 
     /** Set {@code -Dhytale.dumper.debug=true} to print the store statistics. */
     private static final boolean DEBUG = Boolean.getBoolean("hytale.dumper.debug");
+
+    /**
+     * Whether the next boot registers the entity-condition codec variants.
+     * Only the entity-gameplay dump opts in; the P0 asset goldens are dumped
+     * without them.
+     */
+    private static boolean gameplayConditions = false;
 
     private RegistryDumper() {
     }
@@ -343,6 +370,44 @@ final class RegistryDumper {
         Knockback.CODEC.register("Directional", DirectionalKnockback.class, DirectionalKnockback.CODEC);
         Knockback.CODEC.register("Point", PointKnockback.class, PointKnockback.CODEC);
         Knockback.CODEC.register("Force", ForceKnockback.class, ForceKnockback.CODEC);
+
+        // New-projectile physics variants from `ProjectileModule.setup()`.
+        // Opt-in with the gameplay conditions: loading the ProjectileConfig
+        // store changes the contained-interaction ids, which would invalidate
+        // the committed P0 item packet.
+        if (gameplayConditions) {
+            PhysicsConfig.CODEC.register("Standard", StandardPhysicsConfig.class, StandardPhysicsConfig.CODEC);
+            PhysicsConfig.CODEC.register("GroundFollow", GroundFollowPhysicsConfig.class, GroundFollowPhysicsConfig.CODEC);
+        }
+
+        // The entity-condition variants of `EntityModule.setup()`. Entity stat
+        // regeneration and entity effect apply/damage fields reference them.
+        // They are opt-in because registering them makes the asset pipeline
+        // load more item assets than the committed P0 goldens were dumped
+        // with; only the entity-gameplay dump needs them.
+        if (gameplayConditions) {
+            Condition.CODEC.register("LogicCondition", LogicCondition.class, LogicCondition.CODEC);
+            Condition.CODEC.register("RegenHealth", RegenHealthCondition.class, RegenHealthCondition.CODEC);
+            Condition.CODEC.register("NoDamageTaken", NoDamageTakenCondition.class, NoDamageTakenCondition.CODEC);
+            Condition.CODEC.register("Suffocating", SuffocatingCondition.class, SuffocatingCondition.CODEC);
+            Condition.CODEC.register("Charging", ChargingCondition.class, ChargingCondition.CODEC);
+            Condition.CODEC.register("Alive", AliveCondition.class, AliveCondition.CODEC);
+            Condition.CODEC.register("Environment", EnvironmentCondition.class, EnvironmentCondition.CODEC);
+            Condition.CODEC.register("CheckPlayerGameMode", CheckPlayerGameModeCondition.class, CheckPlayerGameModeCondition.CODEC);
+            Condition.CODEC.register("OutOfCombat", OutOfCombatCondition.class, OutOfCombatCondition.CODEC);
+            Condition.CODEC.register("Wielding", WieldingCondition.class, WieldingCondition.CODEC);
+            Condition.CODEC.register("Sprinting", SprintingCondition.class, SprintingCondition.CODEC);
+            Condition.CODEC.register("Gliding", GlidingCondition.class, GlidingCondition.CODEC);
+            Condition.CODEC.register("Stat", StatCondition.class, StatCondition.CODEC);
+            Condition.CODEC.register("InFluid", InFluidCondition.class, InFluidCondition.CODEC);
+            Condition.CODEC.register("HasEffect", HasEffectCondition.class, HasEffectCondition.CODEC);
+            Condition.CODEC.register("IsPlayer", IsPlayerCondition.class, IsPlayerCondition.CODEC);
+        }
+    }
+
+    /** Opt the next boot into the entity-condition codec variants. */
+    static void enableGameplayConditions() {
+        gameplayConditions = true;
     }
 
     /**

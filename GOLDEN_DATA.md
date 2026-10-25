@@ -320,22 +320,42 @@ support, light/fluid gates, weighted placement, scheduled growth and Java
 `BlockHealthSection` persistence. Sound playback, item-entity drops and damage
 packets stay T56/T57; builtin module lifecycle stays T60.
 
-### 3.10 Entity gameplay (real-pack checks, no committed payload)
+### 3.10 Entity gameplay (Java fixture)
 
-Session 42 started T53 with the entity gameplay core. The oracle is the real
-pack documents plus the Java `EntityStatType`/`EntityEffect`/`DamageCause`
-algorithms:
+T53's entity gameplay core is gated by
+`testdata/golden/server/entity/entity-gameplay.json`, written by
+`tools/java-dumper/run-entity-gameplay.sh` from the real asset pipeline. It
+contains the loaded `EntityStatType` (13 incl. `Unknown`), `EntityEffect` (260),
+`DamageCause` (20), legacy `Projectile` (86) and new-style `ProjectileConfig`
+(188) stores: ids/keys and the gameplay-core fields (duration/overlap/removal/
+invulnerability, named stat values and `RawStatModifiers`, damage resistance/
+outgoing modifiers, reset/regeneration rules, projectile launch/ballistics and
+standard/ground-follow physics). Presentation assets (models, particles,
+sounds, cameras) are intentionally omitted.
+
+```sh
+tools/java-dumper/run-entity-gameplay.sh          # regenerate the fixture
+tools/java-dumper/run-entity-gameplay.sh --check  # two isolated runs + diff
+```
+
+The entity-condition and projectile-physics codec variants are registered only
+for this dump. The P0 asset goldens keep the unregistered-condition boot so
+their committed item payloads and counts stay stable.
 
 | Check | Gate |
 |---|---|
-| `Unknown` stat id 0; `Health`/`Stamina` initial/min/max/reset/regeneration fields | `crates/hytale-entities/tests/entity_gameplay.rs` |
-| Stat clamp, static min/max modifiers, reset and interval regeneration | `crates/hytale-entities/src/stats.rs` tests |
-| Effect overlap/expiry/invulnerability and resistance aggregation | `crates/hytale-entities/src/effects.rs` tests |
+| Every stat/effect/damage id and modelled field matches Java | `crates/hytale-entities/tests/entity_gameplay.rs` |
+| Stat clamp, static min/max modifiers, reset, interval and `ClampAtZero` regeneration | `crates/hytale-entities/src/stats.rs` tests |
+| Effect overlap/expiry/invulnerability, modifier sync and damage aggregation | `crates/hytale-entities/src/{effects,components}.rs` tests |
 | Damage-cause inheritance, flat/percent resistance, outgoing modifiers, death at zero | `crates/hytale-entities/src/damage.rs` tests |
+| Projectile/config ids and modelled fields match Java | `crates/hytale-entities/tests/entity_gameplay.rs` |
+| Real `Arrow_NoCharge` arc/cap, wall rest/miss, `Ice_Ball` entity hit + T53 damage handoff | same |
+| Slide entry/exit, safety-roll window, mantle and mount/dismount | `crates/hytale-entities/src/movement.rs` tests |
 | Item `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` name resolution | `crates/hytale-assets/tests/block_item_packets.rs` (real-pack `Item.bin` gate) |
 
-Full condition evaluation, damage calculators, client stat/effect/damage packets
-and Java-authored gameplay fixtures remain T53 follow-up/T57/T59 work.
+Full condition evaluation, damage calculators, effect damage-over-time, client
+stat/effect/damage packets and the `UpdateEntityStatTypes`/
+`UpdateEntityEffects` config burst remain T57/T59 work.
 
 ### 3.9 `trace/`
 

@@ -2025,6 +2025,9 @@ fn movement_state(states: &MovementStates) -> MovementState {
         climbing: states.climbing,
         in_fluid: states.in_fluid,
         swimming: states.swimming,
+        sliding: states.sliding,
+        rolling: states.rolling,
+        mantling: states.mantling,
     }
 }
 

@@ -131,6 +131,14 @@ For the server, “exact” also applies to:
   correction `ClientTeleport` only when the target changed. A free target must
   stay bit-for-bit identical; never re-send a normal walk. Full teleport-ack
   tracking and speed anti-cheat are T62.
+- Projectile flight is server-side deterministic in
+  `hytale-entities::projectile`: real legacy `Projectile` assets, Java launch
+  offset/angle math, a gravity/terminal-speed cap, swept block/entity boxes and
+  the T53 damage handoff. Do not invent projectile spawn packets; T57 adds the
+  presentation layer and `UpdateProjectileConfigs`.
+- Slide/roll/mantle are server-side models of client movement states, gated by
+  the selected `MovementConfig` speeds/windows. Keep them deterministic and
+  free of wall-clock reads; mount entities are T58/T59.
 
 ---
 

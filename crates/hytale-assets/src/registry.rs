@@ -125,6 +125,36 @@ pub const ENTITY_STAT_TYPE: StoreSpec = StoreSpec {
     map: MapKind::IndexedLookupTable,
 };
 
+/// `EntityEffect` store (`Server/Entity/Effects`). Effect assets are referenced
+/// by item interactions and applied by the gameplay effect controller.
+pub const ENTITY_EFFECT: StoreSpec = StoreSpec {
+    name: "EntityEffect",
+    path: "Server/Entity/Effects",
+    map: MapKind::IndexedLookupTable,
+};
+
+/// `DamageCause` store (`Server/Entity/Damage`, no packet generator).
+pub const DAMAGE_CAUSE: StoreSpec = StoreSpec {
+    name: "DamageCause",
+    path: "Server/Entity/Damage",
+    map: MapKind::IndexedLookupTable,
+};
+
+/// Legacy `Projectile` store (`Server/Projectiles`, `DefaultAssetMap`).
+pub const PROJECTILE_STORE: StoreSpec = StoreSpec {
+    name: "Projectile",
+    path: "Server/Projectiles",
+    map: MapKind::Default,
+};
+
+/// New-style `ProjectileConfig` store (`Server/ProjectileConfigs`,
+/// `DefaultAssetMap`).
+pub const PROJECTILE_CONFIG_STORE: StoreSpec = StoreSpec {
+    name: "ProjectileConfig",
+    path: "Server/ProjectileConfigs",
+    map: MapKind::Default,
+};
+
 /// `Weather` store (`Server/Weathers`). Java preloads `Unknown` at id 0.
 pub const WEATHER: StoreSpec = StoreSpec {
     name: "Weather",
@@ -732,6 +762,14 @@ pub struct AssetRegistry {
     pub movement_configs: AssetCollection<MovementConfigAsset>,
     /// `EntityStatType` store (`Server/Entity/Stats`, `Unknown` preloaded at 0).
     pub entity_stat_types: AssetCollection<Value>,
+    /// `EntityEffect` store (`Server/Entity/Effects`).
+    pub entity_effects: AssetCollection<Value>,
+    /// `DamageCause` store (`Server/Entity/Damage`).
+    pub damage_causes: AssetCollection<Value>,
+    /// Legacy `Projectile` store (`Server/Projectiles`).
+    pub projectiles: AssetCollection<Value>,
+    /// New-style `ProjectileConfig` store (`Server/ProjectileConfigs`).
+    pub projectile_configs: AssetCollection<Value>,
     /// `Weather` store (`Server/Weathers`, `Unknown` preloaded at 0).
     pub weathers: AssetCollection<Value>,
     /// `ItemSoundSet` (loaded by [`Self::load_phase2`]).
@@ -808,6 +846,21 @@ impl AssetRegistry {
             entity_stat_type_preloads(),
             parse_key_asset,
         )?;
+        let entity_effects = load_indexed_store(pack, &ENTITY_EFFECT, Vec::new(), parse_key_asset)?;
+        let damage_causes = load_indexed_store_with(
+            pack,
+            &DAMAGE_CAUSE,
+            Vec::new(),
+            parse_key_asset,
+            MergeHook::Custom(merge_damage_cause),
+        )?;
+        let projectiles = load_default_store(pack, &PROJECTILE_STORE, Vec::new())?;
+        let projectile_configs = load_default_store_with(
+            pack,
+            &PROJECTILE_CONFIG_STORE,
+            Vec::new(),
+            MergeHook::Replace,
+        )?;
         let weathers = load_indexed_store(pack, &WEATHER, weather_preloads(), parse_key_asset)?;
 
         Ok(Self {
@@ -823,6 +876,10 @@ impl AssetRegistry {
             gameplay_configs,
             movement_configs,
             entity_stat_types,
+            entity_effects,
+            damage_causes,
+            projectiles,
+            projectile_configs,
             weathers,
             item_sound_sets: AssetCollection::empty(),
             item_qualities: AssetCollection::empty(),
@@ -908,6 +965,26 @@ impl AssetRegistry {
     /// Resolve an `EntityStatType` asset name to its deterministic id.
     pub fn entity_stat_id(&self, key: &str) -> Option<i32> {
         self.entity_stat_types.id_of(key)
+    }
+
+    /// Resolve an `EntityEffect` asset name to its deterministic id.
+    pub fn entity_effect_id(&self, key: &str) -> Option<i32> {
+        self.entity_effects.id_of(key)
+    }
+
+    /// Resolve a `DamageCause` asset name to its deterministic id.
+    pub fn damage_cause_id(&self, key: &str) -> Option<i32> {
+        self.damage_causes.id_of(key)
+    }
+
+    /// One legacy `Projectile` document.
+    pub fn projectile(&self, key: &str) -> Option<&Value> {
+        self.projectiles.get(key).map(|record| &record.value)
+    }
+
+    /// One new-style `ProjectileConfig` document.
+    pub fn projectile_config(&self, key: &str) -> Option<&Value> {
+        self.projectile_configs.get(key).map(|record| &record.value)
     }
 
     /// Resolve a `Weather` asset name to its deterministic id.
@@ -1098,6 +1175,16 @@ fn load_default_store(
     spec: &StoreSpec,
     preloads: Vec<(&'static str, Value)>,
 ) -> Result<AssetCollection<Value>, AssetError> {
+    load_default_store_with(pack, spec, preloads, MergeHook::Shallow)
+}
+
+/// Load a `DefaultAssetMap` store with an explicit parent merge rule.
+fn load_default_store_with(
+    pack: &AssetPack,
+    spec: &StoreSpec,
+    preloads: Vec<(&'static str, Value)>,
+    hook: MergeHook,
+) -> Result<AssetCollection<Value>, AssetError> {
     let mut preloaded = preloaded_assets_with(preloads);
     let mut loaded: HashSet<String> = preloaded
         .iter()
@@ -1108,7 +1195,7 @@ fn load_default_store(
     let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
     let mut all = preloaded;
     all.extend(ordered);
-    let resolved = resolve_assets(all, spec.name, MergeHook::Shallow)?;
+    let resolved = resolve_assets(all, spec.name, hook)?;
     let records = resolved
         .into_iter()
         .map(|asset| AssetRecord {
@@ -2005,6 +2092,21 @@ fn merge_block_sound_set(parent: &mut Value, child: Value) {
         if let Value::Object(object) = parent {
             object.insert("SoundEvents".to_string(), Value::Object(parent_events));
         }
+    }
+}
+
+/// Java `DamageCause` uses plain `append` fields for everything except
+/// `DeathMessageKey`; only that field inherits from `Parent`.
+fn merge_damage_cause(parent: &mut Value, child: Value) {
+    let inherited_death_message = parent
+        .get("DeathMessageKey")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    *parent = child;
+    if let (Some(key), Value::Object(object)) = (inherited_death_message, parent) {
+        object
+            .entry("DeathMessageKey".to_string())
+            .or_insert(Value::String(key));
     }
 }
 

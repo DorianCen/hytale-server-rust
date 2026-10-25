@@ -35,6 +35,8 @@ pub struct Regenerating {
     pub interval: f32,
     /// Amount added per step.
     pub amount: f32,
+    /// Prevent regeneration from taking the value below zero.
+    pub clamp_at_zero: bool,
     /// Additive or percentage.
     pub regen_type: RegenType,
     /// Raw condition documents (full condition evaluation is later work).
@@ -69,12 +71,12 @@ pub struct EntityStatType {
 impl EntityStatType {
     /// Decode one merged `Server/Entity/Stats` document.
     pub fn from_value(key: &str, index: i32, value: &Value) -> Result<Self, String> {
-        let number = |name: &str| -> Result<f32, String> {
+        let number = |name: &str| -> f32 {
             value
                 .get(name)
                 .and_then(Value::as_f64)
                 .map(|value| value as f32)
-                .ok_or_else(|| format!("EntityStatType `{key}` is missing `{name}`"))
+                .unwrap_or(0.0)
         };
         let regenerating = value
             .get("Regenerating")
@@ -86,12 +88,16 @@ impl EntityStatType {
                         interval: entry.get("Interval").and_then(Value::as_f64).unwrap_or(0.0)
                             as f32,
                         amount: entry.get("Amount").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                        clamp_at_zero: entry
+                            .get("ClampAtZero")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                         regen_type: match entry
                             .get("RegenType")
                             .and_then(Value::as_str)
                             .unwrap_or("Additive")
                         {
-                            "Percentage" => RegenType::Percentage,
+                            "Percentage" | "PERCENTAGE" => RegenType::Percentage,
                             _ => RegenType::Additive,
                         },
                         conditions: entry
@@ -106,9 +112,9 @@ impl EntityStatType {
         Ok(Self {
             id: key.to_string(),
             index,
-            initial_value: number("InitialValue")?,
-            min: number("Min")?,
-            max: number("Max")?,
+            initial_value: number("InitialValue"),
+            min: number("Min"),
+            max: number("Max"),
             shared: value
                 .get("Shared")
                 .and_then(Value::as_bool)
@@ -296,12 +302,13 @@ impl EntityStatValue {
     pub fn tick_regeneration(&mut self, dt: f32) -> f32 {
         let mut total = 0.0;
         for index in 0..self.stat_type.regenerating.len() {
-            let (interval, rule_amount, regen_type) = {
+            let (interval, rule_amount, regen_type, clamp_at_zero) = {
                 let rule = &self.stat_type.regenerating[index];
                 (
                     rule.interval.max(f32::EPSILON),
                     rule.amount,
                     rule.regen_type,
+                    rule.clamp_at_zero,
                 )
             };
             let timer = &mut self.regen_timers[index];
@@ -310,10 +317,15 @@ impl EntityStatValue {
                 continue;
             }
             *timer += interval;
-            let amount = match regen_type {
+            let mut amount = match regen_type {
                 RegenType::Additive => rule_amount,
                 RegenType::Percentage => rule_amount * (self.max - self.min),
             };
+            // Java `Regenerating.clampAmount`: a negative regeneration may not
+            // take the stat below zero while the stat's own minimum is negative.
+            if clamp_at_zero && amount < 0.0 && self.min < 0.0 && self.value + amount < 0.0 {
+                amount = if self.value > 0.0 { -self.value } else { 0.0 };
+            }
             let before = self.value;
             self.set(before + amount);
             total += self.value - before;
@@ -489,6 +501,28 @@ impl EntityStatMap {
         removed
     }
 
+    /// Remove every stat modifier whose key starts with `prefix`.
+    ///
+    /// Used by the effect controller to drop effect-provided modifiers without
+    /// touching item/armor modifiers.
+    pub fn remove_modifier_prefix(&mut self, prefix: &str) -> usize {
+        let mut removed = 0;
+        for stat in self.values.values_mut() {
+            let keys: Vec<String> = stat
+                .modifiers()
+                .keys()
+                .filter(|key| key.starts_with(prefix))
+                .cloned()
+                .collect();
+            for key in keys {
+                if stat.remove_modifier(&key).is_some() {
+                    removed += 1;
+                }
+            }
+        }
+        removed
+    }
+
     /// Tick every stat's regeneration. Returns `(index, amount)` changes.
     pub fn tick_regeneration(&mut self, dt: f32) -> Vec<(i32, f32)> {
         let mut changed = Vec::new();
@@ -533,6 +567,7 @@ mod tests {
             regenerating: vec![Regenerating {
                 interval: 0.5,
                 amount: 0.05,
+                clamp_at_zero: false,
                 regen_type: RegenType::Percentage,
                 conditions: Vec::new(),
             }],
@@ -591,5 +626,27 @@ mod tests {
         assert!(!changed.is_empty());
         // 0.05 * (100 - 0) = 5 health per 0.5 s.
         assert!((map.get(1).unwrap().get() - 55.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn clamp_at_zero_caps_negative_regeneration() {
+        let mut stat = health();
+        stat.min = -10.0;
+        stat.max = 10.0;
+        stat.initial_value = 1.0;
+        stat.regenerating = vec![Regenerating {
+            interval: 0.1,
+            amount: -0.75,
+            clamp_at_zero: true,
+            regen_type: RegenType::Additive,
+            conditions: Vec::new(),
+        }];
+        let mut map = EntityStatMap::new([stat]);
+        map.tick_regeneration(0.2);
+        map.tick_regeneration(0.2);
+        assert_eq!(map.get(1).unwrap().get(), 0.0);
+        // A further step may not take the value below zero either.
+        map.tick_regeneration(0.2);
+        assert_eq!(map.get(1).unwrap().get(), 0.0);
     }
 }

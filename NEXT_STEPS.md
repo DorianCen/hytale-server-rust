@@ -1,12 +1,13 @@
-# Next steps — CoreServer rewrite, phase 2 (session 41)
+# Next steps — CoreServer rewrite, phase 2 (session 45)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Tasks landed:** **T53** (entity stats/effects/combat core) and **T54**
-(time and weather); M5 continues with their scoped residuals.
+**Tasks landed:** **T53** (entity stats/effects/combat plus the Java
+entity-gameplay fixture), **T54** (time and weather) and **T55** (projectiles
+and traversal); M5 continues with **T56** and the T54/T57 presentation split.
 
 ## Current state
 
@@ -99,13 +100,17 @@ Landed and green:
 - T52d block-health storage: per-section Java `BlockHealthSection` v0 BSON,
   legacy `BlockHealthChunk` migration, fragility countdown and pending health
   deltas for T57. A Java `BlockHealthDumper` fixture gates the codec.
-- T53 (in progress): `hytale-entities` now has the stat type/value/map core
-  (clamp, static min/max modifiers, regeneration, reset behavior), active
+- T53 (done): `hytale-entities` has the stat type/value/map core (clamp, static
+  min/max modifiers, regeneration incl. `ClampAtZero`, reset behavior), active
   entity effects with overlap/expiry/invulnerability, and the damage-cause/
-  resistance/outgoing/health/death core. `Server/Entity/Stats` is loaded by the
-  P0 registry and item `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD`
-  names resolve to deterministic stat ids. Client packets, conditions and full
-  damage calculators remain T57/T59.
+  resistance/outgoing/health/death core. `Server/Entity/Stats`,
+  `Server/Entity/Effects` and `Server/Entity/Damage` load with Java ids; the
+  `DamageCause` parent rule inherits only `DeathMessageKey`. Item
+  `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` names resolve to
+  deterministic stat ids. `EntityGameplay` is the component seam for T55/T57/
+  T59, and `testdata/golden/server/entity/entity-gameplay.json` gates all 13
+  stats, 260 effects and 20 damage causes against Java. Client packets,
+  conditions, damage calculators and DoT remain T57/T59.
 - T54 (done): `Server/Weathers` loads with `Unknown` at id 0;
   environment forecasts are parsed from the real 24-hour tables;
   `hytale_world::weather` selects deterministic weather per hour, honors
@@ -113,6 +118,15 @@ Landed and green:
   `WorldClock` now has current-hour and moon-phase helpers. Sessions send
   `UpdateWeather` on join and when the effective weather changes. Full
   `UpdateWeathers` asset-document parity and presentation remain follow-ups.
+- T55 (done): `hytale-entities::projectile` launches from the real legacy
+  `Projectile` assets (86) with Java angle/offset math, gravity, terminal-speed
+  cap, swept block/entity AABB collision, bounce/stick/rest, hit/miss/death
+  timers, TTL and the T53 damage handoff. `ProjectileConfig` (188) and its
+  `Standard`/`GroundFollow` physics load as the new-system seam. Movement gains
+  the slide/roll/mantle traversal state and a `MountState` rider seam. The
+  Java entity fixture now gates both projectile stores; `--validate-assets`
+  reports 27 stores. Packets, explosions, prediction and new-physics
+  density/drag remain T56/T57/T59.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -132,7 +146,9 @@ cargo fmt --all -- --check
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   M5 continues with T53 residuals and the T54 presentation/asset-packet split.
+   T55 (projectiles/traversal) is done; T56 (prefab spawner/runtime entities)
+   starts the remaining gameplay work; the T54 presentation/asset-packet split
+   stays with T57.
 
 ## Try it
 

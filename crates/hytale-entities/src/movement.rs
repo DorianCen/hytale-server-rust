@@ -85,6 +85,20 @@ pub struct MovementState {
     pub in_fluid: bool,
     /// `swimming`.
     pub swimming: bool,
+    /// `sliding`.
+    pub sliding: bool,
+    /// `rolling` (safety roll).
+    pub rolling: bool,
+    /// `mantling`.
+    pub mantling: bool,
+}
+
+impl MovementState {
+    /// Java crouch-height states: crouching, forced crouching, sliding and
+    /// rolling all use the model's crouch bounding box.
+    pub fn low_profile(self) -> bool {
+        self.crouching || self.sliding || self.rolling
+    }
 }
 
 /// One simulation step's local input.
@@ -96,6 +110,12 @@ pub struct MovementInput {
     pub vertical: f64,
     /// Jump/climb-up request.
     pub jump: bool,
+    /// Crouch-slide request (sprinting + entry speed gates the transition).
+    pub slide: bool,
+    /// Safety-roll request on landing.
+    pub roll: bool,
+    /// Mantle a ledge in front of the body.
+    pub mantle: bool,
     /// Body yaw in radians (game heading, `-sin`/`-cos` convention).
     pub yaw: f64,
     /// Movement flags.
@@ -336,6 +356,22 @@ pub struct MovementTuning {
     pub forward_sprint: f64,
     /// Air control multiplier (`AirControlMaxMultiplier`).
     pub air_control: f64,
+    /// Minimum slide-entry speed.
+    pub min_slide_entry_speed: f64,
+    /// Speed at/below which a slide ends.
+    pub slide_exit_speed: f64,
+    /// Minimum landing speed that can start a safety roll.
+    pub min_fall_speed_to_engage_roll: f64,
+    /// Maximum landing speed that can start a safety roll.
+    pub max_fall_speed_to_engage_roll: f64,
+    /// Safety-roll start speed modifier.
+    pub roll_start_speed_modifier: f64,
+    /// Safety-roll exit speed modifier.
+    pub roll_exit_speed_modifier: f64,
+    /// Safety-roll duration in seconds.
+    pub roll_time_to_complete: f64,
+    /// Maximum mantle height (T55 server-side model).
+    pub max_mantle_height: f64,
     /// Gravity (`PhysicsConstants.GRAVITY_ACCELERATION`).
     pub gravity: f64,
     /// Maximum auto-step height.
@@ -365,6 +401,14 @@ impl Default for MovementTuning {
             strafe_crouch: 0.45,
             forward_sprint: 1.65,
             air_control: 3.13,
+            min_slide_entry_speed: 8.5,
+            slide_exit_speed: 2.5,
+            min_fall_speed_to_engage_roll: 21.0,
+            max_fall_speed_to_engage_roll: 31.0,
+            roll_start_speed_modifier: 2.5,
+            roll_exit_speed_modifier: 1.5,
+            roll_time_to_complete: 0.9,
+            max_mantle_height: 2.0,
             gravity: GRAVITY_ACCELERATION,
             step_height: MAX_STEP_HEIGHT,
         }
@@ -395,6 +439,14 @@ impl MovementTuning {
             strafe_crouch: f64::from(settings.strafe_crouch_speed_multiplier),
             forward_sprint: f64::from(settings.forward_sprint_speed_multiplier),
             air_control: f64::from(settings.air_control_max_multiplier),
+            min_slide_entry_speed: f64::from(settings.min_slide_entry_speed),
+            slide_exit_speed: f64::from(settings.slide_exit_speed),
+            min_fall_speed_to_engage_roll: f64::from(settings.min_fall_speed_to_engage_roll),
+            max_fall_speed_to_engage_roll: f64::from(settings.max_fall_speed_to_engage_roll),
+            roll_start_speed_modifier: f64::from(settings.roll_start_speed_modifier),
+            roll_exit_speed_modifier: f64::from(settings.roll_exit_speed_modifier),
+            roll_time_to_complete: f64::from(settings.roll_time_to_complete),
+            max_mantle_height: 2.0,
             gravity: GRAVITY_ACCELERATION,
             step_height: MAX_STEP_HEIGHT,
         }
@@ -413,7 +465,7 @@ impl MovementTuning {
         let forward = dx * forward_x + dz * forward_z;
         let strafe = dx * right_x + dz * right_z;
 
-        let forward_multiplier = if state.crouching {
+        let forward_multiplier = if state.low_profile() {
             if forward >= 0.0 {
                 self.forward_crouch
             } else {
@@ -432,7 +484,7 @@ impl MovementTuning {
         } else {
             self.backward_run
         };
-        let strafe_multiplier = if state.crouching {
+        let strafe_multiplier = if state.low_profile() {
             self.strafe_crouch
         } else if state.walking {
             self.strafe_walk
@@ -445,6 +497,120 @@ impl MovementTuning {
     }
 }
 
+/// Server-side traversal state (crouch-slide and safety roll).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TraversalState {
+    /// Currently crouch-sliding.
+    pub sliding: bool,
+    /// Currently safety-rolling.
+    pub rolling: bool,
+    /// Seconds left in the current roll.
+    pub roll_remaining: f64,
+}
+
+impl TraversalState {
+    /// Update slide/roll transitions from the pre-move speed and input.
+    ///
+    /// Returns `true` when the state changed.
+    pub fn update(
+        &mut self,
+        tuning: MovementTuning,
+        horizontal_speed: f64,
+        on_ground: bool,
+        landing_speed: f64,
+        input: &MovementInput,
+        dt: f64,
+    ) -> bool {
+        let previous = *self;
+        if self.rolling {
+            self.roll_remaining -= dt.max(0.0);
+            if self.roll_remaining <= 0.0 {
+                self.rolling = false;
+                self.roll_remaining = 0.0;
+            }
+        }
+
+        if !self.rolling
+            && input.roll
+            && on_ground
+            && !self.sliding
+            && (tuning.min_fall_speed_to_engage_roll..=tuning.max_fall_speed_to_engage_roll)
+                .contains(&landing_speed)
+        {
+            self.rolling = true;
+            self.roll_remaining = tuning.roll_time_to_complete.max(0.0);
+            self.sliding = false;
+        }
+
+        if self.sliding {
+            if horizontal_speed <= tuning.slide_exit_speed || !on_ground {
+                self.sliding = false;
+            }
+        } else if !self.rolling
+            && input.slide
+            && on_ground
+            && horizontal_speed >= tuning.min_slide_entry_speed
+        {
+            self.sliding = true;
+        }
+
+        *self != previous
+    }
+
+    /// Effective movement flags for speed selection and collision height.
+    pub fn apply(&self, state: MovementState) -> MovementState {
+        MovementState {
+            sliding: self.sliding,
+            rolling: self.rolling,
+            ..state
+        }
+    }
+}
+
+/// A rider's mount/dismount seam.
+///
+/// Java stores `ClientMovement.mountedTo` and lets the client drive the mount;
+/// the server-side model only needs the seat transform until world mount
+/// entities land in T58/T59.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MountState {
+    /// Mount entity id, or `None` when dismounted.
+    pub mount_id: Option<u64>,
+    /// Seat offset in mount-local space.
+    pub seat_offset: Vec3,
+    /// Mount yaw used to rotate the seat offset.
+    pub yaw: f64,
+}
+
+impl MountState {
+    /// Attach the rider to a mount.
+    pub fn mount(&mut self, mount_id: u64, seat_offset: Vec3, yaw: f64) {
+        self.mount_id = Some(mount_id);
+        self.seat_offset = seat_offset;
+        self.yaw = yaw;
+    }
+
+    /// Detach the rider.
+    pub fn dismount(&mut self) -> Option<u64> {
+        self.mount_id.take()
+    }
+
+    /// Whether the rider is mounted.
+    pub fn is_mounted(&self) -> bool {
+        self.mount_id.is_some()
+    }
+
+    /// Rider feet position for a mount at `mount_position`.
+    pub fn rider_position(&self, mount_position: Vec3) -> Vec3 {
+        let (sin, cos) = self.yaw.sin_cos();
+        mount_position.plus(Vec3::new(
+            self.seat_offset.x * cos - self.seat_offset.z * sin,
+            self.seat_offset.y,
+            self.seat_offset.x * sin + self.seat_offset.z * cos,
+        ))
+    }
+}
+
 /// Kinematic body state.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MovementBody {
@@ -454,6 +620,10 @@ pub struct MovementBody {
     pub velocity: Vec3,
     /// Whether the last move ended on the ground.
     pub on_ground: bool,
+    /// Slide/roll state.
+    pub traversal: TraversalState,
+    /// Mount/dismount seam.
+    pub mount: MountState,
 }
 
 impl MovementBody {
@@ -463,6 +633,8 @@ impl MovementBody {
             position,
             velocity: Vec3::default(),
             on_ground: true,
+            traversal: TraversalState::default(),
+            mount: MountState::default(),
         }
     }
 
@@ -482,10 +654,16 @@ impl MovementBody {
                 on_ground: self.on_ground,
                 collided: false,
                 stepped: false,
+                traversal: self.traversal,
             };
         }
         let dt = dt.min(0.25);
-        let state = input.state;
+        let fall_speed = if self.on_ground {
+            0.0
+        } else {
+            (-self.velocity.y).max(0.0)
+        };
+        let state = self.traversal.apply(input.state);
         let fly = state.flying;
         let climb = state.climbing;
 
@@ -577,7 +755,7 @@ impl MovementBody {
             self.position,
             target,
             shape,
-            state.crouching,
+            state.low_profile(),
             tuning.step_height,
         );
         self.position = resolution.position;
@@ -594,10 +772,21 @@ impl MovementBody {
         let probe = self.position.with_axis(1, self.position.y - GROUND_PROBE);
         let mut scratch = Vec::new();
         self.on_ground =
-            aabb_has_collision(world, shape.aabb(probe, state.crouching), &mut scratch);
+            aabb_has_collision(world, shape.aabb(probe, state.low_profile()), &mut scratch);
         if self.on_ground && self.velocity.y < 0.0 {
             self.velocity.y = 0.0;
         }
+
+        let horizontal_speed =
+            (self.velocity.x * self.velocity.x + self.velocity.z * self.velocity.z).sqrt();
+        self.traversal.update(
+            tuning,
+            horizontal_speed,
+            self.on_ground,
+            fall_speed,
+            &input,
+            dt,
+        );
 
         MovementStep {
             position: self.position,
@@ -605,7 +794,57 @@ impl MovementBody {
             on_ground: self.on_ground,
             collided: resolution.hit_x || resolution.hit_y || resolution.hit_z,
             stepped: resolution.stepped,
+            traversal: self.traversal,
         }
+    }
+
+    /// Try to mantle onto a ledge in front of the body.
+    ///
+    /// Java mantling is client-driven; this is the deterministic server-side
+    /// model for NPC/scripted traversal. The body must be grounded, blocked at
+    /// its current height in `direction`, and have a free body-sized space on a
+    /// support surface above `step_height` (up to `max_mantle_height`).
+    pub fn try_mantle(
+        &mut self,
+        world: &dyn CollisionWorld,
+        shape: PlayerShape,
+        tuning: MovementTuning,
+        direction: Vec3,
+    ) -> bool {
+        if !self.on_ground {
+            return false;
+        }
+        let length = (direction.x * direction.x + direction.z * direction.z).sqrt();
+        if length <= f64::EPSILON {
+            return false;
+        }
+        let direction = Vec3::new(direction.x / length, 0.0, direction.z / length);
+        let front = self.position.plus(direction.scale(0.6));
+        let mut scratch = Vec::new();
+        if !aabb_has_collision(world, shape.aabb(front, true), &mut scratch) {
+            return false; // Nothing to mantle; normal movement is free.
+        }
+        let mut height = tuning.step_height + 0.125;
+        let max_height = tuning.max_mantle_height.max(height);
+        while height <= max_height + 1e-9 {
+            let candidate = front.with_axis(1, self.position.y + height);
+            if !aabb_has_collision(world, shape.aabb(candidate, false), &mut scratch)
+                && aabb_has_collision(
+                    world,
+                    shape.aabb(candidate.with_axis(1, candidate.y - 0.05), false),
+                    &mut scratch,
+                )
+            {
+                self.position = candidate;
+                self.velocity = Vec3::default();
+                self.on_ground = true;
+                self.traversal.sliding = false;
+                self.traversal.rolling = false;
+                return true;
+            }
+            height += 0.125;
+        }
+        false
     }
 }
 
@@ -622,6 +861,8 @@ pub struct MovementStep {
     pub collided: bool,
     /// The move auto-stepped onto a block.
     pub stepped: bool,
+    /// Slide/roll state after the step.
+    pub traversal: TraversalState,
 }
 
 #[cfg(test)]
@@ -757,6 +998,8 @@ mod tests {
             position: Vec3::new(0.5, 4.0, 0.5),
             velocity: Vec3::default(),
             on_ground: false,
+            traversal: TraversalState::default(),
+            mount: MountState::default(),
         };
         let dt = 1.0 / 60.0;
         let step = body.step(
@@ -798,6 +1041,8 @@ mod tests {
             position: Vec3::new(0.5, 3.0, 0.5),
             velocity: Vec3::default(),
             on_ground: false,
+            traversal: TraversalState::default(),
+            mount: MountState::default(),
         };
         for _ in 0..240 {
             body.step(
@@ -845,6 +1090,8 @@ mod tests {
             position: Vec3::new(0.5, 4.0, 0.5),
             velocity: Vec3::default(),
             on_ground: false,
+            traversal: TraversalState::default(),
+            mount: MountState::default(),
         };
         flying.step(
             &world,
@@ -866,6 +1113,8 @@ mod tests {
             position: Vec3::new(0.5, 4.0, 0.5),
             velocity: Vec3::default(),
             on_ground: false,
+            traversal: TraversalState::default(),
+            mount: MountState::default(),
         };
         climbing.step(
             &world,
@@ -951,5 +1200,122 @@ mod tests {
         assert!(result.overlapping);
         assert!(!result.corrected);
         assert_eq!(result.position, Vec3::new(0.75, 0.0, 0.5));
+    }
+
+    #[test]
+    fn sliding_enters_at_the_configured_speed_and_exits_low() {
+        let world = flat_ground();
+        let mut body = MovementBody::new(Vec3::new(0.5, 0.0, 0.5));
+        let input = MovementInput {
+            wish: Vec3::new(0.0, 0.0, -1.0),
+            state: MovementState {
+                sprinting: true,
+                ..MovementState::default()
+            },
+            slide: true,
+            ..MovementInput::default()
+        };
+        body.step(
+            &world,
+            PlayerShape::default(),
+            MovementTuning::default(),
+            input,
+            0.05,
+        );
+        assert!(body.traversal.sliding, "sprint speed starts the slide");
+        let stop = MovementInput {
+            state: MovementState::default(),
+            ..MovementInput::default()
+        };
+        body.step(
+            &world,
+            PlayerShape::default(),
+            MovementTuning::default(),
+            stop,
+            0.05,
+        );
+        assert!(
+            !body.traversal.sliding,
+            "dropping below the exit speed ends it"
+        );
+    }
+
+    #[test]
+    fn a_fast_landing_starts_a_timed_safety_roll() {
+        let world = flat_ground();
+        let mut body = MovementBody::new(Vec3::new(0.5, 5.0, 0.5));
+        body.on_ground = false;
+        body.velocity.y = -21.0;
+        let input = MovementInput {
+            roll: true,
+            ..MovementInput::default()
+        };
+        let mut rolled = false;
+        for _ in 0..40 {
+            let step = body.step(
+                &world,
+                PlayerShape::default(),
+                MovementTuning::default(),
+                input,
+                0.05,
+            );
+            if step.traversal.rolling {
+                rolled = true;
+                assert!(step.traversal.roll_remaining > 0.0);
+                break;
+            }
+        }
+        assert!(rolled, "landing at ~25 blocks/s engages the roll");
+        for _ in 0..40 {
+            body.step(
+                &world,
+                PlayerShape::default(),
+                MovementTuning::default(),
+                MovementInput::default(),
+                0.05,
+            );
+        }
+        assert!(
+            !body.traversal.rolling,
+            "the roll completes after its duration"
+        );
+    }
+
+    #[test]
+    fn a_requested_mantle_lifts_the_body_onto_a_two_block_ledge() {
+        let mut world = flat_ground();
+        world.add_block(0, 0, 0, Aabb::unit());
+        world.add_block(0, 1, 0, Aabb::unit());
+        let mut body = MovementBody::new(Vec3::new(0.5, 0.0, 1.5));
+        assert!(!body.try_mantle(
+            &world,
+            PlayerShape::default(),
+            MovementTuning::default(),
+            Vec3::new(0.0, 0.0, 1.0),
+        ));
+        assert!(body.try_mantle(
+            &world,
+            PlayerShape::default(),
+            MovementTuning::default(),
+            Vec3::new(0.0, 0.0, -1.0),
+        ));
+        assert!((body.position.y - 2.0).abs() < 1e-9);
+        assert!(body.on_ground);
+        assert_eq!(body.velocity, Vec3::default());
+    }
+
+    #[test]
+    fn mount_and_dismount_follow_the_carrier() {
+        let mut mount = MountState::default();
+        let seat = Vec3::new(0.0, 1.2, -0.4);
+        mount.mount(7, seat, std::f64::consts::FRAC_PI_2);
+        assert!(mount.is_mounted());
+        let rider = mount.rider_position(Vec3::new(10.0, 20.0, 30.0));
+        assert!((rider.x - 10.4).abs() < 1e-9);
+        assert!((rider.y - 21.2).abs() < 1e-9);
+        assert!((rider.z - 30.0).abs() < 1e-9);
+        assert_eq!(mount.dismount(), Some(7));
+        assert!(!mount.is_mounted());
+        assert_eq!(mount.dismount(), None);
     }
 }

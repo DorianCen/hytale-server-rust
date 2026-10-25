@@ -13,7 +13,7 @@ teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete,
 T49 (inventory containers/transactions), T50 (interaction graph and block
 interactions), T51 (movement physics and collision authority), T52 (block
 simulation) and its parity follow-ups T52b–T52d are done; M5 gameplay parity
-continues with T53.
+continues with T53 (done), T54 (done) and T55 (done), then T56.
 
 ## 0. Baseline
 
@@ -767,12 +767,24 @@ remain Java-readable.
 
 ### T53 — Entity stats, effects and combat basics
 
-**Status:** in progress (session 42)
+**Status:** done (session 44)
 **Package:** `hytale-entities`
 **Goal:** entity stat maps, effects, damage causes, health/death, basic combat.
 Also load the `EntityStatType` module store for item utility/stat HUD payloads.
 **Acceptance:** scripted damage/effect/death scenarios match Java; item stat
 indexes resolve.
+
+**Deviations**
+
+- The stat/effect/damage cores, the `EntityStatType`/`EntityEffect`/
+  `DamageCause` stores and a Java entity-gameplay fixture are landed
+  (`testdata/golden/server/entity/entity-gameplay.json`). The
+  `EntityGameplay` component seam bundles stat/effect/death state for T55/T57/
+  T59; no world/NPC producer attaches it yet.
+- Full condition evaluation, damage calculators, effect DoT, knockback and
+  animations stay T55/T57/T59.
+- `UpdateEntityStatTypes`/`UpdateEntityEffects` config-burst parity and
+  per-entity stat/effect updates stay T57.
 
 ### T54 — Time and weather
 
@@ -783,10 +795,23 @@ indexes resolve.
 
 ### T55 — Projectiles and traversal
 
+**Status:** done (session 45)
 **Package:** `hytale-entities`
 **Goal:** projectile spawn/flight/hit, basic mounts, parkour/mantling/crouch-slide
 as scoped in `REMAINING.md`.
 **Acceptance:** scripted projectile hit/miss and traversal scenarios.
+
+**Deviations**
+
+- Legacy `Projectile` assets drive the scripted flight; the new
+  `ProjectileConfig`/`StandardPhysics` density/drag/buoyancy/rolling and
+  `GroundFollow` physics are loaded/decoded but simulated later.
+- Slide/roll/mantle are deterministic server-side models of Java's
+  client-authoritative movement states; mounts are a rider/seat seam, not world
+  entities yet.
+- Projectile spawn/despawn packets, explosions, particles/sounds, prediction,
+  pierce hitboxes, mount entities, traversal animation and anti-cheat remain
+  T56/T57/T58/T59/T62.
 
 ### T56 — Prefab spawner and runtime entities
 
