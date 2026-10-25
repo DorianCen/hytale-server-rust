@@ -757,6 +757,17 @@ remain Java-readable.
   and damage/fragility packets are T57.
 - Simulation drops are reported but item entities/inventory pickup are T56.
 
+**Follow-ups**
+
+- **T52b** owns full fluid parity (partial-hitbox face coverage, waterlogging,
+  finite/fire tickers, disabled tickers, collision details).
+- **T52c** owns support/random-tick parity (support-distance chains,
+  filler/self-face rules, chunk-boundary waiting, light/fluid gates, weighted
+  placement, scheduled growth, tick-suppression seam).
+- **T52d** owns Java `BlockHealthSection` storage/migration/fragility; T57
+  consumes its pending deltas for damage packets.
+- These are scheduled follow-ups, not blockers for T53.
+
 ### T53 — Entity stats, effects and combat basics
 
 **Package:** `hytale-entities`

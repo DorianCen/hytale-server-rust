@@ -802,5 +802,10 @@ This file records phase-2 sessions only.
     packets are T57. Drops are reported, not spawned as item entities (T56).
   - Builtin module lifecycle for the tick/fluid/falling plugins remains T60.
 - **Follow-ups:**
+  - T52b full fluid ticker parity (partial hitboxes, waterlogging, finite/fire,
+    disabled tickers); T52c support/random-tick parity (support distance,
+    filler/self-face, light/fluid gates, weighted placement); T52d Java
+    `BlockHealthSection` storage/fragility. These are explicit tasks and do not
+    block T53.
   - T56 item entities/drops; T57 damage/fragility presentation; T58 NPC block
     interaction; T60 builtin toggles.

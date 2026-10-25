@@ -24,8 +24,9 @@ Deferred to M5:
   face coverage, waterlogging, fire/finite tickers, disabled-ticker config,
   light-gated growth, `MaxSupportDistance` chains, support/filler edge rules
   and builtin `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks` module
-  lifecycle (T60). Block-health persistence/fragility packets and item-entity
-  drops are T56/T57.
+  lifecycle (T60). Explicit follow-ups: T52b (fluid ticker parity), T52c
+  (support/random-tick parity) and T52d (block-health storage/fragility).
+  Item-entity drops are T56; damage/fragility packets are T57.
 - Player movement beyond the T51 authority core: the server now validates
   finite/world bounds, resolves solid-block collision (sweep + one-block step),
   sends correction teleports and exposes a deterministic gravity/jump/fly/climb

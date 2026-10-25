@@ -123,6 +123,13 @@ cargo test -p client-bot --test trace_gate --test auth_join -- --ignored
 
 ## Follow-ups
 
+- **T52b** closes the fluid ticker gaps (partial-hitbox face coverage,
+  waterlogging, finite/fire tickers, disabled tickers, collision details).
+- **T52c** closes the support/random-tick gaps (`MaxSupportDistance` chains,
+  filler/self-face support, chunk-boundary waiting, light/fluid gates, weighted
+  placement, scheduled growth, tick-suppression seam).
+- **T52d** moves health/fragility into the Java `BlockHealthSection` storage
+  codec and exposes health deltas for T57.
 - T56 spawns dropped items and prefab/block components.
 - T57 adds block-damage/fragility presentation packets.
 - T58 uses the tick/support/fluid model for NPC navigation and block-breaking.

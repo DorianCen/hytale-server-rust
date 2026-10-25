@@ -313,7 +313,10 @@ committed packet payload because the simulation state is transient:
 The random-tick ordering uses a deterministic Rust RNG, not Java's
 `SplittableRandom`; the procedure semantics and asset metadata are the gate.
 Fluid face coverage, light-gated growth, block-damage packets, item-entity drops
-and Java `BlockHealthSection` persistence are recorded in `tasks/T52-block-simulation.md`.
+and Java `BlockHealthSection` persistence are split into
+`tasks/T52b-fluid-ticker-parity.md`, `tasks/T52c-support-random-tick-parity.md`
+and `tasks/T52d-block-health-storage.md`; item entities and damage packets stay
+T56/T57.
 
 ### 3.9 `trace/`
 

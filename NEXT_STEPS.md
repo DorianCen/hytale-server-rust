@@ -90,7 +90,9 @@ Landed and green:
   random ticks, support loss (`Break`/`Destroy`/`Fall`), one-cell falling
   blocks, water/lava flow with collision conversion, native gathering drops and
   transient block health with Java regeneration; the server runs one simulation
-  pass per 50 ms and broadcasts block/fluid changes.
+  pass per 50 ms and broadcasts block/fluid changes. The remaining T52 parity
+  gaps are explicitly owned by T52b (fluids), T52c (support/random ticks) and
+  T52d (block-health storage); none blocks T53.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -110,7 +112,8 @@ cargo fmt --all -- --check
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   M5 continues with T53 after T52.
+   M5 continues with T53 after T52; T52b–T52d are scheduled T52 parity
+   follow-ups and may run after T53/T56/T57.
 
 ## Try it
 

@@ -193,6 +193,10 @@ For the server, “exact” also applies to:
 - Player saves go through `hytale-world::player_data`. Keep the
   `{"Components": ...}` holder shape, type only components the server owns, and
   preserve every other component verbatim until its system is ported.
+- Block health/fragility belongs in the per-section `BlockHealthSection` BSON
+  component, not the transient simulation map. T52d defines that codec and the
+  legacy `BlockHealthChunk` migration; an empty section must not gain a
+  component that Java would not write.
 - A bootable save is a `hytale-world::world::WorldSave`: `config.json`,
   `players/` and `chunks/` belong together. Save dirty chunks through its
   `World`, then the config/player documents; do not write the three parts from

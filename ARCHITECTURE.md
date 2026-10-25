@@ -426,7 +426,9 @@ advances one-cell falling blocks and regenerates transient block health.
 `Fluid` ticker from the merged assets. The server calls `simulate(0.05)` each
 50 ms game-loop tick and broadcasts block/fluid changes to viewers. Fluid face
 coverage, light-gated growth, block-damage packets, item-entity drops and the
-builtin module lifecycle remain T56/T57/T60 work.
+builtin module lifecycle remain later work. T52b (fluid ticker parity), T52c
+(support/random-tick parity) and T52d (Java `BlockHealthSection` storage) are
+the explicit follow-up tasks; T57/T60 consume their seams.
 
 ---
 
