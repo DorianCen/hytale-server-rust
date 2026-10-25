@@ -319,7 +319,7 @@ finite/fire tickers, disabled tickers, support-distance chains, filler/self-face
 support, light/fluid gates, weighted placement, scheduled growth and Java
 `BlockHealthSection` persistence. T56 adds fixed-item drop entities and the
 prefab runtime entities/block components. Sound playback and damage packets
-stay T57; builtin module lifecycle stays T60.
+stay T60; builtin module lifecycle stays T60.
 
 ### 3.10 Entity gameplay (Java fixture)
 
@@ -356,7 +356,7 @@ their committed item payloads and counts stay stable.
 
 Full condition evaluation, damage calculators, effect damage-over-time, client
 stat/effect/damage packets and the `UpdateEntityStatTypes`/
-`UpdateEntityEffects` config burst remain T57/T59 work.
+`UpdateEntityEffects` config burst remain T59 work.
 
 ### 3.11 Prefab entities and block components (real-pack gate)
 
@@ -372,6 +372,26 @@ despawns one entity and reopens the save to verify the JSON sidecars
 The sidecars are asserted for Rust round-trip only; they are not a Java codec
 golden. Java-readable runtime entity saves require the `EntityStore`/
 `ChunkStore` ECS codec and remain deferred.
+
+### 3.12 Block-health, runtime-entity and map presentation
+
+T57 reuses the real block-health state from T52d and the real
+`Hunt/Generic/Site.prefab.json` marker/entities. Gates:
+
+| Check | Gate |
+|---|---|
+| Damaged entries expose absolute health; replacing a block clears health/fragility | `crates/hytale-world/tests/block_health_presentation.rs` |
+| One-block vs multi-entry grouping, Java section index and absolute health | `crates/hytale-server/src/world_thread.rs` unit tests |
+| Join chunk stream writes the section damage snapshot after the chunk packets | `crates/hytale-server/tests/world_thread.rs` |
+| Prefab entities spawn as `EntityUpdates` with disjoint network ids | `crates/hytale-server/src/players.rs` unit tests |
+| `BlockMapMarker` becomes a `MapMarker` with name/icon/size/compass | `crates/hytale-server/src/session.rs` unit tests |
+| Real dev join sees map settings, the site marker and three prefab entity spawns | `tools/client-bot/tests/dev_join.rs` (`#[ignore]`, assets + loopback) |
+| Entity stat/effect/projectile/weather config packets decode and carry the real stores | `crates/hytale-assets/tests/entity_packets.rs` |
+| Item entity spawn carries durability/quality/metadata | `crates/hytale-server/src/players.rs` unit tests |
+
+Map image chunks, marker discovery/reveal, dynamic entity transforms and the
+stat/effect/projectile/weather asset packets are not gated by T57; T57b owns
+their encoder/config-burst gates.
 
 ### 3.9 `trace/`
 

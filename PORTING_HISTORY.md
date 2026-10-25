@@ -1071,3 +1071,86 @@ This file records phase-2 sessions only.
   - T58/T59 produce NPC entities and projectile targets; weighted drop-list
     resolution lands with the drop-list producer (T57/T60).
   - T62 adds spawn-rate/entity-count limits.
+
+---
+
+## Session 47 — Block-health, runtime-entity and world-map presentation (2026-10-25)
+
+- **Goal:** make the T52d/T56 state visible to a connected client and land the
+  minimal T57 world-map/entity presentation slice.
+- **Landed:**
+  - T57 block health: `BlockHealthSection::entries`/`clear`, world-level
+    damaged-entry snapshots, health/fragility clearing on block replacement,
+    `WorldThread::block_damage_packets[_for_deltas]`, and
+    `UpdateBlockDamage`/`UpdateBlockDamages` grouping with Java section indexes
+    and absolute health. The chunk streamer writes the damage snapshot after
+    each chunk's packets; simulation damage/regeneration broadcasts to viewers.
+  - Runtime entities: join sends visible prefab/item entities after the chunk
+    snapshot; `DropItemStack` and fixed simulation drops spawn persisted item
+    entities and broadcast `EntityUpdates`; runtime network ids use a disjoint
+    offset. Item entities carry the item id/quantity in the spawn packet.
+  - World map: join sends `UpdateWorldMapSettings` with the Java chunk-map
+    scales and `UpdateWorldMap` markers built from `BlockMapMarker` components.
+  - `client-bot` observes block damage, map settings/markers and runtime entity
+    spawns. The ignored dev-join test now places `Hunt.Generic.Site` and
+    verifies the site marker plus three runtime entity spawns.
+  - Fixed the nextest-only prefab-store race by giving each test process its
+    own temporary prefab root (the old shared root collided across processes).
+- **Verified:**
+  - `./tools/test.sh fast` (1320 tests; nextest).
+  - `cargo test -p hytale-world` and `cargo test -p hytale-server --lib`.
+  - `cargo test -p hytale-server --test world_thread` (8 tests).
+  - `HYTALE_SHARED_ASSETS=1 cargo test -p client-bot --test dev_join -- --ignored`.
+  - Clippy `-D warnings` and rustfmt.
+- **Deviations:**
+  - Block-health packets cover load snapshots and simulation deltas; the
+    client-side breaking animation/partial-hit interaction loop is later combat
+    work.
+  - World-map image chunks, discovery/reveal and dynamic entity transforms are
+    not implemented; markers are sent as points of interest and runtime entities
+    are static spawn presentations.
+  - `UpdateEntityStatTypes`/`UpdateEntityEffects`/`UpdateProjectileConfigs`/
+    `UpdateWeathers`, particles/sounds and HUD windows remain T59/T60.
+- **Follow-ups:**
+  - T57b tracks the remaining T57 presentation gaps: partial-hit block
+    interaction, entity transform/despawn/metadata, the stat/effect/projectile/
+    weather config packets, map images/discovery and minimal HUD/window packets.
+  - T58/T59 add NPC entities and the combat/stat/effect/damage producers those
+    packets present.
+  - T60 ports the selected builtin world-map/weather modules.
+  - T62 adds spawn/health packet rate limits.
+
+---
+
+## Session 48 — T57b first slice: entity config packets and item metadata (2026-10-26)
+
+- **Goal:** start the T57b presentation follow-ups with the config-packet
+  contract and full item-entity payloads.
+- **Landed:**
+  - `hytale-assets` encodes `UpdateEntityStatTypes` (id 72) and
+    `UpdateEntityEffects` (id 51) from the real `EntityStatType`/`EntityEffect`
+    stores, including stat reset/initial/min/max, stat effects, effect
+    duration/overlap/value type/stat modifiers and removal sound indexes.
+  - The cached config burst is now 21 packets (stats/effects/projectile
+    configs/weather before `Item`). `UpdateProjectileConfigs` maps launch/model/
+    physics/sounds/scale core fields and `UpdateWeathers` maps ids/tags/stars/
+    moons; `--validate-assets`, the config-order tests and client-bot recognition
+    were updated.
+  - `DropItemStack` item entities now carry durability, max durability,
+    quality, dropped-animation override and metadata; `ItemWithAllMetadata`
+    maps all of them.
+  - Runtime entity lifecycle events (Spawned/Updated/Despawned) are queued by
+    the world thread, drained by sessions and broadcast to viewers;
+    `update_entity_transform` is the transform-update producer seam.
+  - Added `crates/hytale-assets/tests/entity_packets.rs` and a players unit
+    test for the full item payload.
+- **Verified:**
+  - `cargo test -p hytale-assets --test entity_packets`.
+  - `cargo test -p hytale-assets --test block_item_packets config_packets_are_sent`.
+  - `cargo test -p hytale-server --test asset_validation`.
+  - `cargo test -p hytale-server --test world_thread config_assets_are_cached_per_world`.
+  - `HYTALE_SHARED_ASSETS=1 cargo test -p client-bot --test auth_join -- --ignored`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Still open in T57b:** partial-hit block breaking, map images/discovery and
+  HUD/window packets. Projectile physics/visual subfields and the full weather
+  document (clouds/colors/particles/fog) are core-field mappings only.

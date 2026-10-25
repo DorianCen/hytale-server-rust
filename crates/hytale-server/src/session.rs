@@ -39,8 +39,9 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    DisconnectType, FormattedMessage, GameMode, InstantData, MouseButtonState, MouseButtonType,
-    MovementSettings, MovementStates, PlayerSkin, PongType, UpdateType,
+    DisconnectType, FormattedMessage, GameMode, InstantData, MapMarker, MapMarkerIconSize,
+    MouseButtonState, MouseButtonType, MovementSettings, MovementStates, PlayerSkin, PongType,
+    Position as ProtocolPosition, Transform as ProtocolTransform, UpdateType,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -65,6 +66,7 @@ use hytale_protocol::generated::world::{
     ServerSetBlock, ServerSetFluid, UpdateTime, UpdateTimeSettings, UpdateWeather,
     WorldGameplayConfig,
 };
+use hytale_protocol::generated::worldmap::{UpdateWorldMap, UpdateWorldMapSettings};
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 use hytale_world::collision::Vec3;
@@ -76,7 +78,9 @@ use crate::chunk_streamer::{
     send_updates, send_view_registered, ChunkSessionError, ChunkStreamReport,
 };
 use crate::players::{self, PlayerJoinRequest, PlayerMessage, PlayerRegistry};
-use crate::world_thread::{ViewId, WorldThread, WorldThreadError, WorldTimeState};
+use crate::world_thread::{
+    BlockDamagePacket, RuntimeEntityEvent, ViewId, WorldThread, WorldThreadError, WorldTimeState,
+};
 
 /// Java `CommonAssetModule.MAX_FRAME`: maximum bytes in one `AssetPart`.
 pub const MAX_COMMON_ASSET_FRAME: usize = 2_621_440;
@@ -207,6 +211,10 @@ pub struct GameReport {
     pub active_slots: bool,
     /// `UpdateMovementSettings` was written.
     pub movement_settings: bool,
+    /// World-map settings/markers were written.
+    pub world_map: bool,
+    /// Runtime entities spawned after the chunk snapshot.
+    pub runtime_entities: usize,
 }
 
 /// What the live game loop produced.
@@ -232,6 +240,12 @@ pub struct GameLoopReport {
     pub simulation_block_changes: usize,
     /// Fluid changes emitted by the simulation.
     pub simulation_fluid_changes: usize,
+    /// Block-health entries broadcast by the simulation.
+    pub simulation_health_changes: usize,
+    /// Runtime entity spawn/update events broadcast.
+    pub runtime_entity_updates: usize,
+    /// Runtime entity despawn events broadcast.
+    pub runtime_entity_despawns: usize,
     /// Movement caused a view change.
     pub view_changes: usize,
     /// Chunks streamed during the loop.
@@ -532,6 +546,37 @@ pub async fn serve_connection_with_registry(
                 options.chunk_compression_level,
             )
             .await?;
+
+            // Runtime entities are streamed after the chunk snapshot, like
+            // Java's entity adds that follow chunk tracking.
+            let mut runtime_entities = 0;
+            for entity in thread.entities()? {
+                if chunk_view_contains(player_chunk, radius, entity.transform.position) {
+                    writer
+                        .write_packet(
+                            &players::runtime_entity_updates(&entity),
+                            options.chunk_compression_level,
+                        )
+                        .await?;
+                    runtime_entities += 1;
+                }
+            }
+            game.runtime_entities = runtime_entities;
+            writer
+                .write_packet(
+                    &world_map_settings_packet(),
+                    options.chunk_compression_level,
+                )
+                .await?;
+            if let Some(markers) = world_map_markers(thread)? {
+                writer
+                    .write_packet(&markers, options.chunk_compression_level)
+                    .await?;
+            }
+            game.world_map = true;
+            // Entities already present in the snapshot do not need their
+            // queued spawn events replayed.
+            let _ = thread.runtime_entity_events()?;
 
             let game_loop = run_game_loop(
                 connection,
@@ -1253,6 +1298,86 @@ async fn send_inventory(
     Ok(())
 }
 
+fn chunk_view_contains(
+    center: (i32, i32),
+    radius: u32,
+    position: hytale_world::player_data::Position,
+) -> bool {
+    let radius = i32::try_from(radius).unwrap_or(i32::MAX);
+    let x = block_to_chunk(position.x);
+    let z = block_to_chunk(position.z);
+    (x - center.0).abs() <= radius && (z - center.1).abs() <= radius
+}
+
+/// The Java chunk-world-map defaults (`WorldWorldMapConfig`).
+fn world_map_settings_packet() -> UpdateWorldMapSettings {
+    UpdateWorldMapSettings {
+        enabled: true,
+        allow_teleport_to_coordinates: false,
+        allow_teleport_to_markers: false,
+        allow_show_on_map_toggle: true,
+        allow_compass_tracking_toggle: true,
+        allow_creating_map_markers: false,
+        allow_removing_other_players_markers: false,
+        default_scale: 128.0,
+        min_scale: 32.0,
+        max_scale: 175.0,
+    }
+}
+
+fn world_map_markers(thread: &WorldThread) -> Result<Option<UpdateWorldMap>, WorldThreadError> {
+    let markers: Vec<MapMarker> = thread
+        .block_components()?
+        .into_iter()
+        .filter_map(|((x, y, z), component)| {
+            map_marker_from_component(x, y, z, &component.components)
+        })
+        .collect();
+    Ok((!markers.is_empty()).then_some(UpdateWorldMap {
+        chunks: None,
+        added_markers: Some(markers),
+        removed_markers: None,
+    }))
+}
+
+fn map_marker_from_component(
+    x: i32,
+    y: i32,
+    z: i32,
+    components: &serde_json::Value,
+) -> Option<MapMarker> {
+    let marker = components.get("Components")?.get("BlockMapMarker")?;
+    let name = marker.get("Name")?.as_str()?;
+    let icon = marker.get("Icon")?.as_str()?;
+    let icon_size = match marker.get("IconSize").and_then(serde_json::Value::as_str) {
+        Some("Major") => MapMarkerIconSize::Major,
+        _ => MapMarkerIconSize::Default,
+    };
+    Some(MapMarker {
+        id: format!("block:{x}:{y}:{z}"),
+        name: Some(FormattedMessage {
+            message_id: Some(name.to_string()),
+            ..FormattedMessage::default()
+        }),
+        marker_image: icon.to_string(),
+        transform: ProtocolTransform {
+            position: Some(ProtocolPosition {
+                x: f64::from(x) + 0.5,
+                y: f64::from(y) + 0.5,
+                z: f64::from(z) + 0.5,
+            }),
+            orientation: None,
+        },
+        context_menu_items: None,
+        components: None,
+        icon_size,
+        compass_image: marker
+            .get("CompassIcon")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+    })
+}
+
 async fn run_game_loop(
     connection: &quinn::Connection,
     thread: &WorldThread,
@@ -1310,6 +1435,21 @@ async fn run_game_loop(
             players::write_message(writer, chunks, message, options.chunk_compression_level)
                 .await?;
             report.player_messages += 1;
+        }
+
+        for event in thread.runtime_entity_events()? {
+            match event {
+                RuntimeEntityEvent::Spawned(id) | RuntimeEntityEvent::Updated(id) => {
+                    if let Some(entity) = thread.entity(id)? {
+                        players.broadcast_runtime_entity(&entity);
+                        report.runtime_entity_updates += 1;
+                    }
+                }
+                RuntimeEntityEvent::Despawned { id, position } => {
+                    players.broadcast_runtime_entity_removed(id, position);
+                    report.runtime_entity_despawns += 1;
+                }
+            }
         }
 
         let wait = interval.saturating_sub(ticker.elapsed());
@@ -1503,9 +1643,16 @@ async fn run_game_loop(
                         if packet.quantity <= 0 {
                             continue;
                         }
-                        if let Ok(Some(_)) =
+                        if let Ok(Some(stack)) =
                             inventory.drop_from_slot(section, slot, packet.quantity)
                         {
+                            let position = transform.position;
+                            let _ = thread.spawn_item_stack_entity(
+                                stack,
+                                position.x,
+                                position.y + 0.5,
+                                position.z,
+                            );
                             send_inventory(writer, inventory, options.chunk_compression_level)
                                 .await?;
                             report.inventory_updates += 1;
@@ -1590,6 +1737,18 @@ async fn run_game_loop(
                     fluid_id: change.fluid_id,
                     fluid_level: change.level,
                 });
+            }
+            for packet in thread.block_damage_packets_for_deltas(&simulation.health_deltas)? {
+                match packet {
+                    BlockDamagePacket::Single(packet) => {
+                        players.broadcast_block_damage(packet);
+                        report.simulation_health_changes += 1;
+                    }
+                    BlockDamagePacket::Section(packet) => {
+                        report.simulation_health_changes += packet.cmds.len();
+                        players.broadcast_block_damages(packet);
+                    }
+                }
             }
             let updates = send_updates(thread, chunks, options.chunk_compression_level).await?;
             report.chunks += updates.chunks;
@@ -2360,5 +2519,49 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn block_map_markers_become_world_map_packets() {
+        let marker = map_marker_from_component(
+            10,
+            64,
+            -3,
+            &serde_json::json!({
+                "Components": {
+                    "BlockMapMarker": {
+                        "Name": "server.worldevent.hunts.site.title",
+                        "Icon": "HuntSite.png",
+                        "IconSize": "Major",
+                        "CompassIcon": "CompassHunt.png"
+                    }
+                }
+            }),
+        )
+        .expect("the block marker");
+        assert_eq!(marker.id, "block:10:64:-3");
+        assert_eq!(marker.marker_image, "HuntSite.png");
+        assert_eq!(marker.icon_size, MapMarkerIconSize::Major);
+        assert_eq!(marker.compass_image.as_deref(), Some("CompassHunt.png"));
+        assert_eq!(
+            marker
+                .name
+                .as_ref()
+                .and_then(|name| name.message_id.as_deref()),
+            Some("server.worldevent.hunts.site.title")
+        );
+        assert_eq!(
+            marker
+                .transform
+                .position
+                .as_ref()
+                .map(|position| (position.x, position.y, position.z)),
+            Some((10.5, 64.5, -2.5))
+        );
+        let settings = world_map_settings_packet();
+        assert!(settings.enabled);
+        assert_eq!(settings.default_scale, 128.0);
+        assert_eq!(settings.min_scale, 32.0);
+        assert_eq!(settings.max_scale, 175.0);
     }
 }

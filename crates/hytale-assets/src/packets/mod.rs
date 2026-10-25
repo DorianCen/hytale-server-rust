@@ -22,17 +22,20 @@ mod tag_pattern;
 use std::collections::{BTreeMap, BTreeSet};
 
 use hytale_protocol::generated::assets::{
-    UpdateBlockHitboxes, UpdateEnvironments, UpdateFluids, UpdateItemCategories,
-    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
-    UpdatePhysicalMaterials,
+    UpdateBlockHitboxes, UpdateEntityEffects, UpdateEntityStatTypes, UpdateEnvironments,
+    UpdateFluids, UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities,
+    UpdateItemReticles, UpdateItemSoundSets, UpdatePhysicalMaterials, UpdateProjectileConfigs,
+    UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
     BlockTextures, CameraAxis, CameraNode, CameraSettings, Color, ColorLight, Direction,
-    EntityPart, Fluid, FluidDrawType, FluidParticle, Hitbox, ItemAnimation, ItemCategory,
-    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
-    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
-    ModelParticle, Opacity, PhysicalMaterial, Rangef, ShaderType, SubCategoryDefinition,
-    UpdateType, WiggleWeights, WorldEnvironment,
+    EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType, Fluid,
+    FluidDrawType, FluidParticle, Hitbox, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
+    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
+    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, Model, ModelParticle,
+    Opacity, OverlapBehavior as ProtocolOverlapBehavior, PhysicalMaterial, PhysicsConfig,
+    PhysicsType, ProjectileConfig, Rangef, RotationMode, ShaderType, SubCategoryDefinition,
+    UpdateType, ValueType, Weather, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -251,6 +254,10 @@ impl AssetRegistry {
                 self.item_reticle_packet()?,
                 self.item_category_packet()?,
                 self.item_player_animations_packet()?,
+                self.entity_stat_types_packet()?,
+                self.entity_effects_packet()?,
+                self.projectile_configs_packet()?,
+                self.weathers_packet(&tags)?,
                 self.item_packet(&tags)?,
             ],
             tags: tags.map(),
@@ -475,6 +482,243 @@ impl AssetRegistry {
         AssetPacket::encode("ItemPlayerAnimations", &packet)
     }
 
+    /// `UpdateEntityStatTypes` from the `EntityStatType` store.
+    pub fn entity_stat_types_packet(&self) -> Result<AssetPacket> {
+        let mut types = BTreeMap::new();
+        for record in self.entity_stat_types.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "EntityStatType",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            let number = |name: &str| -> f32 {
+                json.get(name)
+                    .and_then(Value::as_f64)
+                    .map(|value| value as f32)
+                    .unwrap_or(0.0)
+            };
+            types.insert(
+                id,
+                EntityStatType {
+                    id: Some(record.key.clone()),
+                    value: number("InitialValue"),
+                    min: number("Min"),
+                    max: number("Max"),
+                    min_value_effects: stat_effects(json.get("MinValueEffects")),
+                    max_value_effects: stat_effects(json.get("MaxValueEffects")),
+                    reset_behavior: match json.get("ResetType").and_then(Value::as_str) {
+                        Some("MaxValue") => EntityStatResetBehavior::MaxValue,
+                        _ => EntityStatResetBehavior::InitialValue,
+                    },
+                    hide_from_tooltip: json
+                        .get("HideFromTooltip")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                },
+            );
+        }
+        let packet = UpdateEntityStatTypes {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.entity_stat_types, "EntityStatType")?,
+            types: Some(types),
+        };
+        AssetPacket::encode("EntityStatType", &packet)
+    }
+
+    /// `UpdateEntityEffects` from the `EntityEffect` store.
+    pub fn entity_effects_packet(&self) -> Result<AssetPacket> {
+        let mut effects = BTreeMap::new();
+        for record in self.entity_effects.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "EntityEffect",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            let sound = |name: &str| -> i32 {
+                json.get(name)
+                    .and_then(Value::as_str)
+                    .and_then(|id| self.sound_events.id_of(id))
+                    .unwrap_or(0)
+            };
+            let overlap = match json.get("OverlapBehavior").and_then(Value::as_str) {
+                Some("Overwrite") => ProtocolOverlapBehavior::Overwrite,
+                Some("Extend") => ProtocolOverlapBehavior::Extend,
+                _ => ProtocolOverlapBehavior::Ignore,
+            };
+            let value_type = match json.get("ValueType").and_then(Value::as_str) {
+                Some("Percent") | Some("PERCENT") => ValueType::Percent,
+                _ => ValueType::Absolute,
+            };
+            let mut stat_modifiers = BTreeMap::new();
+            for (stat, amount) in json
+                .get("StatModifiers")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(stat) = self.entity_stat_id(stat) {
+                    stat_modifiers.insert(stat, amount.as_f64().unwrap_or(0.0) as f32);
+                }
+            }
+            effects.insert(
+                id,
+                EntityEffect {
+                    id: Some(record.key.clone()),
+                    name: text(json, "Name"),
+                    application_effects: None,
+                    world_removal_sound_event_index: sound("WorldRemovalSoundEventId"),
+                    local_removal_sound_event_index: sound("LocalRemovalSoundEventId"),
+                    model_override: None,
+                    duration: json.get("Duration").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                    infinite: json
+                        .get("Infinite")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    debuff: json.get("Debuff").and_then(Value::as_bool).unwrap_or(false),
+                    status_effect_icon: text(json, "StatusEffectIcon"),
+                    overlap_behavior: overlap,
+                    damage_calculator_cooldown: json
+                        .get("DamageCalculatorCooldown")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                    stat_modifiers: (!stat_modifiers.is_empty()).then_some(stat_modifiers),
+                    value_type,
+                },
+            );
+        }
+        let packet = UpdateEntityEffects {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.entity_effects, "EntityEffect")?,
+            entity_effects: Some(effects),
+        };
+        AssetPacket::encode("EntityEffect", &packet)
+    }
+
+    /// `UpdateProjectileConfigs` (id 85) from `ProjectileConfig`.
+    pub fn projectile_configs_packet(&self) -> Result<AssetPacket> {
+        let mut configs = BTreeMap::new();
+        for record in self.projectile_configs.iter() {
+            let json = &record.value;
+            let physics = json.get("Physics").map(|physics| PhysicsConfig {
+                r#type: PhysicsType::Standard,
+                density: number(physics, "Density"),
+                gravity: number(physics, "Gravity"),
+                bounciness: number(physics, "Bounciness"),
+                bounce_count: number(physics, "BounceCount") as i32,
+                bounce_limit: number(physics, "BounceLimit"),
+                sticks_vertically: boolean(physics, "SticksVertically", false),
+                compute_yaw: boolean(physics, "ComputeYaw", false),
+                compute_pitch: boolean(physics, "ComputePitch", false),
+                rotation_mode: match physics
+                    .get("RotationMode")
+                    .and_then(Value::as_str)
+                    .unwrap_or("None")
+                {
+                    "Velocity" => RotationMode::Velocity,
+                    "VelocityDamped" => RotationMode::VelocityDamped,
+                    "VelocityRoll" => RotationMode::VelocityRoll,
+                    _ => RotationMode::None,
+                },
+                move_out_of_solid_speed: number(physics, "MoveOutOfSolidSpeed"),
+                terminal_velocity_air: number(physics, "TerminalVelocityAir"),
+                density_air: number(physics, "DensityAir"),
+                terminal_velocity_water: number(physics, "TerminalVelocityWater"),
+                density_water: number(physics, "DensityWater"),
+                hit_water_impulse_loss: number(physics, "HitWaterImpulseLoss"),
+                rotation_force: number(physics, "RotationForce"),
+                speed_rotation_factor: number(physics, "SpeedRotationFactor") as f32,
+                swimming_damping_factor: number(physics, "SwimmingDampingFactor"),
+                allow_rolling: boolean(physics, "AllowRolling", false),
+                rolling_friction_factor: number(physics, "RollingFrictionFactor"),
+                rolling_speed: number(physics, "RollingSpeed") as f32,
+            });
+            let model = text(json, "Model").map(|asset_id| Model {
+                asset_id: Some(asset_id),
+                scale: 1.0,
+                ..Model::default()
+            });
+            configs.insert(
+                record.key.clone(),
+                ProjectileConfig {
+                    physics_config: physics,
+                    model,
+                    launch_force: number(json, "LaunchForce"),
+                    spawn_offset: json.get("SpawnOffset").map(|offset| Vector3f {
+                        x: number(offset, "X") as f32,
+                        y: number(offset, "Y") as f32,
+                        z: number(offset, "Z") as f32,
+                    }),
+                    rotation_offset: json.get("RotationOffset").map(|rotation| Direction {
+                        pitch: number(rotation, "Pitch") as f32,
+                        yaw: number(rotation, "Yaw") as f32,
+                        roll: number(rotation, "Roll") as f32,
+                    }),
+                    rotate_spawn_offset_by_pitch: boolean(json, "RotateSpawnOffsetByPitch", false),
+                    rotate_spawn_offset_by_yaw: boolean(json, "RotateSpawnOffsetByYaw", false),
+                    interactions: None,
+                    launch_local_sound_event_index: sound_index(
+                        self,
+                        json,
+                        "LaunchLocalSoundEventId",
+                    ),
+                    launch_world_sound_event_index: sound_index(
+                        self,
+                        json,
+                        "LaunchWorldSoundEventId",
+                    ),
+                    projectile_sound_event_index: sound_index(self, json, "ProjectileSoundEventId"),
+                    min_scale: number(json, "MinScale") as f32,
+                    max_scale: number(json, "MaxScale") as f32,
+                },
+            );
+        }
+        let packet = UpdateProjectileConfigs {
+            r#type: UpdateType::Init,
+            configs: Some(configs),
+            removed_configs: None,
+        };
+        AssetPacket::encode("ProjectileConfig", &packet)
+    }
+
+    /// `UpdateWeathers` (id 47) from the `Weather` store.
+    pub fn weathers_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
+        let mut weathers = BTreeMap::new();
+        for record in self.weathers.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "Weather",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            let moons = json.get("Moons").and_then(Value::as_array).map(|moons| {
+                moons
+                    .iter()
+                    .filter_map(|moon| {
+                        Some((
+                            moon.get("Day").and_then(Value::as_i64)? as i32,
+                            moon.get("Texture").and_then(Value::as_str)?.to_string(),
+                        ))
+                    })
+                    .collect()
+            });
+            weathers.insert(
+                id,
+                Weather {
+                    id: Some(record.key.clone()),
+                    tag_indexes: tags.expanded(json.get("Tags")),
+                    stars: text(json, "Stars"),
+                    moons,
+                    ..Weather::default()
+                },
+            );
+        }
+        let packet = UpdateWeathers {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.weathers, "Weather")?,
+            weathers: Some(weathers),
+        };
+        AssetPacket::encode("Weather", &packet)
+    }
+
     /// Java's `ItemReticleConfig` keys server events by `AssetRegistry`'s global
     /// tag index. That index depends on the whole 54-store load order, so this
     /// snapshot assigns deterministic indexes over the reticle event names.
@@ -672,6 +916,17 @@ fn text(json: &Value, name: &str) -> Option<String> {
 
 fn boolean(json: &Value, name: &str, fallback: bool) -> bool {
     json.get(name).and_then(Value::as_bool).unwrap_or(fallback)
+}
+
+fn number(json: &Value, name: &str) -> f64 {
+    json.get(name).and_then(Value::as_f64).unwrap_or(0.0)
+}
+
+fn sound_index(registry: &AssetRegistry, json: &Value, name: &str) -> i32 {
+    json.get(name)
+        .and_then(Value::as_str)
+        .and_then(|id| registry.sound_events.id_of(id))
+        .unwrap_or(0)
 }
 
 fn reticle(value: &Value, default_duration: f32) -> ItemReticle {
@@ -1194,6 +1449,18 @@ fn environment_fluid_particles(
         }
     }
     Ok(Some(out))
+}
+
+fn stat_effects(value: Option<&Value>) -> Option<EntityStatEffects> {
+    let value = value?;
+    Some(EntityStatEffects {
+        trigger_at_zero: value
+            .get("TriggerAtZero")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        sound_event_index: 0,
+        particles: None,
+    })
 }
 
 fn next_id<T>(collection: &AssetCollection<T>, store: &'static str) -> Result<i32> {

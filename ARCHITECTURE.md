@@ -62,10 +62,11 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   FluidFX and SoundEvent; item sounds/qualities/reticles/categories/player
   animations; and the TagPattern store with `UpdateTagPatterns`. All ten child
   packets are byte-identical to Java; tag patterns match Java's op trees with a
-  deterministic Rust-owned tag index map. Session 27 wired the full 17-packet
-  config burst into the join, caches the encoded `ConfigAssets` once per world
-  thread, adds `hytale-server --validate-assets`, and extends `client-bot` to
-  assert the full config order. Session 28 landed the shared `hytale-core`
+  deterministic Rust-owned tag index map. Session 27 wired the config burst
+  into the join and session 47/T57b extended it to 21 packets with the entity
+  stat/effect stores, caches the encoded `ConfigAssets` once per world thread,
+  adds `hytale-server --validate-assets`, and extends `client-bot` to assert the
+  full config order. Session 28 landed the shared `hytale-core`
   runtime: typed layered config, text/JSON logging init, the async
   scheduler/shutdown token, the ordered sync/async event bus and the module
   manifest registry. Session 29 added the persistent universe catalog, the
@@ -119,9 +120,10 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   seam; T52d stores health/fragility in the Java `BlockHealthSection` component
   with legacy `BlockHealthChunk` migration and pending deltas for T57. T53
   (stats/effects/damage plus the Java entity-gameplay fixture), T54 (time and
-  weather), T55 (projectiles plus traversal/mount seams) and T56 (prefab
-  entities/block components plus the persisted runtime store) are done; M5
-  continues with T57. See [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
+  weather), T55 (projectiles plus traversal/mount seams), T56 (prefab
+  entities/block components plus the persisted runtime store) and T57
+  (block-health/runtime-entity/world-map presentation) are done; M5 continues
+  with T58. See [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
   and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -392,7 +394,7 @@ boundary using the world seed and forecast seed key. `WorldThread::weather_at`
 exposes the effective index for a position; sessions send `UpdateWeather` with
 the Java join/change transition durations. `WorldClock::current_hour` and
 `moon_phase` complete the time model; presentation-only weather documents stay
-with T57.
+with T60.
 
 `WorldClock` (`hytale-world::world_clock`) follows Java
 `WorldTimeResource`: game time is an epoch instant, the configured daytime and
@@ -447,9 +449,11 @@ from the merged assets. The server calls `simulate(0.05)` each 50 ms game-loop
 tick, sets the clock's sunlight factor for light gates and broadcasts
 block/fluid changes to viewers. Per-section health/fragility lives in the Java
 `BlockHealthSection` v0 component (legacy `BlockHealthChunk` is migrated on
-read) and `SimulationReport::health_deltas` is the T57 replication seam. Sound
-playback and the builtin module lifecycle remain T57/T60; T56 lands fixed-item
-drop entities, prefab entities/block components and their persistence.
+read). T57 turns the health deltas into section `UpdateBlockDamage(s)` packets
+and writes the load snapshot after each chunk; replacing a block clears health
+and fragility. Sound playback and the builtin module lifecycle remain T60; T56
+lands fixed-item drop entities, prefab entities/block components and their
+persistence.
 
 ---
 
@@ -480,8 +484,9 @@ min/max modifiers, regeneration and reset behavior; `effects` owns active
 effects, overlap/expiry and invulnerability aggregation; `damage` owns causes,
 resistance/outgoing modifiers, health subtraction and the death result. The
 asset registry loads `Server/Entity/Stats` and item stat arrays resolve names to
-ids. Client packets, condition evaluation and the full damage-calculator graph
-remain T57/T59. `hytale-entities::movement` owns the player AABB
+ids. T57 adds the runtime-entity and block-health presentation; stat/effect/
+damage packets, condition evaluation and the full damage-calculator graph
+remain T59. `hytale-entities::movement` owns the player AABB
 (`0.65 × 1.85 × 0.65`), the Y→X→Z collision sweep with one-block step-up, and
 the deterministic gravity/jump/fly/climb integrator used by tests and later NPC
 work. `hytale-world::collision` turns `BlockType` materials and
@@ -643,7 +648,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes and door state broadcasts landed (M5); selectors/effects/cooldowns, item/entity roots and windows deferred |
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::{collision,player_data}` | saved model reference and inventory components decoded (M4); `movement` AABB sweep, one-block step, bounds, gravity/jump/fly/climb integrator, slide/roll/mantle traversal state, mount seam and the internal `MovementConfig` join packet landed (M5); full `ModelAsset` protocol expansion, ECS lifecycle, fluids/triggers, entity collisions and mount entities deferred |
 | `CoreServer/.../entity/entities/ProjectileComponent`, `modules/projectile/{config,system}`, `modules/physics/{SimplePhysicsProvider,PhysicsMath}` | `hytale-entities::projectile` + `hytale-assets` | legacy `Projectile`/new `ProjectileConfig` stores (86/188), Java launch offset/angle math, gravity/terminal cap, swept block/entity collision, bounce/stick/rest, hit/miss/death timers, TTL and the T53 damage handoff landed (M5, T55 done); density/drag/buoyancy/rolling, predicted/pierce projectiles, explosions and spawn packets deferred |
-| `CoreServer/.../modules/entitystats/**`, `asset/type/entityeffect/**`, `modules/entity/damage/**` | `hytale-entities::{stats,effects,damage,components}` | stat types/values/maps, static modifiers, regeneration/reset, active effects with overlap/expiry/invulnerability, damage causes/resistance/outgoing, health/death core and the `EntityGameplay` component seam landed (M5, T53 done); the `EntityStatType`/`EntityEffect`/`DamageCause` stores and the Java `entity/entity-gameplay.json` fixture gate the data; conditions, calculators, DoT and per-entity/config stat/effect packets deferred to T57/T59 |
+| `CoreServer/.../modules/entitystats/**`, `asset/type/entityeffect/**`, `modules/entity/damage/**` | `hytale-entities::{stats,effects,damage,components}` | stat types/values/maps, static modifiers, regeneration/reset, active effects with overlap/expiry/invulnerability, damage causes/resistance/outgoing, health/death core and the `EntityGameplay` component seam landed (M5, T53 done); the `EntityStatType`/`EntityEffect`/`DamageCause` stores and the Java `entity/entity-gameplay.json` fixture gate the data; conditions, calculators, DoT and per-entity/config stat/effect packets deferred to T59 |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, validated block place/break with `ServerSetBlock` broadcasts, and the JSONL packet-trace capture/gate (M3/M4) landed |

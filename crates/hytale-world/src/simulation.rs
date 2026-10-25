@@ -1370,6 +1370,8 @@ pub struct SimulationReport {
     pub drops: Vec<(i32, i32, i32, BlockDrop)>,
     /// Pending block-health/fragility deltas (consumed by T57 packets).
     pub health_deltas: Vec<BlockHealthDelta>,
+    /// Runtime item entities spawned from fixed-item drops.
+    pub spawned_entities: Vec<crate::runtime::RuntimeEntityId>,
 }
 
 #[derive(Debug, Clone)]

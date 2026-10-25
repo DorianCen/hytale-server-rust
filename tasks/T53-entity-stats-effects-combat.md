@@ -87,7 +87,7 @@ cargo fmt --all -- --check
 
 - Full `Condition` evaluation, damage calculators, effect damage-over-time,
   knockback/animations/particles/sounds, item loss/respawn and client stat/
-  effect packets are presentation or later combat work (T55/T57/T59).
+  effect packets are presentation or later combat work (T55/T57b/T59).
 - ECS registration/world wiring is kept behind a small component seam; the
   existing world thread receives it when NPC/combat producers land.
 - A Java dumper for stats/effects/damage is added when the asset fixtures are
@@ -104,7 +104,7 @@ cargo fmt --all -- --check
   conditions. Java defaults (`Ignore`, `Complete`, `Absolute`) are honoured.
 - `hytale-entities::components::EntityGameplay` bundles the stat map, active
   effects, effect-modifier sync, damage application, death state and the
-  region/revive seam for T55/T57/T59.
+  region/revive seam for T55/T57b/T59.
 - `Regenerating.ClampAtZero` is parsed and applied.
 - `tools/java-dumper/run-entity-gameplay.sh` emits
   `testdata/golden/server/entity/entity-gameplay.json` (13 stats incl.
@@ -118,7 +118,7 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - T55 projectiles and traversal consume the damage model.
-- T57 adds stat/effect/damage presentation packets and the
+- T57b adds the packet seams; T59 adds stat/effect/damage producers and the
   `UpdateEntityStatTypes`/`UpdateEntityEffects` config-burst parity.
 - T59 NPC combat and encounters use the same stat/effect/damage core.
 - T60 maps the stat/effect/damage systems into the builtin module lifecycle.

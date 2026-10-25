@@ -307,6 +307,9 @@ impl World {
         let filler = column.get_filler(local_x, y, local_z);
         let changed = column.set_block(local_x, y, local_z, block_id, rotation, filler)?;
         if changed {
+            if let Some(section) = column.section_mut(y) {
+                section.health.clear(index_local(x, y, z));
+            }
             self.dirty.insert(index);
             self.changed_blocks.insert((x, y, z));
             self.block_support.remove(&(x, y, z));
@@ -345,6 +348,9 @@ impl World {
         };
         let changed = column.set_block(x & 31, y, z & 31, block_id, rotation, filler)?;
         if changed {
+            if let Some(section) = column.section_mut(y) {
+                section.health.clear(index_local(x, y, z));
+            }
             self.dirty.insert(index);
             self.changed_blocks.insert((x, y, z));
             self.block_support.remove(&(x, y, z));
@@ -501,6 +507,31 @@ impl World {
             .map_or(1.0, |section| section.health.health(index_local(x, y, z)))
     }
 
+    /// Damaged blocks in every loaded chunk as `(x, y, z, absolute health)`.
+    ///
+    /// This is the T57 load-packet seam: Java sends the section's damaged
+    /// entries after its block data so a client never applies damage to a
+    /// block it has not received yet.
+    pub fn block_health_entries(&self) -> Vec<(i32, i32, i32, f32)> {
+        let mut entries = Vec::new();
+        for (&chunk_index, column) in &self.chunks {
+            let chunk_x = (chunk_index >> 32) as i32;
+            let chunk_z = chunk_index as i32;
+            collect_health_entries(column, chunk_x, chunk_z, &mut entries);
+        }
+        entries
+    }
+
+    /// Damaged blocks of one loaded chunk.
+    pub fn block_health_entries_in_chunk(&self, x: i32, z: i32) -> Vec<(i32, i32, i32, f32)> {
+        let Some(column) = self.chunk(x, z) else {
+            return Vec::new();
+        };
+        let mut entries = Vec::new();
+        collect_health_entries(column, x, z, &mut entries);
+        entries
+    }
+
     /// Java `BlockHealthSection.damage`: subtract `amount` and return the rest.
     pub fn damage_block(&mut self, x: i32, y: i32, z: i32, amount: f32) -> f32 {
         if !amount.is_finite() || amount <= 0.0 {
@@ -558,12 +589,18 @@ impl World {
         }
     }
 
-    /// Clear one block-health entry (e.g. after replacing the block).
+    /// Clear one block's health, fragility and pending delta.
     pub fn clear_block_health(&mut self, x: i32, y: i32, z: i32) -> bool {
         self.chunks
             .get_mut(&index_chunk(x >> 5, z >> 5))
             .and_then(|column| column.section_mut(y))
-            .is_some_and(|section| section.health.clear_health(index_local(x, y, z)))
+            .is_some_and(|section| {
+                let index = index_local(x, y, z);
+                let had_health = section.health.entries().any(|(entry, _)| entry == index);
+                let had_fragility = section.health.fragility(index) > 0.0;
+                section.health.clear(index);
+                had_health || had_fragility
+            })
     }
 
     /// Regenerate damaged blocks and count down fragility.
@@ -697,6 +734,28 @@ impl World {
 
 fn index_local(x: i32, y: i32, z: i32) -> u16 {
     hytale_math::chunk_util::index_block(x & 31, y & 31, z & 31) as u16
+}
+
+fn collect_health_entries(
+    column: &ChunkColumn,
+    chunk_x: i32,
+    chunk_z: i32,
+    entries: &mut Vec<(i32, i32, i32, f32)>,
+) {
+    for (section_index, section) in column.sections().enumerate() {
+        let Some(section) = section else {
+            continue;
+        };
+        for (index, entry) in section.health.entries() {
+            let index = i32::from(index);
+            entries.push((
+                (chunk_x << 5) + (index & 31),
+                (section_index as i32 * 32) + ((index >> 10) & 31),
+                (chunk_z << 5) + ((index >> 5) & 31),
+                entry.health,
+            ));
+        }
+    }
 }
 
 /// Chunk coordinates in a square around a center chunk, sorted by Z then X.

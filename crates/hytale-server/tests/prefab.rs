@@ -148,13 +148,34 @@ fn item_entities_spawn_and_persist() {
     assert_eq!(entity.item_id(), Some("Rock_Stone"));
     assert_eq!(entity.item_quantity(), 4);
     assert_eq!(thread.entities().expect("entities").len(), 1);
+    let events = thread.runtime_entity_events().expect("spawn events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        hytale_server::world_thread::RuntimeEntityEvent::Spawned(id) if *id == entity.id
+    )));
+    let moved = hytale_world::runtime::transform([3.0, 80.0, 4.0], [0.0, 0.5, 0.0]);
+    assert!(thread
+        .update_entity_transform(entity.id, moved)
+        .expect("move entity"));
+    assert!(thread
+        .runtime_entity_events()
+        .expect("update events")
+        .iter()
+        .any(|event| matches!(
+            event,
+            hytale_server::world_thread::RuntimeEntityEvent::Updated(id) if *id == entity.id
+        )));
+    assert!(thread.despawn_entity(entity.id).expect("despawn").is_some());
+    assert!(thread.runtime_entity_events().expect("despawn events").iter().any(
+        |event| matches!(
+            event,
+            hytale_server::world_thread::RuntimeEntityEvent::Despawned { id, .. } if *id == entity.id
+        )
+    ));
     thread.shutdown().expect("shutdown");
 
     let thread = open(&save_dir);
-    let entities = thread.entities().expect("reloaded entities");
-    assert_eq!(entities.len(), 1);
-    assert_eq!(entities[0].item_id(), Some("Rock_Stone"));
-    assert_eq!(entities[0].item_quantity(), 4);
+    assert!(thread.entities().expect("reloaded entities").is_empty());
     thread.shutdown().expect("shutdown reloaded world");
     std::fs::remove_dir_all(save_dir).ok();
 }

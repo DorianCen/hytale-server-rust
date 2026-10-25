@@ -59,16 +59,81 @@ fn config_assets_are_cached_per_world() {
         std::sync::Arc::ptr_eq(&first, &second),
         "sessions must share one encoded ConfigAssets"
     );
-    assert_eq!(first.packets.len(), 17);
+    assert_eq!(first.packets.len(), 21);
     assert_eq!(
         first
             .packets
             .iter()
             .map(|packet| packet.id)
             .collect::<Vec<_>>(),
-        vec![41, 87, 65, 42, 63, 83, 61, 84, 40, 44, 45, 43, 55, 57, 56, 52, 54]
+        vec![41, 87, 65, 42, 63, 83, 61, 84, 40, 44, 45, 43, 55, 57, 56, 52, 72, 51, 85, 47, 54]
     );
     assert!(!first.tags.is_empty());
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn block_health_load_and_delta_packets_use_absolute_health() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let save_dir = temp_dir("block-health-packets");
+    let options = WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, _start) = WorldThread::spawn(options).expect("spawn the world thread");
+    thread.load_chunk(0, 0).expect("load the chunk");
+    let stone = thread
+        .block_id_for_item("Rock_Stone")
+        .expect("block lookup")
+        .expect("Rock_Stone block");
+    thread.set_block(4, 200, 4, stone).expect("place stone");
+    assert!((thread.damage_block(4, 200, 4, 0.25).expect("damage") - 0.75).abs() < 1e-6);
+
+    let load = thread
+        .block_damage_packets(Some((0, 0)))
+        .expect("load packets");
+    let hytale_server::BlockDamagePacket::Single(packet) = &load[0] else {
+        panic!("one damaged block must use UpdateBlockDamage");
+    };
+    assert_eq!(
+        packet
+            .block_position
+            .as_ref()
+            .map(|position| (position.x, position.y, position.z)),
+        Some((4, 200, 4))
+    );
+    assert!((packet.damage - 0.75).abs() < 1e-6);
+    assert_eq!(packet.delta, 0.0);
+
+    let deltas = thread
+        .block_damage_packets_for_deltas(&[hytale_world::simulation::BlockHealthDelta {
+            x: 4,
+            y: 200,
+            z: 4,
+            delta: -0.25,
+        }])
+        .expect("delta packets");
+    let hytale_server::BlockDamagePacket::Single(packet) = &deltas[0] else {
+        panic!("one delta must use UpdateBlockDamage");
+    };
+    assert!((packet.damage - 0.75).abs() < 1e-6);
+    assert!((packet.delta + 0.25).abs() < 1e-6);
+
+    thread.set_block(4, 200, 4, 0).expect("remove stone");
+    assert!(thread
+        .block_damage_packets(Some((0, 0)))
+        .expect("cleared packets")
+        .is_empty());
 
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();

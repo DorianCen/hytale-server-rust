@@ -12,9 +12,11 @@ use std::path::PathBuf;
 use hytale_assets::{AssetPack, AssetRegistry, TagRegistry};
 use hytale_protocol::generated::assets::{
     UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets, UpdateBlockSoundSets,
-    UpdateBlockTypes, UpdateEnvironments, UpdateFluidFX, UpdateFluids, UpdateItemCategories,
-    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
-    UpdateItems, UpdatePhysicalMaterials, UpdateSoundEvents, UpdateTagPatterns,
+    UpdateBlockTypes, UpdateEntityEffects, UpdateEntityStatTypes, UpdateEnvironments,
+    UpdateFluidFX, UpdateFluids, UpdateItemCategories, UpdateItemPlayerAnimations,
+    UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets, UpdateItems,
+    UpdatePhysicalMaterials, UpdateProjectileConfigs, UpdateSoundEvents, UpdateTagPatterns,
+    UpdateWeathers,
 };
 use hytale_protocol::generated::common::{BlockNeighbor, BlockType, RequiredBlockFaceSupport};
 use hytale_protocol::generated::wire::{Packet, Wire};
@@ -99,6 +101,10 @@ fn config_packets_are_sent_in_dependency_order() {
             UpdateItemReticles::ID,
             UpdateItemCategories::ID,
             UpdateItemPlayerAnimations::ID,
+            UpdateEntityStatTypes::ID,
+            UpdateEntityEffects::ID,
+            UpdateProjectileConfigs::ID,
+            UpdateWeathers::ID,
             UpdateItems::ID,
         ]
     );

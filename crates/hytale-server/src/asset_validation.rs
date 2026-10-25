@@ -13,9 +13,11 @@ use hytale_assets::{
 };
 use hytale_protocol::generated::assets::{
     UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets, UpdateBlockSoundSets,
-    UpdateBlockTypes, UpdateEnvironments, UpdateFluidFX, UpdateFluids, UpdateItemCategories,
-    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
-    UpdateItems, UpdatePhysicalMaterials, UpdateSoundEvents, UpdateTagPatterns,
+    UpdateBlockTypes, UpdateEntityEffects, UpdateEntityStatTypes, UpdateEnvironments,
+    UpdateFluidFX, UpdateFluids, UpdateItemCategories, UpdateItemPlayerAnimations,
+    UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets, UpdateItems,
+    UpdatePhysicalMaterials, UpdateProjectileConfigs, UpdateSoundEvents, UpdateTagPatterns,
+    UpdateWeathers,
 };
 use hytale_protocol::generated::common::{TagPattern, TagPatternType};
 use hytale_protocol::generated::wire::{Packet, Wire};
@@ -154,7 +156,7 @@ pub fn validate_assets(pack: &Path) -> Result<AssetValidationReport, AssetValida
 }
 
 /// The expected config packet order. Kept here so the CLI reports order drift.
-fn expected_packets() -> [(u32, &'static str); 17] {
+fn expected_packets() -> [(u32, &'static str); 21] {
     [
         (UpdateBlockHitboxes::ID, "BlockBoundingBoxes"),
         (UpdatePhysicalMaterials::ID, "PhysicalMaterial"),
@@ -172,6 +174,10 @@ fn expected_packets() -> [(u32, &'static str); 17] {
         (UpdateItemReticles::ID, "ItemReticleConfig"),
         (UpdateItemCategories::ID, "ItemCategory"),
         (UpdateItemPlayerAnimations::ID, "ItemPlayerAnimations"),
+        (UpdateEntityStatTypes::ID, "EntityStatType"),
+        (UpdateEntityEffects::ID, "EntityEffect"),
+        (UpdateProjectileConfigs::ID, "ProjectileConfig"),
+        (UpdateWeathers::ID, "Weather"),
         (UpdateItems::ID, "Item"),
     ]
 }
@@ -367,6 +373,37 @@ fn check_packet(packet: &AssetPacket, tags: &BTreeSet<i32>) -> Result<usize, Str
         UpdateItemPlayerAnimations::ID => {
             let _: UpdateItemPlayerAnimations = decode(packet)?;
             Ok(0)
+        }
+        UpdateEntityStatTypes::ID => {
+            let _: UpdateEntityStatTypes = decode(packet)?;
+            Ok(0)
+        }
+        UpdateEntityEffects::ID => {
+            let _: UpdateEntityEffects = decode(packet)?;
+            Ok(0)
+        }
+        UpdateProjectileConfigs::ID => {
+            let _: UpdateProjectileConfigs = decode(packet)?;
+            Ok(0)
+        }
+        UpdateWeathers::ID => {
+            let packet: UpdateWeathers = decode(packet)?;
+            let mut checked = 0;
+            let mut failures = Vec::new();
+            for (id, weather) in packet.weathers.unwrap_or_default() {
+                check_tag_list(
+                    weather.tag_indexes.as_deref(),
+                    tags,
+                    &format!("Weather {id}"),
+                    &mut checked,
+                    &mut failures,
+                );
+            }
+            if failures.is_empty() {
+                Ok(checked)
+            } else {
+                Err(failures.join("; "))
+            }
         }
         UpdateItems::ID => {
             let packet: UpdateItems = decode(packet)?;

@@ -87,7 +87,7 @@ cargo run -p client-bot -- --host 127.0.0.1:5531 --auth-join \
 
 `--asset-limit N` requests only the first `N` advertised assets (omit it to
 request all 28k+/45 MB). `--auth-issuer`/`--auth-audience` must match the
-server. The config asset burst includes all 17 packets (hitboxes, physical
+server. The config asset burst includes all 21 packets (hitboxes, physical
 materials, sound events/sets, FluidFX, fluids, environments, tag patterns,
 block types, block decals/particles, item sounds/qualities/reticles/categories/
 animations and items) with the matching `ServerTags` map. After the initial

@@ -74,7 +74,7 @@ cargo fmt --all -- --check
 
 - Full `UpdateWeathers` weather-document packet byte parity is tracked with
   asset packet goldens; this task wires the store and index/state seam first.
-- Weather particles/screen effects/audio are presentation (T57).
+- Weather particles/screen effects/audio are presentation (T57b/T60).
 - Weather-driven fire uses the T52b fire ticker seam.
 - Weather commands and editor preview remain later tooling (T60).
 

@@ -17,17 +17,20 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use hytale_protocol::generated::common::{
-    ComponentUpdate, Direction, EntityUpdate, EquipmentUpdate, Model, ModelTransform, ModelUpdate,
-    PlayerSkin, PlayerSkinUpdate, Position as ProtocolPosition, ServerPlayerListPlayer,
-    TransformUpdate,
+    ComponentUpdate, Direction, EntityUpdate, EquipmentUpdate, ItemUpdate, ItemWithAllMetadata,
+    Model, ModelTransform, ModelUpdate, NameplateUpdate, PlayerSkin, PlayerSkinUpdate,
+    Position as ProtocolPosition, ServerPlayerListPlayer, TransformUpdate,
 };
 use hytale_protocol::generated::entities::EntityUpdates;
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
-use hytale_protocol::generated::world::{ServerSetBlock, ServerSetFluid};
+use hytale_protocol::generated::world::{
+    ServerSetBlock, ServerSetFluid, UpdateBlockDamage, UpdateBlockDamages,
+};
 use hytale_protocol::io::Uuid;
 use hytale_world::player_data::{
     PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
 };
+use hytale_world::runtime::{RuntimeEntity, RuntimeEntityKind};
 
 /// One packet batch queued for a session.
 #[derive(Debug, Clone)]
@@ -42,6 +45,10 @@ pub enum PlayerMessage {
     BlockUpdate(ServerSetBlock),
     /// A single fluid update on the chunks stream.
     FluidUpdate(ServerSetFluid),
+    /// One block-health change on the chunks stream.
+    BlockDamage(UpdateBlockDamage),
+    /// A section's block-health changes on the chunks stream.
+    BlockDamages(UpdateBlockDamages),
 }
 
 /// A queued player/entity/block message failed to write.
@@ -301,6 +308,76 @@ impl PlayerRegistry {
         }
     }
 
+    /// Broadcast one block-health change to viewers of its block.
+    pub fn broadcast_block_damage(&self, packet: UpdateBlockDamage) {
+        let Some(position) = packet.block_position.as_ref() else {
+            return;
+        };
+        let position = hytale_world::player_data::Position {
+            x: f64::from(position.x) + 0.5,
+            y: f64::from(position.y) + 0.5,
+            z: f64::from(position.z) + 0.5,
+        };
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for viewer in inner.players.values() {
+            if in_view(viewer.view_center, viewer.view_radius, position) {
+                queue(viewer, PlayerMessage::BlockDamage(packet.clone()));
+            }
+        }
+    }
+
+    /// Broadcast a section's block-health changes to viewers of any entry.
+    pub fn broadcast_block_damages(&self, packet: UpdateBlockDamages) {
+        let positions: Vec<hytale_world::player_data::Position> = packet
+            .cmds
+            .iter()
+            .map(|command| {
+                let index = i32::from(command.index);
+                hytale_world::player_data::Position {
+                    x: f64::from((packet.x << 5) + (index & 31)) + 0.5,
+                    y: f64::from((packet.y << 5) + ((index >> 10) & 31)) + 0.5,
+                    z: f64::from((packet.z << 5) + ((index >> 5) & 31)) + 0.5,
+                }
+            })
+            .collect();
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for viewer in inner.players.values() {
+            if positions
+                .iter()
+                .any(|position| in_view(viewer.view_center, viewer.view_radius, *position))
+            {
+                queue(viewer, PlayerMessage::BlockDamages(packet.clone()));
+            }
+        }
+    }
+
+    /// Broadcast a runtime entity spawn to viewers.
+    pub fn broadcast_runtime_entity(&self, entity: &RuntimeEntity) {
+        let position = entity.transform.position;
+        let packet = runtime_entity_updates(entity);
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for viewer in inner.players.values() {
+            if in_view(viewer.view_center, viewer.view_radius, position) {
+                queue(viewer, PlayerMessage::EntityUpdates(packet.clone()));
+            }
+        }
+    }
+
+    /// Broadcast a runtime entity removal to viewers.
+    pub fn broadcast_runtime_entity_removed(
+        &self,
+        id: u64,
+        position: hytale_world::player_data::Position,
+    ) {
+        let packet = removed_entity_updates(runtime_network_id(id));
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for viewer in inner.players.values() {
+            if in_view(viewer.view_center, viewer.view_radius, position) {
+                queue(viewer, PlayerMessage::EntityUpdates(packet.clone()));
+            }
+        }
+    }
+
     /// Update the authoritative active held items and notify visible viewers.
     pub fn update_equipment(
         &self,
@@ -530,6 +607,105 @@ pub fn removed_entity_updates(network_id: i32) -> EntityUpdates {
     }
 }
 
+/// Network-id space reserved for runtime entities.
+///
+/// Player network ids start at 1; runtime entity ids start at 1 too, so the
+/// presentation layer offsets them to keep the two id sets disjoint.
+pub const RUNTIME_ENTITY_NETWORK_OFFSET: i32 = 1_000_000;
+
+/// The client-facing network id of a runtime entity.
+pub fn runtime_network_id(id: u64) -> i32 {
+    RUNTIME_ENTITY_NETWORK_OFFSET.saturating_add(id.min(i32::MAX as u64) as i32)
+}
+
+/// Build a spawn `EntityUpdates` for a runtime entity.
+///
+/// Prefab/NPC entities carry their saved model and nameplate documents; item
+/// drops carry the item stack. Projectiles use the same model path when their
+/// component document provides one.
+pub fn runtime_entity_updates(entity: &RuntimeEntity) -> EntityUpdates {
+    let mut components = vec![ComponentUpdate::TransformUpdate(TransformUpdate {
+        transform: model_transform(entity.transform),
+    })];
+
+    if entity.kind == RuntimeEntityKind::Item {
+        components.push(ComponentUpdate::ItemUpdate(ItemUpdate {
+            item: runtime_item(entity),
+            entity_scale: 1.0,
+        }));
+    } else if let Some((asset_id, scale)) = runtime_entity_model(entity) {
+        components.push(ComponentUpdate::ModelUpdate(ModelUpdate {
+            model: Some(Model {
+                asset_id: Some(asset_id),
+                scale,
+                ..Model::default()
+            }),
+            entity_scale: scale,
+        }));
+    }
+
+    if entity.kind != RuntimeEntityKind::Item {
+        if let Some(text) = runtime_entity_name(entity) {
+            components.push(ComponentUpdate::NameplateUpdate(NameplateUpdate { text }));
+        }
+    }
+
+    EntityUpdates {
+        removed: None,
+        updates: Some(vec![EntityUpdate {
+            network_id: runtime_network_id(entity.id),
+            removed: None,
+            updates: Some(components),
+        }]),
+    }
+}
+
+fn runtime_item(entity: &RuntimeEntity) -> ItemWithAllMetadata {
+    let item = entity.components.get("Item");
+    let number = |name: &str| -> f64 {
+        item.and_then(|item| item.get(name))
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0)
+    };
+    ItemWithAllMetadata {
+        item_id: entity.item_id().unwrap_or_default().to_string(),
+        quantity: entity.item_quantity(),
+        durability: number("Durability"),
+        max_durability: number("MaxDurability"),
+        quality: item
+            .and_then(|item| item.get("Quality"))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0) as i32,
+        override_dropped_item_animation: item
+            .and_then(|item| item.get("OverrideDroppedItemAnimation"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        metadata: item
+            .and_then(|item| item.get("Metadata"))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+    }
+}
+
+fn runtime_entity_model(entity: &RuntimeEntity) -> Option<(String, f32)> {
+    let model = entity.components.get("Model")?.get("Model")?;
+    let asset_id = model.get("Id")?.as_str()?.to_string();
+    let scale = model
+        .get("Scale")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(1.0) as f32;
+    Some((asset_id, scale))
+}
+
+fn runtime_entity_name(entity: &RuntimeEntity) -> Option<String> {
+    entity
+        .components
+        .get("Nameplate")
+        .and_then(|nameplate| nameplate.get("Text"))
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
 /// Convert a saved transform to the protocol model transform.
 pub fn model_transform(transform: PlayerTransform) -> ModelTransform {
     let position = ProtocolPosition {
@@ -613,6 +789,12 @@ pub async fn write_message(
             chunks.write_packet(&update, compression_level).await?;
         }
         PlayerMessage::FluidUpdate(update) => {
+            chunks.write_packet(&update, compression_level).await?;
+        }
+        PlayerMessage::BlockDamage(update) => {
+            chunks.write_packet(&update, compression_level).await?;
+        }
+        PlayerMessage::BlockDamages(update) => {
             chunks.write_packet(&update, compression_level).await?;
         }
     }
@@ -726,6 +908,96 @@ mod tests {
                 if updates.removed.as_deref() == Some([2].as_slice())
         )));
         drop(first);
+    }
+
+    #[test]
+    fn runtime_entities_spawn_only_for_viewers() {
+        let registry = Arc::new(PlayerRegistry::new());
+        let (first_tx, first_rx) = channel();
+        let (first, _) = registry.register(request(Uuid::new(1, 1), "First", (0, 0), first_tx));
+        let (second_tx, _) = channel();
+        let (second, _) = registry.register(PlayerJoinRequest {
+            view_center: (10, 10),
+            transform: transform(10.0 * 32.0, 10.0 * 32.0),
+            ..request(Uuid::new(1, 2), "Second", (10, 10), second_tx)
+        });
+        let _ = drain(&first_rx);
+
+        let entity = RuntimeEntity::new(
+            7,
+            RuntimeEntityKind::Prefab,
+            Some("Hunt.Generic.Site".to_string()),
+            hytale_world::runtime::transform([4.0, 64.0, 4.0], [0.0, 0.0, 0.0]),
+            serde_json::json!({
+                "Model": {"Model": {"Id": "Encounter_Marker", "Scale": 2.0}},
+                "Nameplate": {"Text": "Hunt_Site"}
+            }),
+        );
+        registry.broadcast_runtime_entity(&entity);
+        let messages = drain(&first_rx);
+        let updates = messages
+            .iter()
+            .find_map(|message| match message {
+                PlayerMessage::EntityUpdates(updates) => Some(updates),
+                _ => None,
+            })
+            .expect("the near viewer gets the spawn");
+        let update = &updates.updates.as_ref().expect("updates")[0];
+        assert_eq!(update.network_id, runtime_network_id(7));
+        let components = update.updates.as_ref().expect("components");
+        assert!(components.iter().any(|component| matches!(
+            component,
+            ComponentUpdate::ModelUpdate(model) if model
+                .model
+                .as_ref()
+                .and_then(|model| model.asset_id.as_deref()) == Some("Encounter_Marker")
+        )));
+        assert!(components.iter().any(|component| matches!(
+            component,
+            ComponentUpdate::NameplateUpdate(nameplate) if nameplate.text == "Hunt_Site"
+        )));
+
+        drop(first);
+        drop(second);
+    }
+
+    #[test]
+    fn item_entity_updates_carry_the_full_stack_metadata() {
+        let entity = RuntimeEntity::new(
+            9,
+            RuntimeEntityKind::Item,
+            None,
+            hytale_world::runtime::transform([1.0, 64.0, 2.0], [0.0, 0.0, 0.0]),
+            serde_json::json!({
+                "Item": {
+                    "Id": "Rock_Stone",
+                    "Quantity": 3,
+                    "Durability": 0.5,
+                    "MaxDurability": 2.0,
+                    "Quality": 4,
+                    "OverrideDroppedItemAnimation": true,
+                    "Metadata": "{\"Test\":true}"
+                }
+            }),
+        );
+        let updates = runtime_entity_updates(&entity);
+        let update = &updates.updates.expect("updates")[0];
+        let Some(ComponentUpdate::ItemUpdate(item)) = update
+            .updates
+            .as_ref()
+            .expect("components")
+            .iter()
+            .find(|component| matches!(component, ComponentUpdate::ItemUpdate(_)))
+        else {
+            panic!("the item component");
+        };
+        assert_eq!(item.item.item_id, "Rock_Stone");
+        assert_eq!(item.item.quantity, 3);
+        assert_eq!(item.item.durability, 0.5);
+        assert_eq!(item.item.max_durability, 2.0);
+        assert_eq!(item.item.quality, 4);
+        assert!(item.item.override_dropped_item_animation);
+        assert_eq!(item.item.metadata.as_deref(), Some("{\"Test\":true}"));
     }
 
     #[test]

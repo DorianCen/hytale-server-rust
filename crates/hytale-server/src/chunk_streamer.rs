@@ -15,7 +15,7 @@ use hytale_world::chunk::stream::{
 use hytale_world::view::ChunkView;
 use thiserror::Error;
 
-use crate::world_thread::{WorldEvent, WorldThread, WorldThreadError};
+use crate::world_thread::{BlockDamagePacket, WorldEvent, WorldThread, WorldThreadError};
 
 /// Errors from streaming a view to a client.
 #[derive(Debug, Error)]
@@ -26,6 +26,9 @@ pub enum ChunkSessionError {
     /// Packet encoding failed.
     #[error(transparent)]
     Stream(#[from] PacketStreamError),
+    /// Writing one packet to the chunk stream failed.
+    #[error(transparent)]
+    Chunk(#[from] hytale_net::ChunkStreamError),
     /// Writing to the QUIC stream failed.
     #[error(transparent)]
     Transport(#[from] TransportError),
@@ -159,6 +162,21 @@ pub async fn send_chunk(
     report.packets += batch.packets.len();
     report.frames += frames.len();
     report.payload_bytes += payload_bytes;
+
+    // Java `BlockHealthSystems.LoadPacket` is a future load packet ordered
+    // after the section's block data.
+    for packet in thread.block_damage_packets(Some((x, z)))? {
+        match packet {
+            BlockDamagePacket::Single(packet) => {
+                writer.write_packet(&packet, compression_level).await?;
+                report.packets += 1;
+            }
+            BlockDamagePacket::Section(packet) => {
+                writer.write_packet(&packet, compression_level).await?;
+                report.packets += 1;
+            }
+        }
+    }
     Ok(())
 }
 

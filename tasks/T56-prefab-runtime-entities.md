@@ -11,7 +11,7 @@ Finish the prefab path the world generator deliberately left stubbed: parse
 prefab entities and block components, paste a prefab into a live world, and own
 a persisted runtime entity/block-component store. The same store is the landing
 point for the item and projectile entities deferred by T49/T52/T55. Client
-presentation packets stay in T57.
+presentation packets stay in T57/T57b.
 
 The Java oracles are `BsonPrefabBufferDeserializer` (entity holders and
 `components` state), `PrefabUtil.paste` (rotation, forced block writes, filler
@@ -86,7 +86,8 @@ cargo fmt --all -- --check
 - Paste uses force semantics (`Flags.FORCE`/`ANCHOR_BLOCK` off): technical
   placement checks, block-settings flags, events and `NO_ENTITIES` are not
   modelled.
-- No spawn/despawn/entity packets yet; T57 owns presentation.
+- No spawn/despawn/entity packets yet; T57 adds spawn presentation and T57b owns
+  transform/despawn/metadata.
 
 ## Landed (session 46)
 
@@ -109,7 +110,7 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- T57 sends entity spawn/despawn/transform packets and block-health UI.
+- T57 sends spawn/block-health presentation; T57b owns entity transform/despawn/metadata.
 - T58/T59 produce NPC entities and feed target boxes into projectiles.
 - Weighted drop-list resolution for simulation drops stays with the drop-list
   producer (T57/T60).

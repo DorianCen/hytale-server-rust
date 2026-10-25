@@ -34,7 +34,8 @@ context. The main agent owns sequencing and shared-file edits.
 | [T54](T54-time-weather.md) | Time and weather | T43, T48 | medium | done (session 43) |
 | [T55](T55-projectiles-traversal.md) | Projectiles and traversal | T51, T53 | low/medium | done (session 45) |
 | [T56](T56-prefab-runtime-entities.md) | Prefab spawner and runtime entities | T45, T50 | low/medium | done (session 46) |
-| T57 | UI basics and block-health presentation | T46, T53 | low/medium | planned |
+| [T57](T57-ui-block-health-presentation.md) | UI basics and block-health presentation | T46, T53 | low/medium | done (session 47) |
+| [T57b](T57b-presentation-followups.md) | Presentation follow-ups | T57 | low/medium | in progress (session 48) |
 | T58 | NPC core: AI, pathfinding, flocking | T48 | low/medium | planned |
 | T59 | NPC spawning, combat and encounters | T58 | low/medium | planned |
 | T60 | Builtin module runtime and selected modules | T58, T59 | low/medium | planned |
@@ -48,8 +49,12 @@ scope is in [`../plan.md`](../plan.md). T52b–T52d closed the parity gaps
 recorded by T52 in session 41. T53's gameplay core, Java entity-gameplay
 fixture and T54's time/weather core are landed; T55 adds the projectile core
 and traversal seam; T56 lands prefab entities/block components and the
-persisted runtime entity store. M5 continues with T57 (UI basics and block
-health/presentation) and the T54/T57 presentation/asset-packet split.
+persisted runtime entity store; T57 lands block-health replication, runtime entity spawns and
+world-map basics. T57b is the M5 presentation follow-up: partial-hit block
+interaction, entity lifecycle/metadata, the stat/effect/projectile/weather
+config packets, map images/discovery and the minimal HUD/window packets. T58
+(NPC core) starts M6 after T57b; T58 may run in parallel in a separate
+worktree, but T59/T60 presentation work waits for T57b.
 
 ## Rules
 

@@ -32,14 +32,14 @@ fn default_pack_validates_and_reports_every_config_packet() {
         "validation failures: {:?}",
         report.failures
     );
-    assert_eq!(report.packets.len(), 17);
+    assert_eq!(report.packets.len(), 21);
     assert_eq!(
         report
             .packets
             .iter()
             .map(|packet| packet.id)
             .collect::<Vec<_>>(),
-        vec![41, 87, 65, 42, 63, 83, 61, 84, 40, 44, 45, 43, 55, 57, 56, 52, 54]
+        vec![41, 87, 65, 42, 63, 83, 61, 84, 40, 44, 45, 43, 55, 57, 56, 52, 72, 51, 85, 47, 54]
     );
     assert!(report.packets.iter().all(|packet| packet.bytes > 0));
     assert!(report.tag_count > 0);

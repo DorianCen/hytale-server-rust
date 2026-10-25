@@ -59,7 +59,8 @@ pub use world_config_tool::{
     WorldConfigToolReport,
 };
 pub use world_thread::{
-    LoadOutcome, PlayerSnapshot, TickReport, ViewId, ViewReport, WorldEvent, WorldStartReport,
-    WorldThread, WorldThreadError, WorldThreadOptions, WorldTimeState,
+    BlockDamagePacket, LoadOutcome, PlayerSnapshot, RuntimeEntityEvent, TickReport, ViewId,
+    ViewReport, WorldEvent, WorldStartReport, WorldThread, WorldThreadError, WorldThreadOptions,
+    WorldTimeState,
 };
 pub use world_tool::{run as run_chunk_tool, ChunkToolError, ChunkToolOptions, ChunkToolReport};

@@ -24,7 +24,12 @@ pub fn test_prefab_loader_with(names: &[&str]) -> Rc<WorldGenPrefabLoader> {
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    let root = std::env::temp_dir().join("worldgen-prefab-store-test/Prefabs");
+    // Each test process (nextest runs tests in separate processes) needs its
+    // own root: the counter below is per-process, so a shared root would let
+    // two processes race on the same temporary name.
+    let root = std::env::temp_dir()
+        .join(format!("worldgen-prefab-store-test-{}", std::process::id()))
+        .join("Prefabs");
     std::fs::create_dir_all(&root).expect("the test prefab folder");
     for name in names {
         let path = root.join(format!("{name}.prefab.json"));

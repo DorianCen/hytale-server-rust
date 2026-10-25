@@ -94,10 +94,25 @@ impl BlockHealthSection {
         new_health
     }
 
+    /// The damaged entries, in section index order.
+    pub fn entries(&self) -> impl Iterator<Item = (u16, BlockHealth)> + '_ {
+        self.health.iter().map(|(&index, entry)| (index, *entry))
+    }
+
     /// Java `clearHealth`.
     pub fn clear_health(&mut self, index: u16) -> bool {
         self.pending_deltas.remove(&index);
         self.health.remove(&index).is_some()
+    }
+
+    /// Clear every health, fragility and pending-delta entry for one block.
+    ///
+    /// Java drops the block's component state when a block is replaced; the
+    /// damage of a removed block must not outlive the new block.
+    pub fn clear(&mut self, index: u16) {
+        self.pending_deltas.remove(&index);
+        self.health.remove(&index);
+        self.fragility.remove(&index);
     }
 
     /// Java `makeFragile`.

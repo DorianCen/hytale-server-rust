@@ -16,9 +16,12 @@ use std::time::Instant;
 use hytale_assets::{AssetPack, CommonAssetRegistry};
 use hytale_entities::movement::{resolve_target, PlayerShape, TargetResolution};
 use hytale_interactions::{InteractionCatalog, InteractionError};
-use hytale_inventory::PlayerInventory;
-use hytale_protocol::generated::common::{FlyMode, MovementSettings};
+use hytale_inventory::{ItemStack, PlayerInventory};
+use hytale_protocol::generated::common::{
+    BlockDamageCmd, BlockPosition, FlyMode, MovementSettings,
+};
 use hytale_protocol::generated::world::WorldGameplayConfig;
+use hytale_protocol::generated::world::{UpdateBlockDamage, UpdateBlockDamages};
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::collision::{BlockCollisionTable, Vec3, WorldCollision};
@@ -173,6 +176,31 @@ pub struct PlayerSnapshot {
     pub appearance: PlayerAppearance,
     /// Saved inventory components.
     pub inventory: PlayerInventory,
+}
+
+/// One block-health packet, on the `Chunks` stream.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockDamagePacket {
+    /// Java `UpdateBlockDamage` (one changed block).
+    Single(UpdateBlockDamage),
+    /// Java `UpdateBlockDamages` (one 32³ section).
+    Section(UpdateBlockDamages),
+}
+
+/// One runtime-entity lifecycle event for the session presentation layer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RuntimeEntityEvent {
+    /// A new entity is available.
+    Spawned(RuntimeEntityId),
+    /// An existing entity changed (currently transform-only).
+    Updated(RuntimeEntityId),
+    /// An entity was removed; the last position filters viewers.
+    Despawned {
+        /// Removed entity id.
+        id: RuntimeEntityId,
+        /// Last world position.
+        position: hytale_world::player_data::Position,
+    },
 }
 
 /// Result of one demand-load tick.
@@ -381,6 +409,26 @@ enum Command {
         z: i32,
         reply: SyncSender<Result<f32, String>>,
     },
+    BlockDamagePackets {
+        chunk: Option<(i32, i32)>,
+        reply: SyncSender<Result<Vec<BlockDamagePacket>, String>>,
+    },
+    BlockDamagePacketsForDeltas {
+        deltas: Vec<hytale_world::simulation::BlockHealthDelta>,
+        reply: SyncSender<Result<Vec<BlockDamagePacket>, String>>,
+    },
+    Entity {
+        id: RuntimeEntityId,
+        reply: SyncSender<Result<Option<RuntimeEntity>, String>>,
+    },
+    EntityEvents {
+        reply: SyncSender<Vec<RuntimeEntityEvent>>,
+    },
+    UpdateEntityTransform {
+        id: RuntimeEntityId,
+        transform: PlayerTransform,
+        reply: SyncSender<Result<bool, String>>,
+    },
     PlacePrefab {
         name: String,
         x: i32,
@@ -399,6 +447,13 @@ enum Command {
     SpawnItemEntity {
         item_id: String,
         quantity: i32,
+        x: f64,
+        y: f64,
+        z: f64,
+        reply: SyncSender<Result<RuntimeEntity, String>>,
+    },
+    SpawnItemStackEntity {
+        stack: ItemStack,
         x: f64,
         y: f64,
         z: f64,
@@ -987,6 +1042,86 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Block-health load packets for one chunk (delta `0`).
+    ///
+    /// A `None` chunk requests every loaded chunk. Java writes these on the
+    /// chunks stream after the chunk's block data.
+    pub fn block_damage_packets(
+        &self,
+        chunk: Option<(i32, i32)>,
+    ) -> Result<Vec<BlockDamagePacket>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockDamagePackets { chunk, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Block-health packets for simulation deltas.
+    ///
+    /// Reads the authoritative health after the simulation step so damage and
+    /// regeneration use the same absolute value Java sends.
+    pub fn block_damage_packets_for_deltas(
+        &self,
+        deltas: &[hytale_world::simulation::BlockHealthDelta],
+    ) -> Result<Vec<BlockDamagePacket>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockDamagePacketsForDeltas {
+                deltas: deltas.to_vec(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// One runtime entity by id.
+    pub fn entity(&self, id: RuntimeEntityId) -> Result<Option<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::Entity { id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Take the pending runtime entity lifecycle events.
+    pub fn runtime_entity_events(&self) -> Result<Vec<RuntimeEntityEvent>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::EntityEvents { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Move a runtime entity and queue an update event for viewers.
+    pub fn update_entity_transform(
+        &self,
+        id: RuntimeEntityId,
+        transform: PlayerTransform,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::UpdateEntityTransform {
+                id,
+                transform,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Paste a prefab from the asset pack at an origin.
     ///
     /// `rotation` is the quarter-turn degrees (`0`, `90`, `180`, `270`). The
@@ -1058,6 +1193,30 @@ impl WorldThread {
             .send(Command::SpawnItemEntity {
                 item_id: item_id.into(),
                 quantity,
+                x,
+                y,
+                z,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Spawn an item entity carrying the dropped stack's metadata.
+    pub fn spawn_item_stack_entity(
+        &self,
+        stack: ItemStack,
+        x: f64,
+        y: f64,
+        z: f64,
+    ) -> Result<RuntimeEntity, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnItemStackEntity {
+                stack,
                 x,
                 y,
                 z,
@@ -1342,6 +1501,7 @@ fn run(
                 return;
             }
             let seed = save.config().seed as i32;
+            let mut entity_events: Vec<RuntimeEntityEvent> = Vec::new();
             let budget = options.chunks_per_tick.max(1);
             let mut last_clock = Instant::now();
             let mut views = BTreeMap::from([(
@@ -1510,8 +1670,8 @@ fn run(
                     }
                     Command::Simulate { dt, reply } => {
                         simulation.set_sunlight_factor(clock.sunlight_factor());
-                        let result = simulation.tick(save.world_mut(), dt);
-                        spawn_simulation_drops(save.world_mut(), &result);
+                        let mut result = simulation.tick(save.world_mut(), dt);
+                        result.spawned_entities = spawn_simulation_drops(save.world_mut(), &result);
                         let _ = reply.send(Ok(result));
                     }
                     Command::SetFluid {
@@ -1599,6 +1759,32 @@ fn run(
                     Command::BlockHealth { x, y, z, reply } => {
                         let _ = reply.send(Ok(save.world().block_health(x, y, z)));
                     }
+                    Command::BlockDamagePackets { chunk, reply } => {
+                        let entries = match chunk {
+                            Some((x, z)) => save.world().block_health_entries_in_chunk(x, z),
+                            None => save.world().block_health_entries(),
+                        };
+                        let _ = reply.send(Ok(group_block_damage(
+                            entries
+                                .into_iter()
+                                .map(|(x, y, z, health)| (x, y, z, health, 0.0)),
+                        )));
+                    }
+                    Command::BlockDamagePacketsForDeltas { deltas, reply } => {
+                        let entries = deltas.iter().map(|delta| {
+                            (
+                                delta.x,
+                                delta.y,
+                                delta.z,
+                                save.world().block_health(delta.x, delta.y, delta.z),
+                                delta.delta,
+                            )
+                        });
+                        let _ = reply.send(Ok(group_block_damage(entries)));
+                    }
+                    Command::Entity { id, reply } => {
+                        let _ = reply.send(Ok(save.world().entity(id).cloned()));
+                    }
                     Command::PlacePrefab {
                         name,
                         x,
@@ -1616,6 +1802,14 @@ fn run(
                             (x, y, z),
                             rotation,
                         );
+                        if let Ok(report) = &result {
+                            entity_events.extend(
+                                report
+                                    .entities
+                                    .iter()
+                                    .map(|id| RuntimeEntityEvent::Spawned(*id)),
+                            );
+                        }
                         let _ = reply.send(result);
                     }
                     Command::Entities { reply } => {
@@ -1623,7 +1817,36 @@ fn run(
                         let _ = reply.send(Ok(entities));
                     }
                     Command::DespawnEntity { id, reply } => {
-                        let _ = reply.send(Ok(save.world_mut().despawn_entity(id)));
+                        let removed = save.world_mut().despawn_entity(id);
+                        if let Some(entity) = &removed {
+                            entity_events.push(RuntimeEntityEvent::Despawned {
+                                id,
+                                position: entity.transform.position,
+                            });
+                        }
+                        let _ = reply.send(Ok(removed));
+                    }
+                    Command::EntityEvents { reply } => {
+                        let _ = reply.send(std::mem::take(&mut entity_events));
+                    }
+                    Command::UpdateEntityTransform {
+                        id,
+                        transform,
+                        reply,
+                    } => {
+                        let changed = save
+                            .world_mut()
+                            .entities_mut()
+                            .get_mut(id)
+                            .map(|entity| {
+                                entity.transform = transform;
+                                true
+                            })
+                            .unwrap_or(false);
+                        if changed {
+                            entity_events.push(RuntimeEntityEvent::Updated(id));
+                        }
+                        let _ = reply.send(Ok(changed));
                     }
                     Command::SpawnItemEntity {
                         item_id,
@@ -1635,6 +1858,22 @@ fn run(
                     } => {
                         let result =
                             spawn_item_entity(&mut save, &generator, &item_id, quantity, x, y, z);
+                        if let Ok(entity) = &result {
+                            entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
+                        }
+                        let _ = reply.send(result);
+                    }
+                    Command::SpawnItemStackEntity {
+                        stack,
+                        x,
+                        y,
+                        z,
+                        reply,
+                    } => {
+                        let result = spawn_item_stack_entity(&mut save, &generator, stack, x, y, z);
+                        if let Ok(entity) = &result {
+                            entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
+                        }
                         let _ = reply.send(result);
                     }
                     Command::BlockComponent { x, y, z, reply } => {
@@ -2059,6 +2298,50 @@ fn load_chunk(
     Ok(LoadOutcome::Generated)
 }
 
+/// One section's `(x, y, z, command)` entries.
+type DamageSection = BTreeMap<(i32, i32, i32), Vec<(i32, i32, i32, BlockDamageCmd)>>;
+
+/// Group health entries into Java's one-block or one-section packet form.
+fn group_block_damage(
+    entries: impl Iterator<Item = (i32, i32, i32, f32, f32)>,
+) -> Vec<BlockDamagePacket> {
+    let mut sections: DamageSection = BTreeMap::new();
+    for (x, y, z, health, delta) in entries {
+        let section = (x >> 5, y >> 5, z >> 5);
+        sections.entry(section).or_default().push((
+            x,
+            y,
+            z,
+            BlockDamageCmd {
+                // Java `ChunkUtil.indexBlock(x, y, z)`.
+                index: (((y & 31) << 10) | ((z & 31) << 5) | (x & 31)) as i16,
+                damage: health,
+                delta,
+            },
+        ));
+    }
+    sections
+        .into_iter()
+        .map(|((section_x, section_y, section_z), entries)| {
+            if entries.len() == 1 {
+                let (x, y, z, command) = entries.into_iter().next().expect("one entry");
+                BlockDamagePacket::Single(UpdateBlockDamage {
+                    block_position: Some(BlockPosition { x, y, z }),
+                    damage: command.damage,
+                    delta: command.delta,
+                })
+            } else {
+                BlockDamagePacket::Section(UpdateBlockDamages {
+                    x: section_x,
+                    y: section_y,
+                    z: section_z,
+                    cmds: entries.into_iter().map(|(_, _, _, cmd)| cmd).collect(),
+                })
+            }
+        })
+        .collect()
+}
+
 fn prefab_rotation(degrees: u16) -> Result<PrefabRotation, String> {
     match degrees {
         0 => Ok(PrefabRotation::Rotation0),
@@ -2136,14 +2419,52 @@ fn spawn_item_entity(
         .ok_or_else(|| "the item entity disappeared during spawn".to_string())
 }
 
+fn spawn_item_stack_entity(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    stack: ItemStack,
+    x: f64,
+    y: f64,
+    z: f64,
+) -> Result<RuntimeEntity, String> {
+    if generator.assets().items.get(&stack.item_id).is_none() {
+        return Err(format!("unknown item `{}`", stack.item_id));
+    }
+    let metadata = stack.metadata.as_ref().map(|metadata| metadata.to_string());
+    let id = save.world_mut().spawn_entity(
+        RuntimeEntityKind::Item,
+        None,
+        transform([x, y, z], [0.0, 0.0, 0.0]),
+        serde_json::json!({
+            "Item": {
+                "Id": stack.item_id,
+                "Quantity": stack.quantity.max(1),
+                "Durability": stack.durability,
+                "MaxDurability": stack.max_durability,
+                "Quality": stack.quality_override.unwrap_or(0),
+                "OverrideDroppedItemAnimation": stack.override_dropped_item_animation,
+                "Metadata": metadata,
+            }
+        }),
+    );
+    save.world()
+        .entity(id)
+        .cloned()
+        .ok_or_else(|| "the item entity disappeared during spawn".to_string())
+}
+
 /// Turn the simulation's fixed-item drops into item entities. Weighted drop
 /// lists stay unresolved until the drop-list producer lands (T57/T60).
-fn spawn_simulation_drops(world: &mut hytale_world::world::World, report: &SimulationReport) {
+fn spawn_simulation_drops(
+    world: &mut hytale_world::world::World,
+    report: &SimulationReport,
+) -> Vec<RuntimeEntityId> {
+    let mut spawned = Vec::new();
     for (x, y, z, drop) in &report.drops {
         let Some(item_id) = drop.item_id.as_deref() else {
             continue;
         };
-        world.spawn_entity(
+        spawned.push(world.spawn_entity(
             RuntimeEntityKind::Item,
             None,
             transform(
@@ -2160,8 +2481,9 @@ fn spawn_simulation_drops(world: &mut hytale_world::world::World, report: &Simul
                     "Quantity": drop.quantity.max(1),
                 }
             }),
-        );
+        ));
     }
+    spawned
 }
 
 fn player_snapshot(
@@ -2342,6 +2664,41 @@ fn block_to_chunk(value: f64) -> i32 {
 mod tests {
     use super::*;
     use hytale_world::world::WorldStorage;
+
+    #[test]
+    fn block_damage_entries_group_by_section_and_keep_the_java_index() {
+        let packets = group_block_damage(
+            [
+                (33, 65, 2, 0.75, -0.25),
+                (34, 65, 2, 0.5, -0.5),
+                (35, 65, 2, 0.25, -0.75),
+            ]
+            .into_iter(),
+        );
+        assert_eq!(packets.len(), 1);
+        let BlockDamagePacket::Section(packet) = &packets[0] else {
+            panic!("three entries must use UpdateBlockDamages");
+        };
+        assert_eq!((packet.x, packet.y, packet.z), (1, 2, 0));
+        assert_eq!(packet.cmds.len(), 3);
+        assert_eq!(packet.cmds[0].index, (1 << 10) | (2 << 5) | 1);
+        assert_eq!(packet.cmds[0].damage, 0.75);
+        assert_eq!(packet.cmds[0].delta, -0.25);
+
+        let packets = group_block_damage([(3, 64, 1, 0.5, 0.5)].into_iter());
+        let BlockDamagePacket::Single(packet) = &packets[0] else {
+            panic!("one entry must use UpdateBlockDamage");
+        };
+        assert_eq!(
+            packet
+                .block_position
+                .as_ref()
+                .map(|position| (position.x, position.y, position.z)),
+            Some((3, 64, 1))
+        );
+        assert_eq!(packet.damage, 0.5);
+        assert_eq!(packet.delta, 0.5);
+    }
 
     #[test]
     fn fixed_simulation_drops_become_item_entities() {

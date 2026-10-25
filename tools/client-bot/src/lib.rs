@@ -15,15 +15,17 @@ use hytale_net::{
 use hytale_protocol::frame::{decode_frame, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::assets::{
     UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets, UpdateBlockSoundSets,
-    UpdateBlockTypes, UpdateEnvironments, UpdateFluidFX, UpdateFluids, UpdateItemCategories,
-    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
-    UpdateItems, UpdatePhysicalMaterials, UpdateSoundEvents, UpdateTagPatterns, UpdateTranslations,
+    UpdateBlockTypes, UpdateEntityEffects, UpdateEntityStatTypes, UpdateEnvironments,
+    UpdateFluidFX, UpdateFluids, UpdateItemCategories, UpdateItemPlayerAnimations,
+    UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets, UpdateItems,
+    UpdatePhysicalMaterials, UpdateProjectileConfigs, UpdateSoundEvents, UpdateTagPatterns,
+    UpdateTranslations, UpdateWeathers,
 };
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{
-    Asset, BlockPosition, ClientDisconnectReason, ComponentUpdate, DisconnectType,
-    MouseButtonEvent, MouseButtonState, MouseButtonType, MovementSettings, PlayerSkin, PongType,
-    Position, TeleportAck, WorldInteraction,
+    Asset, BlockDamageCmd, BlockPosition, ClientDisconnectReason, ComponentUpdate, DisconnectType,
+    FormattedMessage, MapMarker, MouseButtonEvent, MouseButtonState, MouseButtonType,
+    MovementSettings, PlayerSkin, PongType, Position, TeleportAck, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
@@ -44,8 +46,10 @@ use hytale_protocol::generated::setup::{
 use hytale_protocol::generated::wire::{Packet, Vector2f, Wire};
 use hytale_protocol::generated::world::{
     ClearChunks, ServerSetBlock, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn,
-    SetFluids, UnloadChunk, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
+    SetFluids, UnloadChunk, UpdateBlockDamage, UpdateBlockDamages, UpdateTime, UpdateTimeSettings,
+    WorldGameplayConfig,
 };
+use hytale_protocol::generated::worldmap::{UpdateWorldMap, UpdateWorldMapSettings};
 use hytale_protocol::io::{ProtocolError, Reader, Uuid, Writer};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -364,6 +368,8 @@ pub struct GameJoinReport {
     pub time_settings: Option<UpdateTimeSettings>,
     /// Initial `UpdateTime` value.
     pub initial_time: Option<(i64, i32)>,
+    /// Initial world-map settings.
+    pub world_map_settings: Option<UpdateWorldMapSettings>,
     /// The bot sent `ClientReady(readyForChunks)`.
     pub sent_ready_for_chunks: bool,
 }
@@ -409,6 +415,34 @@ pub struct ObservedBlockUpdate {
     pub block_id: i32,
 }
 
+/// One block-health change seen on the chunks stream.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ObservedBlockDamage {
+    /// Block x.
+    pub x: i32,
+    /// Block y.
+    pub y: i32,
+    /// Block z.
+    pub z: i32,
+    /// Absolute remaining health.
+    pub damage: f32,
+    /// Change in health.
+    pub delta: f32,
+}
+
+/// One world-map marker seen on the default stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObservedMapMarker {
+    /// Marker id.
+    pub id: String,
+    /// Marker image.
+    pub image: String,
+    /// Display name (`messageId` or raw text).
+    pub name: Option<String>,
+    /// Block position.
+    pub position: Option<Position>,
+}
+
 /// Player-list, entity and block broadcasts observed after a join.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlayerObservation {
@@ -420,6 +454,10 @@ pub struct PlayerObservation {
     pub entities: Vec<ObservedEntityUpdate>,
     /// Block edits from the chunks stream.
     pub block_updates: Vec<ObservedBlockUpdate>,
+    /// Block-health changes from the chunks stream.
+    pub block_damages: Vec<ObservedBlockDamage>,
+    /// World-map markers from the default stream.
+    pub map_markers: Vec<ObservedMapMarker>,
     /// Authoritative `ClientTeleport` corrections received from the server.
     pub teleports: Vec<Position>,
 }
@@ -713,6 +751,17 @@ async fn observe_players(
                         let packet: UpdateMovementSettings = frame.decode()?;
                         game.movement_settings = Some(packet.movement_settings);
                     }
+                    UpdateWorldMapSettings::ID => {
+                        game.world_map_settings = Some(frame.decode()?);
+                    }
+                    UpdateWorldMap::ID => {
+                        let packet: UpdateWorldMap = frame.decode()?;
+                        if let Some(markers) = packet.added_markers {
+                            observation.map_markers.extend(
+                                markers.into_iter().filter_map(observed_map_marker),
+                            );
+                        }
+                    }
                     UpdatePlayerInventory::ID => {
                         game.inventory = Some(frame.decode()?);
                     }
@@ -728,8 +777,8 @@ async fn observe_players(
             }
             frame = chunks.next_frame(), if chunks_open => {
                 match frame {
-                    Ok(Some(frame)) => {
-                        if frame.packet_id == ServerSetBlock::ID {
+                    Ok(Some(frame)) => match frame.packet_id {
+                        ServerSetBlock::ID => {
                             let update = ServerSetBlock::decode(&mut Reader::new(&frame.payload))?;
                             observation.block_updates.push(ObservedBlockUpdate {
                                 x: update.x,
@@ -738,7 +787,33 @@ async fn observe_players(
                                 block_id: update.block_id,
                             });
                         }
-                    }
+                        UpdateBlockDamage::ID => {
+                            let update =
+                                UpdateBlockDamage::decode(&mut Reader::new(&frame.payload))?;
+                            if let Some(position) = update.block_position {
+                                observation.block_damages.push(ObservedBlockDamage {
+                                    x: position.x,
+                                    y: position.y,
+                                    z: position.z,
+                                    damage: update.damage,
+                                    delta: update.delta,
+                                });
+                            }
+                        }
+                        UpdateBlockDamages::ID => {
+                            let update =
+                                UpdateBlockDamages::decode(&mut Reader::new(&frame.payload))?;
+                            for command in update.cmds {
+                                observation.block_damages.push(section_block_damage(
+                                    update.x,
+                                    update.y,
+                                    update.z,
+                                    command,
+                                ));
+                            }
+                        }
+                        _ => {}
+                    },
                     Ok(None) | Err(_) => chunks_open = false,
                 }
             }
@@ -775,6 +850,35 @@ async fn send_block_interaction(
             3,
         )
         .await
+}
+
+fn section_block_damage(
+    section_x: i32,
+    section_y: i32,
+    section_z: i32,
+    command: BlockDamageCmd,
+) -> ObservedBlockDamage {
+    let index = i32::from(command.index);
+    ObservedBlockDamage {
+        x: (section_x << 5) + (index & 31),
+        y: (section_y << 5) + ((index >> 10) & 31),
+        z: (section_z << 5) + ((index >> 5) & 31),
+        damage: command.damage,
+        delta: command.delta,
+    }
+}
+
+fn observed_map_marker(marker: MapMarker) -> Option<ObservedMapMarker> {
+    Some(ObservedMapMarker {
+        id: marker.id,
+        image: marker.marker_image,
+        name: marker.name.and_then(format_message_name),
+        position: marker.transform.position,
+    })
+}
+
+fn format_message_name(message: FormattedMessage) -> Option<String> {
+    message.message_id.or(message.raw_text)
 }
 
 fn record_observed_entities(
@@ -1136,6 +1240,10 @@ pub async fn auth_join(
             | UpdateItemReticles::ID
             | UpdateItemCategories::ID
             | UpdateItemPlayerAnimations::ID
+            | UpdateEntityStatTypes::ID
+            | UpdateEntityEffects::ID
+            | UpdateProjectileConfigs::ID
+            | UpdateWeathers::ID
             | UpdateItems::ID => {
                 report.config_packets.push(frame.packet_id);
             }

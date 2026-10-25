@@ -2,7 +2,7 @@
 
 **Status:** done (session 41)
 **Package:** `hytale-world`, `hytale-server`, `tools/java-dumper`
-**Depends on:** T52 (T57 consumes the presentation seam)
+**Depends on:** T52 (T57/T57b consume the presentation seam)
 **Agent fit:** medium
 
 ## Goal
@@ -18,7 +18,7 @@ transient `World` map.
     environment sections:
     - `Health`: `short block index -> {Health: f32, LastDamage: epoch millis}`;
     - `Fragility`: `short block index -> remaining seconds`;
-    - transient pending deltas for T57 replication.
+    - transient pending deltas for T57/T57b replication.
   - implement Java `BlockHealthSection` version 0 BSON layout using Java's
     `Data` byte-array + `Short2ObjectMap`/`Short2FloatMap` codecs. Keep the
     component absent/empty when no damage exists so ordinary chunks are
@@ -36,7 +36,7 @@ transient `World` map.
     semantics.
 - `BlockSimulation`:
   - emit pending health deltas separately from block changes;
-  - expose them through `SimulationReport` for T57's
+  - expose them through `SimulationReport` for T57/T57b's
     `UpdateBlockDamage(s)` packets.
 - `tools/java-dumper`:
   - add a `BlockHealthDumper`/probe that writes a Java chunk with damaged and
@@ -82,7 +82,7 @@ tools/java-dumper/run-save-check.sh <rust-save> <chunkX> <chunkZ> <blockX> <bloc
 ## Deviations to report or split
 
 - `UpdateBlockDamage`/`UpdateBlockDamages` packet replication, fragility
-  presentation and client block-health UI remain T57; this task exposes pending
+  presentation and client block-health UI remain T57b; this task exposes pending
   deltas but does not send them.
 - `BlockHealthChunk` writes/migration can be read-only if Java no longer writes
   it; document the decision.

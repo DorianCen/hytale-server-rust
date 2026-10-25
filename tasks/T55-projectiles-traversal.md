@@ -91,8 +91,8 @@ tools/java-dumper/run-entity-gameplay.sh --check
   producers and tests.
 - Projectile spawn/despawn/effect packets, explosions, particles/sounds,
   predicted projectiles, pierce/directional hitboxes, mounts as world entities,
-  traversal animation and anti-cheat stay T56/T57/T58/T59/T62.
-- No live client projectile loopback until the T57 presentation packets exist.
+  traversal animation and anti-cheat stay T56/T57b/T58/T59/T62.
+- No live client projectile loopback until the T57b presentation packets exist.
 - Java's nested `appendInherited` conversion applies degrees→radians twice to
   inherited `SpawnRotationOffset` components; the config seam omits presentation
   spawn rotation rather than normalising that quirk.
@@ -121,7 +121,7 @@ tools/java-dumper/run-entity-gameplay.sh --check
 
 - T56 spawns/despawns projectile and item entities in the world and persists
   them.
-- T57 sends the projectile/effect/damage presentation packets and adds
+- T57b sends the projectile/effect/damage presentation packets and adds
   `UpdateProjectileConfigs` to the config burst.
 - T58/T59 feed NPC target boxes and mount entities into the projectile/mount
   seams and simulate the new `ProjectileConfig` physics.

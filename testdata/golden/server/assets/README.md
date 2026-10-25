@@ -198,6 +198,6 @@ timestamp is written anywhere.
   check the store counts/ids against `index.json`, verify all 3,971 item fields,
   and prove `UpdateTagPatterns` + `ServerTags` consistency.
 - `crates/hytale-server/tests/asset_validation.rs` runs the same live-registry
-  validation as `hytale-server --validate-assets`: all 17 config packets decode
+  validation as `hytale-server --validate-assets`: all 21 config packets decode
   in dependency order, encode deterministically, and every asset tag index
   resolves in `ServerTags`.

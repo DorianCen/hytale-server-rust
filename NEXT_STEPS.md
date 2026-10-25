@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 46)
+# Next steps — CoreServer rewrite, phase 2 (session 48)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -8,8 +8,8 @@ the task board is [`tasks/README.md`](tasks/README.md).
 **Tasks landed:** **T53** (entity stats/effects/combat plus the Java
 entity-gameplay fixture), **T54** (time and weather), **T55** (projectiles and
 traversal) and **T56** (prefab entities/block components plus the persisted
-runtime entity store); M5 continues with **T57** (UI basics and
-block-health/presentation) and the T54 presentation split.
+runtime entity store) and **T57** (block-health replication, runtime entity
+spawns and world-map basics); M5 continues with **T58** (NPC core).
 
 ## Current state
 
@@ -30,7 +30,7 @@ Landed and green:
   differences over all 3,971 Java items.
 - T38 `TagPattern` (196 assets, exact Java key/id parity) and
   `UpdateTagPatterns`; pattern tags join the deterministic `TagRegistry`.
-- T39 final config order (17 packets), one encoded `ConfigAssets` shared by all
+- T39 final config order (21 packets after T57b), one encoded `ConfigAssets` shared by all
   sessions, `--validate-assets`, and client-bot packet recognition.
 - T40 `hytale-core`: typed layered config, text/JSON logging init, async task
   scheduler with a shutdown deadline, ordered sync/async event bus, and the
@@ -112,14 +112,15 @@ Landed and green:
   deterministic stat ids. `EntityGameplay` is the component seam for T55/T57/
   T59, and `testdata/golden/server/entity/entity-gameplay.json` gates all 13
   stats, 260 effects and 20 damage causes against Java. Client packets,
-  conditions, damage calculators and DoT remain T57/T59.
+  conditions, damage calculators and DoT remain T59.
 - T54 (done): `Server/Weathers` loads with `Unknown` at id 0;
   environment forecasts are parsed from the real 24-hour tables;
   `hytale_world::weather` selects deterministic weather per hour, honors
   `ForcedWeather`, and exposes the effective index through `WorldThread`.
   `WorldClock` now has current-hour and moon-phase helpers. Sessions send
   `UpdateWeather` on join and when the effective weather changes. Full
-  `UpdateWeathers` asset-document parity and presentation remain follow-ups.
+  `UpdateWeathers` asset-document parity and presentation remain T60
+  follow-ups.
 - T55 (done): `hytale-entities::projectile` launches from the real legacy
   `Projectile` assets (86) with Java angle/offset math, gravity, terminal-speed
   cap, swept block/entity AABB collision, bounce/stick/rest, hit/miss/death
@@ -128,7 +129,7 @@ Landed and green:
   the slide/roll/mantle traversal state and a `MountState` rider seam. The
   Java entity fixture now gates both projectile stores; `--validate-assets`
   reports 27 stores. Packets, explosions, prediction and new-physics
-  density/drag remain T57/T59.
+  density/drag remain T59.
 - T56 (done): prefab parsing now keeps block `components` and entity
   `Components`; `hytale-world::runtime` owns stable-id runtime entities and
   block components with versioned atomic JSON sidecars, and
@@ -137,7 +138,25 @@ Landed and green:
   entity/component queries and `spawn_item_entity`; fixed-item simulation drops
   become item entities. The real `Hunt.Generic.Site` paste (10 blocks,
   1 component, 3 entities) survives save/reopen. Entity/despawn packets,
-  weighted drop lists and the full Java ECS codec remain T57/T60/follow-up.
+  weighted drop lists and the full Java ECS codec remain follow-ups.
+- T57 (done): block-health load snapshots ride the chunks stream after each
+  chunk; simulation damage/regeneration broadcasts `UpdateBlockDamage(s)` with
+  Java section indexes and absolute health; replacing a block clears its
+  health/fragility. Joining clients receive prefab/item runtime entity spawns,
+  `DropItemStack` creates persisted item entities, and the world map gets
+  `UpdateWorldMapSettings` plus `BlockMapMarker` points of interest. The
+  ignored dev-join loopback verifies the marker and three prefab entity spawns.
+  Map chunk images, discovery/reveal, dynamic entity transforms and the
+  remaining presentation packets are T57b.
+- T57b (in progress, session 48): the M5 presentation follow-up now encodes
+  `UpdateEntityStatTypes` (72), `UpdateEntityEffects` (51),
+  `UpdateProjectileConfigs` (85) and `UpdateWeathers` (47) in the 21-packet
+  cached config burst, carries the full item stack payload
+  (durability/quality/metadata) in item entity spawns, and delivers runtime
+  entity lifecycle events (spawn/update/despawn) to viewers. Still open:
+  partial-hit block breaking, map images/discovery and the minimal HUD/window
+  packets. Producers stay with T58/T59/T60; T57b should land before M5 is
+  declared fully closed.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -162,9 +181,11 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   T55 (projectiles/traversal) and T56 (prefab/runtime entities) are done;
-   T57 (UI basics and block-health presentation) starts the remaining gameplay
-   work and owns the T54 presentation/asset-packet split.
+   T55 (projectiles/traversal), T56 (prefab/runtime entities) and T57
+   (block-health/runtime entity/world-map presentation) are done. T57b is the
+   immediate M5 close-out and should land before T58 (NPC core) starts M6; T58
+   may run in parallel in a separate worktree, but T59/T60 presentation work
+   waits for T57b.
 
 ## Try it
 

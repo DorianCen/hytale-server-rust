@@ -63,6 +63,10 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
         save_dir.clone(),
     ))
     .expect("world thread");
+    thread
+        .place_prefab("Hunt.Generic.Site", 4, 200, 4, 0)
+        .expect("place the hunt site prefab");
+    while thread.try_event().is_some() {}
 
     let bind_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let server_identity = TlsIdentity::generate("localhost").expect("server certificate");
@@ -107,7 +111,7 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
             }),
             movement_after_join: None,
             movement_after_edits: None,
-            observe_after_join: None,
+            observe_after_join: Some(Duration::from_secs(1)),
             disconnect_after: None,
             keep_alive: false,
             use_block_after_join: Vec::new(),
@@ -149,6 +153,27 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     assert_eq!(report.game.client_id, Some(1));
     assert!(report.game.sent_ready_for_chunks);
     assert_eq!(report.chunks.len(), 21);
+    let settings = report
+        .game
+        .world_map_settings
+        .as_ref()
+        .expect("world map settings after the join");
+    assert!(settings.enabled);
+    assert!(report
+        .observation
+        .map_markers
+        .iter()
+        .any(|marker| { marker.id == "block:4:201:4" && marker.image == "HuntSite.png" }));
+    assert_eq!(
+        report
+            .observation
+            .entities
+            .iter()
+            .filter(|entity| entity.network_id >= 1_000_000 && !entity.removed)
+            .count(),
+        3,
+        "the prefab's three runtime entities spawn for the joining client"
+    );
 
     session
         .connection()

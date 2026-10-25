@@ -13,7 +13,8 @@ teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete,
 T49 (inventory containers/transactions), T50 (interaction graph and block
 interactions), T51 (movement physics and collision authority), T52 (block
 simulation) and its parity follow-ups T52b–T52d are done; M5 gameplay parity
-continues with T53 (done), T54 (done), T55 (done) and T56 (done), then T57.
+continues with T53 (done), T54 (done), T55 (done), T56 (done) and T57
+(done), then T58.
 
 ## 0. Baseline
 
@@ -21,7 +22,7 @@ Completed and not to be redone:
 
 - M1: protocol codegen, framing, QUIC/mTLS, transport.
 - M2 done: P0 asset loader, deterministic ids, common assets, the ten child
-  stores/packets and `UpdateTagPatterns`; the final 17-packet config burst is
+  stores/packets and `UpdateTagPatterns`; the final 21-packet config burst is
   cached once and `--validate-assets` is green.
 - M3 done: `hytale-core` runtime services, the persistent universe catalog and
   provider seam, per-world `UniverseRuntime`, player load/save seam, the
@@ -54,7 +55,7 @@ persists.
 | M2 | Finish the asset foundation | T35–T39 | All P0/P1 asset packets and child indexes are golden-checked; `--validate-assets` passes |
 | M3 | Runtime, universe, world lifecycle | T40–T42 | A persistent universe catalog and multi-session listener exist (one selected world per listener) |
 | M4 | v1 client join, multiplayer, edits | T43–T48 | The v1 gate in `plan.md` is satisfied and trace-tested |
-| M5 | Core gameplay parity | T49–T57 | Scripted gameplay scenarios match Java |
+| M5 | Core gameplay parity | T49–T57b | Scripted gameplay scenarios match Java |
 | M6 | Builtins and NPC | T58–T61 | Selected builtin modules and NPC systems run with parity tests |
 | M7 | Production hardening | T62–T64 | Security, performance, packaging, plugin API and soak gates pass |
 
@@ -694,12 +695,12 @@ edit path from T46 remains green.
 
 - The executor covers structural/variable/block/state nodes used by the first
   consumers; selectors, effects, sounds, cooldowns, projectiles, stats and
-  client-chain sync remain T53/T55/T57.
+  client-chain sync remain T53/T55/T59.
 - Door handling uses single-block state variants and a front heuristic; double
   doors, fillers/hitbox updates, blocked checks and exact rotations are not
   ported. `ChangeBlock` actions are parsed but not applied.
 - Bench/container blocks are dispatched as handled UI actions; window packets
-  are T57.
+  are T59/T60.
 - Right-click prioritises the target block's `Use` root over the held item's
   full `Secondary` item root.
 
@@ -756,14 +757,14 @@ remain Java-readable.
 - Falling blocks are block movement, not ECS entities, and have no impact
   break/explode effect.
 - T52d stores health/fragility in the Java `BlockHealthSection` component and
-  migrates the legacy `BlockHealthChunk`; damage/fragility packets remain T57.
+  migrates the legacy `BlockHealthChunk`; T57 landed the damage/replication packets.
 - Simulation drops are reported but item entities/inventory pickup are T56.
 
 **Follow-ups**
 
 - T52b (fluid ticker parity), T52c (support/random-tick parity) and T52d
   (block-health storage) are done; T57 consumes the pending health deltas.
-- Sound-event playback and builtin module lifecycle stay with T57/T60.
+- Sound-event playback and builtin module lifecycle stay with T60.
 
 ### T53 — Entity stats, effects and combat basics
 
@@ -779,12 +780,11 @@ indexes resolve.
 - The stat/effect/damage cores, the `EntityStatType`/`EntityEffect`/
   `DamageCause` stores and a Java entity-gameplay fixture are landed
   (`testdata/golden/server/entity/entity-gameplay.json`). The
-  `EntityGameplay` component seam bundles stat/effect/death state for T55/T57/
-  T59; no world/NPC producer attaches it yet.
+  `EntityGameplay` component seam bundles stat/effect/death state for T55/T59; no world/NPC producer attaches it yet.
 - Full condition evaluation, damage calculators, effect DoT, knockback and
-  animations stay T55/T57/T59.
+  animations stay T55/T59.
 - `UpdateEntityStatTypes`/`UpdateEntityEffects` config-burst parity and
-  per-entity stat/effect updates stay T57.
+  per-entity stat/effect updates stay T59.
 
 ### T54 — Time and weather
 
@@ -811,7 +811,7 @@ as scoped in `REMAINING.md`.
   entities yet.
 - Projectile spawn/despawn packets, explosions, particles/sounds, prediction,
   pierce hitboxes, mount entities, traversal animation and anti-cheat remain
-  T56/T57/T58/T59/T62.
+  T58/T59/T62.
 
 ### T56 — Prefab spawner and runtime entities
 
@@ -830,14 +830,50 @@ block components, spawn/despawn lifecycle.
   block-settings flags. Entity order is prefab-file order (Java groups by
   column/hash order).
 - Item drops with weighted drop lists stay unresolved; fixed-item simulation
-  drops become item entities. Spawn/despawn packets stay T57.
+  drops become item entities. Runtime entity spawn presentation landed in T57;
+  projectile spawn/despawn and dynamic transforms remain T59.
 
 ### T57 — UI basics and block health presentation
 
-**Package:** `hytale-server`, protocol
+**Status:** done (session 47)
+**Package:** `hytale-world`, `hytale-server`, `tools/client-bot`
 **Goal:** the minimal UI/world-map/compass/marker packets needed by M5 scenarios;
 block health/breaking presentation.
 **Acceptance:** client-visible state matches the server state in scripted runs.
+
+**Deviations**
+
+- Block health uses `UpdateBlockDamage`/`UpdateBlockDamages` for load snapshots
+  and simulation deltas; the client-side breaking animation and partial-hit
+  interaction loop remain later combat work.
+- The world map streams settings and `BlockMapMarker` points of interest, but
+  not map chunk images; discoverable markers ignore per-player reveal state.
+- Runtime entities are static spawn presentations (no transform/animation
+  tick); item metadata/quality are not yet carried in the spawn packet.
+- Full `UpdateEntityStatTypes`/`UpdateEntityEffects`/`UpdateProjectileConfigs`/
+  `UpdateWeathers` config-burst packets, particles/sounds and HUD windows remain
+  T57b/T59/T60.
+
+### T57b — Presentation follow-ups
+
+**Status:** in progress (session 48)
+**Package:** `hytale-assets`, `hytale-server`, `tools/client-bot`
+**Depends on:** T57
+**Agent fit:** low/medium
+
+**Goal:** close the client-presentation gaps T57 deferred: partial-hit block
+breaking, runtime entity lifecycle/metadata, the remaining entity/projectile/
+weather config packets, map images and discovery, and the minimal HUD/window
+packets needed by M5 scenarios. Producers remain with T58/T59/T60; T57b owns
+the packet/encoder/UI contract and scripted client coverage.
+
+**Acceptance:** partial hits and fragility, entity spawn/update/despawn,
+full item metadata, all new config packets in the join burst, map
+images/discovery and the M5 HUD/window packets are visible in scripted runs;
+existing v1/T56/T57 gates stay green.
+
+**Follow-ups:** full UI framework, editor/builder tools, machinima and
+multi-server map state stay T61/later.
 
 ---
 
@@ -907,7 +943,9 @@ tests.
    cached config packets.
 5. T43–T47 are serialized by shared session/world state; T48 is the final M4
    gate.
-6. M5 starts only after T48; M6 after M5; M7 after M6.
+6. M5 starts only after T48 and closes with T57b; M6 starts after T57b.
+   T58 (the new `hytale-npc` crate) may run in parallel in a separate worktree,
+   but T59/T60 presentation work waits for T57b. M7 after M6.
 7. Every task keeps the workspace gates green before handoff.
 
 ## 3. Definition of done for phase 2

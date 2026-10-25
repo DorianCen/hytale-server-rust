@@ -145,6 +145,10 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
             57, // UpdateItemReticles
             56, // UpdateItemCategories
             52, // UpdateItemPlayerAnimations
+            72, // UpdateEntityStatTypes
+            51, // UpdateEntityEffects
+            85, // UpdateProjectileConfigs
+            47, // UpdateWeathers
             54, // UpdateItems
         ],
         "config packets must arrive in dependency order"
