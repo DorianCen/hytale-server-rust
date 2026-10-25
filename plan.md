@@ -13,7 +13,7 @@ teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete,
 T49 (inventory containers/transactions), T50 (interaction graph and block
 interactions), T51 (movement physics and collision authority), T52 (block
 simulation) and its parity follow-ups T52b–T52d are done; M5 gameplay parity
-continues with T53 (done), T54 (done) and T55 (done), then T56.
+continues with T53 (done), T54 (done), T55 (done) and T56 (done), then T57.
 
 ## 0. Baseline
 
@@ -815,10 +815,22 @@ as scoped in `REMAINING.md`.
 
 ### T56 — Prefab spawner and runtime entities
 
-**Package:** `hytale-world`, `hytale-entities`
+**Status:** done (session 46)
+**Package:** `worldgen-hytale`, `hytale-world`, `hytale-server`
 **Goal:** prefab block/fluid/environment paste (already), prefab entities and
 block components, spawn/despawn lifecycle.
 **Acceptance:** prefab scenario matches Java; save/reload preserves entities.
+
+**Deviations**
+
+- Prefab entity and block-component documents are preserved as JSON and the
+  runtime store persists them in `entities.json`/`block-components.json`; the
+  full Java `EntityStore`/`ChunkStore` ECS codec is not ported.
+- Paste uses forced writes and does not model technical flags, paste events or
+  block-settings flags. Entity order is prefab-file order (Java groups by
+  column/hash order).
+- Item drops with weighted drop lists stay unresolved; fixed-item simulation
+  drops become item entities. Spawn/despawn packets stay T57.
 
 ### T57 — UI basics and block health presentation
 

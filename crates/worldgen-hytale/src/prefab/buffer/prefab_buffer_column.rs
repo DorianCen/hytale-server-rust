@@ -29,9 +29,9 @@ impl PrefabBufferColumn {
     /// memorySegment, Holder<EntityStore>[] entityHolders, Int2ObjectMap
     /// <Holder<ChunkStore>> blockComponents)`.
     ///
-    /// Deviation: the entity holders and the block components (the ECS
-    /// state) are not ported (see `REMAINING.md` § 2) — the column only
-    /// carries its blocks.
+    /// Deviation: the entity holders are kept on
+    /// [`PrefabBuffer::entities`](super::prefab_buffer::PrefabBuffer) instead
+    /// of the column, and a block's `components` document lives on its entry.
     pub fn new(entries: Vec<PrefabBufferBlockEntry>) -> Self {
         Self {
             block_count: entries.len(),

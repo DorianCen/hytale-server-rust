@@ -21,6 +21,10 @@ use crate::chunk::storage::{
 use crate::player_data::{
     PlayerData, PlayerDataError, PlayerStorage, PlayerTransform, Position, Rotation,
 };
+use crate::runtime::{
+    BlockComponent, BlockComponentStore, RuntimeEntity, RuntimeEntityId, RuntimeEntityKind,
+    RuntimeEntityStore,
+};
 use crate::world_config::{WorldConfig, WorldConfigError, WorldUuid};
 
 /// Errors from the runtime world storage.
@@ -47,6 +51,12 @@ pub enum WorldError {
     /// A missing chunk could not be generated.
     #[error("chunk generation failed: {0}")]
     Generation(String),
+    /// Runtime entity/block-component state failed.
+    #[error(transparent)]
+    Runtime(#[from] crate::runtime::RuntimeStateError),
+    /// A prefab could not be pasted.
+    #[error("prefab paste failed: {0}")]
+    PrefabPaste(String),
 }
 
 /// Result alias for the world storage.
@@ -208,6 +218,10 @@ pub struct World {
     changed_blocks: BTreeSet<(i32, i32, i32)>,
     /// Transient Java `BlockPhysics` support values (`0..=15`, `15` = deco).
     block_support: BTreeMap<(i32, i32, i32), u8>,
+    /// Runtime entities (prefabs, items, projectiles, NPCs).
+    entities: RuntimeEntityStore,
+    /// Per-position block-component documents (Java `BlockComponentSection`).
+    block_components: BlockComponentStore,
 }
 
 impl World {
@@ -220,6 +234,8 @@ impl World {
             tick: 0,
             changed_blocks: BTreeSet::new(),
             block_support: BTreeMap::new(),
+            entities: RuntimeEntityStore::new(),
+            block_components: BlockComponentStore::new(),
         }
     }
 
@@ -294,6 +310,7 @@ impl World {
             self.dirty.insert(index);
             self.changed_blocks.insert((x, y, z));
             self.block_support.remove(&(x, y, z));
+            self.block_components.remove(x, y, z);
         }
         Ok(changed)
     }
@@ -331,6 +348,7 @@ impl World {
             self.dirty.insert(index);
             self.changed_blocks.insert((x, y, z));
             self.block_support.remove(&(x, y, z));
+            self.block_components.remove(x, y, z);
         }
         Ok(changed)
     }
@@ -386,6 +404,94 @@ impl World {
         std::mem::take(&mut self.changed_blocks)
             .into_iter()
             .collect()
+    }
+
+    /// Runtime entity store.
+    pub fn entities(&self) -> &RuntimeEntityStore {
+        &self.entities
+    }
+
+    /// Mutable runtime entity store.
+    pub fn entities_mut(&mut self) -> &mut RuntimeEntityStore {
+        &mut self.entities
+    }
+
+    /// Spawn a runtime entity.
+    pub fn spawn_entity(
+        &mut self,
+        kind: RuntimeEntityKind,
+        prefab: Option<String>,
+        transform: PlayerTransform,
+        components: serde_json::Value,
+    ) -> RuntimeEntityId {
+        self.entities
+            .spawn(RuntimeEntity::new(0, kind, prefab, transform, components))
+    }
+
+    /// Remove a runtime entity.
+    pub fn despawn_entity(&mut self, id: RuntimeEntityId) -> Option<RuntimeEntity> {
+        self.entities.despawn(id)
+    }
+
+    /// One runtime entity.
+    pub fn entity(&self, id: RuntimeEntityId) -> Option<&RuntimeEntity> {
+        self.entities.get(id)
+    }
+
+    /// Block-component store.
+    pub fn block_components(&self) -> &BlockComponentStore {
+        &self.block_components
+    }
+
+    /// Mutable block-component store.
+    pub fn block_components_mut(&mut self) -> &mut BlockComponentStore {
+        &mut self.block_components
+    }
+
+    /// One block component.
+    pub fn block_component(&self, x: i32, y: i32, z: i32) -> Option<&BlockComponent> {
+        self.block_components.get(x, y, z)
+    }
+
+    /// Install/replace a block component.
+    pub fn set_block_component(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+        components: serde_json::Value,
+    ) {
+        self.block_components.set(
+            x,
+            y,
+            z,
+            BlockComponent {
+                block_id,
+                components,
+            },
+        );
+    }
+
+    /// Remove one block component.
+    pub fn remove_block_component(&mut self, x: i32, y: i32, z: i32) -> Option<BlockComponent> {
+        self.block_components.remove(x, y, z)
+    }
+
+    /// Load `entities.json` and `block-components.json` from the save root.
+    pub fn load_runtime_state(&mut self) -> Result<()> {
+        let save_dir = self.storage.save_dir().to_path_buf();
+        self.entities = RuntimeEntityStore::load(&save_dir)?;
+        self.block_components = BlockComponentStore::load(&save_dir)?;
+        Ok(())
+    }
+
+    /// Save the runtime stores when they are dirty.
+    pub fn save_runtime_state(&mut self) -> Result<bool> {
+        let save_dir = self.storage.save_dir().to_path_buf();
+        let entities = self.entities.save(&save_dir)?;
+        let blocks = self.block_components.save(&save_dir)?;
+        Ok(entities || blocks)
     }
 
     /// Remaining block health (`1.0` when undamaged).
@@ -653,7 +759,8 @@ impl WorldSave {
             config.save(&config_path)?;
             (config, true)
         };
-        let world = World::new(WorldStorage::new(save_dir.clone()));
+        let mut world = World::new(WorldStorage::new(save_dir.clone()));
+        world.load_runtime_state()?;
         let players = PlayerStorage::for_save_dir(&save_dir);
         Ok((
             Self {
@@ -731,6 +838,7 @@ impl WorldSave {
     /// Save every dirty chunk, flush the region files and write the config.
     pub fn save_all(&mut self, codec: &ChunkCodec<'_>) -> Result<usize> {
         let saved = self.world.save_all(codec)?;
+        self.world.save_runtime_state()?;
         self.save_config()?;
         Ok(saved)
     }

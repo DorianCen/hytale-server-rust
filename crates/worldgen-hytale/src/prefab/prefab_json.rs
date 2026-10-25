@@ -24,11 +24,11 @@
 //! * **The block id migrations are not ported** — the Java chains the
 //!   `BlockMigration` assets of the `blockIdVersion`; the Rust port has no
 //!   migration assets, so the block names are resolved as they are.
-//! * **The block components (`"components"`) are not ported** — they are
-//!   the ECS state of the block (`REMAINING.md` § 2). The number of the
-//!   skipped components is reported by [`PrefabJsonStats`].
-//! * **The entities are not ported** (`REMAINING.md` § 2) — the number of
-//!   the skipped entities is reported by [`PrefabJsonStats`].
+//! * **Block components and entities keep their JSON documents** — the Java
+//!   codec deserializes full `ChunkStore`/`EntityStore` holders. The Rust port
+//!   preserves the `"components"` and `"Components"` documents verbatim so the
+//!   runtime store (T56) can persist and expose them without porting the ECS
+//!   codec. The parsed counts are still reported by [`PrefabJsonStats`].
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -36,7 +36,7 @@ use std::rc::Rc;
 use serde_json::Value;
 use worldgen_model::registry::Registries;
 
-use crate::prefab::buffer::prefab_buffer::PrefabBuffer;
+use crate::prefab::buffer::prefab_buffer::{PrefabBuffer, PrefabEntity};
 use crate::prefab::buffer::prefab_buffer_block_entry::PrefabBufferBlockEntry;
 
 /// Java `SelectionPrefabSerializer.VERSION` — the current prefab format.
@@ -45,8 +45,11 @@ pub const PREFAB_FORMAT_VERSION: i32 = 8;
 /// Java `BsonPrefabBufferDeserializer.LEGACY_BLOCK_ID_VERSION` = `8`.
 pub const LEGACY_BLOCK_ID_VERSION: i32 = 8;
 
-/// The statistics of a parsed prefab file — the parts the Rust port does
-/// not carry.
+/// Parse statistics of a prefab file.
+///
+/// The documents themselves are carried on the block entries and
+/// [`PrefabBuffer::entities`]; the counts remain useful for validation and
+/// reporting.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PrefabJsonStats {
     /// The number of blocks that carry a `"components"` object.
@@ -147,8 +150,9 @@ pub fn parse_prefab_json(
             entry.block_id = resolve_block(registries, block_type_key);
             entry.chance = chance;
 
-            if block.get("components").is_some() {
+            if let Some(components) = block.get("components") {
                 stats.blocks_with_components += 1;
+                entry.components = Some(components.clone());
             }
 
             entry.support_value = match block.get("support") {
@@ -218,17 +222,22 @@ pub fn parse_prefab_json(
         }
     }
 
-    // --- the entities (stubbed) ----------------------------------------
-    if let Some(entities) = document.get("entities") {
-        stats.entity_count = entities
+    // --- the entities --------------------------------------------------
+    let mut entities = Vec::new();
+    if let Some(values) = document.get("entities") {
+        let values = values
             .as_array()
-            .map(|array| array.len())
-            .unwrap_or_default();
+            .unwrap_or_else(|| panic!("The 'entities' field is not an array"));
+        stats.entity_count = values.len();
+        for (index, value) in values.iter().enumerate() {
+            entities.push(parse_entity(value, anchor, index));
+        }
     }
 
     // --- the build -----------------------------------------------------
     let mut builder = PrefabBuffer::new_builder();
     builder.set_anchor(anchor);
+    builder.set_entities(entities);
     for column_index in column_order {
         let column = columns
             .get(&column_index)
@@ -242,6 +251,48 @@ pub fn parse_prefab_json(
     }
 
     (builder.build(), stats)
+}
+
+/// Java `BsonPrefabBufferDeserializer.deserializeEntityHolders` — one entity
+/// document with the anchor baked out of its `Transform`.
+fn parse_entity(value: &Value, anchor: (i32, i32, i32), index: usize) -> PrefabEntity {
+    let components = value
+        .get("Components")
+        .cloned()
+        .unwrap_or_else(|| panic!("Prefab entity #{index} has no Components"));
+    let transform = components
+        .get("Transform")
+        .unwrap_or_else(|| panic!("Prefab entity #{index} has no Transform"));
+    let position = transform
+        .get("Position")
+        .unwrap_or_else(|| panic!("Prefab entity #{index} has no Transform.Position"));
+    let rotation = transform
+        .get("Rotation")
+        .unwrap_or_else(|| panic!("Prefab entity #{index} has no Transform.Rotation"));
+
+    PrefabEntity {
+        position: [
+            number_f64(position.get("X")) - f64::from(anchor.0),
+            number_f64(position.get("Y")) - f64::from(anchor.1),
+            number_f64(position.get("Z")) - f64::from(anchor.2),
+        ],
+        rotation: [
+            number_f64(rotation.get("Pitch")) as f32,
+            number_f64(rotation.get("Yaw")) as f32,
+            number_f64(rotation.get("Roll")) as f32,
+        ],
+        components,
+    }
+}
+
+fn number_f64(value: Option<&Value>) -> f64 {
+    value
+        .map(|value| match value {
+            Value::Number(number) => number.as_f64().unwrap_or(0.0),
+            Value::String(text) => text.parse().unwrap_or(0.0),
+            _ => 0.0,
+        })
+        .unwrap_or(0.0)
 }
 
 /// Java `BlockType.getBlockIdOrUnknown(assetMap, blockTypeKey, "Failed to

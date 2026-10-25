@@ -1,6 +1,8 @@
 // Ported from: `.hytale-source/.../CoreServer/.../prefab/selection/buffer/impl/PrefabBufferBlockEntry.java`
 //! Java `PrefabBufferBlockEntry` — one block of a prefab column.
 
+use serde_json::Value;
+
 /// Java `public class PrefabBufferBlockEntry`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrefabBufferBlockEntry {
@@ -23,6 +25,12 @@ pub struct PrefabBufferBlockEntry {
     pub filler: i32,
     /// Java `public int rotation` — the rotation index of the block.
     pub rotation: i32,
+    /// Java `public Holder<ChunkStore> state` — the block's `components`
+    /// document (`{"Components": { ... }}`).
+    ///
+    /// The Rust port keeps the JSON document instead of deserializing the ECS
+    /// holder; the runtime block-component store preserves it verbatim.
+    pub components: Option<Value>,
 }
 
 impl PrefabBufferBlockEntry {
@@ -44,6 +52,7 @@ impl PrefabBufferBlockEntry {
             support_value: 0,
             filler: 0,
             rotation: 0,
+            components: None,
         }
     }
 }

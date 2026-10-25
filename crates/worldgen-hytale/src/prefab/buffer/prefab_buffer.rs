@@ -33,6 +33,7 @@
 //! Rust port reproduces that quirk.
 
 use hytale_math::math_util;
+use serde_json::Value;
 
 use worldgen_model::block_key::RotationTuple;
 
@@ -69,6 +70,21 @@ pub struct ChildPrefab {
     pub weights: PrefabWeights,
     /// Java `@Nonnull private final PrefabRotation rotation`.
     pub rotation: PrefabRotation,
+}
+
+/// One entity stored in a prefab file.
+///
+/// Java keeps these as `Holder<EntityStore>` values grouped by the column the
+/// entity occupies. The Rust port keeps the same `Components` document and
+/// the anchor-adjusted `Transform`, flattened in file order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PrefabEntity {
+    /// Java `TransformComponent.getPosition()` after the anchor offset.
+    pub position: [f64; 3],
+    /// Java `TransformComponent.getRotation()`.
+    pub rotation: [f32; 3],
+    /// The entity's serialized `Components` document.
+    pub components: Value,
 }
 
 /// The block a [`PrefabBufferAccessor::for_each`] traversal reports.
@@ -131,6 +147,9 @@ pub struct PrefabBuffer {
     pub columns: IntObjectOpenHashMap<PrefabBufferColumn>,
     /// Java `@Nonnull private final ChildPrefab[] childPrefabs`.
     pub child_prefabs: Vec<ChildPrefab>,
+    /// The entities of the prefab (Java keeps them per column; the Rust port
+    /// keeps the anchor-adjusted transforms in file order).
+    pub entities: Vec<PrefabEntity>,
 }
 
 impl PrefabBuffer {
@@ -171,6 +190,8 @@ pub struct PrefabBufferBuilder {
     builder_columns: Vec<(i32, i32, Vec<PrefabBufferBlockEntry>)>,
     /// Java `private final List<ChildPrefab> childPrefabs`.
     child_prefabs: Vec<ChildPrefab>,
+    /// The prefab entities (Java keeps them in the builder columns).
+    entities: Vec<PrefabEntity>,
     /// Java `private Vector3i anchor`.
     anchor: (i32, i32, i32),
 }
@@ -183,8 +204,15 @@ impl PrefabBufferBuilder {
             max: (i32::MIN, i32::MIN, i32::MIN),
             builder_columns: Vec::new(),
             child_prefabs: Vec::new(),
+            entities: Vec::new(),
             anchor: (0, 0, 0),
         }
+    }
+
+    /// Install the prefab entities (the Java builder receives them through
+    /// `addColumn`; the Rust buffer keeps the flattened list).
+    pub fn set_entities(&mut self, entities: Vec<PrefabEntity>) {
+        self.entities = entities;
     }
 
     /// Java `public void setAnchor(@Nonnull Vector3i anchor)`.
@@ -196,9 +224,10 @@ impl PrefabBufferBuilder {
     /// PrefabBufferBlockEntry[] entries, @Nullable Holder<EntityStore>[]
     /// entityHolders)`.
     ///
-    /// Deviation: the entity holders are not ported (`REMAINING.md` § 2), so
-    /// a column without blocks is dropped (the Java builder keeps it when
-    /// it carries entities).
+    /// Deviation: entities are installed separately with
+    /// [`Self::set_entities`], so a column without blocks is dropped (the Java
+    /// builder keeps it when it carries entities). The per-column grouping is
+    /// not observable in the Rust buffer.
     pub fn add_column(&mut self, x: i32, z: i32, entries: Vec<PrefabBufferBlockEntry>) {
         if x < i16::MIN as i32 {
             panic!("x is smaller than {}. Given: {x}", i16::MIN);
@@ -319,6 +348,7 @@ impl PrefabBufferBuilder {
             max,
             columns,
             child_prefabs: self.child_prefabs,
+            entities: self.entities,
         }
     }
 }
@@ -392,6 +422,24 @@ impl<'a> PrefabBufferAccessor<'a> {
     /// Java `@Nonnull public ChildPrefab[] getChildPrefabs()`.
     pub fn get_child_prefabs(&self) -> &[ChildPrefab] {
         &self.buffer.child_prefabs
+    }
+
+    /// The prefab entities, anchor-adjusted and in file order.
+    pub fn get_entities(&self) -> &[PrefabEntity] {
+        &self.buffer.entities
+    }
+
+    /// Iterate the prefab entities with the prefab rotation applied to their
+    /// position (`PrefabUtil.paste`'s entity callback).
+    pub fn for_each_entity(
+        &self,
+        rotation: PrefabRotation,
+        mut consumer: impl FnMut(&PrefabEntity, [f64; 3]),
+    ) {
+        for entity in &self.buffer.entities {
+            let (x, z) = rotation.rotate_x_z(entity.position[0], entity.position[2]);
+            consumer(entity, [x, entity.position[1], z]);
+        }
     }
 
     /// Java `default int getMaximumExtend()`.
@@ -500,8 +548,9 @@ impl<'a> PrefabBufferAccessor<'a> {
     /// blockConsumer, @Nullable EntityConsumer<T> entityConsumer, @Nullable
     /// ChildConsumer<T> childConsumer, @Nonnull T t)`.
     ///
-    /// Deviation: the entity consumer is not ported (`REMAINING.md` § 2) —
-    /// the prefab entities are stubbed.
+    /// Deviation: this signature does not take the Java `EntityConsumer`;
+    /// entities are flat in [`PrefabBuffer::entities`] and iterated with
+    /// [`Self::for_each_entity`].
     ///
     /// The call context is taken by reference (the Java traversal is
     /// re-entrant: the child consumer calls back into the traversal).

@@ -1011,3 +1011,63 @@ This file records phase-2 sessions only.
     to the config burst.
   - T58/T59 feed NPC targets/mount entities and simulate the new physics; T62
     adds spawn/rate limits.
+
+---
+
+## Session 46 — Prefab entities, block components and runtime entities (2026-10-25)
+
+- **Goal:** finish the T56 prefab path: parse prefab entities/block components,
+  paste a prefab into a live world and persist the runtime entities the M5
+  work needs.
+- **Landed:**
+  - T56: `worldgen-hytale` keeps each block's `"components"` document and
+    parses `"entities"` into anchor-adjusted `PrefabEntity` values (transform +
+    full `Components`). `PrefabBufferAccessor::for_each_entity` applies the
+    prefab rotation; the real `Hunt.Generic.Site` test gates 10 blocks,
+    3 entities and the `Hunt_Trap` `BlockMapMarker` document.
+  - `hytale-world::runtime` adds `RuntimeEntityStore`/`BlockComponentStore`
+    with stable ids, spawn/despawn, radius queries, dirty tracking and versioned
+    atomic JSON in the world save root (`entities.json`,
+    `block-components.json`). `WorldSave` loads/saves them; replacing a block
+    removes its component.
+  - `hytale-world::prefab::paste_prefab` applies rotated blocks/fluids/fillers/
+    support values, records block components and spawns rotated prefab
+    entities.
+  - `hytale-server`: `WorldGenerator` owns the asset-pack `PrefabStore` with
+    the generator's registries; `WorldThread` exposes `place_prefab`,
+    `entities`, `despawn_entity`, `spawn_item_entity`, `block_component` and
+    `block_components`. Simulation fixed-item drops become item entities;
+    weighted drop lists stay unresolved.
+  - New `crates/hytale-server/tests/prefab.rs`: real `Hunt.Generic.Site` paste
+    at a 90° rotation (blocks, component, 3 entities), despawn, save/reopen and
+    item-entity persistence.
+  - Test-loop infrastructure: `TESTING.md` and `tools/test.sh` define
+    unit/fast/integration/assets/e2e/all tiers. Asset-backed tests honor
+    `HYTALE_TEST_ASSETS=0`, so `./tools/test.sh fast` runs unit plus non-asset
+    integration in ~8 s with nextest (~16–21 s with plain cargo) here instead
+    of the full asset-backed gate. The asset-backed side is split into a fast
+    `assets` packet/golden tier (~4.5 min) and a `slow` worldgen/world-boot
+    tier (~12 min); both were run green with nextest.
+    `HYTALE_SHARED_ASSETS=1` (set by the script and opt-in otherwise) reuses
+    the phase-2 registry, interaction catalog and encoded config burst across
+    world boots; `cargo test -p hytale-server` measured ~457 s → ~349 s.
+    `.config/nextest.toml` adds fast/assets/e2e profiles, and the script uses
+    cargo-nextest automatically when installed.
+- **Verified:**
+  - `cargo test -p worldgen-hytale`, `-p hytale-world` and `-p hytale-server`.
+  - `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D
+    warnings` and `cargo fmt --all -- --check`.
+- **Deviations:**
+  - Runtime entities/block components persist as JSON sidecars, not the Java
+    `EntityStore`/`ChunkStore` ECS BSON; the original `Components` documents are
+    preserved. Chunk regions remain Java-readable and do not embed this state.
+  - Prefab entity order is file order (Java groups by column/hash order); the
+    prefab UUID stays a component value and the Rust runtime id is the identity.
+  - Paste uses forced writes and does not model technical/paste-event flags.
+    Item entities have no pickup/drop transaction yet.
+- **Follow-ups:**
+  - T57 sends entity spawn/despawn/transform, projectile/effect/damage and
+    block-health presentation packets.
+  - T58/T59 produce NPC entities and projectile targets; weighted drop-list
+    resolution lands with the drop-list producer (T57/T60).
+  - T62 adds spawn-rate/entity-count limits.

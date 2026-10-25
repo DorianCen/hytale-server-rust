@@ -119,8 +119,9 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   seam; T52d stores health/fragility in the Java `BlockHealthSection` component
   with legacy `BlockHealthChunk` migration and pending deltas for T57. T53
   (stats/effects/damage plus the Java entity-gameplay fixture), T54 (time and
-  weather) and T55 (projectiles plus traversal/mount seams) are done; M5
-  continues with T56. See [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
+  weather), T55 (projectiles plus traversal/mount seams) and T56 (prefab
+  entities/block components plus the persisted runtime store) are done; M5
+  continues with T57. See [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
   and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -447,23 +448,29 @@ tick, sets the clock's sunlight factor for light gates and broadcasts
 block/fluid changes to viewers. Per-section health/fragility lives in the Java
 `BlockHealthSection` v0 component (legacy `BlockHealthChunk` is migrated on
 read) and `SimulationReport::health_deltas` is the T57 replication seam. Sound
-playback, item-entity drops and the builtin module lifecycle remain T56/T57/T60.
+playback and the builtin module lifecycle remain T57/T60; T56 lands fixed-item
+drop entities, prefab entities/block components and their persistence.
 
 ---
 
 ## 6. Entity layer
 
-- `hytale-entities` wraps `bevy_ecs`.
-- Each `World` owns an `EntityStore` (`bevy_ecs::World` plus resources).
-- Components are Rust structs; a registration wrapper provides stable type ids,
-  serialization, and copy/clone semantics.
-- Systems are scheduled on the world thread. Java's `CommandBuffer`/`Ref`
-  behavior is mapped to deferred commands and entity ids; exact ECS API parity is
-  not a goal.
-- `PlayerRef` is a handle containing UUID, username, connection, world, and
-  entity reference.
-- Chunk components stay in `hytale-world`; block entities that need ECS
-  behavior live in the entity store and reference a block position.
+- `hytale-entities` provides deterministic gameplay models (stats/effects/
+  damage/projectiles/movement); a general `bevy_ecs` store is still a later
+  seam, not the current implementation.
+- Each `World` owns `hytale_world::runtime::RuntimeEntityStore` and
+  `BlockComponentStore`: stable runtime ids, transforms, prefab/item/projectile
+  kinds and the original component JSON documents. Both commit to versioned,
+  atomically written JSON sidecars (`entities.json`,
+  `block-components.json`) with the world save. Java's ECS codec is not ported,
+  so these sidecars are not part of the Java-readable chunk regions.
+- Systems run on the world thread. Java's `CommandBuffer`/`Ref` behavior maps
+  to deferred commands and runtime ids; exact ECS API parity is not a goal.
+- `PlayerRef` is a handle containing UUID, username, connection, world, and the
+  player entity/runtime identity.
+- Chunk sections (blocks/fluids/environment/light/health) stay in
+  `hytale-world`; T56 block components are keyed by world position in the
+  runtime store and removed when the block is replaced.
 
 The initial component set is deliberately small: transform, UUID, player,
 persistent display name, world-gen id, movement/velocity, and the components

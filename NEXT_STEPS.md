@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 45)
+# Next steps — CoreServer rewrite, phase 2 (session 46)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -6,8 +6,10 @@
 the task board is [`tasks/README.md`](tasks/README.md).
 
 **Tasks landed:** **T53** (entity stats/effects/combat plus the Java
-entity-gameplay fixture), **T54** (time and weather) and **T55** (projectiles
-and traversal); M5 continues with **T56** and the T54/T57 presentation split.
+entity-gameplay fixture), **T54** (time and weather), **T55** (projectiles and
+traversal) and **T56** (prefab entities/block components plus the persisted
+runtime entity store); M5 continues with **T57** (UI basics and
+block-health/presentation) and the T54 presentation split.
 
 ## Current state
 
@@ -126,7 +128,16 @@ Landed and green:
   the slide/roll/mantle traversal state and a `MountState` rider seam. The
   Java entity fixture now gates both projectile stores; `--validate-assets`
   reports 27 stores. Packets, explosions, prediction and new-physics
-  density/drag remain T56/T57/T59.
+  density/drag remain T57/T59.
+- T56 (done): prefab parsing now keeps block `components` and entity
+  `Components`; `hytale-world::runtime` owns stable-id runtime entities and
+  block components with versioned atomic JSON sidecars, and
+  `prefab::paste_prefab` applies rotated blocks/fluids/fillers/support,
+  components and entity spawns. `WorldThread` exposes `place_prefab`,
+  entity/component queries and `spawn_item_entity`; fixed-item simulation drops
+  become item entities. The real `Hunt.Generic.Site` paste (10 blocks,
+  1 component, 3 entities) survives save/reopen. Entity/despawn packets,
+  weighted drop lists and the full Java ECS codec remain T57/T60/follow-up.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -134,10 +145,15 @@ Landed and green:
   teleport exchange; persistent chunk stream and movement-driven view updates.
 
 ```sh
-cargo test --workspace
+./tools/test.sh fast    # inner loop: unit + non-asset integration (~8–21 s here)
+./tools/test.sh unit    # pure unit tests only
+cargo test --workspace  # full release gate (asset-backed suites included)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
+
+See [`TESTING.md`](TESTING.md) for the fast asset/golden (`assets`), slow
+worldgen/world-boot (`slow`) and serial E2E tiers.
 
 ## Phase 2 sequence
 
@@ -146,9 +162,9 @@ cargo fmt --all -- --check
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   T55 (projectiles/traversal) is done; T56 (prefab spawner/runtime entities)
-   starts the remaining gameplay work; the T54 presentation/asset-packet split
-   stays with T57.
+   T55 (projectiles/traversal) and T56 (prefab/runtime entities) are done;
+   T57 (UI basics and block-health presentation) starts the remaining gameplay
+   work and owns the T54 presentation/asset-packet split.
 
 ## Try it
 

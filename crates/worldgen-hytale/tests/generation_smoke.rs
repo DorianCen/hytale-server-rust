@@ -34,6 +34,12 @@ use worldgen_model::registry::Registries;
 /// source tree — see `.gitignore`). The cave prefabs of the Default world
 /// live in it.
 fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
     PathBuf::from(format!(
         "{}/../../Assets/extracted/Server/Prefabs",
         std::env::var("CARGO_MANIFEST_DIR").unwrap()

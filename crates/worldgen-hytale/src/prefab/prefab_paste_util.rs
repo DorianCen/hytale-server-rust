@@ -19,9 +19,11 @@
 //!
 //! # Deviations
 //!
-//! * **The entities are not pasted** (`REMAINING.md` § 2).
-//! * **The block components are not pasted** — they are the ECS state of the
-//!   block (`REMAINING.md` § 2).
+//! * **The entities are not pasted by the worldgen path** — worldgen paste is
+//!   chunk-local. T56's `hytale_world::prefab::paste_prefab` pastes entities
+//!   and block components into a live world.
+//! * **The block components are not pasted by the worldgen path** — they are
+//!   preserved on the block entry and consumed by the runtime paste.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

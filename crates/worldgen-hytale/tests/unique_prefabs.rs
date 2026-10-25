@@ -45,6 +45,12 @@ fn manifest_root() -> PathBuf {
 /// The Default world's `PrefabStore` is `ASSETS`; the base-game pack is
 /// git-ignored, so these end-to-end tests are skipped when it is absent (CI).
 fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../Assets/extracted/Server/Prefabs")
         .is_dir()

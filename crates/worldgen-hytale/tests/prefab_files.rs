@@ -23,6 +23,12 @@ fn assets_root() -> PathBuf {
 /// Whether the base-game asset pack is available (it is not part of the
 /// source tree — see `.gitignore`).
 fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
     assets_root().join("Server/Prefabs").is_dir()
 }
 
@@ -93,6 +99,63 @@ fn the_cave_formation_prefab_is_parsed() {
     assert_eq!(access.get_max_x(PrefabRotation::Rotation90), 2);
     assert_eq!(access.get_min_z(PrefabRotation::Rotation90), -2);
     assert_eq!(access.get_max_z(PrefabRotation::Rotation90), 2);
+}
+
+#[test]
+fn the_hunt_site_keeps_entities_and_block_components() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let store = store();
+    let path = assets_root().join("Server/Prefabs/Hunt/Generic/Site.prefab.json");
+    let prefab = store.load(&path);
+    let access = prefab.new_access();
+
+    assert_eq!(block_count(&prefab), 10);
+    assert_eq!(access.get_entities().len(), 3);
+    assert_eq!(access.get_entities()[0].position, [-0.5, 1.0, 0.5]);
+    assert_eq!(access.get_entities()[0].rotation, [0.0, 0.0, 0.0]);
+    assert_eq!(
+        access.get_entities()[0]
+            .components
+            .get("Model")
+            .and_then(|model| model.get("Model"))
+            .and_then(|model| model.get("Id"))
+            .and_then(|id| id.as_str()),
+        Some("Encounter_Marker")
+    );
+
+    // The `Hunt_Trap` block carries the `BlockMapMarker` component document.
+    let column = prefab
+        .columns
+        .get(hytale_math::math_util::pack_int(0, 0))
+        .expect("the centre column");
+    let trap = column
+        .entries
+        .iter()
+        .find(|entry| entry.y == 1)
+        .expect("the trap block");
+    assert_eq!(trap.block_type_key, "Hunt_Trap");
+    let components = trap.components.as_ref().expect("the trap component");
+    assert_eq!(
+        components
+            .get("Components")
+            .and_then(|value| value.get("BlockMapMarker"))
+            .and_then(|value| value.get("Icon"))
+            .and_then(|value| value.as_str()),
+        Some("HuntSite.png")
+    );
+
+    // The prefab rotation only moves the entity position (Java does not
+    // rotate the entity's own yaw).
+    let mut first = None;
+    access.for_each_entity(PrefabRotation::Rotation90, |_, position| {
+        if first.is_none() {
+            first = Some(position);
+        }
+    });
+    assert_eq!(first, Some([0.5, 1.0, 0.5]));
 }
 
 #[test]

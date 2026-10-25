@@ -10,6 +10,13 @@ fn repo_root() -> PathBuf {
 }
 
 fn registry() -> Option<AssetRegistry> {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        eprintln!("HYTALE_TEST_ASSETS disables the asset-backed test");
+        return None;
+    }
     let pack = repo_root().join("Assets/Assets.zip");
     if !pack.is_file() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

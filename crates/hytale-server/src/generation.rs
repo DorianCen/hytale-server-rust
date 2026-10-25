@@ -4,14 +4,20 @@
 //! `headless` and the saved-world boot both need the same generator setup; this
 //! module owns it so they cannot drift.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex, OnceLock};
 
-use hytale_assets::{AssetError, AssetPack, AssetRegistry};
+use hytale_assets::{AssetError, AssetPack, AssetRegistry, ConfigAssets};
+use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_world::chunk::column::ChunkColumn;
 use hytale_world::chunk::section::SectionError;
 use hytale_world::registry::{registries_from_assets, RegistryError};
 use thiserror::Error;
+use worldgen_hytale::prefab::buffer::prefab_buffer::PrefabBuffer;
+use worldgen_hytale::prefab::prefab_store::PrefabStore;
+use worldgen_hytale::prefab::prefab_store_root::PrefabStoreRoot;
 use worldgen_hytale::world_gen::{WorldGenError, WorldGenOptions};
 use worldgen_hytale::world_gen_config::WorldGenConfig;
 use worldgen_model::registry::Registries;
@@ -63,16 +69,102 @@ pub enum GenerationError {
         /// What the path should contain.
         what: &'static str,
     },
+    /// Interaction assets failed to load for the shared context.
+    #[error(transparent)]
+    Interactions(#[from] InteractionError),
+    /// The shared config burst could not be encoded.
+    #[error(transparent)]
+    AssetPackets(#[from] hytale_assets::AssetPacketError),
     /// The worker count is zero.
     #[error("the worldgen worker count must be positive")]
     NoWorkers,
 }
 
+/// Asset and packet state that is independent of one world.
+///
+/// A process can serve several worlds from one asset pack; constructing the
+/// phase-2 registry, interaction catalog and encoded config burst once avoids
+/// repeating the expensive decode/encode work per world. Sharing is opt-in with
+/// `HYTALE_SHARED_ASSETS=1` (the test scripts enable it).
+#[derive(Clone)]
+pub struct SharedGeneratorAssets {
+    assets: Arc<AssetRegistry>,
+    registries: Arc<Registries>,
+    interactions: Arc<InteractionCatalog>,
+    config_assets: Arc<ConfigAssets>,
+}
+
+impl SharedGeneratorAssets {
+    /// The phase-2 asset registry.
+    pub fn assets(&self) -> &AssetRegistry {
+        &self.assets
+    }
+
+    /// The worldgen registries derived from the asset pack.
+    pub fn registries(&self) -> &Arc<Registries> {
+        &self.registries
+    }
+
+    /// The interaction catalog loaded from the asset pack.
+    pub fn interactions(&self) -> Arc<InteractionCatalog> {
+        Arc::clone(&self.interactions)
+    }
+
+    /// The encoded config asset burst shared by every session.
+    pub fn config_assets(&self) -> Arc<ConfigAssets> {
+        Arc::clone(&self.config_assets)
+    }
+}
+
+static SHARED_GENERATOR_ASSETS: OnceLock<Mutex<HashMap<PathBuf, Arc<SharedGeneratorAssets>>>> =
+    OnceLock::new();
+
+fn shared_assets_enabled() -> bool {
+    matches!(
+        std::env::var("HYTALE_SHARED_ASSETS").as_deref(),
+        Ok("1" | "true" | "on" | "yes")
+    )
+}
+
+/// Load (or reuse) the process-wide asset context for one pack.
+fn shared_generator_assets(
+    options: &GeneratorOptions,
+) -> Result<Arc<SharedGeneratorAssets>, GenerationError> {
+    let key =
+        std::fs::canonicalize(&options.assets_pack).unwrap_or_else(|_| options.assets_pack.clone());
+    let cache = SHARED_GENERATOR_ASSETS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(shared) = cache.get(&key) {
+        return Ok(Arc::clone(shared));
+    }
+
+    let pack = AssetPack::open(&options.assets_pack)?;
+    let assets = Arc::new(AssetRegistry::load_phase2(&pack)?);
+    let registries = Arc::new(registries_from_assets(&assets)?);
+    let interactions = Arc::new(InteractionCatalog::load(&pack)?);
+    let config_assets = Arc::new(assets.config_assets()?);
+    let shared = Arc::new(SharedGeneratorAssets {
+        assets,
+        registries,
+        interactions,
+        config_assets,
+    });
+    cache.insert(key, Arc::clone(&shared));
+    Ok(shared)
+}
+
 /// One asset registry + generator pair.
 pub struct WorldGenerator {
-    assets: AssetRegistry,
+    assets: Arc<AssetRegistry>,
     registries: Arc<Registries>,
     provider: WorldGenChunkProvider,
+    /// CoreServer asset-pack prefabs (`Server/Prefabs`), resolved with the
+    /// same block/fluid registries the generator uses.
+    prefabs: PrefabStore,
+    /// Process-wide asset/interaction/config context when sharing is enabled.
+    shared: Option<Arc<SharedGeneratorAssets>>,
 }
 
 impl WorldGenerator {
@@ -85,10 +177,27 @@ impl WorldGenerator {
             return Err(GenerationError::NoWorkers);
         }
 
-        let pack = AssetPack::open(&options.assets_pack)?;
-        // Phase 2 loads every child store the join streams.
-        let assets = AssetRegistry::load_phase2(&pack)?;
-        let registries = Arc::new(registries_from_assets(&assets)?);
+        let shared = if shared_assets_enabled() {
+            Some(shared_generator_assets(options)?)
+        } else {
+            None
+        };
+        let (assets, registries) = match &shared {
+            Some(shared) => (Arc::clone(&shared.assets), Arc::clone(&shared.registries)),
+            None => {
+                let pack = AssetPack::open(&options.assets_pack)?;
+                // Phase 2 loads every child store the join streams.
+                let assets = Arc::new(AssetRegistry::load_phase2(&pack)?);
+                let registries = Arc::new(registries_from_assets(&assets)?);
+                (assets, registries)
+            }
+        };
+        let prefab_root = PrefabStoreRoot::resolve_prefab_store(
+            PrefabStoreRoot::Assets,
+            &options.world_dir,
+            &options.assets_root,
+        );
+        let prefabs = PrefabStore::new(prefab_root, Rc::new((*registries).clone()));
         let config = WorldGenConfig::new(
             options.world_dir.clone(),
             GENERATOR_NAME.to_string(),
@@ -108,12 +217,33 @@ impl WorldGenerator {
             assets,
             registries,
             provider,
+            prefabs,
+            shared,
         })
     }
 
     /// The phase-2 asset registry used for the storage/packet codecs.
     pub fn assets(&self) -> &AssetRegistry {
         &self.assets
+    }
+
+    /// The shared asset context, when `HYTALE_SHARED_ASSETS` is enabled.
+    pub fn shared_assets(&self) -> Option<Arc<SharedGeneratorAssets>> {
+        self.shared.as_ref().map(Arc::clone)
+    }
+
+    /// The prefab store rooted at `Assets/<pack>/Server/Prefabs`.
+    pub fn prefab_store(&self) -> &PrefabStore {
+        &self.prefabs
+    }
+
+    /// Resolve and load one prefab by its dotted name.
+    ///
+    /// Returns `None` when the name matches no prefab file.
+    pub fn prefab(&self, name: &str) -> Option<Rc<PrefabBuffer>> {
+        let paths = self.prefabs.resolve(name);
+        let path = paths.first()?;
+        Some(self.prefabs.load(path))
     }
 
     /// Generate one chunk and convert it to the runtime column.

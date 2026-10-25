@@ -19,14 +19,16 @@ Deferred to M5:
 - Projectiles beyond T55's deterministic core (legacy flight, block/entity hit,
   bounce/stick/TTL, new-config seam): density/drag/buoyancy/rolling and
   `GroundFollow` physics, predicted/pierce/DirectionalHitBox projectiles,
-  explosions, particles/sounds and spawn/despawn packets (T56/T57/T59).
+  explosions, particles/sounds and spawn/despawn packets (T57/T59).
 - Mounts, parkour, mantling, crouch-slide and safety roll beyond T55's
   slide/roll/mantle state machine and rider/seat seam: world mount entities,
   traversal animation/anti-cheat and the builtin parkour checkpoints
   (T58/T59/T60/T62).
-- Inventory windows/UI, block containers and dropped-item entities beyond the
-  T49 item-stack/container/transaction core (hotbar/utility/armor/storage/tools/
-  backpack, active slots, held-item consumption and save/reconnect are landed).
+- Inventory windows/UI, block containers and item pickup/drop transactions
+  beyond the T49 item-stack/container/transaction core and T56's persisted item
+  entities (hotbar/utility/armor/storage/tools/backpack, active slots,
+  held-item consumption and save/reconnect are landed; fixed-item simulation
+  drops spawn runtime item entities, weighted drop lists stay unresolved).
 - Interaction graph beyond the T50 block `Use`/door/state core: item and entity
   roots, selectors, effects/sounds, cooldowns, client-chain sync and
   container/bench windows (T53/T55/T57).
@@ -101,8 +103,10 @@ The worldgen port intentionally skipped these; CoreServer needs some of them.
 - `WorldGenerator/builtin/worldgen/modifier` (34 files) and `ModifyEvents`
   dispatch. Needed for custom cave/cover/fluid/layer/prefab/tint content and
   ore modifiers. Port in M3 or make the modifier seam explicit, then port.
-- Prefab entities and block components (ECS state) — prefab spawner needs them
-  in M5; v1 only pastes blocks/fluids/environments.
+- Prefab entities and block components are landed by T56 as runtime stores
+  with JSON sidecars. The full Java `EntityStore`/`ChunkStore` ECS BSON codec
+  (and therefore Java-readable runtime entity saves) remains deferred; the
+  sidecars preserve the original `Components` documents.
 - `.lpf` binary prefab cache — not needed for v1; JSON is the source of truth.
 - `BiomeDataSystem` player zone/biome tracking — needed for map/UI in M5.
 - World map UI (the offline PNG renderer in `worldgen-cli` is enough for tests).

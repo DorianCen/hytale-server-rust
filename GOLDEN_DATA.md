@@ -317,8 +317,9 @@ The random-tick ordering uses a deterministic Rust RNG, not Java's
 T52b/T52c/T52d now cover partial-hitbox fluid coverage, waterlogging,
 finite/fire tickers, disabled tickers, support-distance chains, filler/self-face
 support, light/fluid gates, weighted placement, scheduled growth and Java
-`BlockHealthSection` persistence. Sound playback, item-entity drops and damage
-packets stay T56/T57; builtin module lifecycle stays T60.
+`BlockHealthSection` persistence. T56 adds fixed-item drop entities and the
+prefab runtime entities/block components. Sound playback and damage packets
+stay T57; builtin module lifecycle stays T60.
 
 ### 3.10 Entity gameplay (Java fixture)
 
@@ -356,6 +357,21 @@ their committed item payloads and counts stay stable.
 Full condition evaluation, damage calculators, effect damage-over-time, client
 stat/effect/damage packets and the `UpdateEntityStatTypes`/
 `UpdateEntityEffects` config burst remain T57/T59 work.
+
+### 3.11 Prefab entities and block components (real-pack gate)
+
+T56 uses the real prefab files rather than inventing a fixture. The parser gate
+is `Hunt/Generic/Site.prefab.json` (10 blocks, 3 entities, one `Hunt_Trap`
+`BlockMapMarker` component) in
+`crates/worldgen-hytale/tests/prefab_files.rs`. The runtime gate
+`crates/hytale-server/tests/prefab.rs` pastes the same prefab through the world
+thread at a 90° rotation, checks the rotated block/component/entity positions,
+despawns one entity and reopens the save to verify the JSON sidecars
+(`entities.json`, `block-components.json`) and the block edit survive.
+
+The sidecars are asserted for Rust round-trip only; they are not a Java codec
+golden. Java-readable runtime entity saves require the `EntityStore`/
+`ChunkStore` ECS codec and remain deferred.
 
 ### 3.9 `trace/`
 

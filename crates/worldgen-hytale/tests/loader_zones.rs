@@ -21,6 +21,12 @@ use worldgen_hytale::world_gen_config::WorldGenConfig;
 /// source tree — see `.gitignore`). The biome prefab containers resolve
 /// their prefab names through it.
 fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
     std::path::Path::new(&format!(
         "{}/../../Assets/extracted/Server/Prefabs",
         std::env::var("CARGO_MANIFEST_DIR").unwrap()

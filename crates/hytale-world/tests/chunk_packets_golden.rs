@@ -40,6 +40,12 @@ fn golden_dir() -> PathBuf {
 /// (it is git-ignored), so the test is skipped there; the committed fixture
 /// still gates every developer run and the full tier.
 fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
     manifest_root()
         .join("../../Assets/extracted/Server/Prefabs")
         .is_dir()

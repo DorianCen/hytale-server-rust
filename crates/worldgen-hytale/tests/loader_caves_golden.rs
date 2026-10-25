@@ -33,6 +33,12 @@ const WORLD_SEEDS: [i32; 4] = [0, 1, 42, 1234567];
 /// source tree — see `.gitignore`). The cave prefab containers resolve
 /// their prefab names through it.
 fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
     PathBuf::from(format!(
         "{}/../../Assets/extracted/Server/Prefabs",
         std::env::var("CARGO_MANIFEST_DIR").unwrap()

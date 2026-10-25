@@ -12,9 +12,16 @@ fn asset_pack() -> PathBuf {
     repo_root().join("Assets/Assets.zip")
 }
 
+fn assets_disabled() -> bool {
+    matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    )
+}
+
 #[test]
 fn default_pack_validates_and_reports_every_config_packet() {
-    if !asset_pack().is_file() {
+    if assets_disabled() || !asset_pack().is_file() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
         return;
     }
@@ -74,7 +81,7 @@ fn default_pack_validates_and_reports_every_config_packet() {
 
 #[test]
 fn validation_is_deterministic() {
-    if !asset_pack().is_file() {
+    if assets_disabled() || !asset_pack().is_file() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
         return;
     }

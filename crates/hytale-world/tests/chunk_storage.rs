@@ -69,6 +69,12 @@ fn golden_dir() -> PathBuf {
 }
 
 fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
     manifest_root().join("../../Assets/Assets.zip").is_file()
 }
 

@@ -33,7 +33,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T53](T53-entity-stats-effects-combat.md) | Entity stats, effects and combat basics | T48 | low/medium | done (session 44) |
 | [T54](T54-time-weather.md) | Time and weather | T43, T48 | medium | done (session 43) |
 | [T55](T55-projectiles-traversal.md) | Projectiles and traversal | T51, T53 | low/medium | done (session 45) |
-| T56 | Prefab spawner and runtime entities | T45, T50 | low/medium | planned |
+| [T56](T56-prefab-runtime-entities.md) | Prefab spawner and runtime entities | T45, T50 | low/medium | done (session 46) |
 | T57 | UI basics and block-health presentation | T46, T53 | low/medium | planned |
 | T58 | NPC core: AI, pathfinding, flocking | T48 | low/medium | planned |
 | T59 | NPC spawning, combat and encounters | T58 | low/medium | planned |
@@ -47,8 +47,9 @@ Task files for T43–T64 are created when their milestone starts; the milestone
 scope is in [`../plan.md`](../plan.md). T52b–T52d closed the parity gaps
 recorded by T52 in session 41. T53's gameplay core, Java entity-gameplay
 fixture and T54's time/weather core are landed; T55 adds the projectile core
-and traversal seam. M5 continues with T56 (prefab spawner/runtime entities) and
-the T54/T57 presentation/asset-packet split.
+and traversal seam; T56 lands prefab entities/block components and the
+persisted runtime entity store. M5 continues with T57 (UI basics and block
+health/presentation) and the T54/T57 presentation/asset-packet split.
 
 ## Rules
 
@@ -65,12 +66,16 @@ the T54/T57 presentation/asset-packet split.
 7. **Gate before handoff:**
 
    ```sh
+   ./tools/test.sh fast
    cargo test -p <crate>
    cargo clippy -p <crate> --all-targets -- -D warnings
    cargo fmt -p <crate> -- --check
    ```
 
-   For workspace-level tasks use `--workspace`.
+   For workspace-level tasks use `./tools/test.sh all` (the full asset-backed
+   workspace gate) instead of `cargo test --workspace`. See
+   [`../TESTING.md`](../TESTING.md) for the fast `assets`, slow `slow` and
+   serial E2E tiers.
 8. **Report:** files changed, commands run, results, deviations, follow-ups.
 9. **Do not touch `done/`** except broken-link fixes; it is the archive.
 

@@ -140,6 +140,13 @@ fn container_root_dispatches_open_container() {
 
 #[test]
 fn loads_the_real_root_and_interaction_stores_when_available() {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        eprintln!("HYTALE_TEST_ASSETS disables the asset-backed test");
+        return;
+    }
     let pack = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Assets.zip");
     if !pack.is_file() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

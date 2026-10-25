@@ -23,6 +23,10 @@ use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::collision::{BlockCollisionTable, Vec3, WorldCollision};
 use hytale_world::player_data::{PlayerAppearance, PlayerDataError, PlayerTransform};
+use hytale_world::prefab::{paste_prefab, PrefabPasteReport};
+use hytale_world::runtime::{
+    transform, BlockComponent, RuntimeEntity, RuntimeEntityId, RuntimeEntityKind,
+};
 use hytale_world::simulation::{BlockDrop, BlockSimulation, SimulationReport, SimulationTables};
 use hytale_world::view::ChunkView;
 use hytale_world::weather::{environment_forecasts, EnvironmentForecast, WeatherState};
@@ -30,6 +34,7 @@ use hytale_world::world::{WorldError, WorldSave};
 use hytale_world::world_clock::{format_iso8601, parse_iso8601, WorldClock, WorldClockSettings};
 use hytale_world::world_config::{WorldConfigError, WorldUuid};
 use thiserror::Error;
+use worldgen_hytale::prefab::prefab_rotation::PrefabRotation;
 
 use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
 
@@ -41,6 +46,9 @@ pub use hytale_world::world_clock::WorldClockState as WorldTimeState;
 pub const DEFAULT_PLAYER_MASS: f64 = 68.0;
 /// Java `PhysicsValues.DEFAULT_DRAG_COEFFICIENT`.
 pub const DEFAULT_PLAYER_DRAG_COEFFICIENT: f64 = 0.5;
+
+/// All block components as `(position, component)` pairs, coordinate ordered.
+pub type BlockComponentList = Vec<((i32, i32, i32), BlockComponent)>;
 
 /// Paths and settings for a world thread.
 #[derive(Debug, Clone)]
@@ -372,6 +380,38 @@ enum Command {
         y: i32,
         z: i32,
         reply: SyncSender<Result<f32, String>>,
+    },
+    PlacePrefab {
+        name: String,
+        x: i32,
+        y: i32,
+        z: i32,
+        rotation: u16,
+        reply: SyncSender<Result<PrefabPasteReport, String>>,
+    },
+    Entities {
+        reply: SyncSender<Result<Vec<RuntimeEntity>, String>>,
+    },
+    DespawnEntity {
+        id: RuntimeEntityId,
+        reply: SyncSender<Result<Option<RuntimeEntity>, String>>,
+    },
+    SpawnItemEntity {
+        item_id: String,
+        quantity: i32,
+        x: f64,
+        y: f64,
+        z: f64,
+        reply: SyncSender<Result<RuntimeEntity, String>>,
+    },
+    BlockComponent {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<BlockComponent>, String>>,
+    },
+    BlockComponents {
+        reply: SyncSender<Result<BlockComponentList, String>>,
     },
     Save {
         reply: SyncSender<Result<usize, String>>,
@@ -947,7 +987,119 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
-    /// Save dirty chunks and the config.
+    /// Paste a prefab from the asset pack at an origin.
+    ///
+    /// `rotation` is the quarter-turn degrees (`0`, `90`, `180`, `270`). The
+    /// world thread loads/generates the chunks the prefab touches first, then
+    /// writes the blocks/fluids/components and spawns its entities.
+    pub fn place_prefab(
+        &self,
+        name: impl Into<String>,
+        x: i32,
+        y: i32,
+        z: i32,
+        rotation: u16,
+    ) -> Result<PrefabPasteReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlacePrefab {
+                name: name.into(),
+                x,
+                y,
+                z,
+                rotation,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Every runtime entity (prefabs, item drops, projectiles).
+    pub fn entities(&self) -> Result<Vec<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::Entities { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Remove one runtime entity.
+    pub fn despawn_entity(
+        &self,
+        id: RuntimeEntityId,
+    ) -> Result<Option<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::DespawnEntity { id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Spawn an item entity at a world position.
+    pub fn spawn_item_entity(
+        &self,
+        item_id: impl Into<String>,
+        quantity: i32,
+        x: f64,
+        y: f64,
+        z: f64,
+    ) -> Result<RuntimeEntity, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnItemEntity {
+                item_id: item_id.into(),
+                quantity,
+                x,
+                y,
+                z,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// One block's component document.
+    pub fn block_component(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<Option<BlockComponent>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockComponent { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Every block component, in coordinate order.
+    pub fn block_components(&self) -> Result<BlockComponentList, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockComponents { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Save dirty chunks, runtime entities, block components and the config.
     pub fn save(&self) -> Result<usize, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
@@ -1359,6 +1511,7 @@ fn run(
                     Command::Simulate { dt, reply } => {
                         simulation.set_sunlight_factor(clock.sunlight_factor());
                         let result = simulation.tick(save.world_mut(), dt);
+                        spawn_simulation_drops(save.world_mut(), &result);
                         let _ = reply.send(Ok(result));
                     }
                     Command::SetFluid {
@@ -1445,6 +1598,57 @@ fn run(
                     }
                     Command::BlockHealth { x, y, z, reply } => {
                         let _ = reply.send(Ok(save.world().block_health(x, y, z)));
+                    }
+                    Command::PlacePrefab {
+                        name,
+                        x,
+                        y,
+                        z,
+                        rotation,
+                        reply,
+                    } => {
+                        let result = place_prefab(
+                            &mut save,
+                            &generator,
+                            &events,
+                            seed,
+                            &name,
+                            (x, y, z),
+                            rotation,
+                        );
+                        let _ = reply.send(result);
+                    }
+                    Command::Entities { reply } => {
+                        let entities = save.world().entities().iter().cloned().collect();
+                        let _ = reply.send(Ok(entities));
+                    }
+                    Command::DespawnEntity { id, reply } => {
+                        let _ = reply.send(Ok(save.world_mut().despawn_entity(id)));
+                    }
+                    Command::SpawnItemEntity {
+                        item_id,
+                        quantity,
+                        x,
+                        y,
+                        z,
+                        reply,
+                    } => {
+                        let result =
+                            spawn_item_entity(&mut save, &generator, &item_id, quantity, x, y, z);
+                        let _ = reply.send(result);
+                    }
+                    Command::BlockComponent { x, y, z, reply } => {
+                        let component = save.world().block_component(x, y, z).cloned();
+                        let _ = reply.send(Ok(component));
+                    }
+                    Command::BlockComponents { reply } => {
+                        let blocks = save
+                            .world()
+                            .block_components()
+                            .iter()
+                            .map(|(position, component)| (position, component.clone()))
+                            .collect();
+                        let _ = reply.send(Ok(blocks));
                     }
                     Command::Save { reply } => {
                         advance_clock(&mut clock, &mut last_clock);
@@ -1549,11 +1753,18 @@ struct Started {
 
 fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let generator = WorldGenerator::open(&options.generator)?;
-    let interaction_pack =
-        AssetPack::open(&options.generator.assets_pack).map_err(InteractionError::from)?;
-    let interactions = Arc::new(InteractionCatalog::load(&interaction_pack)?);
-    // Encode the config burst once per world; every session shares the Arc.
-    let config_assets = Arc::new(generator.assets().config_assets()?);
+    // In shared mode the interaction catalog and encoded config burst are
+    // process-wide; otherwise load/encode them once for this world.
+    let (interactions, config_assets) = match generator.shared_assets() {
+        Some(shared) => (shared.interactions(), shared.config_assets()),
+        None => {
+            let interaction_pack =
+                AssetPack::open(&options.generator.assets_pack).map_err(InteractionError::from)?;
+            let interactions = Arc::new(InteractionCatalog::load(&interaction_pack)?);
+            let config_assets = Arc::new(generator.assets().config_assets()?);
+            (interactions, config_assets)
+        }
+    };
     let world_uuid = match &options.world_uuid {
         Some(value) => value
             .parse()
@@ -1848,6 +2059,111 @@ fn load_chunk(
     Ok(LoadOutcome::Generated)
 }
 
+fn prefab_rotation(degrees: u16) -> Result<PrefabRotation, String> {
+    match degrees {
+        0 => Ok(PrefabRotation::Rotation0),
+        90 => Ok(PrefabRotation::Rotation90),
+        180 => Ok(PrefabRotation::Rotation180),
+        270 => Ok(PrefabRotation::Rotation270),
+        other => Err(format!(
+            "invalid prefab rotation {other}; expected 0, 90, 180 or 270"
+        )),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn place_prefab(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    events: &Sender<WorldEvent>,
+    seed: i32,
+    name: &str,
+    origin: (i32, i32, i32),
+    rotation_degrees: u16,
+) -> Result<PrefabPasteReport, String> {
+    let prefab = generator
+        .prefab(name)
+        .ok_or_else(|| format!("unknown prefab `{name}`"))?;
+    let rotation = prefab_rotation(rotation_degrees)?;
+    let access = prefab.new_access();
+    let min_x = origin.0 + access.get_min_x(rotation);
+    let max_x = origin.0 + access.get_max_x(rotation);
+    let min_z = origin.2 + access.get_min_z(rotation);
+    let max_z = origin.2 + access.get_max_z(rotation);
+    for chunk_x in (min_x >> 5)..=(max_x >> 5) {
+        for chunk_z in (min_z >> 5)..=(max_z >> 5) {
+            load_chunk(save, generator, events, seed, chunk_x, chunk_z)?;
+        }
+    }
+    paste_prefab(
+        save.world_mut(),
+        name,
+        &prefab,
+        origin,
+        rotation,
+        i64::from(seed),
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_item_entity(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    item_id: &str,
+    quantity: i32,
+    x: f64,
+    y: f64,
+    z: f64,
+) -> Result<RuntimeEntity, String> {
+    if generator.assets().items.get(item_id).is_none() {
+        return Err(format!("unknown item `{item_id}`"));
+    }
+    let id = save.world_mut().spawn_entity(
+        RuntimeEntityKind::Item,
+        None,
+        transform([x, y, z], [0.0, 0.0, 0.0]),
+        serde_json::json!({
+            "Item": {
+                "Id": item_id,
+                "Quantity": quantity.max(1),
+            }
+        }),
+    );
+    save.world()
+        .entity(id)
+        .cloned()
+        .ok_or_else(|| "the item entity disappeared during spawn".to_string())
+}
+
+/// Turn the simulation's fixed-item drops into item entities. Weighted drop
+/// lists stay unresolved until the drop-list producer lands (T57/T60).
+fn spawn_simulation_drops(world: &mut hytale_world::world::World, report: &SimulationReport) {
+    for (x, y, z, drop) in &report.drops {
+        let Some(item_id) = drop.item_id.as_deref() else {
+            continue;
+        };
+        world.spawn_entity(
+            RuntimeEntityKind::Item,
+            None,
+            transform(
+                [
+                    f64::from(*x) + 0.5,
+                    f64::from(*y) + 0.5,
+                    f64::from(*z) + 0.5,
+                ],
+                [0.0, 0.0, 0.0],
+            ),
+            serde_json::json!({
+                "Item": {
+                    "Id": item_id,
+                    "Quantity": drop.quantity.max(1),
+                }
+            }),
+        );
+    }
+}
+
 fn player_snapshot(
     save: &mut WorldSave,
     generator: &WorldGenerator,
@@ -2020,4 +2336,53 @@ fn block_id_for_item(
 
 fn block_to_chunk(value: f64) -> i32 {
     (value.floor() as i32) >> 5
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hytale_world::world::WorldStorage;
+
+    #[test]
+    fn fixed_simulation_drops_become_item_entities() {
+        let dir = std::env::temp_dir().join(format!(
+            "hytale-simulation-drop-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut world = hytale_world::world::World::new(WorldStorage::new(dir.clone()));
+        let mut report = SimulationReport::default();
+        report.drops.push((
+            4,
+            201,
+            4,
+            BlockDrop {
+                item_id: Some("Rock_Stone_Cobble".to_string()),
+                drop_list_id: None,
+                quantity: 2,
+            },
+        ));
+        report.drops.push((
+            5,
+            201,
+            5,
+            BlockDrop {
+                item_id: None,
+                drop_list_id: Some("Drop_Test".to_string()),
+                quantity: 1,
+            },
+        ));
+        spawn_simulation_drops(&mut world, &report);
+        let entities: Vec<_> = world.entities().iter().collect();
+        assert_eq!(entities.len(), 1, "weighted drop lists stay unresolved");
+        assert_eq!(entities[0].kind, RuntimeEntityKind::Item);
+        assert_eq!(entities[0].item_id(), Some("Rock_Stone_Cobble"));
+        assert_eq!(entities[0].item_quantity(), 2);
+        assert_eq!(entities[0].transform.position.x, 4.5);
+        assert_eq!(entities[0].transform.position.z, 4.5);
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

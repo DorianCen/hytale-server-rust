@@ -11,7 +11,9 @@
 pub mod chunk;
 pub mod collision;
 pub mod player_data;
+pub mod prefab;
 pub mod registry;
+pub mod runtime;
 pub mod simulation;
 pub mod universe;
 pub mod view;
