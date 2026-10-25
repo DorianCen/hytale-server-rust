@@ -124,8 +124,13 @@ For the server, “exact” also applies to:
   chunk and must go through `WorldThread::set_view`, never touch loaded chunks
   directly.
 - After `ClientReady(readyForGameplay)` send `ClientTeleport` for the saved
-  transform. Until the client acks, ignore movement positions (the current demo
-  accepts the ack by id; position validation is a follow-up).
+  transform. `ClientMovement` positions go through
+  `hytale-entities::movement` + `WorldThread::resolve_movement`: reject
+  non-finite values (Java `ValidateUtil`), count finite world/step-bound
+  violations, resolve solid-block collision (Y→X→Z + one-block step) and send a
+  correction `ClientTeleport` only when the target changed. A free target must
+  stay bit-for-bit identical; never re-send a normal walk. Full teleport-ack
+  tracking and speed anti-cheat are T62.
 
 ---
 
@@ -218,6 +223,12 @@ For the server, “exact” also applies to:
 - Palette selection must be deterministic and match Java's thresholds. A
   different palette type is a different byte stream even if the logical blocks
   match.
+- Block simulation runs on the world thread (`BlockSimulation::tick`) and only
+  emits `BlockChange`/`FluidChange` values; the session broadcasts them through
+  the player queues. Do not mutate chunks from network/command threads.
+  `BlockSection.tick_requests` and `World.block_health` are transient and must
+  never enter the section/chunk BSON layout; Java `BlockHealthSection` storage
+  remains a later format task.
 
 ---
 

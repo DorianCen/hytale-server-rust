@@ -25,6 +25,7 @@ use std::time::Duration;
 
 use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets};
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
+use hytale_entities::movement::{MovementBounds, MovementRejection, MovementState};
 use hytale_interactions::{
     execute_root, state_from_block_key, BlockInteractions, ExecutionContext, InteractionCatalog,
     WorldAction,
@@ -39,7 +40,7 @@ use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, Serv
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
     DisconnectType, FormattedMessage, GameMode, InstantData, MouseButtonState, MouseButtonType,
-    PlayerSkin, PongType, UpdateType,
+    MovementSettings, MovementStates, PlayerSkin, PongType, UpdateType,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -50,7 +51,7 @@ use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo};
 use hytale_protocol::generated::inventory::{DropItemStack, SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
-    SetGameMode,
+    SetGameMode, UpdateMovementSettings,
 };
 use hytale_protocol::generated::registry::settings;
 use hytale_protocol::generated::setup::{
@@ -61,10 +62,11 @@ use hytale_protocol::generated::setup::{
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::ClearChunks;
 use hytale_protocol::generated::world::{
-    ServerSetBlock, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
+    ServerSetBlock, ServerSetFluid, UpdateTime, UpdateTimeSettings, WorldGameplayConfig,
 };
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
+use hytale_world::collision::Vec3;
 use hytale_world::player_data::{PlayerAppearance, PlayerTransform};
 use hytale_world::world_config::WorldUuid;
 use thiserror::Error;
@@ -200,6 +202,8 @@ pub struct GameReport {
     pub inventory: bool,
     /// The initial hotbar/utility/tools `SetActiveSlot` packets were written.
     pub active_slots: bool,
+    /// `UpdateMovementSettings` was written.
+    pub movement_settings: bool,
 }
 
 /// What the live game loop produced.
@@ -213,6 +217,18 @@ pub struct GameLoopReport {
     pub teleport_acked: bool,
     /// `ClientMovement` packets processed.
     pub movement_packets: usize,
+    /// Movement packets refused by the finite/world bounds.
+    pub movement_rejections: usize,
+    /// Movement targets corrected by block collision (and teleported back).
+    pub movement_corrections: usize,
+    /// Movement auto-stepped onto a one-block obstacle.
+    pub movement_steps: usize,
+    /// Block-simulation passes run.
+    pub simulation_ticks: usize,
+    /// Block changes emitted by the simulation.
+    pub simulation_block_changes: usize,
+    /// Fluid changes emitted by the simulation.
+    pub simulation_fluid_changes: usize,
     /// Movement caused a view change.
     pub view_changes: usize,
     /// Chunks streamed during the loop.
@@ -344,6 +360,7 @@ struct EnterGame {
     skin: Option<PlayerSkin>,
     world_time: WorldTimeState,
     gameplay_config: WorldGameplayConfig,
+    movement_settings: MovementSettings,
     inventory: PlayerInventory,
     trace: Option<Arc<TraceSession>>,
 }
@@ -438,6 +455,7 @@ pub async fn serve_connection_with_registry(
     );
     let world_time = thread.world_time()?;
     let gameplay_config = thread.gameplay_config()?;
+    let movement_settings = thread.movement_settings()?;
     let skin = handshake.skin.clone();
     let world_uuid: Uuid = start
         .world_uuid
@@ -483,6 +501,7 @@ pub async fn serve_connection_with_registry(
                     skin,
                     world_time,
                     gameplay_config,
+                    movement_settings,
                     inventory: inventory.clone(),
                     trace,
                 },
@@ -973,6 +992,7 @@ async fn enter_game(
         skin,
         world_time,
         gameplay_config,
+        movement_settings,
         inventory,
         trace,
     } = start;
@@ -1147,8 +1167,17 @@ async fn enter_game(
             options.chunk_compression_level,
         )
         .await?;
+    // Java `MovementManager.update` sends the selected movement config to the
+    // client; it is the same data the server validates/clamps against.
+    writer
+        .write_packet(
+            &UpdateMovementSettings { movement_settings },
+            options.chunk_compression_level,
+        )
+        .await?;
     game.time = true;
     game.game_mode = true;
+    game.movement_settings = true;
     // This stream stays open for the chunk snapshot.
     Ok((game, chunks))
 }
@@ -1229,6 +1258,7 @@ async fn run_game_loop(
     // running (Java `TimePacketSystem.BROADCAST_INTERVAL`).
     let mut last_time_paused = world_time.time_paused;
     let mut teleport_sent = false;
+    let mut movement_teleport_id = 1i8;
     // Registry view center follows the player's chunk even before the client
     // acknowledges the teleport (the chunk view itself still waits for the ack).
     let mut registry_center = center;
@@ -1276,27 +1306,110 @@ async fn run_game_loop(
                         if movement.teleport_ack.is_some() {
                             report.teleport_acked = true;
                         }
-                        if let Some(position) = movement.absolute_position {
-                            if position.x.is_finite() && position.z.is_finite() {
-                                transform.position = hytale_world::player_data::Position {
-                                    x: position.x,
-                                    y: position.y,
-                                    z: position.z,
-                                };
-                                pending_movement = true;
 
-                                let next = (block_to_chunk(position.x), block_to_chunk(position.z));
-                                if next != registry_center {
-                                    players.update_view(network_id, next, radius);
-                                    registry_center = next;
+                        // Java `ValidateUtil.isSafePosition`/`isSafeDirection`:
+                        // non-finite input disconnects before it reaches the world.
+                        let unsafe_position = movement
+                            .absolute_position
+                            .as_ref()
+                            .is_some_and(|position| !safe_position(position));
+                        let unsafe_orientation = movement
+                            .body_orientation
+                            .as_ref()
+                            .is_some_and(|direction| !safe_direction(direction))
+                            || movement
+                                .look_orientation
+                                .as_ref()
+                                .is_some_and(|direction| !safe_direction(direction));
+                        if unsafe_position || unsafe_orientation {
+                            report.movement_rejections += 1;
+                            let _ = send_disconnect(writer, "impossible position").await;
+                            report.disconnected = true;
+                            break;
+                        }
+
+                        let from = Vec3::new(
+                            transform.position.x,
+                            transform.position.y,
+                            transform.position.z,
+                        );
+                        let target = movement
+                            .absolute_position
+                            .as_ref()
+                            .map(|position| Vec3::new(position.x, position.y, position.z))
+                            .or_else(|| {
+                                // Java `RELATIVE_POSITION_DELTA_SCALE = 10000`.
+                                movement.relative_position.as_ref().map(|relative| {
+                                    from.plus(Vec3::new(
+                                        f64::from(relative.x) / 10_000.0,
+                                        f64::from(relative.y) / 10_000.0,
+                                        f64::from(relative.z) / 10_000.0,
+                                    ))
+                                })
+                            });
+
+                        if let Some(target) = target {
+                            let bounds = MovementBounds::default();
+                            match bounds.validate(from, target) {
+                                Err(MovementRejection::NonFinite) => {
+                                    report.movement_rejections += 1;
+                                    let _ = send_disconnect(writer, "impossible position").await;
+                                    report.disconnected = true;
+                                    break;
                                 }
-                                if next != center && report.teleport_acked {
-                                    thread.update_view(view, next.0, next.1, radius)?;
-                                    center = next;
-                                    report.view_changes += 1;
+                                Err(MovementRejection::OutOfBounds)
+                                | Err(MovementRejection::StepTooLarge) => {
+                                    report.movement_rejections += 1;
+                                }
+                                Ok(()) => {
+                                    let states =
+                                        movement.movement_states.clone().unwrap_or_default();
+                                    let state = movement_state(&states);
+                                    let resolution = thread.resolve_movement(
+                                        from,
+                                        target,
+                                        state.crouching,
+                                        states.on_ground && !state.flying && !state.climbing,
+                                    )?;
+                                    if resolution.corrected {
+                                        report.movement_corrections += 1;
+                                        report.movement_steps += usize::from(resolution.stepped);
+                                        transform.position = hytale_world::player_data::Position {
+                                            x: resolution.position.x,
+                                            y: resolution.position.y,
+                                            z: resolution.position.z,
+                                        };
+                                        send_client_teleport_correction(
+                                            writer,
+                                            *transform,
+                                            &mut movement_teleport_id,
+                                            options,
+                                        )
+                                        .await?;
+                                    } else {
+                                        transform.position = hytale_world::player_data::Position {
+                                            x: target.x,
+                                            y: target.y,
+                                            z: target.z,
+                                        };
+                                    }
+                                    pending_movement = true;
+
+                                    let (x, z) = (transform.position.x, transform.position.z);
+                                    let next = (block_to_chunk(x), block_to_chunk(z));
+                                    if next != registry_center {
+                                        players.update_view(network_id, next, radius);
+                                        registry_center = next;
+                                    }
+                                    if next != center && report.teleport_acked {
+                                        thread.update_view(view, next.0, next.1, radius)?;
+                                        center = next;
+                                        report.view_changes += 1;
+                                    }
                                 }
                             }
                         }
+
                         if let Some(orientation) =
                             movement.body_orientation.or(movement.look_orientation)
                         {
@@ -1427,6 +1540,29 @@ async fn run_game_loop(
 
         if ticker.elapsed() >= interval {
             thread.tick()?;
+            let simulation = thread.simulate(0.05)?;
+            report.simulation_ticks += 1;
+            for change in simulation.block_changes {
+                report.simulation_block_changes += 1;
+                players.broadcast_block(ServerSetBlock {
+                    x: change.x,
+                    y: change.y,
+                    z: change.z,
+                    block_id: change.block_id,
+                    filler: change.filler as i16,
+                    rotation: change.rotation as i8,
+                });
+            }
+            for change in simulation.fluid_changes {
+                report.simulation_fluid_changes += 1;
+                players.broadcast_fluid(ServerSetFluid {
+                    x: change.x,
+                    y: change.y,
+                    z: change.z,
+                    fluid_id: change.fluid_id,
+                    fluid_level: change.level,
+                });
+            }
             let updates = send_updates(thread, chunks, options.chunk_compression_level).await?;
             report.chunks += updates.chunks;
             report.packets += updates.packets;
@@ -1573,6 +1709,11 @@ fn handle_block_interaction(
 
     match parse_block_edit(transform, interaction) {
         Some(BlockEdit::Break { x, y, z }) => {
+            // One click deals the full current health (Java's block-health map is
+            // still authoritative for commands/mod APIs and partial damage).
+            if thread.damage_block(x, y, z, 1.0).is_err() {
+                return BlockInteractionOutcome::Rejected;
+            }
             let Ok((before, after)) = thread.set_block(x, y, z, 0) else {
                 return BlockInteractionOutcome::Rejected;
             };
@@ -1789,6 +1930,54 @@ async fn send_client_teleport(
         )
         .await?;
     Ok(())
+}
+
+/// Send an authoritative correction after collision resolution.
+async fn send_client_teleport_correction(
+    writer: &mut FrameWriter,
+    transform: PlayerTransform,
+    next_id: &mut i8,
+    options: &SessionOptions,
+) -> Result<(), SessionError> {
+    let teleport_id = *next_id;
+    *next_id = next_id.wrapping_add(1);
+    if *next_id == 0 {
+        *next_id = 1;
+    }
+    writer
+        .write_packet(
+            &ClientTeleport {
+                teleport_id,
+                ignored_transform_fields: 0,
+                relative_transform_fields: 0,
+                model_transform: players::model_transform(transform),
+                reset_velocity: true,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
+fn safe_position(position: &hytale_protocol::generated::common::Position) -> bool {
+    position.x.is_finite() && position.y.is_finite() && position.z.is_finite()
+}
+
+fn safe_direction(direction: &hytale_protocol::generated::common::Direction) -> bool {
+    direction.yaw.is_finite() && direction.pitch.is_finite() && direction.roll.is_finite()
+}
+
+fn movement_state(states: &MovementStates) -> MovementState {
+    MovementState {
+        walking: states.walking,
+        running: states.running,
+        sprinting: states.sprinting,
+        crouching: states.crouching || states.forced_crouching,
+        flying: states.flying,
+        climbing: states.climbing,
+        in_fluid: states.in_fluid,
+        swimming: states.swimming,
+    }
 }
 
 fn block_to_chunk(value: f64) -> i32 {

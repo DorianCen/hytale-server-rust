@@ -91,16 +91,19 @@ impl Default for GameplayCombatConfig {
 }
 
 /// `GameplayConfig.Player`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameplayPlayerConfig {
     /// `ArmorVisibilityOption` (Java default `ALL`).
     pub armor_visibility_option: ArmorVisibilityOption,
+    /// `MovementConfig` asset id (Java default `Default`).
+    pub movement_config: String,
 }
 
 impl Default for GameplayPlayerConfig {
     fn default() -> Self {
         Self {
             armor_visibility_option: ArmorVisibilityOption::All,
+            movement_config: "Default".to_string(),
         }
     }
 }
@@ -190,6 +193,14 @@ impl GameplayConfigAsset {
                     parse_armor_visibility(value).ok_or_else(|| {
                         format!("unknown GameplayConfig.Player.ArmorVisibilityOption `{value}`")
                     })?;
+            }
+            if let Some(value) = player.get("MovementConfig") {
+                config.player.movement_config = value
+                    .as_str()
+                    .ok_or_else(|| {
+                        "GameplayConfig.Player.MovementConfig must be a string".to_string()
+                    })?
+                    .to_string();
             }
         }
 

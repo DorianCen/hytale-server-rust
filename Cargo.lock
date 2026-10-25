@@ -827,6 +827,7 @@ name = "hytale-entities"
 version = "0.1.0"
 dependencies = [
  "hytale-core",
+ "hytale-protocol",
  "hytale-world",
 ]
 

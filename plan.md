@@ -10,8 +10,9 @@ The task board is [`tasks/README.md`](tasks/README.md). T43 (world clock and
 `GameplayConfig`), T44 (self-spawn appearance/equipment), T45 (other-player
 tracking), T46 (block place/break), T47 (disconnect, reconnect and session
 teardown) and T48 (real-client trace and v1 gate) are done; M4/v1 is complete,
-T49 (inventory containers/transactions) and T50 (interaction graph and block
-interactions) are done and M5 gameplay parity continues with T51.
+T49 (inventory containers/transactions), T50 (interaction graph and block
+interactions), T51 (movement physics and collision authority) and T52 (block
+simulation) are done and M5 gameplay parity continues with T53.
 
 ## 0. Baseline
 
@@ -703,19 +704,58 @@ edit path from T46 remains green.
 
 ### T51 — Player movement physics and collision authority
 
-**Package:** `hytale-world`, `hytale-entities`
+**Status:** done (session 39)
+**Package:** `hytale-world`, `hytale-entities`, `hytale-assets`, `hytale-server`,
+`client-bot`
 **Goal:** server-authoritative movement, collision, gravity, step/climb basics,
 anti-cheat bounds.
 **Acceptance:** scripted walk/jump/fall/collide scenarios match Java within
 documented tolerance; no rubber-banding in the bot loop.
 
+**Deviations**
+
+- Java does not simulate player walking; `ClientMovement` positions are
+  client-authoritative. The port keeps that model, validates finite/world
+  bounds, resolves collision and sends a correction only when the resolved
+  position differs. `MovementBody` is the deterministic gravity/jump/fly/climb
+  integrator for tests and later NPC work.
+- Collision uses the solid `BlockMaterial` rule, Java 64-rotation hitboxes and
+  filler origins. Fluids, trigger/damage boxes, mounts, traversal and entity
+  collisions are T52/T55/T58.
+- Unloaded chunks are air for movement (Java says unknown/solid) so a crossing
+  into the next view chunk is not blocked.
+- Per-packet speed anti-cheat and Java's teleport-ack queue are deferred to
+  T62; the current bounds reject non-finite values, out-of-world coordinates and
+  moves over 512 blocks, and correction teleports use an incrementing id.
+- The one-block step height is the block-grid auto-jump ceiling; Java exposes
+  slope/wall angles instead.
+
 ### T52 — Block simulation: ticks, fluids and support
 
-**Package:** `hytale-world`, `hytale-entities`
+**Status:** done (session 40)
+**Package:** `hytale-world`, `hytale-server`
 **Goal:** random/block ticks, fluid flow, support propagation, falling blocks,
 block health and drops.
 **Acceptance:** scripted tick/fluid/support scenarios match Java; regions
 remain Java-readable.
+
+**Deviations**
+
+- The core `BlockSection` tick queue, support check, random-tick procedures,
+  default fluid ticker, falling-block movement and transient block health are
+  native. The builtin `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks`/
+  `Fluid` module lifecycle remains T60.
+- Fluids ignore partial-hitbox face coverage, waterlogging, fire/finite tickers,
+  disabled-ticker config and sound events.
+- Support is direct-face only (`MaxSupportDistance` chains, filler-specific
+  support, `SelfFaceType` and tick suppression are not fully evaluated).
+- `SpreadTo` ignores light; `PlaceBlock` takes the first candidate; random tick
+  ordering uses a deterministic Rust RNG, not Java's `SplittableRandom`.
+- Falling blocks are block movement, not ECS entities, and have no impact
+  break/explode effect.
+- Block health/fragility is transient (no Java `BlockHealthSection` storage yet)
+  and damage/fragility packets are T57.
+- Simulation drops are reported but item entities/inventory pickup are T56.
 
 ### T53 — Entity stats, effects and combat basics
 

@@ -277,7 +277,45 @@ generates missing chunks through the `WorldThread` demand queue and the check
 can point at any of them (`run-reload-check.sh <save> 0 0 0 64 0 Empty` for a
 generated seed-0 chunk).
 
-### 3.7 `trace/`
+### 3.7 `movement/` (real-pack checks, no committed payload)
+
+Session 39 loads the internal `Server/Entity/MovementConfig` store (no Java
+asset packet) and the block collision shapes. The oracle is the pack itself:
+
+| Check | Gate |
+|---|---|
+| `MovementConfig.Default` fields (`BaseSpeed`, `JumpForce`, climb/sprint values, wall angle) and `GameplayConfig.Player.MovementConfig = Default` | `crates/hytale-assets/tests/movement_config.rs` |
+| `BlockCollisionTable`: `Rock_Stone` = unit box, `Empty` = no collision, half slab top = `0.5`, bench multi-box rotation | `crates/hytale-world/tests/collision.rs` |
+| World-thread wall clamp, half-slab step-up, free-target passthrough and selected movement settings | `crates/hytale-server/tests/movement.rs` |
+| Normal walk is never corrected; a placed wall produces one correction teleport | `client-bot/tests/movement_join.rs` |
+
+The Java server does not simulate player walking, so there is no committed
+walk/jump trajectory golden. The pure integrator is checked against the Java
+`MovementConfig.DEFAULT_MOVEMENT` constants and `PhysicsConstants
+.GRAVITY_ACCELERATION` with a `1e-12` velocity tolerance and `1e-4` block
+collision tolerance.
+
+### 3.8 Block simulation (real-pack checks, no committed payload)
+
+Session 40 ports the core block tick/support/fluid/falling/health behavior. The
+Java oracle is the merged pack documents plus the Java algorithms; there is no
+committed packet payload because the simulation state is transient:
+
+| Check | Gate |
+|---|---|
+| `Rock_Stone` breaking drop (`Rock_Stone_Cobble`), `Type=Rock` tag and fluid-solid material | `crates/hytale-world/tests/simulation.rs` |
+| `Soil_Grass` `SpreadTo` (tag `Spreadable=Grass`, Y range, revert), `Soil_Dirt` spread tag and `Plant_Bush` support rule | same |
+| `Water_Source`/`Water` max levels, spread target and demotion support | same |
+| `Debug_Falling_Barrel` `SupportDropType: Fall` + `FallingBlockSettings` | same |
+| Support removal/drop, falling land, grass spread, water spread and health regeneration | `crates/hytale-world/src/simulation.rs` unit tests and `crates/hytale-server/tests/simulation.rs` |
+| Java-written region/player/config reads still pass after the transient tick/health fields | `crates/hytale-world/tests/world_storage.rs`, `run-save-check.sh` |
+
+The random-tick ordering uses a deterministic Rust RNG, not Java's
+`SplittableRandom`; the procedure semantics and asset metadata are the gate.
+Fluid face coverage, light-gated growth, block-damage packets, item-entity drops
+and Java `BlockHealthSection` persistence are recorded in `tasks/T52-block-simulation.md`.
+
+### 3.9 `trace/`
 
 A packet sequence captured from the Java server during a scripted join:
 

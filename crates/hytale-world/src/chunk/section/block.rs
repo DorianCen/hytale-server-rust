@@ -39,6 +39,19 @@ pub struct BlockSectionPacket {
     pub global_light: Option<Vec<u8>>,
 }
 
+/// Java `BlockTickStrategy`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockTickStrategy {
+    /// Keep the block in the ticking set.
+    Continue,
+    /// Stop ticking until an explicit wake/schedule.
+    Sleep,
+    /// Do not tick this block.
+    Ignored,
+    /// Retry once the adjacent chunk section is loaded.
+    WaitForAdjacentChunkLoad,
+}
+
 /// One block section.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockSection {
@@ -48,6 +61,8 @@ pub struct BlockSection {
     rotations: Palette,
     ticking_blocks: BTreeSet<u16>,
     ticking_wait_adjacent: BTreeSet<u16>,
+    /// Transient `BlockSection.scheduleTick` queue (`(game tick, block index)`).
+    tick_requests: BTreeSet<(u64, u16)>,
     local_light: LightData,
     local_change_counter: i16,
     global_light: LightData,
@@ -71,6 +86,7 @@ impl BlockSection {
             rotations: Palette::empty(),
             ticking_blocks: BTreeSet::new(),
             ticking_wait_adjacent: BTreeSet::new(),
+            tick_requests: BTreeSet::new(),
             local_light: LightData::empty(0),
             local_change_counter: 0,
             global_light: LightData::empty(0),
@@ -90,6 +106,7 @@ impl BlockSection {
             rotations,
             ticking_blocks: BTreeSet::new(),
             ticking_wait_adjacent: BTreeSet::new(),
+            tick_requests: BTreeSet::new(),
             local_light: LightData::empty(0),
             local_change_counter: 0,
             global_light: LightData::empty(0),
@@ -238,6 +255,66 @@ impl BlockSection {
         self.ticking_blocks
             .union(&self.ticking_wait_adjacent)
             .count()
+    }
+
+    /// Java `scheduleTick(index, gameTime)`.
+    pub fn schedule_tick(&mut self, index: usize, tick: u64) -> bool {
+        u16::try_from(index)
+            .map(|index| self.tick_requests.insert((tick, index)))
+            .unwrap_or(false)
+    }
+
+    /// Java `preTick(gameTime)` + `forEachTicking` copy/clear.
+    ///
+    /// Requests scheduled at or before `now` join the ticking set. The
+    /// returned indexes are the blocks to process this tick; `ticking_blocks`
+    /// is cleared, while `finish_tick` re-adds blocks whose strategy asks to
+    /// continue.
+    pub fn begin_tick(&mut self, now: u64) -> Vec<usize> {
+        let due: Vec<(u64, u16)> = self
+            .tick_requests
+            .range(..=(now, u16::MAX))
+            .copied()
+            .collect();
+        for (tick, index) in due {
+            self.tick_requests.remove(&(tick, index));
+            self.ticking_blocks.insert(index);
+        }
+        // No adjacent-chunk-load gate yet: a loaded world merges waiters so a
+        // fluid/support tick is not lost when a neighbour chunk loads later.
+        self.merge_ticking_blocks();
+        if self.ticking_blocks.is_empty() {
+            return Vec::new();
+        }
+        let indices: Vec<usize> = self
+            .ticking_blocks
+            .iter()
+            .map(|index| *index as usize)
+            .collect();
+        self.ticking_blocks.clear();
+        indices
+    }
+
+    /// Apply one `BlockTickStrategy` after `begin_tick`.
+    pub fn finish_tick(&mut self, index: usize, strategy: BlockTickStrategy) {
+        if index >= BLOCK_COUNT {
+            return;
+        }
+        let index = index as u16;
+        match strategy {
+            BlockTickStrategy::Continue => {
+                self.ticking_blocks.insert(index);
+            }
+            BlockTickStrategy::WaitForAdjacentChunkLoad => {
+                self.ticking_wait_adjacent.insert(index);
+            }
+            BlockTickStrategy::Sleep | BlockTickStrategy::Ignored => {}
+        }
+    }
+
+    /// Pending scheduled tick requests.
+    pub fn pending_tick_requests(&self) -> usize {
+        self.tick_requests.len()
     }
 
     /// Local light.
@@ -407,6 +484,7 @@ impl BlockSection {
             rotations,
             ticking_blocks: BTreeSet::new(),
             ticking_wait_adjacent: BTreeSet::new(),
+            tick_requests: BTreeSet::new(),
             local_light: LightData::empty(0),
             local_change_counter: 0,
             global_light: LightData::empty(0),
@@ -476,6 +554,7 @@ impl BlockSection {
             rotations,
             ticking_blocks,
             ticking_wait_adjacent: BTreeSet::new(),
+            tick_requests: BTreeSet::new(),
             local_light,
             local_change_counter,
             global_light,

@@ -693,3 +693,114 @@ This file records phase-2 sessions only.
   - T51/T53/T55 add movement/combat/projectile consumers.
   - T56 adds block components/entity interaction hosts.
   - T57 adds container/bench UI windows.
+
+---
+
+## Session 39 — Movement physics and collision authority (2026-10-25)
+
+- **Goal:** make the server validate/resolve player movement against the Java
+  movement config and block collision geometry without fighting a normal client.
+- **Landed:**
+  - T51: new internal `MovementConfig` asset store
+    (`Server/Entity/MovementConfig`) with every `MovementSettings` field, the
+    optional `Fly` override and Java `DEFAULT_MOVEMENT` fallback.
+    `GameplayConfig.Player.MovementConfig` selects the asset; the world sends
+    it as `UpdateMovementSettings` (id `110`) during the join burst with the
+    player model's mass (`68`) and drag (`0.5`).
+  - `hytale-world::collision`: `Vec3`, `Aabb`, `BlockShape`,
+    `BlockCollisionTable` and `WorldCollision`. Shapes come from the solid
+    `BlockType` material plus its `HitboxType`/`BlockBoundingBoxes`
+    (Java 64-slot rotation and `Box.normalize`), with `FillerBlockUtil` origin
+    unpacking. Unloaded chunks are air for movement.
+  - `hytale-entities::movement`: the Java player hitbox
+    (`0.65 × 1.85 × 0.65`), Y→X→Z continuous AABB sweep with one-block step-up,
+    overlap escape, exact passthrough for free targets, `MovementBounds`
+    (finite, world limits, 512-block step) and a deterministic
+    `MovementBody` integrator using `GRAVITY_ACCELERATION = 32`, jump,
+    swim-jump, fly and climb values from the selected settings.
+  - `hytale-server`: `ClientMovement` absolute/relative targets and directions
+    use Java `ValidateUtil` semantics (non-finite disconnects), targets over
+    the bounds are counted/ignored, collision resolutions are applied and
+    corrected clients receive an authoritative `ClientTeleport` with an
+    incrementing id. Movement counters (`movement_rejections`,
+    `movement_corrections`, `movement_steps`) flow into `SessionSummary`.
+  - `client-bot`: `movement_after_edits` sends a post-edit collision walk;
+    `PlayerObservation` records server teleports; `GameJoinReport` records
+    `UpdateMovementSettings`; new `movement_join` loopback places a wall, walks
+    into it, and asserts the face correction plus zero corrections for the
+    free walk. `multi_join` asserts normal movement is never corrected.
+- **Verified:**
+  - `cargo test -p hytale-entities`, `-p hytale-assets` (real `Default`
+    movement config), `-p hytale-world` (real collision shapes) and
+    `-p hytale-server` (world-thread wall/slab/settings tests).
+  - `cargo test -p client-bot --test movement_join -- --ignored`, plus the
+    existing `multi_join`, `inventory_join`, `block_interactions`,
+    `auth_join` and `trace_gate` ignored suites.
+  - `cargo test --workspace`, clippy `-D warnings` and fmt.
+- **Deviations:**
+  - Java keeps walking client-authoritative; the port validates and resolves
+    the target instead of replaying client input. The free-target path is
+    bit-for-bit so the loop has no rubber-banding.
+  - Solid blocks only: fluids, trigger/damage boxes, ladders, mounts, traversal
+    and entity collisions remain T52/T55/T58.
+  - Unloaded chunks are air for movement (Java treats them as unknown/solid).
+  - Per-packet speed/teleport anti-cheat is T62; the current bounds are finite,
+    world-coordinate and 512-block step limits.
+- **Follow-ups:**
+  - T52 fluids/ticks/support; T55 projectiles/traversal; T58 NPC movement.
+  - T62 real rate-limit and teleport/anti-cheat policy.
+
+---
+
+## Session 40 — Block simulation (2026-10-25)
+
+- **Goal:** run scheduled/random ticks, support loss, falling blocks, fluid flow,
+  block health and drops over loaded chunks without changing the Java-readable
+  chunk/region layout.
+- **Landed:**
+  - T52: `BlockSection` now has the transient `scheduleTick` priority queue,
+    `begin_tick` (pre-tick + copy/clear) and `finish_tick` applying Java's
+    `BlockTickStrategy`. Nothing was added to the serialized section.
+  - New `hytale-world::simulation` with asset-derived `SimulationTables`
+    (`Support`/`Supporting`, tags from containing items, `TagId`, `FaceType`,
+    `SupportDropType`, `MaxSupportDistance`, `FallingBlockSettings`,
+    `Gathering`, random/scheduled procedures and default fluid tickers) and a
+    deterministic `BlockSimulation` pass: changed-block scheduling, support
+    removal (`Break`/`Destroy`/`Fall`), natural drops
+    (`Physics`→`Breaking`→`Soft`→`Harvest`), one-cell falling-block movement,
+    water/lava flow with demotion/collision conversion, `ChangeIntoBlock`/
+    `SpreadTo`/`PlaceBlock` random ticks and transient `BlockHealth`
+    regeneration.
+  - `World` gained a tick counter, changed-block drain, rotation/filler/fluid
+    accessors, `set_block_full`, `set_fluid`, `damage_block` and
+    `block_health`; the block-health map is transient.
+  - `WorldThread` gained `simulate(dt)`, `force_random_tick`, fluid read/write,
+    `fluid_id`, `block_drops`, `damage_block` and `block_health` seams.
+  - The server runs `simulate(0.05)` on every 50 ms loop tick and broadcasts
+    `ServerSetBlock`/`ServerSetFluid` changes through the view-filtered player
+    queues. Session summaries record simulation/block/fluid counters. Left-click
+    break feeds the health map before replacing the block.
+  - Tests cover synthetic support/drop/fall/fluid/health walkthroughs, real
+    pack metadata for stone, grass, plant, water and falling barrels, and
+    world-thread integration for all five behaviors.
+- **Verified:**
+  - `cargo test -p hytale-world` and `cargo test -p hytale-server` (including
+    `tests/simulation.rs`).
+  - `cargo test --workspace`, clippy `-D warnings` and fmt.
+  - Existing `block_interactions`, `inventory_join`, `multi_join`, `trace_gate`
+    and `auth_join` ignored suites.
+- **Deviations:**
+  - Fluid flow ignores partial-hitbox face coverage, waterlogging, fire/finite
+    tickers, disabled-ticker config and sound events.
+  - Support is direct-face only; `MaxSupportDistance`, filler-specific support,
+    `SelfFaceType`, light-gated spread and tick suppression are not full ports.
+  - Random tick ordering uses `FastRandom`, not Java `SplittableRandom`.
+    `PlaceBlock` takes the first placement candidate.
+  - Falling blocks are block movement, not ECS entities, with no impact
+    break/explode effects.
+  - Block health is transient (no `BlockHealthSection` save) and damage/fragility
+    packets are T57. Drops are reported, not spawned as item entities (T56).
+  - Builtin module lifecycle for the tick/fluid/falling plugins remains T60.
+- **Follow-ups:**
+  - T56 item entities/drops; T57 damage/fragility presentation; T58 NPC block
+    interaction; T60 builtin toggles.

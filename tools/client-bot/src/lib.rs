@@ -22,8 +22,8 @@ use hytale_protocol::generated::assets::{
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{
     Asset, BlockPosition, ClientDisconnectReason, ComponentUpdate, DisconnectType,
-    MouseButtonEvent, MouseButtonState, MouseButtonType, PlayerSkin, PongType, Position,
-    TeleportAck, WorldInteraction,
+    MouseButtonEvent, MouseButtonState, MouseButtonType, MovementSettings, PlayerSkin, PongType,
+    Position, TeleportAck, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
@@ -34,6 +34,7 @@ use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromSe
 use hytale_protocol::generated::inventory::{SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
+    UpdateMovementSettings,
 };
 use hytale_protocol::generated::setup::{
     AssetFinalize, AssetInitialize, AssetPart, RequestAssets, RequestCommonAssetsRebuild,
@@ -308,6 +309,9 @@ pub struct DevJoinOptions {
     pub break_block_after_join: Option<BlockPosition>,
     /// Extra right-click block uses after the snapshot (doors/containers).
     pub use_block_after_join: Vec<BlockPosition>,
+    /// Send this absolute movement after the block edits, so a collision test can
+    /// place a wall first and then walk into it.
+    pub movement_after_edits: Option<Position>,
     /// Send `ClientReady(readyForGameplay)` after the snapshot so the server
     /// starts the teleport/time flow.
     pub send_ready_for_gameplay: bool,
@@ -350,6 +354,8 @@ pub struct GameJoinReport {
     pub self_spawn_position: Option<Position>,
     /// `WorldGameplayConfig` payload.
     pub gameplay_config: Option<WorldGameplayConfig>,
+    /// Latest `UpdateMovementSettings` payload.
+    pub movement_settings: Option<MovementSettings>,
     /// Latest `UpdatePlayerInventory` payload.
     pub inventory: Option<UpdatePlayerInventory>,
     /// Latest `SetActiveSlot` selections keyed by inventory section id.
@@ -414,6 +420,8 @@ pub struct PlayerObservation {
     pub entities: Vec<ObservedEntityUpdate>,
     /// Block edits from the chunks stream.
     pub block_updates: Vec<ObservedBlockUpdate>,
+    /// Authoritative `ClientTeleport` corrections received from the server.
+    pub teleports: Vec<Position>,
 }
 
 /// Errors from the dev join.
@@ -570,6 +578,17 @@ pub async fn dev_join(
         send_block_interaction(&mut writer, MouseButtonType::Right, position.clone(), None).await?;
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
+    if let Some(position) = options.movement_after_edits.clone() {
+        writer
+            .write_packet(
+                &ClientMovement {
+                    absolute_position: Some(position),
+                    ..ClientMovement::default()
+                },
+                3,
+            )
+            .await?;
+    }
     let disconnect_at = options
         .disconnect_after
         .map(|after| tokio::time::Instant::now() + after);
@@ -683,6 +702,16 @@ async fn observe_players(
                     EntityUpdates::ID => {
                         let packet: EntityUpdates = frame.decode()?;
                         record_observed_entities(&packet, &mut observation, self_id);
+                    }
+                    ClientTeleport::ID => {
+                        let packet: ClientTeleport = frame.decode()?;
+                        if let Some(position) = packet.model_transform.position {
+                            observation.teleports.push(position);
+                        }
+                    }
+                    UpdateMovementSettings::ID => {
+                        let packet: UpdateMovementSettings = frame.decode()?;
+                        game.movement_settings = Some(packet.movement_settings);
                     }
                     UpdatePlayerInventory::ID => {
                         game.inventory = Some(frame.decode()?);
@@ -1295,6 +1324,10 @@ async fn enter_game_client(
             WorldGameplayConfig::ID => {
                 game.gameplay_config = Some(frame.decode()?);
             }
+            UpdateMovementSettings::ID => {
+                let packet: UpdateMovementSettings = frame.decode()?;
+                game.movement_settings = Some(packet.movement_settings);
+            }
             UpdatePlayerInventory::ID => {
                 game.inventory = Some(frame.decode()?);
             }
@@ -1414,6 +1447,10 @@ async fn finish_game(
             }
             WorldGameplayConfig::ID => {
                 game.gameplay_config = Some(frame.decode()?);
+            }
+            UpdateMovementSettings::ID => {
+                let packet: UpdateMovementSettings = frame.decode()?;
+                game.movement_settings = Some(packet.movement_settings);
             }
             UpdatePlayerInventory::ID => {
                 game.inventory = Some(frame.decode()?);

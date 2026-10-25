@@ -10,6 +10,7 @@
 
 pub mod common;
 pub mod gameplay;
+pub mod movement;
 pub mod order;
 pub mod pack;
 pub mod packets;
@@ -21,6 +22,7 @@ pub use gameplay::{
     GameplayCombatConfig, GameplayConfigAsset, GameplayPlayerConfig, GameplayWorldConfig,
     DEFAULT_GAMEPLAY_CONFIG_ID,
 };
+pub use movement::{java_default_movement, MovementConfigAsset, DEFAULT_MOVEMENT_CONFIG_ID};
 pub use order::{order_stores, StoreNode};
 pub use pack::{AssetError, AssetKey, AssetPack, ParentProvider};
 pub use packets::{AssetPacket, AssetPacketError, ConfigAssets, TagRegistry};
@@ -28,5 +30,5 @@ pub use parent::{merge_shallow, merge_values, ArrayMerge, MergeHook, ParentResol
 pub use registry::{
     AssetCollection, AssetRecord, AssetRegistry, BlockSupport, BlockTypeAsset, BlockTypeSupport,
     Face, FluidAsset, MapKind, StoreSpec, SupportRequirement, TagPatternAsset, TagPatternNode,
-    CHILD_STORES, P0_STORES, TAG_PATTERN_STORE,
+    CHILD_STORES, MOVEMENT_CONFIG, P0_STORES, TAG_PATTERN_STORE,
 };

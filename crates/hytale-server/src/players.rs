@@ -23,7 +23,7 @@ use hytale_protocol::generated::common::{
 };
 use hytale_protocol::generated::entities::EntityUpdates;
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
-use hytale_protocol::generated::world::ServerSetBlock;
+use hytale_protocol::generated::world::{ServerSetBlock, ServerSetFluid};
 use hytale_protocol::io::Uuid;
 use hytale_world::player_data::{
     PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
@@ -40,6 +40,8 @@ pub enum PlayerMessage {
     EntityUpdates(EntityUpdates),
     /// A single block edit on the chunks stream.
     BlockUpdate(ServerSetBlock),
+    /// A single fluid update on the chunks stream.
+    FluidUpdate(ServerSetFluid),
 }
 
 /// A queued player/entity/block message failed to write.
@@ -277,6 +279,24 @@ impl PlayerRegistry {
                 },
             ) {
                 queue(viewer, PlayerMessage::BlockUpdate(packet.clone()));
+            }
+        }
+    }
+
+    /// Broadcast one fluid update to every viewer of its chunk.
+    pub fn broadcast_fluid(&self, packet: ServerSetFluid) {
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for viewer in inner.players.values() {
+            if in_view(
+                viewer.view_center,
+                viewer.view_radius,
+                hytale_world::player_data::Position {
+                    x: f64::from(packet.x) + 0.5,
+                    y: f64::from(packet.y) + 0.5,
+                    z: f64::from(packet.z) + 0.5,
+                },
+            ) {
+                queue(viewer, PlayerMessage::FluidUpdate(packet.clone()));
             }
         }
     }
@@ -590,6 +610,9 @@ pub async fn write_message(
             writer.write_packet(&updates, compression_level).await?;
         }
         PlayerMessage::BlockUpdate(update) => {
+            chunks.write_packet(&update, compression_level).await?;
+        }
+        PlayerMessage::FluidUpdate(update) => {
             chunks.write_packet(&update, compression_level).await?;
         }
     }

@@ -14,12 +14,16 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use hytale_assets::{AssetPack, CommonAssetRegistry};
+use hytale_entities::movement::{resolve_target, PlayerShape, TargetResolution};
 use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_inventory::PlayerInventory;
+use hytale_protocol::generated::common::{FlyMode, MovementSettings};
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
+use hytale_world::collision::{BlockCollisionTable, Vec3, WorldCollision};
 use hytale_world::player_data::{PlayerAppearance, PlayerDataError, PlayerTransform};
+use hytale_world::simulation::{BlockDrop, BlockSimulation, SimulationReport, SimulationTables};
 use hytale_world::view::ChunkView;
 use hytale_world::world::{WorldError, WorldSave};
 use hytale_world::world_clock::{format_iso8601, parse_iso8601, WorldClock, WorldClockSettings};
@@ -31,6 +35,11 @@ use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
 /// The world clock snapshot sent on join (`WorldTimeState` keeps its previous
 /// name for session compatibility).
 pub use hytale_world::world_clock::WorldClockState as WorldTimeState;
+
+/// Java player model `PhysicsValues.Mass` (`Server/Models/Human/Player.json`).
+pub const DEFAULT_PLAYER_MASS: f64 = 68.0;
+/// Java `PhysicsValues.DEFAULT_DRAG_COEFFICIENT`.
+pub const DEFAULT_PLAYER_DRAG_COEFFICIENT: f64 = 0.5;
 
 /// Paths and settings for a world thread.
 #[derive(Debug, Clone)]
@@ -294,6 +303,61 @@ enum Command {
     },
     InteractionCatalog {
         reply: SyncSender<Arc<InteractionCatalog>>,
+    },
+    MovementSettings {
+        reply: SyncSender<Result<MovementSettings, String>>,
+    },
+    ResolveMovement {
+        from: Vec3,
+        to: Vec3,
+        crouching: bool,
+        step: bool,
+        reply: SyncSender<Result<TargetResolution, String>>,
+    },
+    Simulate {
+        dt: f32,
+        reply: SyncSender<Result<SimulationReport, String>>,
+    },
+    SetFluid {
+        x: i32,
+        y: i32,
+        z: i32,
+        fluid_id: i32,
+        level: i8,
+        reply: SyncSender<Result<bool, String>>,
+    },
+    GetFluid {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<(i32, i8)>, String>>,
+    },
+    BlockDrops {
+        block_id: i32,
+        reply: SyncSender<Result<Vec<BlockDrop>, String>>,
+    },
+    FluidId {
+        name: String,
+        reply: SyncSender<Result<i32, String>>,
+    },
+    ForceRandomTick {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<SimulationReport, String>>,
+    },
+    DamageBlock {
+        x: i32,
+        y: i32,
+        z: i32,
+        amount: f32,
+        reply: SyncSender<Result<f32, String>>,
+    },
+    BlockHealth {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<f32, String>>,
     },
     Save {
         reply: SyncSender<Result<usize, String>>,
@@ -665,6 +729,172 @@ impl WorldThread {
         response.recv().map_err(|_| WorldThreadError::ChannelClosed)
     }
 
+    /// The selected `MovementConfig` as an `UpdateMovementSettings` payload.
+    pub fn movement_settings(&self) -> Result<MovementSettings, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::MovementSettings { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Resolve a client position against the loaded block collision shapes.
+    pub fn resolve_movement(
+        &self,
+        from: Vec3,
+        to: Vec3,
+        crouching: bool,
+        step: bool,
+    ) -> Result<TargetResolution, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ResolveMovement {
+                from,
+                to,
+                crouching,
+                step,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Run one block-simulation pass (`dt` seconds, normally 0.05).
+    pub fn simulate(&self, dt: f32) -> Result<SimulationReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::Simulate { dt, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Set one fluid on a loaded chunk.
+    pub fn set_fluid(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        fluid_id: i32,
+        level: i8,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetFluid {
+                x,
+                y,
+                z,
+                fluid_id,
+                level,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Read one fluid id/level, or `None` when the chunk is not loaded.
+    pub fn get_fluid(&self, x: i32, y: i32, z: i32) -> Result<Option<(i32, i8)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::GetFluid { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Player-breaking drops declared by a block asset.
+    pub fn block_drops(&self, block_id: i32) -> Result<Vec<BlockDrop>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockDrops { block_id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Resolve a fluid asset key to its numeric id.
+    pub fn fluid_id(&self, name: &str) -> Result<i32, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::FluidId {
+                name: name.to_string(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Force one block's random-tick procedure (debug/test seam).
+    pub fn force_random_tick(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<SimulationReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ForceRandomTick { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Apply block-health damage. Returns the remaining health.
+    pub fn damage_block(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        amount: f32,
+    ) -> Result<f32, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::DamageBlock {
+                x,
+                y,
+                z,
+                amount,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Remaining block health at one position.
+    pub fn block_health(&self, x: i32, y: i32, z: i32) -> Result<f32, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockHealth { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Save dirty chunks and the config.
     pub fn save(&self) -> Result<usize, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -895,6 +1125,9 @@ fn run(
             player_appearance,
             mut clock,
             gameplay_config,
+            movement_settings,
+            collision,
+            mut simulation,
             config_assets,
             interactions,
         }) => {
@@ -1048,6 +1281,83 @@ fn run(
                     Command::InteractionCatalog { reply } => {
                         let _ = reply.send(Arc::clone(&interactions));
                     }
+                    Command::MovementSettings { reply } => {
+                        let _ = reply.send(Ok(movement_settings.clone()));
+                    }
+                    Command::ResolveMovement {
+                        from,
+                        to,
+                        crouching,
+                        step,
+                        reply,
+                    } => {
+                        let world = WorldCollision::new(save.world(), &collision);
+                        let result = resolve_target(
+                            &world,
+                            from,
+                            to,
+                            PlayerShape::default(),
+                            crouching,
+                            if step { 1.0 } else { 0.0 },
+                        );
+                        let _ = reply.send(Ok(result));
+                    }
+                    Command::Simulate { dt, reply } => {
+                        let result = simulation.tick(save.world_mut(), dt);
+                        let _ = reply.send(Ok(result));
+                    }
+                    Command::SetFluid {
+                        x,
+                        y,
+                        z,
+                        fluid_id,
+                        level,
+                        reply,
+                    } => {
+                        let result = save
+                            .world_mut()
+                            .set_fluid(x, y, z, fluid_id, level)
+                            .map_err(|error| error.to_string());
+                        let _ = reply.send(result);
+                    }
+                    Command::GetFluid { x, y, z, reply } => {
+                        let result = if save.world().chunk(x >> 5, z >> 5).is_some() {
+                            Ok(Some((
+                                save.world().get_fluid_id(x, y, z),
+                                save.world().get_fluid_level(x, y, z),
+                            )))
+                        } else {
+                            Ok(None)
+                        };
+                        let _ = reply.send(result);
+                    }
+                    Command::BlockDrops { block_id, reply } => {
+                        let _ = reply.send(Ok(simulation.tables().breaking_drops(block_id)));
+                    }
+                    Command::FluidId { name, reply } => {
+                        let result = generator
+                            .assets()
+                            .fluids
+                            .id_of(&name)
+                            .ok_or_else(|| format!("unknown fluid `{name}`"));
+                        let _ = reply.send(result);
+                    }
+                    Command::ForceRandomTick { x, y, z, reply } => {
+                        let result = simulation.force_random_tick(save.world_mut(), x, y, z);
+                        let _ = reply.send(Ok(result));
+                    }
+                    Command::DamageBlock {
+                        x,
+                        y,
+                        z,
+                        amount,
+                        reply,
+                    } => {
+                        let _ = reply.send(Ok(save.world_mut().damage_block(x, y, z, amount)));
+                    }
+                    Command::BlockHealth { x, y, z, reply } => {
+                        let _ = reply.send(Ok(save.world().block_health(x, y, z)));
+                    }
                     Command::Save { reply } => {
                         advance_clock(&mut clock, &mut last_clock);
                         store_clock(&clock, &mut save);
@@ -1140,6 +1450,9 @@ struct Started {
     player_appearance: PlayerAppearance,
     clock: WorldClock,
     gameplay_config: WorldGameplayConfig,
+    movement_settings: MovementSettings,
+    collision: BlockCollisionTable,
+    simulation: BlockSimulation,
     config_assets: Arc<hytale_assets::ConfigAssets>,
     interactions: Arc<InteractionCatalog>,
 }
@@ -1198,6 +1511,26 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         .map(|record| record.value.clone())
         .unwrap_or_default();
     let gameplay_config = gameplay_asset.to_packet(&config_assets.tags);
+    // The selected config is the gameplay config's `Player.MovementConfig`;
+    // a missing asset falls back to Java `MovementConfig.DEFAULT_MOVEMENT`.
+    let movement_asset = generator
+        .assets()
+        .movement_configs
+        .get(&gameplay_asset.player.movement_config)
+        .map(|record| record.value.clone())
+        .unwrap_or_default();
+    let mut movement_settings = movement_asset.settings;
+    movement_settings.mass = DEFAULT_PLAYER_MASS as f32;
+    movement_settings.drag_coefficient = DEFAULT_PLAYER_DRAG_COEFFICIENT as f32;
+    movement_settings.inverted_gravity = false;
+    // The server joins players in Adventure. A future per-player game mode
+    // re-derives this in `MovementManager.resetFly`.
+    movement_settings.fly = movement_asset.fly.unwrap_or(FlyMode::Disabled);
+    let collision = BlockCollisionTable::from_assets(generator.assets());
+    let simulation = BlockSimulation::new(
+        SimulationTables::from_assets(generator.assets()),
+        save.config().seed,
+    );
     let clock_settings = WorldClockSettings {
         daytime_duration_seconds: save
             .config()
@@ -1253,6 +1586,9 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         player_appearance,
         clock,
         gameplay_config,
+        movement_settings,
+        collision,
+        simulation,
         config_assets,
         interactions,
     })

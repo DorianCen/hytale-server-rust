@@ -196,12 +196,27 @@ impl std::fmt::Debug for WorldStorage {
     }
 }
 
+/// Damage state of one block (`BlockHealth`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlockHealthState {
+    /// Remaining health from `0.0` (destroyed) to `1.0` (undamaged).
+    pub health: f32,
+    /// World tick of the last damage.
+    pub last_damage_tick: u64,
+}
+
 /// Loaded runtime chunks of one world plus their dirty state.
 #[derive(Debug)]
 pub struct World {
     storage: WorldStorage,
     chunks: HashMap<i64, ChunkColumn>,
     dirty: BTreeSet<i64>,
+    /// World tick, advanced by [`World::advance_tick`].
+    tick: u64,
+    /// Blocks touched since the simulation last drained this set.
+    changed_blocks: BTreeSet<(i32, i32, i32)>,
+    /// Transient block-health map (`BlockHealthSection` is not yet stored).
+    block_health: BTreeMap<(i32, i32, i32), BlockHealthState>,
 }
 
 impl World {
@@ -211,6 +226,9 @@ impl World {
             storage,
             chunks: HashMap::new(),
             dirty: BTreeSet::new(),
+            tick: 0,
+            changed_blocks: BTreeSet::new(),
+            block_health: BTreeMap::new(),
         }
     }
 
@@ -283,8 +301,146 @@ impl World {
         let changed = column.set_block(local_x, y, local_z, block_id, rotation, filler)?;
         if changed {
             self.dirty.insert(index);
+            self.changed_blocks.insert((x, y, z));
+            self.block_health.remove(&(x, y, z));
         }
         Ok(changed)
+    }
+
+    /// Java `BlockSection.getRotationIndex` on a loaded chunk.
+    pub fn get_rotation(&self, x: i32, y: i32, z: i32) -> i32 {
+        self.chunk(x >> 5, z >> 5)
+            .map(|column| column.get_rotation(x & 31, y, z & 31))
+            .unwrap_or(0)
+    }
+
+    /// Java `BlockSection.getFiller` on a loaded chunk.
+    pub fn get_filler(&self, x: i32, y: i32, z: i32) -> i32 {
+        self.chunk(x >> 5, z >> 5)
+            .map(|column| column.get_filler(x & 31, y, z & 31))
+            .unwrap_or(0)
+    }
+
+    /// Set one block preserving a specific rotation/filler.
+    pub fn set_block_full(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+        rotation: i32,
+        filler: i32,
+    ) -> Result<bool> {
+        let index = index_chunk(x >> 5, z >> 5);
+        let Some(column) = self.chunks.get_mut(&index) else {
+            return Ok(false);
+        };
+        let changed = column.set_block(x & 31, y, z & 31, block_id, rotation, filler)?;
+        if changed {
+            self.dirty.insert(index);
+            self.changed_blocks.insert((x, y, z));
+            self.block_health.remove(&(x, y, z));
+        }
+        Ok(changed)
+    }
+
+    /// Read one fluid id on a loaded chunk.
+    pub fn get_fluid_id(&self, x: i32, y: i32, z: i32) -> i32 {
+        self.chunk(x >> 5, z >> 5)
+            .map(|column| column.get_fluid_id(x & 31, y, z & 31))
+            .unwrap_or(0)
+    }
+
+    /// Read one fluid level on a loaded chunk.
+    pub fn get_fluid_level(&self, x: i32, y: i32, z: i32) -> i8 {
+        self.chunk(x >> 5, z >> 5)
+            .map(|column| column.get_fluid_level(x & 31, y, z & 31))
+            .unwrap_or(0)
+    }
+
+    /// Set one fluid and mark the chunk dirty/changed.
+    pub fn set_fluid(&mut self, x: i32, y: i32, z: i32, fluid_id: i32, level: i8) -> Result<bool> {
+        let index = index_chunk(x >> 5, z >> 5);
+        let Some(column) = self.chunks.get_mut(&index) else {
+            return Ok(false);
+        };
+        let changed = column.set_fluid(x & 31, y, z & 31, fluid_id, level)?;
+        if changed {
+            self.dirty.insert(index);
+            self.changed_blocks.insert((x, y, z));
+        }
+        Ok(changed)
+    }
+
+    /// The current world tick.
+    pub fn tick(&self) -> u64 {
+        self.tick
+    }
+
+    /// Advance the world tick and return the new value.
+    pub fn advance_tick(&mut self) -> u64 {
+        self.tick = self.tick.wrapping_add(1);
+        self.tick
+    }
+
+    /// Drain the blocks touched since the last simulation pass.
+    pub fn take_changed_blocks(&mut self) -> Vec<(i32, i32, i32)> {
+        std::mem::take(&mut self.changed_blocks)
+            .into_iter()
+            .collect()
+    }
+
+    /// Remaining block health (`1.0` when undamaged).
+    pub fn block_health(&self, x: i32, y: i32, z: i32) -> f32 {
+        self.block_health
+            .get(&(x, y, z))
+            .map_or(1.0, |state| state.health)
+    }
+
+    /// Java `BlockHealthSection.damage`: subtract `amount` and return the rest.
+    pub fn damage_block(&mut self, x: i32, y: i32, z: i32, amount: f32) -> f32 {
+        if !amount.is_finite() || amount <= 0.0 {
+            return self.block_health(x, y, z);
+        }
+        let current = self.block_health(x, y, z);
+        let next = current - amount;
+        if next > 0.0 && next < 1.0 {
+            self.block_health.insert(
+                (x, y, z),
+                BlockHealthState {
+                    health: next,
+                    last_damage_tick: self.tick,
+                },
+            );
+        } else {
+            self.block_health.remove(&(x, y, z));
+        }
+        next
+    }
+
+    /// Clear one block-health entry (e.g. after replacing the block).
+    pub fn clear_block_health(&mut self, x: i32, y: i32, z: i32) -> bool {
+        self.block_health.remove(&(x, y, z)).is_some()
+    }
+
+    /// Regenerate damaged blocks after the Java delay and set the tick.
+    pub(crate) fn tick_block_health(&mut self, dt: f32) {
+        if self.block_health.is_empty() || dt <= 0.0 {
+            return;
+        }
+        const SECONDS_UNTIL_REGENERATION: u64 = 5;
+        const HEALING_PER_SECOND: f32 = 0.1;
+        // One world tick is 50 ms in the current loop.
+        let delay_ticks = SECONDS_UNTIL_REGENERATION * 20;
+        let healing = HEALING_PER_SECOND * dt;
+        let tick = self.tick;
+        self.block_health.retain(|_, state| {
+            if tick.saturating_sub(state.last_damage_tick) < delay_ticks {
+                return true;
+            }
+            state.health += healing;
+            state.health < 1.0
+        });
     }
 
     /// Save one loaded chunk if it is dirty.

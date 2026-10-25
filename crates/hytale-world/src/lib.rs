@@ -9,8 +9,10 @@
 #![deny(clippy::all)]
 
 pub mod chunk;
+pub mod collision;
 pub mod player_data;
 pub mod registry;
+pub mod simulation;
 pub mod universe;
 pub mod view;
 pub mod world;

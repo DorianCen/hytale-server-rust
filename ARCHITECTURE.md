@@ -101,8 +101,18 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   with the transform. Session 38 added the interaction core: `hytale-interactions`
   loads the Java root/interaction assets with parent inheritance, walks the
   structural/variable graph and dispatches block `Use` actions (doors, state
-  changes, containers/benches) before T46 placement. M5 continues with T51;
-  see [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
+  changes, containers/benches) before T46 placement. Session 39 added movement
+  authority: the internal `MovementConfig` store and join
+  `UpdateMovementSettings` packet, `hytale-world::collision` shapes from
+  `BlockType`/`BlockBoundingBoxes` (Java rotations + filler origins), the
+  `hytale-entities::movement` AABB sweep/step/gravity integrator, bounded
+  `ClientMovement` validation and authoritative `ClientTeleport` corrections.
+  Session 40 added block simulation: a transient scheduled-tick queue in
+  `BlockSection`, `hytale-world::simulation` (deterministic random ticks,
+  support loss, falling blocks, default fluid flow/collision, gathering drops
+  and transient block health) and one simulation pass per 50 ms in the server
+  loop with view-filtered block/fluid broadcasts. M5 continues with T53; see
+  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md) and
   [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -154,7 +164,7 @@ hytale-server
   │                  hytale-storage ─┘
   │                  hytale-inventory ─ hytale-protocol
   │                  hytale-interactions ─ hytale-assets
-  ├─ hytale-entities ─ hytale-world
+  ├─ hytale-entities ─ hytale-world + hytale-protocol
   └─ hytale-core
 
 worldgen-server ── worldgen-hytale ── worldgen-model ── hytale-math
@@ -405,6 +415,19 @@ hotbar/utility/tools `SetActiveSlot` packets after self-spawn; active-slot and
 held-item changes fan out as equipment entity updates. Inventory windows, block
 containers and world item entities remain later gameplay work.
 
+Block simulation is owned by `hytale-world::simulation`. `BlockSection` carries
+a transient `(tick, index)` scheduled queue; `begin_tick` moves due requests
+into the ticking set and `finish_tick` applies Java's `BlockTickStrategy`. One
+simulation pass drains changed blocks (scheduling the 3×3×3 neighbourhood),
+processes fluid/support/scheduled ticks, runs deterministic random ticks,
+advances one-cell falling blocks and regenerates transient block health.
+`SimulationTables` parses `Support`/`Supporting`, `SupportDropType`,
+`Gathering`, `RandomTickProcedure`, `FallingBlockSettings` and the default
+`Fluid` ticker from the merged assets. The server calls `simulate(0.05)` each
+50 ms game-loop tick and broadcasts block/fluid changes to viewers. Fluid face
+coverage, light-gated growth, block-damage packets, item-entity drops and the
+builtin module lifecycle remain T56/T57/T60 work.
+
 ---
 
 ## 6. Entity layer
@@ -423,7 +446,14 @@ containers and world item entities remain later gameplay work.
 
 The initial component set is deliberately small: transform, UUID, player,
 persistent display name, world-gen id, movement/velocity, and the components
-needed by block placement. `hytale-world::player_data` also decodes the saved
+needed by block placement. `hytale-entities::movement` owns the player AABB
+(`0.65 × 1.85 × 0.65`), the Y→X→Z collision sweep with one-block step-up, and
+the deterministic gravity/jump/fly/climb integrator used by tests and later NPC
+work. `hytale-world::collision` turns `BlockType` materials and
+`BlockBoundingBoxes` into indexed world shapes (64 Java rotation slots, filler
+origins); the server validates network movement against them and sends an
+authoritative `ClientTeleport` only when a target is corrected.
+`hytale-world::player_data` also decodes the saved
 `Model` reference and inventory containers into a server-side
 `PlayerAppearance`; the session maps that plus the auth skin into the self-spawn
 `ModelUpdate`/`PlayerSkinUpdate`/`EquipmentUpdate`. Gameplay components arrive
@@ -569,14 +599,14 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `AssetStore/**`, `Codec/**` | `hytale-assets` | pack VFS + `Parent` resolver + store order landed; P0 asset-packet goldens dumped (M2); P0 registry/typed stores and the `worldgen-model` bridge landed (M2); `PhysicalMaterial`/`BlockHitboxes` packet encoders byte-match Java (M2) |
 | `CoreServer/.../asset/**` | `hytale-assets` | 54-store inventory landed (M2); P0 loader, contained block-type extraction and deterministic ids landed (M2); common-asset index + verified blob loading landed and stream in setup (M4) |
 | `Storage/IndexedStorageFile` | `hytale-storage` | v1 container landed (M3) |
-| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette, the packet builders and the `chunk::stream` batch/framer landed (M3/M4); all 46 `chunks-pkts` payloads and the batch order match Java |
+| `CoreServer/.../universe/world/chunk/**` | `hytale-world::chunk` + `simulation` | palette, block/fluid/environment sections, `ChunkColumn::from_generated_chunk`, heightmap, tint palette, packet builders and the `chunk::stream` batch/framer landed (M3/M4); all 46 `chunks-pkts` payloads and the batch order match Java. T52 adds the scheduled tick queue, support/random/fluid/falling passes and transient block health (M5); Java `BlockHealthSection` storage and full builtin tickers remain later work |
 | `CoreServer/.../universe/{Universe,World}` | `hytale-world` + `hytale-server` | runtime chunk model, headless boot, `World`/`WorldStorage`, `WorldConfig` v4, `WorldSave`, generation-backed demand loading, the `WorldThread` view/scheduling loop, per-session registered views and the chunk packet batch/framer landed (M3/M4); universe lifecycle and writing frames on a connection landed |
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
 | `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence and per-second `UpdateTime` landed (M4); sleep/interpolation commands and moon-phase events pending (T54) |
 | `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); windows and world item entities deferred |
 | `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes and door state broadcasts landed (M5); selectors/effects/cooldowns, item/entity roots and windows deferred |
-| `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::player_data` | saved model reference and inventory components decoded (M4); full `ModelAsset` protocol expansion and ECS lifecycle deferred |
+| `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::{collision,player_data}` | saved model reference and inventory components decoded (M4); `movement` AABB sweep, one-block step, bounds and gravity/jump/fly/climb integrator plus the internal `MovementConfig` join packet landed (M5); full `ModelAsset` protocol expansion, ECS lifecycle, fluids/triggers and entity collisions deferred |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, validated block place/break with `ServerSetBlock` broadcasts, and the JSONL packet-trace capture/gate (M3/M4) landed |

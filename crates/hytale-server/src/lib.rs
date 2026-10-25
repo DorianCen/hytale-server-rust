@@ -33,6 +33,9 @@ pub use chunk_streamer::{
 };
 pub use generation::{GenerationError, GeneratorOptions, WorldGenerator};
 pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, HeadlessReport};
+pub use hytale_world::simulation::{
+    BlockChange, BlockDrop, FluidChange, SimulationReport, SimulationTables,
+};
 pub use player_data_tool::{
     run as run_player_data_tool, PlayerDataToolError, PlayerDataToolOptions, PlayerDataToolReport,
 };

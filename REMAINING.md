@@ -20,10 +20,17 @@ Deferred to M5:
 - Interaction graph beyond the T50 block `Use`/door/state core: item and entity
   roots, selectors, effects/sounds, cooldowns, client-chain sync and
   container/bench windows (T53/T55/T57).
-- Block physics/ticking/fluids beyond the minimum needed for a stable world.
-- Player movement physics, collision, anti-cheat and server-authoritative
-  positions: the current join loop uses `ClientMovement.absolutePosition` only
-  to change the streamed view chunk.
+- Block physics/ticking/fluids beyond T52's native core: partial-hitbox fluid
+  face coverage, waterlogging, fire/finite tickers, disabled-ticker config,
+  light-gated growth, `MaxSupportDistance` chains, support/filler edge rules
+  and builtin `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks` module
+  lifecycle (T60). Block-health persistence/fragility packets and item-entity
+  drops are T56/T57.
+- Player movement beyond the T51 authority core: the server now validates
+  finite/world bounds, resolves solid-block collision (sweep + one-block step),
+  sends correction teleports and exposes a deterministic gravity/jump/fly/climb
+  integrator. Per-packet speed/teleport anti-cheat remains T62; fluids,
+  triggers, mounts, traversal and entity collisions remain T52/T55/T58.
 - Instances, encounters, portals, adventure plugins.
 - World map UI, markers, live map rendering.
 

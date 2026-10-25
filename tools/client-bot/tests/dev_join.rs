@@ -100,6 +100,7 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
                 ..PlayerSkin::default()
             }),
             movement_after_join: None,
+            movement_after_edits: None,
             observe_after_join: None,
             disconnect_after: None,
             keep_alive: false,

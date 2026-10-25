@@ -35,6 +35,7 @@ use hytale_protocol::generated::common::{BlockMaterial, BlockNeighbor, DrawType,
 use serde_json::{json, Value};
 
 use crate::gameplay::GameplayConfigAsset;
+use crate::movement::MovementConfigAsset;
 use crate::pack::{AssetError, AssetPack, ParentProvider};
 use crate::parent::{MergeHook, ParentResolver};
 
@@ -114,6 +115,15 @@ const FLUID: StoreSpec = P0_STORES[4];
 const ITEM: StoreSpec = P0_STORES[5];
 const PHYSICAL_MATERIAL: StoreSpec = P0_STORES[6];
 const PREFAB_LIST: StoreSpec = P0_STORES[7];
+
+/// Internal `MovementConfig` store (no asset packet; selected by
+/// `GameplayConfig.Player.MovementConfig` and sent through
+/// `UpdateMovementSettings`).
+pub const MOVEMENT_CONFIG: StoreSpec = StoreSpec {
+    name: "MovementConfig",
+    path: "Server/Entity/MovementConfig",
+    map: MapKind::IndexedLookupTable,
+};
 
 /// The `TagPattern` store (Java `TagPatterns`, `IndexedLookupTableAssetMap`).
 ///
@@ -701,6 +711,9 @@ pub struct AssetRegistry {
     /// Internal `GameplayConfig` store (no packet; used by the world clock and
     /// the join `WorldGameplayConfig` packet).
     pub gameplay_configs: AssetCollection<GameplayConfigAsset>,
+    /// Internal `MovementConfig` store (no packet; selected by the gameplay
+    /// config and sent through `UpdateMovementSettings`).
+    pub movement_configs: AssetCollection<MovementConfigAsset>,
     /// `ItemSoundSet` (loaded by [`Self::load_phase2`]).
     pub item_sound_sets: AssetCollection<Value>,
     /// `ItemQuality` (loaded by [`Self::load_phase2`]).
@@ -763,6 +776,12 @@ impl AssetRegistry {
             &GAMEPLAY_CONFIG_STORE,
             GameplayConfigAsset::from_value,
         )?;
+        let movement_configs = load_indexed_store(
+            pack,
+            &MOVEMENT_CONFIG,
+            Vec::new(),
+            MovementConfigAsset::from_value,
+        )?;
 
         Ok(Self {
             block_types,
@@ -775,6 +794,7 @@ impl AssetRegistry {
             prefab_lists,
             tag_patterns: AssetCollection::new(TAG_PATTERN_STORE.name, Vec::new())?,
             gameplay_configs,
+            movement_configs,
             item_sound_sets: AssetCollection::empty(),
             item_qualities: AssetCollection::empty(),
             item_reticles: AssetCollection::empty(),

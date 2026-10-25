@@ -140,6 +140,7 @@ async fn door_use_toggles_the_block_state() {
             view_radius_chunks: 0,
             skin: None,
             movement_after_join: None,
+            movement_after_edits: None,
             observe_after_join: Some(Duration::from_secs(3)),
             disconnect_after: None,
             keep_alive: false,

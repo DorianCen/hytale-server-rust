@@ -107,6 +107,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         view_radius_chunks: 0,
         skin: None,
         movement_after_join: Some(first_transform.clone()),
+        movement_after_edits: None,
         observe_after_join: Some(Duration::from_secs(4)),
         disconnect_after: Some(Duration::from_millis(2_500)),
         keep_alive: false,
@@ -125,6 +126,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             y: 200.0,
             z: 8.0,
         }),
+        movement_after_edits: None,
         observe_after_join: Some(Duration::from_secs(3)),
         disconnect_after: None,
         keep_alive: true,
@@ -276,6 +278,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             view_radius_chunks: 0,
             skin: None,
             movement_after_join: None,
+            movement_after_edits: None,
             observe_after_join: Some(Duration::from_secs(2)),
             disconnect_after: None,
             keep_alive: false,
@@ -342,6 +345,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             view_radius_chunks: 0,
             skin: None,
             movement_after_join: None,
+            movement_after_edits: None,
             observe_after_join: None,
             disconnect_after: None,
             keep_alive: false,
@@ -400,6 +404,14 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         "the reconnect must finish as its own session"
     );
     assert_eq!(report.sessions.len(), 4);
+    assert!(
+        report
+            .sessions
+            .iter()
+            .all(|session| session.movement_rejections == 0 && session.movement_corrections == 0),
+        "normal movement must not be rejected or corrected: {:?}",
+        report.sessions
+    );
 
     std::fs::remove_dir_all(universe_root).ok();
 }
@@ -460,6 +472,7 @@ async fn an_idle_session_is_torn_down_and_the_listener_keeps_accepting() {
             view_radius_chunks: 0,
             skin: None,
             movement_after_join: None,
+            movement_after_edits: None,
             observe_after_join: Some(Duration::from_secs(8)),
             disconnect_after: None,
             keep_alive: false,
@@ -492,6 +505,7 @@ async fn an_idle_session_is_torn_down_and_the_listener_keeps_accepting() {
             view_radius_chunks: 0,
             skin: None,
             movement_after_join: None,
+            movement_after_edits: None,
             observe_after_join: Some(Duration::from_millis(500)),
             disconnect_after: None,
             keep_alive: false,

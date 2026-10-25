@@ -7,3 +7,5 @@
 //! goal.
 
 #![deny(clippy::all)]
+
+pub mod movement;

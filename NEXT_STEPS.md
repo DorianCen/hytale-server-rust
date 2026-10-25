@@ -1,12 +1,12 @@
-# Next steps — CoreServer rewrite, phase 2 (session 34)
+# Next steps — CoreServer rewrite, phase 2 (session 40)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
 (tasks T01–T33, sessions 1–23). The phase-2 plan is [`plan.md`](plan.md) and
 the task board is [`tasks/README.md`](tasks/README.md).
 
-**Next task:** **T51** — player movement physics and collision authority,
-continuing M5 gameplay parity.
+**Next task:** **T53** — entity stats, effects and combat basics, continuing M5
+gameplay parity.
 
 ## Current state
 
@@ -79,6 +79,18 @@ Landed and green:
   state-variant changes. Right-click `Use` dispatch now toggles a placed door
   before falling back to placement; tests cover the graph, real pack load and a
   door loopback.
+- T51 movement authority: internal `MovementConfig` loading with the Java
+  defaults, `UpdateMovementSettings` on join, block collision shapes from
+  `BlockType`/`BlockBoundingBoxes` (64 rotations + filler origins), the
+  `hytale-entities::movement` AABB sweep/step/gravity integrator, bounded
+  `ClientMovement` validation, authoritative collision corrections via
+  `ClientTeleport`, and a ladder-free walk/fall/collide loopback that stays
+  rubber-band free.
+- T52 block simulation: `BlockSection` scheduled-tick queue, deterministic
+  random ticks, support loss (`Break`/`Destroy`/`Fall`), one-cell falling
+  blocks, water/lava flow with collision conversion, native gathering drops and
+  transient block health with Java regeneration; the server runs one simulation
+  pass per 50 ms and broadcasts block/fluid changes.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -98,7 +110,7 @@ cargo fmt --all -- --check
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   M5 continues with T51 after T50.
+   M5 continues with T53 after T52.
 
 ## Try it
 

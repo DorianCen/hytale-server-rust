@@ -92,6 +92,20 @@ pub struct SessionSummary {
     pub disconnected: bool,
     /// The server disconnected the client for idleness.
     pub idle_timeout: bool,
+    /// `ClientMovement` packets processed.
+    pub movement_packets: usize,
+    /// Movement packets refused by the finite/world bounds.
+    pub movement_rejections: usize,
+    /// Movement targets corrected by collision.
+    pub movement_corrections: usize,
+    /// Movement corrections that auto-stepped onto a block.
+    pub movement_steps: usize,
+    /// Block-simulation passes run.
+    pub simulation_ticks: usize,
+    /// Block changes emitted by the simulation.
+    pub simulation_block_changes: usize,
+    /// Fluid changes emitted by the simulation.
+    pub simulation_fluid_changes: usize,
 }
 
 impl From<&SessionReport> for SessionSummary {
@@ -103,6 +117,13 @@ impl From<&SessionReport> for SessionSummary {
             unloaded: report.stream.unloaded + report.game_loop.unloaded,
             disconnected: report.game_loop.disconnected,
             idle_timeout: report.game_loop.idle_timeout,
+            movement_packets: report.game_loop.movement_packets,
+            movement_rejections: report.game_loop.movement_rejections,
+            movement_corrections: report.game_loop.movement_corrections,
+            movement_steps: report.game_loop.movement_steps,
+            simulation_ticks: report.game_loop.simulation_ticks,
+            simulation_block_changes: report.game_loop.simulation_block_changes,
+            simulation_fluid_changes: report.game_loop.simulation_fluid_changes,
         }
     }
 }

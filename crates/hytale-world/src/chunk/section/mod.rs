@@ -9,7 +9,7 @@ pub mod environment;
 pub mod fluid;
 pub mod light;
 
-pub use block::{BlockSection, BlockSectionPacket};
+pub use block::{BlockSection, BlockSectionPacket, BlockTickStrategy};
 pub use environment::{EnvironmentSection, SectionEnvironmentsMode};
 pub use fluid::FluidSection;
 pub use light::{LightData, LIGHT_BLOCK_COUNT};
