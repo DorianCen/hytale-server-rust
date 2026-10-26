@@ -117,9 +117,9 @@ Landed and green:
   `DamageCause` parent rule inherits only `DeathMessageKey`. Item
   `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` names resolve to
   deterministic stat ids. `EntityGameplay` is the component seam for T55/T57/
-  T59, and `testdata/golden/server/entity/entity-gameplay.json` gates all 13
+  T59c, and `testdata/golden/server/entity/entity-gameplay.json` gates all 13
   stats, 260 effects and 20 damage causes against Java. Client packets,
-  conditions, damage calculators and DoT remain T59.
+  conditions, damage calculators and DoT remain T59c.
 - T54 (done): `Server/Weathers` loads with `Unknown` at id 0;
   environment forecasts are parsed from the real 24-hour tables;
   `hytale_world::weather` selects deterministic weather per hour, honors
@@ -136,7 +136,7 @@ Landed and green:
   the slide/roll/mantle traversal state and a `MountState` rider seam. The
   Java entity fixture now gates both projectile stores; `--validate-assets`
   reports 27 stores. Packets, explosions, prediction and new-physics
-  density/drag remain T59.
+  density/drag remain T59c.
 - T56 (done): prefab parsing now keeps block `components` and entity
   `Components`; `hytale-world::runtime` owns stable-id runtime entities and
   block components with versioned atomic JSON sidecars, and

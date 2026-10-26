@@ -832,7 +832,7 @@ block components, spawn/despawn lifecycle.
   column/hash order).
 - Item drops with weighted drop lists stay unresolved; fixed-item simulation
   drops become item entities. Runtime entity spawn presentation landed in T57;
-  projectile spawn/despawn and dynamic transforms remain T59.
+  projectile spawn/despawn and dynamic transforms remain T59c.
 
 ### T57 — UI basics and block health presentation
 

@@ -508,7 +508,7 @@ resistance/outgoing modifiers, health subtraction and the death result. The
 asset registry loads `Server/Entity/Stats` and item stat arrays resolve names to
 ids. T57 adds the runtime-entity and block-health presentation; stat/effect/
 damage packets, condition evaluation and the full damage-calculator graph
-remain T59. `hytale-entities::movement` owns the player AABB
+remain T59c. `hytale-entities::movement` owns the player AABB
 (`0.65 × 1.85 × 0.65`), the Y→X→Z collision sweep with one-block step-up, and
 the deterministic gravity/jump/fly/climb integrator used by tests and later NPC
 work. `hytale-world::collision` turns `BlockType` materials and

@@ -356,7 +356,7 @@ their committed item payloads and counts stay stable.
 
 Full condition evaluation, damage calculators, effect damage-over-time, client
 stat/effect/damage packets and the `UpdateEntityStatTypes`/
-`UpdateEntityEffects` config burst remain T59 work.
+`UpdateEntityEffects` config burst remain T59c work.
 
 ### 3.11 Prefab entities and block components (real-pack gate)
 
