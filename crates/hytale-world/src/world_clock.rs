@@ -235,6 +235,56 @@ impl WorldClock {
         self.game_time.second_of_day() / 3_600
     }
 
+    /// Java `WorldTimeResource.getDayProgress()` (`0.0..1.0`).
+    pub fn day_progress(&self) -> f64 {
+        f64::from(self.game_time.second_of_day()) / f64::from(SECONDS_PER_DAY as i32)
+    }
+
+    /// Java `WorldTimeResource.scaledTime` (`0.0..1.0`).
+    ///
+    /// The fixed 60/40 split maps midnight to `0`, sunrise to `0.25`, midday
+    /// to `0.5`, sunset to `0.75` and the following midnight to `1`.
+    pub fn scaled_day_time(&self) -> f64 {
+        let day_progress = f64::from(self.game_time.second_of_day());
+        let day_duration = f64::from(DAYTIME_SECONDS);
+        let half_night = f64::from(NIGHTTIME_SECONDS) * 0.5;
+        if day_progress <= half_night {
+            lerp(0.0, 0.25, day_progress / half_night)
+        } else if day_progress - half_night <= day_duration {
+            lerp(0.25, 0.75, (day_progress - half_night) / day_duration)
+        } else {
+            lerp(
+                0.75,
+                1.0,
+                (day_progress - half_night - day_duration) / half_night,
+            )
+        }
+    }
+
+    /// Java `WorldTimeResource.isDayTimeWithinRange`; both bounds are
+    /// normalized day progress (`hour / 24`).
+    pub fn is_day_time_within_range(&self, min: f64, max: f64) -> bool {
+        within_range(self.day_progress(), min, max)
+    }
+
+    /// Java `WorldTimeResource.isScaledDayTimeWithinRange`; both bounds are
+    /// normalized scaled time (`hour / 24`).
+    pub fn is_scaled_day_time_within_range(&self, min: f64, max: f64) -> bool {
+        within_range(self.scaled_day_time(), min, max)
+    }
+
+    /// Java `WorldTimeResource.isMoonPhaseWithinRange`. A wrapped range
+    /// (`min > max`) spans the configured moon cycle.
+    pub fn is_moon_phase_within_range(&self, min: i32, max: i32) -> bool {
+        let phase = i32::from(self.moon_phase());
+        if min > max {
+            (phase >= min && phase <= i32::from(self.settings.total_moon_phases))
+                || (phase >= 0 && phase <= max)
+        } else {
+            phase >= min && phase <= max
+        }
+    }
+
     /// Java `WorldTimeResource` moon phase: the weekly phase swaps at midday.
     pub fn moon_phase(&self) -> i8 {
         let total = self.settings.total_moon_phases.max(1);
@@ -332,6 +382,20 @@ impl WorldClock {
             next = GameInstant::from_total_nanos(zero + max - old.total_nanos());
         }
         self.game_time = next;
+    }
+}
+
+/// Java `MathUtil.lerp` (clamped to `0..1`).
+fn lerp(from: f64, to: f64, t: f64) -> f64 {
+    from + t.clamp(0.0, 1.0) * (to - from)
+}
+
+/// Java `MathUtil.within`, including a wrapped `min > max` range.
+fn within_range(value: f64, min: f64, max: f64) -> bool {
+    if min > max {
+        (value >= min && value <= 1.0) || (value >= 0.0 && value <= max)
+    } else {
+        value >= min && value <= max
     }
 }
 
@@ -539,6 +603,50 @@ mod tests {
     fn zero_year_is_midnight_utc() {
         assert_eq!(GameInstant::ZERO_YEAR.second_of_day(), 0);
         assert_eq!(instant("0001-01-01T05:30:00Z").second_of_day(), 19_800);
+    }
+
+    fn clock_at(hour: f64) -> WorldClock {
+        let seconds = ZERO_YEAR_SECONDS + (hour * 3_600.0) as i64;
+        WorldClock::from_game_time(
+            Some(GameInstant::new(seconds, 0)),
+            WorldClockSettings {
+                total_moon_phases: 5,
+                ..WorldClockSettings::default()
+            },
+            false,
+        )
+    }
+
+    #[test]
+    fn day_progress_and_scaled_time_match_java() {
+        let midnight = clock_at(0.0);
+        assert_eq!(midnight.day_progress(), 0.0);
+        assert_eq!(midnight.scaled_day_time(), 0.0);
+
+        // Java `halfNight` = 4:48, sunrise stays at scaled 0.25.
+        let sunrise = clock_at(4.8);
+        assert!((sunrise.scaled_day_time() - 0.25).abs() < 1e-9);
+        let noon = clock_at(12.0);
+        assert_eq!(noon.day_progress(), 0.5);
+        assert!((noon.scaled_day_time() - 0.5).abs() < 1e-9);
+        // The fixed 60/40 split puts sunset at 19:12, not 18:00.
+        let sunset = clock_at(19.2);
+        assert!((sunset.scaled_day_time() - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn day_time_and_moon_ranges_follow_java_wrapping() {
+        let clock = clock_at(12.0);
+        assert!(clock.is_day_time_within_range(6.0 / 24.0, 18.0 / 24.0));
+        assert!(!clock.is_day_time_within_range(19.0 / 24.0, 5.0 / 24.0));
+        assert!(clock_at(22.0).is_day_time_within_range(19.0 / 24.0, 5.0 / 24.0));
+        assert!(!clock.is_day_time_within_range(0.0, 6.0 / 24.0));
+        assert!(clock.is_scaled_day_time_within_range(0.25, 0.75));
+
+        let phase = i32::from(clock.moon_phase());
+        assert!(clock.is_moon_phase_within_range(phase, phase));
+        assert!(clock.is_moon_phase_within_range(5, 0) || clock.is_moon_phase_within_range(0, 5));
+        assert!(!clock.is_moon_phase_within_range(phase + 1, phase + 1));
     }
 
     #[test]

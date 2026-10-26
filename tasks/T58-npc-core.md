@@ -72,9 +72,10 @@ cargo fmt --all -- --check
 
 - T58b adds [`hytale-npc::expr`](T58b-npc-builder-expressions.md), reference
   chain/parameter merging and `ResolvedRole`, so the 1,147 role documents now
-  resolve to usable archetype fields. The three `ReferenceSelector`
-  development roles keep nested slot-scoped expressions for a later builder
-  pass.
+  resolve to usable archetype fields. T59 also flattens `Modify` over the
+  inherited document so variant health/attack fields are readable. The three
+  `ReferenceSelector` development roles keep nested slot-scoped expressions for
+  a later builder pass.
 - T58c adds [`WorldGrid`](T58c-npc-world-grid-group.md) (real-world walk/fly
   planning) and the Java group-steering accumulator. The T58 core goal is
   closed; deep builder-graph and motion-controller parity move with T59/T60.

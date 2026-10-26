@@ -39,7 +39,9 @@ context. The main agent owns sequencing and shared-file edits.
 | [T58](T58-npc-core.md) | NPC core: AI, pathfinding, flocking | T48, T57b | low/medium | done (session 50) |
 | [T58b](T58b-npc-builder-expressions.md) | NPC builder expressions and resolved archetypes | T58 | medium | done (session 50) |
 | [T58c](T58c-npc-world-grid-group.md) | NPC world grid and group steering | T58, T58b | medium | done (session 50) |
-| T59 | NPC spawning, combat and encounters | T58 | low/medium | planned |
+| [T59](T59-npc-spawning-combat.md) | NPC spawning, combat and encounters | T58 | low/medium | in progress (session 51) |
+| [T59b](T59b-npc-runtime-spawning.md) | NPC runtime, spawn positions and beacons | T59 | low/medium | planned |
+| [T59c](T59c-npc-combat-encounters.md) | Combat action graph and encounters | T59, T59b | low/medium | planned |
 | T60 | Builtin module runtime and selected modules | T58, T59 | low/medium | planned |
 | T61 | Editor/builder/machinima/voice/cosmetics scope | T60 | low | planned |
 | T62 | Security, fuzzing and rate limits | T48 | medium | planned |
@@ -63,7 +65,10 @@ Java direction tables, block-grid A*, path following, pursue/evade/rotate
 steering and view-cone perception; T58b resolves the builder expression subset
 and reference templates so all roles become usable archetypes; T58c adds
 real-world walk/fly planning and group steering. T58 is done with the builder
-graph and full motion-controller probes deferred to T59/T60. T59 is next.
+graph and full motion-controller probes deferred to T59/T60. T59's first slice
+lands the world spawn configuration/gates, weighted selection, role combat
+profiles, damage ranges and a scripted NPC actor; the live runtime/spawn
+position search and the encounter/action-graph layers are T59b/T59c.
 
 ## Rules
 

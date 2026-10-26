@@ -13,12 +13,17 @@
 //! * [`navigation`] — Java `SearchDirections` tables and a block-grid A*.
 //! * [`path`] — waypoint following, waypoint advancement and path rejection.
 //! * [`perception`] — the Java view-cone test.
+//! * [`spawn`] — `Server/NPC/Spawn/World` configurations, time/moon gates and
+//!   weighted role selection.
+//! * [`combat`] — resolved combat profiles, interaction damage ranges and a
+//!   scripted NPC actor (targeting, chase, melee, damage, death).
 //!
-//! Motion controllers, the builder expression language, blackboard sensors and
-//! world spawning remain later T58/T59 work.
+//! Motion controllers, the builder graph, blackboard sensors, spawn-position
+//! search and the server ECS producer remain T59b/T60 work.
 
 #![deny(clippy::all)]
 
+pub mod combat;
 pub mod expr;
 pub mod flock;
 pub mod group;
@@ -26,9 +31,14 @@ pub mod navigation;
 pub mod path;
 pub mod perception;
 pub mod role;
+pub mod spawn;
 pub mod steering;
 pub mod worldgrid;
 
+pub use combat::{
+    npc_stat_map, CombatError, CombatProfile, DamageCalculator, DamageType, NpcActor, NpcAttack,
+    NpcTarget, NpcTickReport,
+};
 pub use expr::{evaluate, EvalContext, ExprError, Value as ExprValue};
 pub use flock::{FlockAsset, FlockCatalog, FlockSize, PersistentFlockData};
 pub use group::{GroupMember, GroupSteeringAccumulator};
@@ -38,5 +48,8 @@ pub use navigation::{
 pub use path::PathFollower;
 pub use perception::is_in_view_cone;
 pub use role::{NpcRole, RoleCatalog, RoleType};
+pub use spawn::{
+    RoleSpawnParameters, SpawnError, SpawnFlock, SpawnTimeWindow, WorldSpawn, WorldSpawnCatalog,
+};
 pub use steering::{Steering, SteeringForceEvade, SteeringForcePursue, SteeringForceRotate};
 pub use worldgrid::WorldGrid;

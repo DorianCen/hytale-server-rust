@@ -35,6 +35,63 @@ pub enum FlockSize {
     },
 }
 
+impl FlockSize {
+    /// Parse the `Size`/`Type` fields of a flock document (also used for the
+    /// inline `Flock` object in spawn configurations).
+    pub fn from_json(key: &str, raw: &Value) -> Result<Self, FlockError> {
+        match raw.get("Type").and_then(Value::as_str) {
+            Some("Weighted") => {
+                let min_size = raw
+                    .get("MinSize")
+                    .and_then(Value::as_i64)
+                    .and_then(|value| i32::try_from(value).ok())
+                    .ok_or_else(|| FlockError::InvalidField {
+                        key: key.to_string(),
+                        field: "MinSize",
+                    })?;
+                let weights = raw
+                    .get("SizeWeights")
+                    .and_then(Value::as_array)
+                    .map(|weights| {
+                        weights
+                            .iter()
+                            .filter_map(Value::as_f64)
+                            .filter(|weight| *weight > 0.0)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|weights| !weights.is_empty())
+                    .ok_or_else(|| FlockError::InvalidField {
+                        key: key.to_string(),
+                        field: "SizeWeights",
+                    })?;
+                Ok(FlockSize::Weighted { min_size, weights })
+            }
+            _ => {
+                let size = raw
+                    .get("Size")
+                    .and_then(Value::as_array)
+                    .filter(|size| size.len() == 2)
+                    .map(|size| {
+                        [
+                            size[0].as_i64().unwrap_or(1) as i32,
+                            size[1].as_i64().unwrap_or(1) as i32,
+                        ]
+                    })
+                    .unwrap_or([1, 1]);
+                Ok(FlockSize::Range { size })
+            }
+        }
+    }
+
+    /// Java `getMinFlockSize()`.
+    pub fn min_size(&self) -> i32 {
+        match self {
+            FlockSize::Range { size } => size[0],
+            FlockSize::Weighted { min_size, .. } => *min_size,
+        }
+    }
+}
+
 /// One flock definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlockAsset {
@@ -54,6 +111,7 @@ impl FlockAsset {
     /// Parse one flock document.
     pub fn from_json(key: impl Into<String>, raw: Value) -> Result<Self, FlockError> {
         let key = key.into();
+        let size = FlockSize::from_json(&key, &raw)?;
         let max_grow_size = raw
             .get("MaxGrowSize")
             .and_then(Value::as_i64)
@@ -71,49 +129,6 @@ impl FlockAsset {
             })
             .unwrap_or_default();
 
-        let size = match raw.get("Type").and_then(Value::as_str) {
-            Some("Weighted") => {
-                let min_size = raw
-                    .get("MinSize")
-                    .and_then(Value::as_i64)
-                    .and_then(|value| i32::try_from(value).ok())
-                    .ok_or_else(|| FlockError::InvalidField {
-                        key: key.clone(),
-                        field: "MinSize",
-                    })?;
-                let weights = raw
-                    .get("SizeWeights")
-                    .and_then(Value::as_array)
-                    .map(|weights| {
-                        weights
-                            .iter()
-                            .filter_map(Value::as_f64)
-                            .filter(|weight| *weight > 0.0)
-                            .collect::<Vec<_>>()
-                    })
-                    .filter(|weights| !weights.is_empty())
-                    .ok_or_else(|| FlockError::InvalidField {
-                        key: key.clone(),
-                        field: "SizeWeights",
-                    })?;
-                FlockSize::Weighted { min_size, weights }
-            }
-            _ => {
-                let size = raw
-                    .get("Size")
-                    .and_then(Value::as_array)
-                    .filter(|size| size.len() == 2)
-                    .map(|size| {
-                        [
-                            size[0].as_i64().unwrap_or(1) as i32,
-                            size[1].as_i64().unwrap_or(1) as i32,
-                        ]
-                    })
-                    .unwrap_or([1, 1]);
-                FlockSize::Range { size }
-            }
-        };
-
         Ok(Self {
             key,
             max_grow_size,
@@ -125,10 +140,7 @@ impl FlockAsset {
 
     /// Java `getMinFlockSize()`.
     pub fn min_size(&self) -> i32 {
-        match &self.size {
-            FlockSize::Range { size } => size[0],
-            FlockSize::Weighted { min_size, .. } => *min_size,
-        }
+        self.size.min_size()
     }
 
     /// Java `pickFlockSize()`.

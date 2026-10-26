@@ -1340,3 +1340,53 @@ This file records phase-2 sessions only.
     presentation, combat and encounters.
   - T60: builder/reference-slot graph and full `AStarBase` half-step probes with
     the builtin NPC module.
+
+---
+
+## Session 51 — T59 first slice: spawn rules and combat core (2026-10-26)
+
+- **Goal:** start M6's NPC gameplay layer by making the T58 role/flock data
+  selectable and combat-capable without yet wiring the live world producer.
+- **Landed:**
+  - `WorldClock` gained Java `getDayProgress`, `scaledTime`,
+    `isDayTimeWithinRange`, `isScaledDayTimeWithinRange` and
+    `isMoonPhaseWithinRange` helpers (including wrapped ranges).
+  - `hytale-npc::spawn` loads all 98 `Server/NPC/Spawn/World` documents
+    (271 role entries): environments, role weights, block-set/fluid-tag
+    restrictions, movement modes, safe spawning, named/inline flocks,
+    despawn windows, day/moon ranges, light ranges and moon-phase weight
+    modifiers. It ports Java's weighted selection and flock-minimum
+    missing-count rule.
+  - `hytale-npc::combat` resolves role combat fields and reachable
+    `InteractionVars`/`_InteractionVars` damage calculators, ports
+    `DamageCalculator.computeDamageRange` and rolls, builds the real
+    `EntityGameplay` stats from `EntityStatType` with the role health maximum,
+    and drives a scripted `NpcActor`: target acquisition, A* chase over a real
+    `World`, melee attacks, damage/resistance/death and runtime
+    model/nameplate/`Npc` component output.
+  - Role resolution now flattens `Modify` over the inherited document.
+    `Bear_Grizzly` resolves to 124 HP, `Rat` to 10 and `Goblin_Scrapper` to 36,
+    with their variant `_InteractionVars` visible.
+  - `NpcDumper` emits `damageRanges` from the real Java `DamageCalculator`;
+    `testdata/golden/server/npc/npc.json` was regenerated and the Java fixture
+    gate extended.
+  - Real-pack tests cover the 98 spawn documents, fixed-clock day/moon
+    eligibility, weighted selection, Rat/Bear/Goblin profiles and actor death.
+- **Verified:**
+  - `cargo test -p hytale-npc` (24 unit, 5 fixture, 4 role, 4 spawn/combat).
+  - `cargo test -p hytale-world`.
+  - `tools/java-dumper/run-npc.sh`.
+  - `./tools/test.sh fast`, `./tools/test.sh assets`, clippy and rustfmt.
+- **Deviations:**
+  - No live `WorldThread` NPC producer/persistence yet; T59b attaches actors to
+    `RuntimeEntityKind::Npc` and ticks/broadcasts them.
+  - Spawn-position search, block-set/fluid-tag/light validation, suppression,
+    beacons and markers are T59b.
+  - The scripted actor uses the highest-damage specific attack and block-centre
+    path following; the full `ActionAttack` selector/aiming and damage-effect
+    graph are T59c.
+  - Encounters/instances/portals are T59c; no encounter asset is parsed yet.
+- **Follow-ups:**
+  - T59b: runtime NPC producer, spawn positions, beacons/markers and live
+    save/reload.
+  - T59c: combat action graph and the `EncounterManager` evaluator.

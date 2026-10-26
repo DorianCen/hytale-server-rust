@@ -882,6 +882,7 @@ name = "hytale-npc"
 version = "0.1.0"
 dependencies = [
  "hytale-assets",
+ "hytale-entities",
  "hytale-math",
  "hytale-world",
  "serde_json",

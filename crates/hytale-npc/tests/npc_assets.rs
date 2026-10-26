@@ -87,7 +87,8 @@ fn bear_grizzly_resolves_through_its_template() {
         .expect("resolve Bear_Grizzly")
         .expect("Bear_Grizzly exists");
     assert_eq!(resolved.appearance(), Some("Bear_Grizzly"));
-    assert_eq!(resolved.max_health(), Some(100.0));
+    // `Modify.MaxHealth` overrides the inherited template parameter.
+    assert_eq!(resolved.max_health(), Some(124.0));
     assert_eq!(resolved.view_range(), Some(12.0));
     let walk = resolved
         .motion_controllers()

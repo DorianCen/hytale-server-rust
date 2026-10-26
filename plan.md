@@ -14,7 +14,8 @@ T49 (inventory containers/transactions), T50 (interaction graph and block
 interactions), T51 (movement physics and collision authority), T52 (block
 simulation) and its parity follow-ups T52b–T52d are done; M5 gameplay parity
 continues with T53 (done), T54 (done), T55 (done), T56 (done) and T57
-(done), then T58.
+(done), then T58 (done). T59's spawn/combat core is landed; its runtime and
+encounter slices are T59b/T59c.
 
 ## 0. Baseline
 
@@ -903,9 +904,34 @@ the builtin NPC module (T59/T60).
 
 ### T59 — NPC spawning, combat and encounters
 
+**Status:** in progress (session 51; first slice landed)
 **Package:** `hytale-npc`, `hytale-world`
 **Goal:** spawn rules, combat, encounters/instances/portals.
 **Acceptance:** scripted encounter/combat scenario matches Java.
+
+The first slice lands the 98 world spawn documents, Java time/moon/flock
+selection, role combat profiles, `DamageCalculator` ranges and a scripted
+`NpcActor` (targeting/chase/melee/damage/death). The live NPC producer,
+spawn-position search, beacons/markers and persistence are T59b; the full
+combat action graph and `EncounterManager` evaluator are T59c.
+
+### T59b — NPC runtime, spawn positions and beacons
+
+**Status:** planned
+**Package:** `hytale-npc`, `hytale-world`, `hytale-server`
+**Goal:** attach actors to runtime entities, find Java-compatible spawn
+positions, tick/persist and broadcast NPCs.
+**Acceptance:** a world reaches its configured population and NPCs survive
+save/reopen.
+
+### T59c — Combat action graph and encounters
+
+**Status:** planned
+**Package:** `hytale-npc`, `hytale-interactions`, `hytale-server`
+**Goal:** `ActionAttack`/damage interaction path and the
+`EncounterManager` evaluator with encounter/instance/portal seams.
+**Acceptance:** a real encounter document runs its state transitions and
+actions; scripted melee damage matches the Java interaction path.
 
 ### T60 — Builtin module runtime and selected modules
 

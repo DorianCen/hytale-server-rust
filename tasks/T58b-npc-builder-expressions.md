@@ -1,6 +1,6 @@
 # T58b — NPC builder expressions and resolved archetypes
 
-**Status:** in progress (session 50)
+**Status:** done (session 50)
 **Package:** `hytale-npc`, `tools/java-dumper`
 **Depends on:** T58
 **Agent fit:** medium
@@ -43,8 +43,9 @@ cargo fmt --all -- --check
 
 - Expression results match the Java `Expression`/`StdScope` fixture.
 - Every role resolves through its reference chain with a deterministic RNG.
-- `Bear_Grizzly` resolves appearance `Bear_Grizzly`, max health `100`,
-  view range `12` and the inherited Walk `MaxWalkSpeed` of `6`.
+- `Bear_Grizzly` resolves appearance `Bear_Grizzly`, max health `124` (its
+  `Modify.MaxHealth`), view range `12` and the inherited Walk `MaxWalkSpeed` of
+  `6`.
 - Existing T58 navigation/steering/flock gates stay green.
 
 ## Landed (session 50 — second slice)

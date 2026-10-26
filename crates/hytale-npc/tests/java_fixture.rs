@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use hytale_npc::combat::{DamageCalculator, DamageType};
 use hytale_npc::navigation::search_directions;
 use hytale_npc::perception::is_in_view_cone;
 use hytale_npc::steering::{
@@ -264,5 +265,57 @@ fn builder_expressions_match_the_java_engine() {
             }
             Value::EmptyArray => panic!("unexpected empty array for {expression}"),
         }
+    }
+}
+
+#[test]
+fn damage_ranges_match_the_java_damage_calculator() {
+    let fixture = fixture();
+    let cases = fixture["damageRanges"]
+        .as_array()
+        .expect("damageRanges array");
+    assert!(!cases.is_empty());
+    for case in cases {
+        let name = case["name"].as_str().expect("case name");
+        let damage_type = match case["type"].as_str().expect("damage type") {
+            "DPS" => DamageType::Dps,
+            "ABSOLUTE" => DamageType::Absolute,
+            other => panic!("unexpected damage type {other}"),
+        };
+        let base_damage = case["baseDamage"]
+            .as_array()
+            .expect("base damage")
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                (
+                    format!("Cause{}", index + 1),
+                    value.as_f64().expect("base damage value") as f32,
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let calculator = DamageCalculator {
+            damage_type,
+            base_damage,
+            random_percentage_modifier: case["randomPercentageModifier"]
+                .as_f64()
+                .expect("random modifier") as f32,
+            damage_class: None,
+            source: None,
+        };
+        let duration = case["duration"].as_f64().expect("duration");
+        let range = calculator.compute_range(duration);
+        let expected_min = case["min"].as_f64().expect("min") as f32;
+        let expected_max = case["max"].as_f64().expect("max") as f32;
+        assert!(
+            (range[0] - expected_min).abs() < 1e-5,
+            "{name}: min {} != {expected_min}",
+            range[0]
+        );
+        assert!(
+            (range[1] - expected_max).abs() < 1e-5,
+            "{name}: max {} != {expected_max}",
+            range[1]
+        );
     }
 }

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 hytale-assets = { path = "../hytale-assets" }
+hytale-entities = { path = "../hytale-entities" }
 hytale-math = { path = "../hytale-math" }
 hytale-world = { path = "../hytale-world" }
 serde_json = { workspace = true }

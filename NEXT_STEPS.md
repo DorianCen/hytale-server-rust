@@ -8,8 +8,10 @@ the task board is [`tasks/README.md`](tasks/README.md).
 **Tasks landed:** **T53** (entity stats/effects/combat plus the Java
 entity-gameplay fixture), **T54** (time and weather), **T55** (projectiles and
 traversal), **T56** (prefab entities/block components plus the persisted
-runtime entity store) and **T57** (block-health replication, runtime entity
-spawns and world-map basics); M6 starts with **T58** (NPC core).
+runtime entity store), **T57** (block-health replication, runtime entity
+spawns and world-map basics) and **T58** (NPC core). **T59**'s first slice lands
+the world spawn rules, role combat profiles, damage ranges and a scripted NPC
+actor; its runtime/encounter slices are **T59b/T59c**.
 
 ## Current state
 
@@ -178,6 +180,18 @@ Landed and green:
   forces and blackboard sensors move with the builtin NPC module (T59/T60).
   T58c adds `WorldGrid` real-world walk/fly planning and the Java
   `GroupSteeringAccumulator`; T58 is done. Spawning/combat/ECS start T59.
+- T59 (in progress, session 51): `hytale-npc::spawn` loads all 98
+  `Server/NPC/Spawn/World` documents (271 role entries), applies the Java
+  scaled-day/moon gates, moon-phase weight modifiers, flock-minimum missing
+  count and weighted selection. `WorldClock` gained the matching
+  day-progress/scaled-time/range helpers. `hytale-npc::combat` resolves
+  role combat fields and `InteractionVars` damage calculators, builds the real
+  `EntityGameplay` stats, and drives a scripted `NpcActor`
+  (target acquisition, A* chase, melee, damage, death). Role `Modify` blocks
+  are now flattened, so variant health/attack fields resolve correctly. The
+  `NpcDumper` fixture gates `DamageCalculator.computeDamageRange`. The live
+  WorldThread producer, spawn-position search, beacons/markers, persistence and
+  the encounter evaluator remain T59b/T59c.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -206,8 +220,10 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    (block-health/runtime entity/world-map presentation) and T57b (presentation
    follow-ups) are done. M6 starts with T58 (NPC core), whose first slice and
    T58b builder-expression and T58c world-grid/group-steering slices are
-   landed. T58 is done; T59 starts NPC spawning/combat/ECS.
-   T59/T60 presentation work waits for T57b.
+   landed. T58 is done. T59's first slice (spawn configuration/selection,
+   combat profiles/damage and a scripted actor) is landed; T59b (runtime
+   producer/spawn positions/beacons) and T59c (combat action graph and
+   encounters) are next. T59/T60 presentation work waits for T57b.
 
 ## Try it
 

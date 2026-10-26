@@ -12,6 +12,7 @@ It records only deterministic, RNG-free Java paths:
 | `steering` | `SteeringForcePursue`, `SteeringForceEvade` and `SteeringForceRotate` fixed-input outputs (result, translation/yaw flags and values) |
 | `perception` | `NPCPhysicsMath.isInViewCone` results for fixed viewer/direction/object inputs |
 | `expressions` | `Expression`/`StdScope` results for the role-builder expression subset (`max`, `min`, `isEmpty*`, `makeRange`, arrays, comparisons and logic) |
+| `damageRanges` | `DamageCalculator.computeDamageRange` min/max for absolute/DPS base damage and random-percentage cases |
 
 The random wander force, the motion-controller-dependent A* expansion
 (`probeMove`/`ProbeMoveData`) and the builder expression language are not part

@@ -308,6 +308,15 @@ impl RoleCatalog {
             false,
         )?;
         if let Some(object) = document.as_object_mut() {
+            // Java role variants override the inherited document through
+            // `Modify`. The builder consumes the modified slots; this pass
+            // flattens the keys so consumers can read `MaxHealth`,
+            // `_InteractionVars`, etc. directly.
+            if let Some(Value::Object(modify)) = object.get("Modify").cloned() {
+                for (name, value) in modify {
+                    object.insert(name, value);
+                }
+            }
             object.insert(
                 "Parameters".to_string(),
                 Value::Object(

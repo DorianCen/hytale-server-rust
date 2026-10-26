@@ -404,15 +404,17 @@ reference. Map image chunks, marker discovery/reveal, dynamic entity transforms
 and the stat/effect/projectile/weather asset packets are not gated by T57; T57b
 owns their encoder/config-burst gates (landed in sessions 48–49).
 
-### 3.13 NPC navigation, steering, expressions and perception
+### 3.13 NPC navigation, steering, expressions, damage and perception
 
 `testdata/golden/server/npc/npc.json` is produced by
 `tools/java-dumper/run-npc.sh` (`NpcDumper`) from the real NPC classes. It
 contains the `SearchDirections.create` tables for walk/plane/fly with and
 without diagonal moves, fixed-input `SteeringForcePursue`/`Evade`/`Rotate`
-outputs, `NPCPhysicsMath.isInViewCone` results and `Expression`/`StdScope`
-results for the role-builder expression subset. It is RNG-free and does not
-include the motion-controller A* expansion.
+outputs, `NPCPhysicsMath.isInViewCone` results, `Expression`/`StdScope`
+results for the role-builder expression subset and
+`DamageCalculator.computeDamageRange` outputs for absolute/DPS and
+random-modifier cases. It is RNG-free and does not include the
+motion-controller A* expansion.
 
 | Check | Gate |
 |---|---|
@@ -420,12 +422,15 @@ include the motion-controller A* expansion.
 | Pursue/evade/rotate result, translation and yaw match Java | same |
 | View-cone results match Java | same |
 | Builder expression subset matches Java `Expression`/`StdScope` | same |
+| `DamageCalculator.computeDamageRange` matches absolute/DPS/random cases | same |
 | Real role catalog loads 1,147 unique keys and reports the duplicate | `crates/hytale-npc/tests/npc_assets.rs` |
 | All 1,147 roles resolve through their reference chain with a deterministic RNG | `crates/hytale-npc/tests/npc_assets.rs` |
 | Bear_Grizzly resolves its appearance/health/ViewRange/Walk speed | same |
 | Real flock catalog loads all 8 assets and selects sizes | `crates/hytale-npc/tests/npc_assets.rs` + flock unit tests |
 | Walk-around-wall, closest-node fallback and 3D fly | `crates/hytale-npc` `navigation::tests` |
 | Waypoint advancement/rejection and flock role filtering | `crates/hytale-npc` unit tests |
+| 98 world spawn documents / 271 role entries and Java time/moon gates | `crates/hytale-npc/tests/npc_spawn_combat.rs` |
+| Rat/Bear/Goblin combat profiles and real-asset actor death | same |
 
 The block-grid A* is a semantic gate for the Java direction/cost/limit
 contract, not a byte-for-byte port of the fractional half-block

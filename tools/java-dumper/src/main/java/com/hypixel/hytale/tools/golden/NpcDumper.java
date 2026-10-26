@@ -13,6 +13,9 @@ import com.hypixel.hytale.server.npc.util.expression.StdScope;
 import com.hypixel.hytale.server.npc.movement.steeringforces.SteeringForceEvade;
 import com.hypixel.hytale.server.npc.movement.steeringforces.SteeringForcePursue;
 import com.hypixel.hytale.server.npc.movement.steeringforces.SteeringForceRotate;
+import it.unimi.dsi.fastutil.ints.Int2FloatOpenHashMap;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import org.joml.Vector3d;
 
@@ -55,11 +58,13 @@ public final class NpcDumper {
         meta.addProperty("steering", "SteeringForcePursue/Evade/Rotate with fixed inputs; no RNG");
         meta.addProperty("perception", "NPCPhysicsMath.isInViewCone with fixed viewer/direction/object inputs");
         meta.addProperty("expressions", "Java Expression/StdScope outputs for the role-builder expression subset");
+        meta.addProperty("damageRanges", "DamageCalculator.computeDamageRange for fixed base damage/random modifier cases");
         root.add("meta", meta);
         root.add("searchDirections", searchDirections());
         root.add("steering", steering());
         root.add("perception", perception());
         root.add("expressions", expressions());
+        root.add("damageRanges", damageRanges());
 
         Files.createDirectories(outDir);
         Files.writeString(
@@ -235,6 +240,58 @@ public final class NpcDumper {
             }
             out.add(entry);
         }
+        return out;
+    }
+
+    private static JsonArray damageRanges() throws Exception {
+        final JsonArray out = new JsonArray();
+        out.add(damageRange("absolute", "ABSOLUTE", new float[] {10f}, 0f, 1.0));
+        out.add(damageRange("absoluteRandom", "ABSOLUTE", new float[] {10f}, 0.1f, 1.0));
+        out.add(damageRange("dps", "DPS", new float[] {2f, 1f}, 0f, 2.0));
+        out.add(damageRange("dpsRandom", "DPS", new float[] {2f, 1f}, 0.25f, 1.5));
+        return out;
+    }
+
+    private static JsonObject damageRange(String name, String type, float[] baseDamage,
+                                          float randomPercentage, double duration) throws Exception {
+        final Class<?> clazz = Class.forName(
+            "com.hypixel.hytale.server.core.modules.interaction.interaction.config.server.combat.DamageCalculator");
+        final Constructor<?> constructor = clazz.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        final Object calculator = constructor.newInstance();
+
+        final Field typeField = clazz.getDeclaredField("type");
+        typeField.setAccessible(true);
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        final Object typeValue = Enum.valueOf((Class<? extends Enum>) typeField.getType().asSubclass(Enum.class), type);
+        typeField.set(calculator, typeValue);
+
+        final Field randomField = clazz.getDeclaredField("randomPercentageModifier");
+        randomField.setAccessible(true);
+        randomField.setFloat(calculator, randomPercentage);
+
+        final Field baseField = clazz.getDeclaredField("baseDamage");
+        baseField.setAccessible(true);
+        final Int2FloatOpenHashMap damage = new Int2FloatOpenHashMap();
+        for (int index = 0; index < baseDamage.length; index++) {
+            damage.put(index + 1, baseDamage[index]);
+        }
+        baseField.set(calculator, damage);
+
+        final Method compute = clazz.getMethod("computeDamageRange", double.class, float[].class);
+        final float[] range = new float[2];
+        compute.invoke(calculator, duration, range);
+
+        final JsonObject out = new JsonObject();
+        out.addProperty("name", name);
+        out.addProperty("type", type);
+        final JsonArray base = new JsonArray();
+        for (float value : baseDamage) base.add(value);
+        out.add("baseDamage", base);
+        out.addProperty("randomPercentageModifier", randomPercentage);
+        out.addProperty("duration", duration);
+        out.addProperty("min", range[0]);
+        out.addProperty("max", range[1]);
         return out;
     }
 

@@ -318,9 +318,11 @@ the `meta` block of `registries.json` and `REMAINING.md` §6.
   dump for fast iteration
   (`java -cp <cp> com.hypixel.hytale.tools.golden.ChunkProbe <outDir> <worldDir> <repoRoot>`).
 - `src/main/java/com/hypixel/hytale/tools/golden/NpcDumper.java` – the NPC
-  navigation/steering fixture (`testdata/golden/server/npc/npc.json`): the real
-  `SearchDirections` tables (via reflection), pursue/evade/rotate steering
-  outputs and `NPCPhysicsMath.isInViewCone` results.
+  navigation/steering/expression/damage fixture
+  (`testdata/golden/server/npc/npc.json`): the real `SearchDirections` tables
+  (via reflection), pursue/evade/rotate steering outputs,
+  `NPCPhysicsMath.isInViewCone` results, `Expression`/`StdScope` outputs and
+  `DamageCalculator.computeDamageRange` cases.
 - `lib/` and `target/` – generated build output, not source.
 
 The upstream `ProceduralLibrary`/`WorldGenerator` classes reference `fastutil` and

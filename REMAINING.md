@@ -11,16 +11,21 @@ it is part of M2 and listed in [`tasks/README.md`](tasks/README.md).
 Deferred to M5/M6:
 
 - NPC AI, pathfinding, flocking, spawning and combat (`NPC/`, 1,008 files).
-  T58's first slice lands the role/flock document catalogs, Java direction
-  tables, block-grid A*, `PathFollower`, pursue/evade/rotate steering and
-  view-cone perception; the builder expression language, full motion-controller
-  A*, wander/avoidance/group forces, blackboard sensors and the NPC ECS remain
-  T58b/T59.
+  T58 lands the role/flock document catalogs, Java direction tables, block-grid
+  A*, `PathFollower`, pursue/evade/rotate steering, group steering,
+  view-cone perception and resolved role expressions; T59 adds the world spawn
+  configurations/time/moon/flock selection, role combat profiles, Java damage
+  ranges and a scripted `NpcActor`. The live `WorldThread` producer,
+  spawn-position search, beacons/markers and persistence are T59b; the full
+  builder graph, motion-controller A*, wander/avoidance, blackboard sensors,
+  combat action graph, encounters/instances/portals and the NPC ECS remain
+  T59c/T60.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
   T53 lands the stat/effect/damage models, the Java asset fixture and the
   `EntityGameplay` component seam; T57 lands block-health/runtime-entity/map
-  presentation, but condition evaluation, damage calculators, effect DoT and
-  per-entity stat/effect/damage packets remain T59.
+  presentation and T59 resolves NPC combat profiles/damage, but player combat,
+  condition evaluation, the full damage-calculator action graph, effect DoT
+  and per-entity stat/effect/damage packets remain T59c/T60.
 - Crafting, recipes, item quality, drops, shops, rewards.
 - Projectiles beyond T55's deterministic core (legacy flight, block/entity hit,
   bounce/stick/TTL, new-config seam): density/drag/buoyancy/rolling and

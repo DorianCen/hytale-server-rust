@@ -4,7 +4,8 @@
     "searchDirections": "SearchDirections.create for walk/fly with and without diagonal moves",
     "steering": "SteeringForcePursue/Evade/Rotate with fixed inputs; no RNG",
     "perception": "NPCPhysicsMath.isInViewCone with fixed viewer/direction/object inputs",
-    "expressions": "Java Expression/StdScope outputs for the role-builder expression subset"
+    "expressions": "Java Expression/StdScope outputs for the role-builder expression subset",
+    "damageRanges": "DamageCalculator.computeDamageRange for fixed base damage/random modifier cases"
   },
   "searchDirections": {
     "walkNoDiagonal": {
@@ -885,6 +886,54 @@
       "expression": "PI",
       "type": "NUMBER",
       "number": 3.1415927410125732
+    }
+  ],
+  "damageRanges": [
+    {
+      "name": "absolute",
+      "type": "ABSOLUTE",
+      "baseDamage": [
+        10.0
+      ],
+      "randomPercentageModifier": 0.0,
+      "duration": 1.0,
+      "min": 10.0,
+      "max": 10.0
+    },
+    {
+      "name": "absoluteRandom",
+      "type": "ABSOLUTE",
+      "baseDamage": [
+        10.0
+      ],
+      "randomPercentageModifier": 0.1,
+      "duration": 1.0,
+      "min": 9.0,
+      "max": 11.0
+    },
+    {
+      "name": "dps",
+      "type": "DPS",
+      "baseDamage": [
+        2.0,
+        1.0
+      ],
+      "randomPercentageModifier": 0.0,
+      "duration": 2.0,
+      "min": 6.0,
+      "max": 6.0
+    },
+    {
+      "name": "dpsRandom",
+      "type": "DPS",
+      "baseDamage": [
+        2.0,
+        1.0
+      ],
+      "randomPercentageModifier": 0.25,
+      "duration": 1.5,
+      "min": 3.375,
+      "max": 5.625
     }
   ]
 }
