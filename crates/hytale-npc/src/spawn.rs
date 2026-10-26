@@ -337,7 +337,7 @@ pub struct SpawnTimeWindow {
 }
 
 impl SpawnTimeWindow {
-    fn from_json(key: &str, raw: &Value) -> Result<Self, SpawnError> {
+    pub(crate) fn from_json(key: &str, raw: &Value) -> Result<Self, SpawnError> {
         if !raw.is_object() {
             return Err(SpawnError::InvalidField {
                 key: key.to_string(),

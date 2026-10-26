@@ -1603,3 +1603,31 @@ This file records phase-2 sessions only.
   - Finish T59b: suppression, beacons/markers, environment enumeration and
     CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 59 — T59b beacon and spawn-marker catalogs (2026-10-26)
+
+- **Goal:** load the remaining special spawn stores and make their entries
+  selectable.
+- **Landed:**
+  - `hytale-npc::spawn_special` with `BeaconCatalog` (96 documents) and
+    `SpawnMarkerCatalog` (321 unique keys from 322 files).
+  - Beacon parsing covers environments, weighted roles, NPCSpawn time/moon/
+    light gates, max/concurrent counts, spawn/beacon radii and game/real
+    cooldown ranges.
+  - Marker parsing covers weighted NPC configs, flocks, realtime/game respawn
+    cooldowns, exclusion/drop/deactivation fields and ISO-8601 durations.
+  - Weighted role/config selection and cooldown lookup are tested; real-pack
+    tests cover Bat and Edible_Rat.
+- **Verified:**
+  - `cargo test -p hytale-npc`.
+  - `cargo test -p hytale-server --test npc_runtime spawn_commands_handle`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - Live beacon/spawn-marker controllers, persistent timers, spawn suppression
+    and automatic environment enumeration remain open.
+- **Follow-ups:**
+  - Finish T59b: live beacon/marker controllers, suppression, environment
+    enumeration and CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

@@ -108,7 +108,8 @@ cargo fmt --all -- --check
   spawn-position/environment selection plus the density controller (session 53)
   explicit population ticks (session 54), loaded-section segment discovery
   (session 55), real `BlockSet` floor resolution (session 56), fluid-tag
-  resolution (session 57) and light ranges (session 58); automatic environment
-  enumeration, beacons/markers, spawn suppression and CLI/bot coverage remain.
+  resolution (session 57), light ranges (session 58) and beacon/spawn-marker
+  catalogs (session 59); automatic environment enumeration, live beacon/marker
+  controllers, spawn suppression and CLI/bot coverage remain.
 - T59c: full combat action graph and the `EncounterManager` evaluator
   (encounters/instances/portals).

@@ -13,6 +13,7 @@ use hytale_npc::flock::FlockRng;
 use hytale_npc::fluid_tags::FluidTagIndex;
 use hytale_npc::role::RoleCatalog;
 use hytale_npc::spawn::{WorldSpawn, WorldSpawnCatalog};
+use hytale_npc::spawn_special::{BeaconCatalog, SpawnMarkerCatalog};
 use hytale_world::collision::Vec3;
 use hytale_world::world_clock::{GameInstant, WorldClock, WorldClockSettings, ZERO_YEAR_SECONDS};
 
@@ -265,4 +266,23 @@ fn real_block_sets_resolve_spawn_floors() {
         .and_then(|record| record.id)
         .expect("Plant_Leaves_Oak block id");
     assert!(!soil_set.contains(&leaves), "ExcludeBlockTypes applies");
+
+    let beacons =
+        BeaconCatalog::load_root(&repo_root().join("Assets/extracted")).expect("load beacons");
+    assert_eq!(beacons.len(), 96);
+    let editable = beacons.get("Edible_Rat").expect("Edible_Rat beacon");
+    assert_eq!(
+        editable.pick_role(&mut FixedRng(0.0)).unwrap().id,
+        "Edible_Rat"
+    );
+
+    let markers =
+        SpawnMarkerCatalog::load_root(&repo_root().join("Assets/extracted")).expect("load markers");
+    // 322 files; one file stem is shared by two marker paths.
+    assert_eq!(markers.len(), 321);
+    let bat = markers.get("Bat").expect("Bat marker");
+    let config = bat.pick_config(&mut FixedRng(0.0)).expect("Bat config");
+    assert_eq!(config.name, "Bat");
+    assert_eq!(config.game_respawn_seconds, Some(86_400.0));
+    assert!(!bat.realtime_respawn);
 }

@@ -129,8 +129,9 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   T59b adds the live WorldThread NPC store/persistence/session tick,
   movement-mode spawn-position/environment selection, explicit population
   ticks, loaded-section segment counting, real `BlockSet` floor resolution,
-  `SpawnFluidTag` resolution and `LightRanges`; automatic environment
-  enumeration, beacons and encounters remain T59b/T59c. See
+  `SpawnFluidTag` resolution, `LightRanges` and beacon/marker catalogs;
+  automatic environment enumeration, live beacon/marker controllers and
+  encounters remain T59b/T59c. See
   [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
   and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -677,7 +678,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |
 | `CoreServer/modules/**` | `hytale-world` (core subset), later module crates | planned (M5) |
 | `builtin/**` | `hytale-builtin` feature crates | deferred (M6) |
-| `NPC/**` | `hytale-npc` | role/flock catalogs, reference/parameter resolution with the builder expression subset, `Modify` flattening, Java direction tables, block-grid A*, real-world `WorldGrid` walk/fly planning, `PathFollower`, pursue/evade/rotate steering, group steering, view-cone perception, `Server/NPC/Spawn/World` selection, role combat profiles/damage ranges, a scripted `NpcActor`, the live `WorldThread` NPC store/spawn/tick/persistence, movement-mode spawn-position search, density/expected-count accounting, explicit population ticks, loaded-section environment segment counting, real `BlockSet` floor resolution, `SpawnFluidTag` resolution and `LightRanges` landed (M6, T58/T58b/T58c/T59 core and T59b runtime/position/controller/population/segments/block-sets/fluid-tags/light); the full builder graph, half-step motion-controller A*, wander/avoidance, blackboard sensors, automatic environment enumeration, beacons/markers, spawn suppression, encounter evaluator and the NPC ECS remain T59b/T59c/T60 |
+| `NPC/**` | `hytale-npc` | role/flock catalogs, reference/parameter resolution with the builder expression subset, `Modify` flattening, Java direction tables, block-grid A*, real-world `WorldGrid` walk/fly planning, `PathFollower`, pursue/evade/rotate steering, group steering, view-cone perception, `Server/NPC/Spawn/World` selection, role combat profiles/damage ranges, a scripted `NpcActor`, the live `WorldThread` NPC store/spawn/tick/persistence, movement-mode spawn-position search, density/expected-count accounting, explicit population ticks, loaded-section environment segment counting, real `BlockSet` floor resolution, `SpawnFluidTag` resolution, `LightRanges` and beacon/spawn-marker catalogs landed (M6, T58/T58b/T58c/T59 core and T59b runtime/position/controller/population/segments/block-sets/fluid-tags/light/beacon-markers); the full builder graph, half-step motion-controller A*, wander/avoidance, blackboard sensors, automatic environment enumeration, live beacon/marker controllers, spawn suppression, encounter evaluator and the NPC ECS remain T59b/T59c/T60 |
 
 Deliberate exclusions are in [`REMAINING.md`](REMAINING.md).
 

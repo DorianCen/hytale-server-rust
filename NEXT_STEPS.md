@@ -204,9 +204,10 @@ Landed and green:
   `tick_npc_spawns` with session-loop wiring; the fourth discovers segment
   counts from loaded world sections; the fifth resolves the real
   `SpawnBlockSet` catalog to allowed floors, the sixth resolves `SpawnFluidTag`
-  through the fluid tag index and the seventh evaluates `LightRanges`.
-  Automatic environment enumeration, beacons/markers, spawn suppression and
-  the encounter evaluator remain T59b/T59c.
+  through the fluid tag index, the seventh evaluates `LightRanges` and the
+  eighth loads beacon/spawn-marker catalogs. Automatic environment enumeration,
+  live beacon/marker controllers, spawn suppression and the encounter evaluator
+  remain T59b/T59c.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -240,10 +241,11 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    spawn-position/controller/population slices (WorldThread NPC
    store/persistence/ticking, movement-mode position search, environment
    selection, density accounting, explicit population ticks, loaded-section
-   segment discovery, real `BlockSet` floor resolution, fluid-tag resolution
-   and light ranges) are landed; T59b's automatic environment
-   enumeration/beacons/suppression and T59c (combat action graph and
-   encounters) are next. T59/T60 presentation work waits for T57b.
+   segment discovery, real `BlockSet` floor resolution, fluid-tag resolution,
+   light ranges and beacon/marker catalogs) are landed; T59b's automatic
+   environment enumeration, live beacon/marker controllers and suppression,
+   plus T59c (combat action graph and encounters), are next. T59/T60
+   presentation work waits for T57b.
 
 ## Try it
 

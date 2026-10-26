@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–58; runtime, spawn-position and population slices landed)
+**Status:** in progress (sessions 52–59; runtime, spawn-position and population slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -145,9 +145,26 @@ cargo fmt --all -- --check
   `LightRanges`.
 - Unit coverage sets a lit section and checks bright/dark ranges.
 
+### Beacon/marker catalog slice (session 59)
+
+- New `hytale-npc::spawn_special` loads all 96
+  `Server/NPC/Spawn/Beacons/**` documents and 321 unique marker keys from
+  `Server/NPC/Spawn/Markers/**` (322 files; one shared stem).
+- Beacon entries reuse `RoleSpawnParameters` and parse the NPCSpawn time/moon/
+  light fields plus beacon radius, concurrency, max NPCs and real/game
+  cooldown ranges.
+- Marker entries parse weighted `NPCs` configs, flock references, realtime/game
+  respawn cooldowns, exclusion/drop/deactivation fields and the ISO-8601
+  `P1D`/`PT5M` duration forms.
+- Weighted role/config selection and cooldown lookup are unit-tested; real-pack
+  tests cover the catalogs and Bat/Edible_Rat entries.
+- Live beacon/marker controllers and persistent cooldown state remain open.
+
 ## Deviations
 
 - Spawn suppression is not evaluated by the position search.
+- Beacon/marker catalogs are landed, but no world entities/timers consume them
+  yet.
 - Population targets name their environment and density; segment counts can be
   discovered from loaded sections, but automatically enumerating every loaded
   environment is still open.
@@ -159,6 +176,6 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Finish T59b: automatic environment enumeration, beacon/spawn-marker
-  controllers, spawn suppression and CLI/bot coverage.
+- Finish T59b: automatic environment enumeration, live beacon/marker
+  controllers and cooldown state, spawn suppression and CLI/bot coverage.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.

@@ -20,6 +20,8 @@
 //! * [`block_set`] — `Server/Item/Block/Sets` membership for spawn floors.
 //! * [`fluid_tags`] — fluid tag membership for `SpawnFluidTag`.
 //! * [`light`] — `LightRanges` spawn constraints over packed world light.
+//! * [`spawn_special`] — beacon and spawn-marker catalogs, weighted selection
+//!   and ISO-8601 cooldowns.
 //! * [`combat`] — resolved combat profiles, interaction damage ranges and a
 //!   scripted NPC actor (targeting, chase, melee, damage, death).
 //!
@@ -41,6 +43,7 @@ pub mod perception;
 pub mod role;
 pub mod spawn;
 pub mod spawn_position;
+pub mod spawn_special;
 pub mod steering;
 pub mod worldgrid;
 
@@ -66,6 +69,10 @@ pub use spawn::{
 };
 pub use spawn_position::{
     SpawnMovementMode, SpawnPosition, SpawnPositionSearch, SpawnSearchOptions,
+};
+pub use spawn_special::{
+    parse_iso_duration, BeaconCatalog, BeaconSpawn, MarkerNpcConfig, SpawnMarker,
+    SpawnMarkerCatalog, SpawnSpecialError,
 };
 pub use steering::{Steering, SteeringForceEvade, SteeringForcePursue, SteeringForceRotate};
 pub use worldgrid::WorldGrid;
