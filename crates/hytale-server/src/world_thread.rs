@@ -19,7 +19,10 @@ use hytale_entities::movement::{resolve_target, PlayerShape, TargetResolution};
 use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_inventory::{ItemStack, PlayerInventory};
 use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
+use hytale_npc::flock::FlockRng;
 use hytale_npc::role::RoleCatalog;
+use hytale_npc::spawn::WorldSpawnCatalog;
+use hytale_npc::spawn_position::{SpawnMovementMode, SpawnPositionSearch, SpawnSearchOptions};
 use hytale_protocol::generated::common::{
     BlockDamageCmd, BlockMaterial, BlockPosition, FlyMode, InventorySection, MapImage,
     MovementSettings,
@@ -487,6 +490,20 @@ enum Command {
         role: String,
         transform: PlayerTransform,
         reply: SyncSender<Result<RuntimeEntity, String>>,
+    },
+    SpawnNpcNear {
+        role: String,
+        center: Vec3,
+        radius: i32,
+        mode: SpawnMovementMode,
+        reply: SyncSender<Result<Option<RuntimeEntity>, String>>,
+    },
+    SpawnNpcInEnvironment {
+        environment: String,
+        center: Vec3,
+        radius: i32,
+        mode: SpawnMovementMode,
+        reply: SyncSender<Result<Option<RuntimeEntity>, String>>,
     },
     DespawnNpc {
         id: RuntimeEntityId,
@@ -1261,6 +1278,55 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Find a valid spawn position near `center` and spawn the role there.
+    pub fn spawn_npc_near(
+        &self,
+        role: impl Into<String>,
+        center: Vec3,
+        radius: i32,
+        mode: SpawnMovementMode,
+    ) -> Result<Option<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnNpcNear {
+                role: role.into(),
+                center,
+                radius,
+                mode,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Pick an eligible role for `environment` and spawn it at a valid nearby
+    /// position.
+    pub fn spawn_npc_in_environment(
+        &self,
+        environment: impl Into<String>,
+        center: Vec3,
+        radius: i32,
+        mode: SpawnMovementMode,
+    ) -> Result<Option<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnNpcInEnvironment {
+                environment: environment.into(),
+                center,
+                radius,
+                mode,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Despawn an NPC/runtime entity.
     pub fn despawn_npc(
         &self,
@@ -1745,6 +1811,7 @@ fn run(
             config_assets,
             interactions,
             mut roles,
+            mut spawns,
             damage_causes,
             mut npcs,
             mut last_npc_tick,
@@ -2124,34 +2191,103 @@ fn run(
                         let result = (|| {
                             let role_catalog =
                                 load_npc_roles(&mut roles, &options.generator.assets_pack)?;
-                            let mut rng = |low: f64, high: f64| (low + high) * 0.5;
-                            let resolved = role_catalog
-                                .resolve_with_rng(&role, &mut rng)
-                                .map_err(|error| error.to_string())?
-                                .ok_or_else(|| format!("unknown NPC role `{role}`"))?;
-                            let actor = NpcActor::from_assets(
+                            let entity = spawn_npc_entity(
+                                &mut save,
                                 generator.assets(),
-                                &resolved,
-                                Vec3::new(
-                                    transform.position.x,
-                                    transform.position.y,
-                                    transform.position.z,
-                                ),
-                                transform.rotation.yaw,
-                            )
-                            .map_err(|error| error.to_string())?;
-                            let components = actor.runtime_components();
-                            let id = save.world_mut().spawn_entity(
-                                RuntimeEntityKind::Npc,
-                                None,
+                                role_catalog,
+                                &role,
                                 transform,
-                                components,
+                                &mut npcs,
+                            )?;
+                            entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
+                            Ok(entity)
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::SpawnNpcNear {
+                        role,
+                        center,
+                        radius,
+                        mode,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let role_catalog =
+                                load_npc_roles(&mut roles, &options.generator.assets_pack)?;
+                            let is_solid = npc_solid_rule(generator.assets());
+                            let position = SpawnPositionSearch::new(save.world(), is_solid).find(
+                                center,
+                                &SpawnSearchOptions {
+                                    radius,
+                                    vertical_range: 16,
+                                    mode,
+                                    ..SpawnSearchOptions::default()
+                                },
                             );
-                            npcs.insert(id, actor);
-                            entity_events.push(RuntimeEntityEvent::Spawned(id));
-                            save.world().entity(id).cloned().ok_or_else(|| {
-                                "the NPC entity disappeared during spawn".to_string()
-                            })
+                            let Some(position) = position else {
+                                return Ok(None);
+                            };
+                            let entity = spawn_npc_entity(
+                                &mut save,
+                                generator.assets(),
+                                role_catalog,
+                                &role,
+                                npc_transform(position.position),
+                                &mut npcs,
+                            )?;
+                            entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
+                            Ok(Some(entity))
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::SpawnNpcInEnvironment {
+                        environment,
+                        center,
+                        radius,
+                        mode,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let role_catalog =
+                                load_npc_roles(&mut roles, &options.generator.assets_pack)?;
+                            let catalog =
+                                load_spawn_catalog(&mut spawns, &options.generator.assets_root)?;
+                            let mut rng = SpawnRng::new(
+                                save.world().tick()
+                                    ^ save.world().entities().next_id().rotate_left(17),
+                            );
+                            let Some((_, role)) = catalog.pick_spawn(
+                                &environment,
+                                &clock,
+                                i32::from(clock.moon_phase()),
+                                &mut rng,
+                            ) else {
+                                return Ok(None);
+                            };
+                            let role_key = role.id.clone();
+                            let is_solid = npc_solid_rule(generator.assets());
+                            let position = SpawnPositionSearch::new(save.world(), is_solid).find(
+                                center,
+                                &SpawnSearchOptions {
+                                    radius,
+                                    vertical_range: 16,
+                                    mode,
+                                    ..SpawnSearchOptions::default()
+                                },
+                            );
+                            let Some(position) = position else {
+                                return Ok(None);
+                            };
+                            let entity = spawn_npc_entity(
+                                &mut save,
+                                generator.assets(),
+                                role_catalog,
+                                &role_key,
+                                npc_transform(position.position),
+                                &mut npcs,
+                            )?;
+                            entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
+                            Ok(Some(entity))
                         })();
                         let _ = reply.send(result);
                     }
@@ -2442,6 +2578,7 @@ struct Started {
     config_assets: Arc<hytale_assets::ConfigAssets>,
     interactions: Arc<InteractionCatalog>,
     roles: Option<RoleCatalog>,
+    spawns: Option<WorldSpawnCatalog>,
     damage_causes: DamageCauses,
     npcs: BTreeMap<RuntimeEntityId, NpcActor>,
     last_npc_tick: Instant,
@@ -2636,6 +2773,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         config_assets,
         interactions,
         roles,
+        spawns: None,
         damage_causes,
         npcs,
         last_npc_tick: Instant::now(),
@@ -2885,6 +3023,93 @@ fn place_prefab(
         i64::from(seed),
     )
     .map_err(|error| error.to_string())
+}
+
+fn npc_solid_rule(assets: &hytale_assets::AssetRegistry) -> impl Fn(i32) -> bool + Copy + '_ {
+    move |block: i32| {
+        assets
+            .block_types
+            .get_by_id(block)
+            .is_some_and(|record| record.value.material == BlockMaterial::Solid)
+    }
+}
+
+fn npc_transform(position: Vec3) -> PlayerTransform {
+    PlayerTransform::new(
+        hytale_world::player_data::Position {
+            x: position.x,
+            y: position.y,
+            z: position.z,
+        },
+        hytale_world::player_data::Rotation {
+            pitch: 0.0,
+            yaw: 0.0,
+            roll: 0.0,
+        },
+    )
+}
+
+fn spawn_npc_entity(
+    save: &mut WorldSave,
+    assets: &hytale_assets::AssetRegistry,
+    roles: &RoleCatalog,
+    role: &str,
+    transform: PlayerTransform,
+    npcs: &mut BTreeMap<RuntimeEntityId, NpcActor>,
+) -> Result<RuntimeEntity, String> {
+    let mut rng = |low: f64, high: f64| (low + high) * 0.5;
+    let resolved = roles
+        .resolve_with_rng(role, &mut rng)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("unknown NPC role `{role}`"))?;
+    let actor = NpcActor::from_assets(
+        assets,
+        &resolved,
+        Vec3::new(
+            transform.position.x,
+            transform.position.y,
+            transform.position.z,
+        ),
+        transform.rotation.yaw,
+    )
+    .map_err(|error| error.to_string())?;
+    let components = actor.runtime_components();
+    let id = save
+        .world_mut()
+        .spawn_entity(RuntimeEntityKind::Npc, None, transform, components);
+    npcs.insert(id, actor);
+    save.world()
+        .entity(id)
+        .cloned()
+        .ok_or_else(|| "the NPC entity disappeared during spawn".to_string())
+}
+
+fn load_spawn_catalog<'a>(
+    spawns: &'a mut Option<WorldSpawnCatalog>,
+    root: &std::path::Path,
+) -> Result<&'a WorldSpawnCatalog, String> {
+    if spawns.is_none() {
+        *spawns = Some(WorldSpawnCatalog::load_root(root).map_err(|error| error.to_string())?);
+    }
+    Ok(spawns.as_ref().expect("spawn catalog was just loaded"))
+}
+
+struct SpawnRng(u64);
+
+impl SpawnRng {
+    fn new(seed: u64) -> Self {
+        Self(seed.max(1))
+    }
+}
+
+impl FlockRng for SpawnRng {
+    fn next_f64(&mut self) -> f64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((self.0 >> 11) as f64) / ((1u64 << 53) as f64)
+    }
 }
 
 fn load_npc_roles<'a>(

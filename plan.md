@@ -926,8 +926,10 @@ save/reopen.
 
 The runtime slice lands the WorldThread NPC store, spawn/despawn/damage/tick
 commands, boot-time actor reconstruction, health persistence, session target
-publication and spawn/update/despawn presentation. Spawn-position search, the
-world spawn controller and beacons/markers remain.
+publication and spawn/update/despawn presentation. The second slice adds
+movement-mode spawn-position search, environment/role selection, and the
+density/expected-count controller. Automatic population ticks, beacons/markers
+and light/suppression gates remain.
 
 ### T59c — Combat action graph and encounters
 

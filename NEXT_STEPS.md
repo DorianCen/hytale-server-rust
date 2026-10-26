@@ -11,9 +11,9 @@ traversal), **T56** (prefab entities/block components plus the persisted
 runtime entity store), **T57** (block-health replication, runtime entity
 spawns and world-map basics) and **T58** (NPC core). **T59**'s first slice lands
 the world spawn rules, role combat profiles, damage ranges and a scripted NPC
-actor; **T59b**'s first slice adds the live WorldThread NPC runtime, persistence
-and session ticking. Spawn-position search/beacons and **T59c** encounters
-remain.
+actor; **T59b** adds the live WorldThread NPC runtime, persistence, session
+ticking and movement-mode spawn-position/environment selection. Automatic
+population/beacons and **T59c** encounters remain.
 
 ## Current state
 
@@ -192,13 +192,15 @@ Landed and green:
   (target acquisition, A* chase, melee, damage, death). Role `Modify` blocks
   are now flattened, so variant health/attack fields resolve correctly. The
   `NpcDumper` fixture gates `DamageCalculator.computeDamageRange`.
-- T59b (in progress, session 52): `WorldThread` owns a live NPC actor map with
+- T59b (in progress, sessions 52–53): `WorldThread` owns a live NPC actor map with
   `spawn_npc`/`despawn_npc`/`damage_npc`/`set_npc_targets`/`tick_npcs`, rebuilds
   actors and health from `entities.json` on boot, writes health before save and
   turns movement/death into runtime entity events. Sessions publish registered
-  player positions as targets and tick NPCs with the game loop. Spawn-position
-  search, the world spawn controller, beacons/markers and the encounter
-  evaluator remain T59b/T59c.
+  player positions as targets and tick NPCs with the game loop. The second
+  slice adds walk/wade/underwater/dive/fly spawn-position search,
+  environment/role weighted selection and the density/expected-count
+  controller. Automatic population ticks, beacons/markers, light/suppression
+  gates and the encounter evaluator remain T59b/T59c.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -228,10 +230,12 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    follow-ups) are done. M6 starts with T58 (NPC core), whose first slice and
    T58b builder-expression and T58c world-grid/group-steering slices are
    landed. T58 is done. T59's first slice (spawn configuration/selection,
-   combat profiles/damage and a scripted actor) and T59b's runtime slice
-   (WorldThread NPC store/persistence/ticking) are landed; T59b's spawn-position
-   search/beacons and T59c (combat action graph and encounters) are next.
-   T59/T60 presentation work waits for T57b.
+   combat profiles/damage and a scripted actor) and T59b's runtime plus
+   spawn-position/controller slices (WorldThread NPC store/persistence/ticking,
+   movement-mode position search, environment selection and density
+   accounting) are landed; T59b's automatic population/beacons and T59c
+   (combat action graph and encounters) are next. T59/T60 presentation work
+   waits for T57b.
 
 ## Try it
 

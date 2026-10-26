@@ -179,17 +179,52 @@ fn npcs_attack_a_target_through_the_runtime_tick() {
 }
 
 #[test]
-fn an_unknown_role_is_a_clean_command_error() {
+fn spawn_commands_handle_unknown_roles_and_find_positions() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
         return;
     }
-    let save_dir = temp_dir("unknown");
+    let save_dir = temp_dir("spawn-commands");
     let thread = open(&save_dir);
     let error = thread
         .spawn_npc("No_Such_Role", transform([0.5, 80.0, 0.5], 0.0))
         .expect_err("unknown role");
     assert!(error.to_string().contains("unknown NPC role"));
+
+    thread.load_chunk(0, 0).expect("load the platform chunk");
+    for x in 0..=8 {
+        for z in 0..=8 {
+            thread.set_block(x, 80, z, 1).expect("floor");
+            for y in 81..=83 {
+                thread.set_block(x, y, z, 0).expect("clear headroom");
+            }
+        }
+    }
+    let center = hytale_world::collision::Vec3::new(4.5, 81.0, 4.5);
+    let near = thread
+        .spawn_npc_near(
+            "Rat",
+            center,
+            2,
+            hytale_npc::spawn_position::SpawnMovementMode::Walk,
+        )
+        .expect("spawn near")
+        .expect("a walkable platform");
+    assert_eq!(near.kind, RuntimeEntityKind::Npc);
+    assert_eq!(near.transform.position.y, 81.0);
+
+    let selected = thread
+        .spawn_npc_in_environment(
+            "Env_Portal_Goblin_Surface",
+            center,
+            2,
+            hytale_npc::spawn_position::SpawnMovementMode::Walk,
+        )
+        .expect("environment spawn")
+        .expect("a selected role on the platform");
+    assert_eq!(selected.kind, RuntimeEntityKind::Npc);
+    assert!(thread.npc_actors().expect("actors").len() >= 2);
+
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();
 }

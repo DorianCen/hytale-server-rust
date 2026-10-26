@@ -70,8 +70,10 @@ lands the world spawn configuration/gates, weighted selection, role combat
 profiles, damage ranges and a scripted NPC actor; the live runtime/spawn
 position search and the encounter/action-graph layers are T59b/T59c. T59b's
 first slice adds the live WorldThread NPC store, spawn/despawn/damage/tick
-commands, persistence and session target publication; spawn-position search,
-the world spawn controller and beacons/markers remain in T59b.
+commands, persistence and session target publication; the second adds
+movement-mode spawn-position search, environment/role selection and the
+density/expected-count controller. Automatic population ticks, beacons/markers,
+light/suppression gates and CLI/bot coverage remain in T59b.
 
 ## Rules
 

@@ -1431,3 +1431,38 @@ This file records phase-2 sessions only.
   - Finish T59b: spawn-position search, spawn controller/expected counts,
     beacons/markers and CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 53 — T59b spawn positions and environment selection (2026-10-26)
+
+- **Goal:** finish the deterministic spawn-position/controller half of T59b.
+- **Landed:**
+  - `hytale-npc::spawn_position` with walk/wade/underwater-walk/dive/fly
+    validation over loaded world columns, deterministic near-first candidate
+    order, optional allowed-floor sets and the fluid-requirement seam.
+  - `WorldSpawnCatalog::pick_spawn` selects an eligible environment/role across
+    all matching configs using the Java day/moon gates and moon-phase weights.
+  - `WorldSpawnController` ports the
+    `WorldEnvironmentSpawnData` density formula (`segments * density / 1024`),
+    missing/expected counts and spawn/despawn accounting.
+  - `WorldThread::spawn_npc_near` finds a valid position for a named role;
+    `spawn_npc_in_environment` picks an eligible real-catalog role and spawns
+    it with the shared actor builder.
+  - Unit tests cover flat/block-set/water/fly searches, weighted environment
+    selection and the density formula. The `npc_runtime` integration test now
+    builds a cleared platform and exercises both new spawn APIs.
+- **Verified:**
+  - `cargo test -p hytale-npc`.
+  - `cargo test -p hytale-server --test npc_runtime`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - `SpawnBlockSet`/`SpawnFluidTag` asset-store resolution is still open; the
+    search accepts explicit block-id/fluid-requirement options.
+  - Light ranges and spawn suppression are not evaluated.
+  - Automatic world-population ticks and beacon/spawn-marker controllers are
+    still open in T59b.
+- **Follow-ups:**
+  - Finish T59b: population ticking, beacons/markers, light/suppression and
+    CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

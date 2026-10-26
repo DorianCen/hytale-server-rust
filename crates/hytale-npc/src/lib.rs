@@ -15,6 +15,8 @@
 //! * [`perception`] — the Java view-cone test.
 //! * [`spawn`] — `Server/NPC/Spawn/World` configurations, time/moon gates and
 //!   weighted role selection.
+//! * [`spawn_position`] — deterministic walk/wade/underwater/dive/fly position
+//!   search over a real world.
 //! * [`combat`] — resolved combat profiles, interaction damage ranges and a
 //!   scripted NPC actor (targeting, chase, melee, damage, death).
 //!
@@ -32,6 +34,7 @@ pub mod path;
 pub mod perception;
 pub mod role;
 pub mod spawn;
+pub mod spawn_position;
 pub mod steering;
 pub mod worldgrid;
 
@@ -50,6 +53,10 @@ pub use perception::is_in_view_cone;
 pub use role::{NpcRole, RoleCatalog, RoleType};
 pub use spawn::{
     RoleSpawnParameters, SpawnError, SpawnFlock, SpawnTimeWindow, WorldSpawn, WorldSpawnCatalog,
+    WorldSpawnController,
+};
+pub use spawn_position::{
+    SpawnMovementMode, SpawnPosition, SpawnPositionSearch, SpawnSearchOptions,
 };
 pub use steering::{Steering, SteeringForceEvade, SteeringForcePursue, SteeringForceRotate};
 pub use worldgrid::WorldGrid;

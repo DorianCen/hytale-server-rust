@@ -415,6 +415,105 @@ impl WorldSpawnCatalog {
             .values()
             .filter(move |spawn| spawn.environments.iter().any(|value| value == environment))
     }
+
+    /// Pick an eligible `(configuration, role)` for `environment`.
+    ///
+    /// Weights are the role weights multiplied by the moon-phase modifier,
+    /// matching `WorldNPCSpawnStat.getWeight`; configs outside their day/moon
+    /// window are ignored.
+    pub fn pick_spawn<'a, R: FlockRng>(
+        &'a self,
+        environment: &'a str,
+        clock: &WorldClock,
+        moon_phase: i32,
+        rng: &mut R,
+    ) -> Option<(&'a WorldSpawn, &'a RoleSpawnParameters)> {
+        let entries: Vec<_> = self
+            .for_environment(environment)
+            .filter(|spawn| spawn.is_eligible(clock))
+            .flat_map(|spawn| {
+                spawn
+                    .npcs
+                    .iter()
+                    .map(move |role| (spawn, role, spawn.effective_weight(role, moon_phase)))
+            })
+            .filter(|(_, _, weight)| *weight > 0.0)
+            .collect();
+        let sum: f64 = entries.iter().map(|(_, _, weight)| *weight).sum();
+        if sum <= 0.0 {
+            return None;
+        }
+        let mut remaining = rng.next_f64() * sum;
+        let mut result = None;
+        for (spawn, role, weight) in entries {
+            result = Some((spawn, role));
+            remaining -= weight;
+            if remaining < 0.0 {
+                break;
+            }
+        }
+        result
+    }
+}
+
+/// `WorldEnvironmentSpawnData` accounting subset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorldSpawnController {
+    /// Environment spawn density (`Environment.SpawnDensity`).
+    pub density: f64,
+    /// Loaded 32³ segments/columns in this environment.
+    pub segment_count: usize,
+    /// Live NPCs tracked in this environment.
+    pub actual: i32,
+}
+
+impl WorldSpawnController {
+    /// Java `WorldEnvironmentSpawnData.K_COLUMNS`.
+    pub const K_COLUMNS: f64 = 1024.0;
+
+    /// An empty controller with the environment density.
+    pub fn new(density: f64) -> Self {
+        Self {
+            density: density.max(0.0),
+            segment_count: 0,
+            actual: 0,
+        }
+    }
+
+    /// Change the density and recompute the expected count.
+    pub fn set_density(&mut self, density: f64) {
+        self.density = density.max(0.0);
+    }
+
+    /// Change the tracked segment/column count.
+    pub fn set_segment_count(&mut self, count: usize) {
+        self.segment_count = count;
+    }
+
+    /// Java `WorldEnvironmentSpawnData.expectedNPCs`.
+    pub fn expected(&self) -> f64 {
+        self.segment_count as f64 * self.density / Self::K_COLUMNS
+    }
+
+    /// Java `WorldEnvironmentSpawnData.spawnWeight`.
+    pub fn missing(&self) -> f64 {
+        (self.expected() - f64::from(self.actual)).max(0.0)
+    }
+
+    /// Whether another spawn is allowed.
+    pub fn has_room(&self) -> bool {
+        self.missing() > 0.0
+    }
+
+    /// Track one spawn.
+    pub fn record_spawn(&mut self) {
+        self.actual += 1;
+    }
+
+    /// Track one despawn.
+    pub fn record_despawn(&mut self) {
+        self.actual = (self.actual - 1).max(0);
+    }
 }
 
 fn normalize_hours(range: [f64; 2]) -> [f64; 2] {
@@ -538,6 +637,54 @@ mod tests {
         assert_eq!(spawn.moon_phase_weight_modifier(3), 0.0);
         assert_eq!(spawn.effective_weight(&spawn.npcs[1], 2), 6.0, "3 * 2");
         assert_eq!(spawn.pick_role(&mut FixedRng(0.0), 0), None);
+    }
+
+    #[test]
+    fn environment_selection_skips_ineligible_configs_and_uses_weights() {
+        let catalog = WorldSpawnCatalog {
+            spawns: BTreeMap::from([("Test".to_string(), spawn())]),
+        };
+        let clock = clock_at(12.0);
+        let (spawn, role) = catalog
+            .pick_spawn("Env_Test", &clock, 0, &mut FixedRng(0.0))
+            .expect("eligible role");
+        assert_eq!(spawn.key, "Test");
+        assert_eq!(role.id, "Rat");
+        let (_, role) = catalog
+            .pick_spawn("Env_Test", &clock, 0, &mut FixedRng(0.25))
+            .expect("eligible role");
+        assert_eq!(role.id, "Bear");
+        assert!(
+            catalog
+                .pick_spawn("Env_Test", &clock_at(23.0), 0, &mut FixedRng(0.0))
+                .is_none(),
+            "the config is outside its day range"
+        );
+        assert!(
+            catalog
+                .pick_spawn("Env_Other", &clock, 0, &mut FixedRng(0.0))
+                .is_none(),
+            "the config is not registered for this environment"
+        );
+    }
+
+    #[test]
+    fn spawn_controller_uses_the_java_density_formula() {
+        let mut controller = WorldSpawnController::new(0.75);
+        assert_eq!(controller.expected(), 0.0);
+        controller.set_segment_count(1024);
+        assert!((controller.expected() - 0.75).abs() < 1e-9);
+        controller.record_spawn();
+        assert_eq!(controller.actual, 1);
+        assert_eq!(controller.missing(), 0.0);
+        assert!(!controller.has_room());
+        controller.set_segment_count(4096);
+        assert!((controller.expected() - 3.0).abs() < 1e-9);
+        assert!(controller.has_room());
+        controller.record_despawn();
+        assert_eq!(controller.actual, 0);
+        controller.record_despawn();
+        assert_eq!(controller.actual, 0, "despawns saturate at zero");
     }
 
     #[test]

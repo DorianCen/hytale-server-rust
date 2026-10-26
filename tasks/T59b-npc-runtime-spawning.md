@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (session 52; runtime slice landed)
+**Status:** in progress (sessions 52–53; runtime and spawn-position slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -67,11 +67,31 @@ cargo fmt --all -- --check
   and death, a runtime melee attack against a player target, and an unknown
   role error.
 
+### Spawn-position/controller slice (session 53)
+
+- `hytale-npc::spawn_position` scans loaded columns near a hint in deterministic
+  distance order and validates the Java movement-mode contract:
+  walk/wade/underwater-walk/dive/fly, solid-floor and feet/head air checks,
+  optional allowed-block sets and the fluid requirement seam.
+- `WorldSpawnCatalog::pick_spawn` selects an eligible environment/role across
+  all matching configs with the Java day/moon gates and moon-phase weights.
+- `WorldSpawnController` ports the `WorldEnvironmentSpawnData` density formula
+  (`segments * density / 1024`), expected/missing counts and spawn/despawn
+  accounting.
+- `WorldThread::spawn_npc_near` resolves a role and finds a valid position;
+  `spawn_npc_in_environment` picks an eligible role from the real catalog,
+  finds a position and spawns it. The `npc_runtime` suite exercises both on a
+  cleared test platform and selects `Env_Portal_Goblin_Surface` through the
+  real spawn store.
+
 ## Deviations
 
-- Spawn-position search, block-set/fluid-tag/light validation and the
-  world-environment spawn controller are not landed yet; callers spawn a named
-  role at an explicit transform.
+- `SpawnBlockSet`/`SpawnFluidTag` references are not resolved to their asset
+  stores yet (the `BlockSet` generator is still a T35 gap); the search exposes
+  explicit block-id/fluid-requirement options instead.
+- Light ranges and spawn suppression are not evaluated by the position search.
+- The world spawn controller is a pure accounting/selection unit; automatic
+  population ticks and environment-density wiring are not in `WorldThread` yet.
 - Beacons and spawn markers are not landed.
 - NPC damage targets only runtime NPC actors; player health is not modelled yet,
   so player targets produce attack events without damage (T59c).
@@ -80,6 +100,6 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Finish T59b: spawn-position search, spawn controller/expected counts,
-  beacons/markers and CLI/bot coverage.
+- Finish T59b: automatic spawn-controller wiring, beacon/spawn-marker
+  controllers, light/suppression gates and CLI/bot coverage.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.
