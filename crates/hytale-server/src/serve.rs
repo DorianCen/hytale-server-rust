@@ -106,6 +106,14 @@ pub struct SessionSummary {
     pub simulation_block_changes: usize,
     /// Fluid changes emitted by the simulation.
     pub simulation_fluid_changes: usize,
+    /// NPC actors advanced by the world tick.
+    pub npc_ticks: usize,
+    /// NPC actors that moved.
+    pub npc_moves: usize,
+    /// NPC melee attacks produced.
+    pub npc_attacks: usize,
+    /// NPC actors that died.
+    pub npc_deaths: usize,
 }
 
 impl From<&SessionReport> for SessionSummary {
@@ -124,6 +132,10 @@ impl From<&SessionReport> for SessionSummary {
             simulation_ticks: report.game_loop.simulation_ticks,
             simulation_block_changes: report.game_loop.simulation_block_changes,
             simulation_fluid_changes: report.game_loop.simulation_fluid_changes,
+            npc_ticks: report.game_loop.npc_ticks,
+            npc_moves: report.game_loop.npc_moves,
+            npc_attacks: report.game_loop.npc_attacks,
+            npc_deaths: report.game_loop.npc_deaths,
         }
     }
 }

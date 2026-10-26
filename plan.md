@@ -917,12 +917,17 @@ combat action graph and `EncounterManager` evaluator are T59c.
 
 ### T59b — NPC runtime, spawn positions and beacons
 
-**Status:** planned
+**Status:** in progress (session 52; runtime slice landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Goal:** attach actors to runtime entities, find Java-compatible spawn
 positions, tick/persist and broadcast NPCs.
 **Acceptance:** a world reaches its configured population and NPCs survive
 save/reopen.
+
+The runtime slice lands the WorldThread NPC store, spawn/despawn/damage/tick
+commands, boot-time actor reconstruction, health persistence, session target
+publication and spawn/update/despawn presentation. Spawn-position search, the
+world spawn controller and beacons/markers remain.
 
 ### T59c — Combat action graph and encounters
 

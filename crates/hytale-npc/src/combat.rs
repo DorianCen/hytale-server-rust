@@ -18,13 +18,14 @@ use hytale_entities::components::EntityGameplay;
 use hytale_entities::damage::{Damage, DamageCauses, DamageResult};
 use hytale_entities::stats::{EntityStatMap, EntityStatType};
 use hytale_world::collision::Vec3;
+use hytale_world::runtime::RuntimeEntity;
 use hytale_world::world::World;
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::navigation::BlockPos;
 use crate::path::PathFollower;
-use crate::role::ResolvedRole;
+use crate::role::{ResolvedRole, RoleCatalog, RoleError};
 use crate::worldgrid::WorldGrid;
 
 /// Seconds between live path replans.
@@ -316,6 +317,61 @@ impl NpcActor {
             replan_cooldown: 0.0,
             last_target_position: None,
         })
+    }
+
+    /// Rebuild an actor from a persisted runtime entity. Returns `None` when
+    /// the entity has no `Npc` component or the role no longer resolves.
+    pub fn from_runtime_entity(
+        assets: &AssetRegistry,
+        roles: &RoleCatalog,
+        entity: &RuntimeEntity,
+    ) -> Result<Option<Self>, CombatError> {
+        let Some(role_key) = entity
+            .components
+            .get("Npc")
+            .and_then(|npc| npc.get("Role"))
+            .and_then(Value::as_str)
+        else {
+            return Ok(None);
+        };
+        let mut rng = |low: f64, high: f64| (low + high) * 0.5;
+        let Some(resolved) = roles.resolve_with_rng(role_key, &mut rng)? else {
+            return Ok(None);
+        };
+        let mut actor = Self::from_assets(
+            assets,
+            &resolved,
+            Vec3::new(
+                entity.transform.position.x,
+                entity.transform.position.y,
+                entity.transform.position.z,
+            ),
+            entity.transform.rotation.yaw,
+        )?;
+        if let Some(health) = entity
+            .components
+            .get("Npc")
+            .and_then(|npc| npc.get("Health"))
+            .and_then(Value::as_f64)
+        {
+            if health <= 0.0 {
+                return Ok(None);
+            }
+            let health = (health as f32).min(actor.profile.max_health);
+            actor
+                .gameplay
+                .stats
+                .set(actor.gameplay.health_index, health);
+        }
+        Ok(Some(actor))
+    }
+
+    /// Write the current health back into `entity.components` for persistence.
+    pub fn sync_runtime_entity(&self, entity: &mut RuntimeEntity) {
+        let health = self.health();
+        if let Some(npc) = entity.components.get_mut("Npc") {
+            npc["Health"] = Value::from(f64::from(health));
+        }
     }
 
     /// Whether the actor has died.
@@ -646,6 +702,9 @@ pub enum CombatError {
         /// Decode error.
         message: String,
     },
+    /// A persisted role failed to resolve.
+    #[error(transparent)]
+    Role(#[from] RoleError),
 }
 
 #[cfg(test)]

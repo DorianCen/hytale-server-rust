@@ -911,6 +911,7 @@ dependencies = [
  "hytale-interactions",
  "hytale-inventory",
  "hytale-net",
+ "hytale-npc",
  "hytale-protocol",
  "hytale-storage",
  "hytale-world",

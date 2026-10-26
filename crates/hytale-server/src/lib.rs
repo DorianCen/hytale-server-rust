@@ -42,7 +42,7 @@ pub use player_data_tool::{
 };
 pub use players::{
     channel as player_channel, PlayerJoin, PlayerJoinRequest, PlayerMessage, PlayerRegistry,
-    PlayerSession,
+    PlayerSession, PLAYER_NPC_TARGET_OFFSET,
 };
 pub use serve::{
     run as run_serve, serve as serve_listener, ServeError, ServeOptions, ServeReport,
@@ -60,8 +60,8 @@ pub use world_config_tool::{
     WorldConfigToolReport,
 };
 pub use world_thread::{
-    BlockContainerOpen, BlockDamagePacket, LoadOutcome, PlayerSnapshot, RuntimeEntityEvent,
-    TickReport, ViewId, ViewReport, WorldEvent, WorldStartReport, WorldThread, WorldThreadError,
-    WorldThreadOptions, WorldTimeState,
+    BlockContainerOpen, BlockDamagePacket, LoadOutcome, NpcRuntimeReport, PlayerSnapshot,
+    RuntimeEntityEvent, TickReport, ViewId, ViewReport, WorldEvent, WorldStartReport, WorldThread,
+    WorldThreadError, WorldThreadOptions, WorldTimeState,
 };
 pub use world_tool::{run as run_chunk_tool, ChunkToolError, ChunkToolOptions, ChunkToolReport};

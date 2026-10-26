@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+use hytale_npc::combat::NpcTarget;
 use hytale_protocol::generated::common::{
     ComponentUpdate, Direction, EntityUpdate, EquipmentUpdate, FormattedMessage, ItemUpdate,
     ItemWithAllMetadata, MapMarker, MapMarkerComponent, MapMarkerIconSize, Model, ModelTransform,
@@ -30,6 +31,7 @@ use hytale_protocol::generated::world::{
 };
 use hytale_protocol::generated::worldmap::UpdateWorldMap;
 use hytale_protocol::io::Uuid;
+use hytale_world::collision::Vec3;
 use hytale_world::player_data::{
     PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
 };
@@ -437,6 +439,24 @@ impl PlayerRegistry {
         true
     }
 
+    /// Player positions in the NPC target namespace. The high bit keeps player
+    /// ids disjoint from runtime entity/NPC ids.
+    pub fn npc_targets(&self) -> Vec<NpcTarget> {
+        let inner = self.inner.lock().expect("player registry poisoned");
+        inner
+            .players
+            .values()
+            .map(|player| NpcTarget {
+                id: PLAYER_NPC_TARGET_OFFSET | u64::from(player.network_id.max(0) as u32),
+                position: Vec3::new(
+                    player.transform.position.x,
+                    player.transform.position.y,
+                    player.transform.position.z,
+                ),
+            })
+            .collect()
+    }
+
     /// Number of registered players.
     pub fn len(&self) -> usize {
         self.inner
@@ -655,6 +675,10 @@ pub fn removed_entity_updates(network_id: i32) -> EntityUpdates {
 /// Player network ids start at 1; runtime entity ids start at 1 too, so the
 /// presentation layer offsets them to keep the two id sets disjoint.
 pub const RUNTIME_ENTITY_NETWORK_OFFSET: i32 = 1_000_000;
+
+/// High bit used for player ids in the NPC target namespace, so a player can
+/// never be mistaken for a runtime NPC when melee damage is resolved.
+pub const PLAYER_NPC_TARGET_OFFSET: u64 = 1 << 63;
 
 /// The client-facing network id of a runtime entity.
 pub fn runtime_network_id(id: u64) -> i32 {

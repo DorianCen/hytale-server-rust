@@ -125,8 +125,9 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   (block-health/runtime-entity/world-map presentation) and T57b's map-image and
   container-window slice are done; M6 starts with T58, whose NPC
   navigation/steering/flock core is done (T58b/T58c). T59's spawn configuration,
-  role combat profiles, Java damage ranges and scripted actor are landed; its
-  WorldThread producer and encounters are T59b/T59c. See
+  role combat profiles, Java damage ranges and scripted actor are landed, and
+  T59b adds the live WorldThread NPC store/persistence/session tick; spawn
+  positions, beacons and encounters remain T59b/T59c. See
   [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
   and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -673,7 +674,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |
 | `CoreServer/modules/**` | `hytale-world` (core subset), later module crates | planned (M5) |
 | `builtin/**` | `hytale-builtin` feature crates | deferred (M6) |
-| `NPC/**` | `hytale-npc` | role/flock catalogs, reference/parameter resolution with the builder expression subset, `Modify` flattening, Java direction tables, block-grid A*, real-world `WorldGrid` walk/fly planning, `PathFollower`, pursue/evade/rotate steering, group steering, view-cone perception, `Server/NPC/Spawn/World` selection, role combat profiles/damage ranges and a scripted `NpcActor` landed (M6, T58/T58b/T58c/T59 core); the full builder graph, half-step motion-controller A*, wander/avoidance, blackboard sensors, live spawn producer, spawn-position search, beacons/markers, encounter evaluator and the NPC ECS remain T59b/T59c/T60 |
+| `NPC/**` | `hytale-npc` | role/flock catalogs, reference/parameter resolution with the builder expression subset, `Modify` flattening, Java direction tables, block-grid A*, real-world `WorldGrid` walk/fly planning, `PathFollower`, pursue/evade/rotate steering, group steering, view-cone perception, `Server/NPC/Spawn/World` selection, role combat profiles/damage ranges, a scripted `NpcActor`, and the live `WorldThread` NPC store/spawn/tick/persistence landed (M6, T58/T58b/T58c/T59 core and T59b runtime); the full builder graph, half-step motion-controller A*, wander/avoidance, blackboard sensors, spawn-position search, world spawn controller, beacons/markers, encounter evaluator and the NPC ECS remain T59b/T59c/T60 |
 
 Deliberate exclusions are in [`REMAINING.md`](REMAINING.md).
 

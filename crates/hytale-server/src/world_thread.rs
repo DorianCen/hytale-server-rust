@@ -14,11 +14,15 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use hytale_assets::{AssetPack, CommonAssetRegistry};
+use hytale_entities::damage::{Damage, DamageCause, DamageCauses, DamageSource};
 use hytale_entities::movement::{resolve_target, PlayerShape, TargetResolution};
 use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_inventory::{ItemStack, PlayerInventory};
+use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
+use hytale_npc::role::RoleCatalog;
 use hytale_protocol::generated::common::{
-    BlockDamageCmd, BlockPosition, FlyMode, InventorySection, MapImage, MovementSettings,
+    BlockDamageCmd, BlockMaterial, BlockPosition, FlyMode, InventorySection, MapImage,
+    MovementSettings,
 };
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_protocol::generated::world::{UpdateBlockDamage, UpdateBlockDamages};
@@ -217,6 +221,21 @@ pub struct BlockContainerOpen {
     pub section: InventorySection,
 }
 
+/// Result of one NPC runtime tick.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NpcRuntimeReport {
+    /// Live actors considered.
+    pub ticked: usize,
+    /// Actors that moved.
+    pub moved: usize,
+    /// Melee attacks produced.
+    pub attacks: usize,
+    /// Actors that died and were despawned.
+    pub deaths: usize,
+    /// Live actors after the tick.
+    pub alive: usize,
+}
+
 /// Result of one demand-load tick.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TickReport {
@@ -263,6 +282,15 @@ pub enum WorldThreadError {
     /// Interaction assets failed to load.
     #[error(transparent)]
     Interactions(#[from] InteractionError),
+    /// The asset pack could not be opened for NPC role loading.
+    #[error(transparent)]
+    Assets(#[from] hytale_assets::AssetError),
+    /// NPC role assets failed to load.
+    #[error(transparent)]
+    Roles(#[from] hytale_npc::role::RoleError),
+    /// An NPC actor could not be built.
+    #[error(transparent)]
+    Npc(#[from] hytale_npc::combat::CombatError),
     /// A UUID argument is malformed.
     #[error("invalid UUID `{0}`")]
     InvalidUuid(String),
@@ -454,6 +482,31 @@ enum Command {
     },
     EntityEvents {
         reply: SyncSender<Vec<RuntimeEntityEvent>>,
+    },
+    SpawnNpc {
+        role: String,
+        transform: PlayerTransform,
+        reply: SyncSender<Result<RuntimeEntity, String>>,
+    },
+    DespawnNpc {
+        id: RuntimeEntityId,
+        reply: SyncSender<Result<Option<RuntimeEntity>, String>>,
+    },
+    SetNpcTargets {
+        targets: Vec<NpcTarget>,
+        reply: SyncSender<()>,
+    },
+    TickNpcs {
+        reply: SyncSender<Result<NpcRuntimeReport, String>>,
+    },
+    DamageNpc {
+        id: RuntimeEntityId,
+        amount: f32,
+        cause: String,
+        reply: SyncSender<Result<Option<hytale_entities::damage::DamageResult>, String>>,
+    },
+    NpcActors {
+        reply: SyncSender<Vec<(RuntimeEntityId, NpcActor)>>,
     },
     UpdateEntityTransform {
         id: RuntimeEntityId,
@@ -1188,6 +1241,96 @@ impl WorldThread {
         response.recv().map_err(|_| WorldThreadError::ChannelClosed)
     }
 
+    /// Spawn an NPC runtime entity from a role asset key.
+    pub fn spawn_npc(
+        &self,
+        role: impl Into<String>,
+        transform: PlayerTransform,
+    ) -> Result<RuntimeEntity, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnNpc {
+                role: role.into(),
+                transform,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Despawn an NPC/runtime entity.
+    pub fn despawn_npc(
+        &self,
+        id: RuntimeEntityId,
+    ) -> Result<Option<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::DespawnNpc { id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Replace the live NPC target list (player/NPC positions).
+    pub fn set_npc_targets(&self, targets: Vec<NpcTarget>) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetNpcTargets { targets, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        Ok(())
+    }
+
+    /// Advance every live NPC by the elapsed wall-clock time.
+    pub fn tick_npcs(&self) -> Result<NpcRuntimeReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TickNpcs { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Apply damage to one NPC actor.
+    pub fn damage_npc(
+        &self,
+        id: RuntimeEntityId,
+        amount: f32,
+        cause: impl Into<String>,
+    ) -> Result<Option<hytale_entities::damage::DamageResult>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::DamageNpc {
+                id,
+                amount,
+                cause: cause.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Live NPC actors (debug/tests).
+    pub fn npc_actors(&self) -> Result<Vec<(RuntimeEntityId, NpcActor)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::NpcActors { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
     /// Move a runtime entity and queue an update event for viewers.
     pub fn update_entity_transform(
         &self,
@@ -1601,6 +1744,10 @@ fn run(
             weather_forecasts,
             config_assets,
             interactions,
+            mut roles,
+            damage_causes,
+            mut npcs,
+            mut last_npc_tick,
         }) => {
             if ready.send(Ok(start.clone())).is_err() {
                 generator.shutdown();
@@ -1608,6 +1755,7 @@ fn run(
             }
             let seed = save.config().seed as i32;
             let mut entity_events: Vec<RuntimeEntityEvent> = Vec::new();
+            let mut npc_targets: Vec<NpcTarget> = Vec::new();
             let mut map_images: BTreeMap<(i32, i32), MapImage> = BTreeMap::new();
             let budget = options.chunks_per_tick.max(1);
             let mut last_clock = Instant::now();
@@ -1968,6 +2116,162 @@ fn run(
                     Command::EntityEvents { reply } => {
                         let _ = reply.send(std::mem::take(&mut entity_events));
                     }
+                    Command::SpawnNpc {
+                        role,
+                        transform,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let role_catalog =
+                                load_npc_roles(&mut roles, &options.generator.assets_pack)?;
+                            let mut rng = |low: f64, high: f64| (low + high) * 0.5;
+                            let resolved = role_catalog
+                                .resolve_with_rng(&role, &mut rng)
+                                .map_err(|error| error.to_string())?
+                                .ok_or_else(|| format!("unknown NPC role `{role}`"))?;
+                            let actor = NpcActor::from_assets(
+                                generator.assets(),
+                                &resolved,
+                                Vec3::new(
+                                    transform.position.x,
+                                    transform.position.y,
+                                    transform.position.z,
+                                ),
+                                transform.rotation.yaw,
+                            )
+                            .map_err(|error| error.to_string())?;
+                            let components = actor.runtime_components();
+                            let id = save.world_mut().spawn_entity(
+                                RuntimeEntityKind::Npc,
+                                None,
+                                transform,
+                                components,
+                            );
+                            npcs.insert(id, actor);
+                            entity_events.push(RuntimeEntityEvent::Spawned(id));
+                            save.world().entity(id).cloned().ok_or_else(|| {
+                                "the NPC entity disappeared during spawn".to_string()
+                            })
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::DespawnNpc { id, reply } => {
+                        npcs.remove(&id);
+                        let removed = save.world_mut().despawn_entity(id);
+                        if let Some(entity) = &removed {
+                            entity_events.push(RuntimeEntityEvent::Despawned {
+                                id,
+                                position: entity.transform.position,
+                            });
+                        }
+                        let _ = reply.send(Ok(removed));
+                    }
+                    Command::SetNpcTargets { targets, reply } => {
+                        npc_targets = targets;
+                        let _ = reply.send(());
+                    }
+                    Command::TickNpcs { reply } => {
+                        let now = Instant::now();
+                        let dt = now
+                            .saturating_duration_since(last_npc_tick)
+                            .as_secs_f64()
+                            .min(0.25);
+                        last_npc_tick = now;
+                        let is_solid =
+                            |block: i32| {
+                                generator.assets().block_types.get_by_id(block).is_some_and(
+                                    |record| record.value.material == BlockMaterial::Solid,
+                                )
+                            };
+                        let mut result = NpcRuntimeReport::default();
+                        let mut attacks = Vec::new();
+                        if dt > 0.0 {
+                            for (&id, actor) in npcs.iter_mut() {
+                                result.ticked += 1;
+                                let report: NpcTickReport =
+                                    actor.tick(dt, save.world(), is_solid, &npc_targets, 0.5);
+                                if report.moved {
+                                    result.moved += 1;
+                                    if let Some(entity) =
+                                        save.world_mut().entities_mut().get_mut(id)
+                                    {
+                                        entity.transform.position.x = actor.position.x;
+                                        entity.transform.position.y = actor.position.y;
+                                        entity.transform.position.z = actor.position.z;
+                                        entity.transform.rotation.yaw = actor.yaw;
+                                    }
+                                    entity_events.push(RuntimeEntityEvent::Updated(id));
+                                }
+                                if let Some(attack) = report.attack {
+                                    result.attacks += 1;
+                                    attacks.push((id, attack));
+                                }
+                            }
+                        }
+                        let mut dead = BTreeSet::new();
+                        for (source, attack) in attacks {
+                            let Some(target) = npcs.get_mut(&attack.target) else {
+                                continue;
+                            };
+                            for (cause, amount) in attack.damages {
+                                target.take_damage(
+                                    &Damage::new(amount, cause, DamageSource::Entity(source)),
+                                    &damage_causes,
+                                );
+                            }
+                            if target.is_dead() {
+                                dead.insert(attack.target);
+                            }
+                        }
+                        for id in dead {
+                            if let Some(entity) = save.world_mut().despawn_entity(id) {
+                                entity_events.push(RuntimeEntityEvent::Despawned {
+                                    id,
+                                    position: entity.transform.position,
+                                });
+                                result.deaths += 1;
+                            }
+                            npcs.remove(&id);
+                        }
+                        result.alive = npcs.len();
+                        let _ = reply.send(Ok(result));
+                    }
+                    Command::DamageNpc {
+                        id,
+                        amount,
+                        cause,
+                        reply,
+                    } => {
+                        let result = npcs.get_mut(&id).map(|actor| {
+                            let result = actor.take_damage(
+                                &Damage::new(amount, cause.clone(), DamageSource::Command),
+                                &damage_causes,
+                            );
+                            if !result.died {
+                                if let Some(entity) = save.world_mut().entities_mut().get_mut(id) {
+                                    actor.sync_runtime_entity(entity);
+                                }
+                            }
+                            result
+                        });
+                        if result.as_ref().is_some_and(|result| result.died) {
+                            if let Some(entity) = save.world_mut().despawn_entity(id) {
+                                entity_events.push(RuntimeEntityEvent::Despawned {
+                                    id,
+                                    position: entity.transform.position,
+                                });
+                            }
+                            npcs.remove(&id);
+                        }
+                        let _ = reply.send(Ok(result));
+                    }
+                    Command::NpcActors { reply } => {
+                        let actors = npcs
+                            .iter()
+                            .map(|(&id, actor)| (id, actor.clone()))
+                            .collect();
+                        let _ = reply.send(actors);
+                    }
                     Command::UpdateEntityTransform {
                         id,
                         transform,
@@ -2031,6 +2335,7 @@ fn run(
                     Command::Save { reply } => {
                         advance_clock(&mut clock, &mut last_clock);
                         store_clock(&clock, &mut save);
+                        sync_npc_entities(&mut save, &npcs);
                         let result = save
                             .save_all(&ChunkCodec::new(generator.assets()))
                             .map_err(|error| error.to_string());
@@ -2103,6 +2408,7 @@ fn run(
                     Command::Shutdown { reply } => {
                         advance_clock(&mut clock, &mut last_clock);
                         store_clock(&clock, &mut save);
+                        sync_npc_entities(&mut save, &npcs);
                         let result = save
                             .save_all(&ChunkCodec::new(generator.assets()))
                             .map_err(|error| error.to_string());
@@ -2135,6 +2441,10 @@ struct Started {
     weather_forecasts: BTreeMap<i32, EnvironmentForecast>,
     config_assets: Arc<hytale_assets::ConfigAssets>,
     interactions: Arc<InteractionCatalog>,
+    roles: Option<RoleCatalog>,
+    damage_causes: DamageCauses,
+    npcs: BTreeMap<RuntimeEntityId, NpcActor>,
+    last_npc_tick: Instant,
 }
 
 fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
@@ -2256,6 +2566,43 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
             )
         })
         .unwrap_or((0, 0));
+    let npc_entities: Vec<_> = save
+        .world()
+        .entities()
+        .iter()
+        .filter(|entity| entity.kind == RuntimeEntityKind::Npc)
+        .cloned()
+        .collect();
+    // Role documents are only needed for worlds that already contain NPCs (or
+    // once a spawn command arrives); ordinary worlds avoid the extra load.
+    let roles = if npc_entities.is_empty() {
+        None
+    } else {
+        let role_pack = AssetPack::open(&options.generator.assets_pack)?;
+        Some(RoleCatalog::load(&role_pack)?)
+    };
+    let damage_causes = DamageCauses::new(generator.assets().damage_causes.iter().filter_map(
+        |record| {
+            record
+                .id
+                .map(|_| DamageCause::from_value(&record.key, &record.value))
+        },
+    ));
+    let mut npcs = BTreeMap::new();
+    if let Some(roles) = &roles {
+        for entity in &npc_entities {
+            match NpcActor::from_runtime_entity(generator.assets(), roles, entity) {
+                Ok(Some(actor)) => {
+                    npcs.insert(entity.id, actor);
+                }
+                Ok(None) => {}
+                Err(error) => eprintln!(
+                    "skipping NPC runtime entity {} ({:?}): {error}",
+                    entity.id, entity.kind
+                ),
+            }
+        }
+    }
     let view = ChunkView::new(player_chunk.0, player_chunk.1, options.view_radius);
     let plan = view.plan(save.world().loaded_chunk_coordinates());
     let pending = VecDeque::from(plan.loads.clone());
@@ -2288,6 +2635,10 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         weather_forecasts,
         config_assets,
         interactions,
+        roles,
+        damage_causes,
+        npcs,
+        last_npc_tick: Instant::now(),
     })
 }
 
@@ -2534,6 +2885,25 @@ fn place_prefab(
         i64::from(seed),
     )
     .map_err(|error| error.to_string())
+}
+
+fn load_npc_roles<'a>(
+    roles: &'a mut Option<RoleCatalog>,
+    pack_path: &std::path::Path,
+) -> Result<&'a RoleCatalog, String> {
+    if roles.is_none() {
+        let pack = AssetPack::open(pack_path).map_err(|error| error.to_string())?;
+        *roles = Some(RoleCatalog::load(&pack).map_err(|error| error.to_string())?);
+    }
+    Ok(roles.as_ref().expect("role catalog was just loaded"))
+}
+
+fn sync_npc_entities(save: &mut WorldSave, npcs: &BTreeMap<RuntimeEntityId, NpcActor>) {
+    for (&id, actor) in npcs {
+        if let Some(entity) = save.world_mut().entities_mut().get_mut(id) {
+            actor.sync_runtime_entity(entity);
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -15,11 +15,12 @@ Deferred to M5/M6:
   A*, `PathFollower`, pursue/evade/rotate steering, group steering,
   view-cone perception and resolved role expressions; T59 adds the world spawn
   configurations/time/moon/flock selection, role combat profiles, Java damage
-  ranges and a scripted `NpcActor`. The live `WorldThread` producer,
-  spawn-position search, beacons/markers and persistence are T59b; the full
-  builder graph, motion-controller A*, wander/avoidance, blackboard sensors,
-  combat action graph, encounters/instances/portals and the NPC ECS remain
-  T59c/T60.
+  ranges and a scripted `NpcActor`; T59b adds the live `WorldThread` NPC
+  store, spawn/despawn/damage/tick commands, persistence and session ticking.
+  Spawn-position search, the world spawn controller and beacons/markers remain
+  T59b; the full builder graph, motion-controller A*, wander/avoidance,
+  blackboard sensors, combat action graph, encounters/instances/portals and the
+  NPC ECS remain T59c/T60.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
   T53 lands the stat/effect/damage models, the Java asset fixture and the
   `EntityGameplay` component seam; T57 lands block-health/runtime-entity/map

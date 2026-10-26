@@ -88,9 +88,10 @@ cargo fmt --all -- --check
 
 ## Deviations
 
-- No world/server producer yet: `WorldThread` still only stores generic
-  `RuntimeEntityKind::Npc` entities. T59b attaches `NpcActor`, ticks it once
-  per world tick, persists health and broadcasts spawn/despawn/transform.
+- T59b's runtime slice attaches `NpcActor` to `WorldThread`, ticks it, persists
+  health and broadcasts spawn/despawn/transform. Spawn-position search, the
+  world spawn controller, beacons/markers and live encounter producers remain
+  T59b/T59c.
 - Spawn-position search, block-set/fluid-tag/light checks, spawn suppression,
   beacons and markers are T59b. This slice only exposes the config data.
 - `NpcActor` uses the `PathFollower` block-centre path without Java
@@ -103,7 +104,7 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- T59b: NPC runtime producer in `WorldThread`, spawn-position search,
-  beacons/markers and live tick/persistence.
+- T59b: runtime producer in `WorldThread` (landed session 52); spawn-position
+  search, spawn controller, beacons/markers and CLI/bot coverage remain.
 - T59c: full combat action graph and the `EncounterManager` evaluator
   (encounters/instances/portals).

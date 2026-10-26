@@ -1390,3 +1390,44 @@ This file records phase-2 sessions only.
   - T59b: runtime NPC producer, spawn positions, beacons/markers and live
     save/reload.
   - T59c: combat action graph and the `EncounterManager` evaluator.
+
+---
+
+## Session 52 — T59b runtime slice: live NPC entities (2026-10-26)
+
+- **Goal:** attach the T59 spawn/combat core to the live world thread and
+  persist/tick NPC actors.
+- **Landed:**
+  - `WorldThread` owns a `BTreeMap<RuntimeEntityId, NpcActor>` loaded from
+    `entities.json` on boot. Role documents load lazily, so ordinary worlds do
+    not pay the role-catalog cost.
+  - New commands/APIs: `spawn_npc`, `despawn_npc`, `damage_npc`,
+    `set_npc_targets`, `tick_npcs` and `npc_actors`. Spawn builds the real
+    stats/combat profile and writes model/nameplate/`Npc` components.
+  - Actor health is written back into the runtime entity before `Save` and
+    `Shutdown`; `NpcActor::from_runtime_entity` restores the role and health on
+    boot.
+  - NPC movement updates runtime transforms and queues `Updated` events;
+    lethal damage despawns and queues `Despawned`.
+  - Sessions publish registered player positions in the NPC target namespace
+    (high-bit player ids) and call `tick_npcs` from the game loop. Game-loop
+    reports now count NPC ticks/moves/attacks/deaths.
+  - `NpcRuntimeReport` exposes ticked/moved/attacks/deaths/alive counts.
+  - New `hytale-server/tests/npc_runtime.rs` covers spawn/persist/reload,
+    command damage/death, a runtime melee attack and an unknown-role error.
+- **Verified:**
+  - `cargo test -p hytale-server --test npc_runtime`.
+  - `cargo test -p hytale-npc`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - Spawn-position search, world-environment spawn controller, beacons and
+    spawn markers are still open; callers spawn a role at an explicit
+    transform.
+  - Player targets receive attack events but no damage yet (player health is
+    not modelled).
+  - NPCs tick while a session is live; a headless world can call `tick_npcs`
+    directly.
+- **Follow-ups:**
+  - Finish T59b: spawn-position search, spawn controller/expected counts,
+    beacons/markers and CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

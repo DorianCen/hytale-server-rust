@@ -256,6 +256,14 @@ pub struct GameLoopReport {
     pub runtime_entity_updates: usize,
     /// Runtime entity despawn events broadcast.
     pub runtime_entity_despawns: usize,
+    /// NPC actors advanced by the world tick.
+    pub npc_ticks: usize,
+    /// NPC actors that moved.
+    pub npc_moves: usize,
+    /// NPC melee attacks produced.
+    pub npc_attacks: usize,
+    /// NPC actors that died.
+    pub npc_deaths: usize,
     /// Movement caused a view change.
     pub view_changes: usize,
     /// Chunks streamed during the loop.
@@ -1675,6 +1683,13 @@ async fn run_game_loop(
                 .await?;
             report.player_messages += 1;
         }
+
+        thread.set_npc_targets(players.npc_targets())?;
+        let npc_report = thread.tick_npcs()?;
+        report.npc_ticks += npc_report.ticked;
+        report.npc_moves += npc_report.moved;
+        report.npc_attacks += npc_report.attacks;
+        report.npc_deaths += npc_report.deaths;
 
         for event in thread.runtime_entity_events()? {
             match event {

@@ -17,6 +17,7 @@ hytale-commands = { path = "../hytale-commands" }
 hytale-core = { path = "../hytale-core" }
 hytale-entities = { path = "../hytale-entities" }
 hytale-net = { path = "../hytale-net" }
+hytale-npc = { path = "../hytale-npc" }
 hytale-protocol = { path = "../hytale-protocol" }
 hytale-storage = { path = "../hytale-storage" }
 hytale-world = { path = "../hytale-world" }
