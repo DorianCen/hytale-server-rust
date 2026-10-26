@@ -11,6 +11,7 @@ It records only deterministic, RNG-free Java paths:
 | `searchDirections` | `SearchDirections.create` tables for walk/plane/fly with and without diagonal moves: step vectors, distances, inverse indices and crossing-step normals |
 | `steering` | `SteeringForcePursue`, `SteeringForceEvade` and `SteeringForceRotate` fixed-input outputs (result, translation/yaw flags and values) |
 | `perception` | `NPCPhysicsMath.isInViewCone` results for fixed viewer/direction/object inputs |
+| `expressions` | `Expression`/`StdScope` results for the role-builder expression subset (`max`, `min`, `isEmpty*`, `makeRange`, arrays, comparisons and logic) |
 
 The random wander force, the motion-controller-dependent A* expansion
 (`probeMove`/`ProbeMoveData`) and the builder expression language are not part

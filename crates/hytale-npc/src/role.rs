@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use hytale_assets::AssetPack;
-use serde_json::Value;
+use serde_json::{Map, Value};
+
+use crate::expr::{evaluate, EvalContext, ExprError, Value as ExprValue};
 use thiserror::Error;
 
 /// Java `Role` builder category.
@@ -206,6 +208,230 @@ impl RoleCatalog {
     pub fn duplicates(&self) -> &[(String, String)] {
         &self.duplicates
     }
+
+    /// Resolve one role's reference chain, parameters and `Compute`
+    /// expressions. Random builtins fail with [`RoleError::MissingRng`].
+    pub fn resolve(&self, key: &str) -> Result<Option<ResolvedRole>, RoleError> {
+        self.resolve_inner(key, None)
+    }
+
+    /// Resolve one role with an RNG for `random`/`randomInRange`.
+    pub fn resolve_with_rng(
+        &self,
+        key: &str,
+        rng: &mut dyn FnMut(f64, f64) -> f64,
+    ) -> Result<Option<ResolvedRole>, RoleError> {
+        self.resolve_inner(key, Some(rng))
+    }
+
+    fn resolve_inner(
+        &self,
+        key: &str,
+        mut rng: Option<&mut dyn FnMut(f64, f64) -> f64>,
+    ) -> Result<Option<ResolvedRole>, RoleError> {
+        let Some(role) = self.get(key) else {
+            return Ok(None);
+        };
+        let mut chain = role.reference_chain(self);
+        chain.reverse();
+        chain.push(role);
+
+        let mut parameter_entries: BTreeMap<String, Value> = BTreeMap::new();
+        for role in &chain {
+            for (name, entry) in &role.parameters {
+                parameter_entries.insert(name.clone(), entry.clone());
+            }
+        }
+
+        let mut vars: BTreeMap<String, ExprValue> = BTreeMap::new();
+        let mut parameters: BTreeMap<String, Value> = BTreeMap::new();
+        let mut pending: Vec<(String, Value)> = Vec::new();
+        for (name, entry) in parameter_entries {
+            let Some(value) = entry.get("Value") else {
+                continue;
+            };
+            if contains_compute(value) {
+                pending.push((name, value.clone()));
+            } else {
+                if let Some(expr_value) = ExprValue::from_json(value) {
+                    vars.insert(name.clone(), expr_value);
+                }
+                parameters.insert(name, value.clone());
+            }
+        }
+        // Computed parameters can depend on other computed parameters; repeat
+        // until every expression resolves or only unknown-variable failures
+        // remain.
+        while !pending.is_empty() {
+            let mut progressed = false;
+            let mut remaining = Vec::new();
+            for (name, value) in pending {
+                let mut resolved = value.clone();
+                match resolve_expressions(&mut resolved, &vars, &mut rng, &mut Vec::new(), true) {
+                    Ok(()) => {
+                        if let Some(expr_value) = ExprValue::from_json(&resolved) {
+                            vars.insert(name.clone(), expr_value);
+                        }
+                        parameters.insert(name, resolved);
+                        progressed = true;
+                    }
+                    Err(RoleError::Expression(ExprError::UnknownVariable(_))) => {
+                        remaining.push((name, value));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            if !progressed {
+                let (name, _) = remaining.first().expect("non-empty pending list");
+                return Err(RoleError::Expression(ExprError::UnknownVariable(
+                    name.clone(),
+                )));
+            }
+            pending = remaining;
+        }
+
+        let mut merged = Map::new();
+        for role in &chain {
+            if let Some(object) = role.raw.as_object() {
+                for (name, value) in object {
+                    merged.insert(name.clone(), value.clone());
+                }
+            }
+        }
+        let mut document = Value::Object(merged);
+        let mut unresolved_expressions = Vec::new();
+        resolve_expressions(
+            &mut document,
+            &vars,
+            &mut rng,
+            &mut unresolved_expressions,
+            false,
+        )?;
+        if let Some(object) = document.as_object_mut() {
+            object.insert(
+                "Parameters".to_string(),
+                Value::Object(
+                    parameters
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                ),
+            );
+        }
+
+        Ok(Some(ResolvedRole {
+            key: role.key.clone(),
+            role_type: role.role_type.clone(),
+            reference: role.reference.clone(),
+            parameters,
+            raw: document,
+            unresolved_expressions,
+        }))
+    }
+}
+
+/// A role after reference-template merge and `Compute` expression evaluation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedRole {
+    /// Asset key.
+    pub key: String,
+    /// Builder category.
+    pub role_type: RoleType,
+    /// `Reference` template name.
+    pub reference: Option<String>,
+    /// Literal parameter values after inheritance.
+    pub parameters: BTreeMap<String, Value>,
+    /// The inherited/resolved document.
+    pub raw: Value,
+    /// Nested `Compute` expressions left for a reference-scope builder pass
+    /// (the `_Core/Tests/ReferenceSelector` development roles).
+    pub unresolved_expressions: Vec<String>,
+}
+
+impl ResolvedRole {
+    /// One resolved parameter.
+    pub fn parameter(&self, name: &str) -> Option<&Value> {
+        self.parameters.get(name)
+    }
+
+    /// Resolved model/appearance.
+    pub fn appearance(&self) -> Option<&str> {
+        self.raw.get("Appearance").and_then(Value::as_str)
+    }
+
+    /// Resolved max health.
+    pub fn max_health(&self) -> Option<f64> {
+        self.raw.get("MaxHealth").and_then(Value::as_f64)
+    }
+
+    /// Resolved `MotionControllerList`.
+    pub fn motion_controllers(&self) -> &[Value] {
+        self.raw
+            .get("MotionControllerList")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Resolved view range (the builder parameter is the source when the
+    /// document has no top-level `ViewRange` field).
+    pub fn view_range(&self) -> Option<f64> {
+        self.raw
+            .get("ViewRange")
+            .and_then(Value::as_f64)
+            .or_else(|| self.parameter("ViewRange").and_then(Value::as_f64))
+    }
+}
+
+fn contains_compute(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => {
+            object.contains_key("Compute") || object.values().any(contains_compute)
+        }
+        Value::Array(values) => values.iter().any(contains_compute),
+        _ => false,
+    }
+}
+
+fn resolve_expressions(
+    value: &mut Value,
+    vars: &BTreeMap<String, ExprValue>,
+    rng: &mut Option<&mut dyn FnMut(f64, f64) -> f64>,
+    unresolved: &mut Vec<String>,
+    strict_unknown: bool,
+) -> Result<(), RoleError> {
+    match value {
+        Value::Object(object) => {
+            if let Some(expression) = object.get("Compute").and_then(Value::as_str) {
+                let expression = expression.to_string();
+                let mut context = match rng {
+                    Some(rng) => EvalContext::with_rng(vars, *rng),
+                    None => EvalContext::new(vars),
+                };
+                match evaluate(&expression, &mut context) {
+                    Ok(resolved) => {
+                        *value = resolved.to_json();
+                    }
+                    Err(ExprError::UnknownVariable(_)) if !strict_unknown => {
+                        unresolved.push(expression);
+                    }
+                    Err(error) => return Err(RoleError::Expression(error)),
+                }
+                return Ok(());
+            }
+            for value in object.values_mut() {
+                resolve_expressions(value, vars, rng, unresolved, strict_unknown)?;
+            }
+            Ok(())
+        }
+        Value::Array(values) => {
+            for value in values {
+                resolve_expressions(value, vars, rng, unresolved, strict_unknown)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Role loading errors.
@@ -220,4 +446,7 @@ pub enum RoleError {
     /// An asset path had no file name.
     #[error("invalid role asset path `{0}`")]
     InvalidPath(String),
+    /// A `Compute` expression failed.
+    #[error(transparent)]
+    Expression(#[from] ExprError),
 }

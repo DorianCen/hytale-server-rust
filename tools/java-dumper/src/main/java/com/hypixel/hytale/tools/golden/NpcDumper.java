@@ -6,6 +6,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.hypixel.hytale.server.npc.movement.Steering;
 import com.hypixel.hytale.server.npc.util.NPCPhysicsMath;
+import com.hypixel.hytale.server.npc.util.expression.ExecutionContext;
+import com.hypixel.hytale.server.npc.util.expression.Expression;
+import com.hypixel.hytale.server.npc.util.expression.StdLib;
+import com.hypixel.hytale.server.npc.util.expression.StdScope;
 import com.hypixel.hytale.server.npc.movement.steeringforces.SteeringForceEvade;
 import com.hypixel.hytale.server.npc.movement.steeringforces.SteeringForcePursue;
 import com.hypixel.hytale.server.npc.movement.steeringforces.SteeringForceRotate;
@@ -50,10 +54,12 @@ public final class NpcDumper {
         meta.addProperty("searchDirections", "SearchDirections.create for walk/fly with and without diagonal moves");
         meta.addProperty("steering", "SteeringForcePursue/Evade/Rotate with fixed inputs; no RNG");
         meta.addProperty("perception", "NPCPhysicsMath.isInViewCone with fixed viewer/direction/object inputs");
+        meta.addProperty("expressions", "Java Expression/StdScope outputs for the role-builder expression subset");
         root.add("meta", meta);
         root.add("searchDirections", searchDirections());
         root.add("steering", steering());
         root.add("perception", perception());
+        root.add("expressions", expressions());
 
         Files.createDirectories(outDir);
         Files.writeString(
@@ -161,6 +167,82 @@ public final class NpcDumper {
         rotate.add(rotateCase(-0.5f, -0.6f, 3.0));
         out.add("rotate", rotate);
 
+        return out;
+    }
+
+    private static JsonArray expressions() {
+        final StdScope scope = new StdScope(StdLib.getInstance());
+        scope.addVar("a", 2.0);
+        scope.addVar("b", 9.0);
+        scope.addVar("name", "x");
+        scope.addVar("flag", true);
+        scope.addVar("values", new double[] {1.0, 2.0});
+        scope.addVar("names", new String[] {"x", "y"});
+        scope.addVar("flags", new boolean[] {true, false});
+        scope.addVar("emptyValues", new double[0]);
+        scope.addVar("emptyNames", new String[0]);
+
+        final String[] cases = {
+            "a + b * 2",
+            "100 - a",
+            "(a + b) / 2",
+            "max(a, b)",
+            "min(a, b)",
+            "a > 1 && b < 10",
+            "!flag",
+            "isEmpty(name)",
+            "isEmpty(\"\")",
+            "isEmptyStringArray(names)",
+            "isEmptyStringArray(emptyNames)",
+            "makeRange(a)",
+            "[a + 1, b * 2]",
+            "values",
+            "names",
+            "flags",
+            "emptyValues",
+            "PI",
+        };
+
+        final JsonArray out = new JsonArray();
+        for (String expressionText : cases) {
+            final Expression expression = new Expression();
+            final ExecutionContext context = expression.evaluate(expressionText, scope);
+            final ExecutionContext.Operand operand = context.top();
+            final JsonObject entry = new JsonObject();
+            entry.addProperty("expression", expressionText);
+            entry.addProperty("type", operand.type.name());
+            switch (operand.type) {
+                case NUMBER -> entry.addProperty("number", operand.number);
+                case BOOLEAN -> entry.addProperty("boolean", operand.bool);
+                case STRING -> entry.addProperty("string", operand.string);
+                case NUMBER_ARRAY -> entry.add("numbers", array(operand.numberArray));
+                case STRING_ARRAY -> {
+                    final JsonArray strings = new JsonArray();
+                    if (operand.stringArray != null) {
+                        for (String value : operand.stringArray) strings.add(value);
+                    }
+                    entry.add("strings", strings);
+                }
+                case BOOLEAN_ARRAY -> {
+                    final JsonArray booleans = new JsonArray();
+                    if (operand.boolArray != null) {
+                        for (boolean value : operand.boolArray) booleans.add(value);
+                    }
+                    entry.add("booleans", booleans);
+                }
+                default -> {
+                }
+            }
+            out.add(entry);
+        }
+        return out;
+    }
+
+    private static JsonArray array(double[] values) {
+        final JsonArray out = new JsonArray();
+        if (values != null) {
+            for (double value : values) out.add(value);
+        }
         return out;
     }
 

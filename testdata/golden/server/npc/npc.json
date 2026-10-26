@@ -3,7 +3,8 @@
     "producer": "com.hypixel.hytale.tools.golden.NpcDumper",
     "searchDirections": "SearchDirections.create for walk/fly with and without diagonal moves",
     "steering": "SteeringForcePursue/Evade/Rotate with fixed inputs; no RNG",
-    "perception": "NPCPhysicsMath.isInViewCone with fixed viewer/direction/object inputs"
+    "perception": "NPCPhysicsMath.isInViewCone with fixed viewer/direction/object inputs",
+    "expressions": "Java Expression/StdScope outputs for the role-builder expression subset"
   },
   "searchDirections": {
     "walkNoDiagonal": {
@@ -777,6 +778,113 @@
         25.0
       ],
       "result": true
+    }
+  ],
+  "expressions": [
+    {
+      "expression": "a + b * 2",
+      "type": "NUMBER",
+      "number": 20.0
+    },
+    {
+      "expression": "100 - a",
+      "type": "NUMBER",
+      "number": 98.0
+    },
+    {
+      "expression": "(a + b) / 2",
+      "type": "NUMBER",
+      "number": 5.5
+    },
+    {
+      "expression": "max(a, b)",
+      "type": "NUMBER",
+      "number": 9.0
+    },
+    {
+      "expression": "min(a, b)",
+      "type": "NUMBER",
+      "number": 2.0
+    },
+    {
+      "expression": "a > 1 && b < 10",
+      "type": "BOOLEAN",
+      "boolean": true
+    },
+    {
+      "expression": "!flag",
+      "type": "BOOLEAN",
+      "boolean": false
+    },
+    {
+      "expression": "isEmpty(name)",
+      "type": "BOOLEAN",
+      "boolean": false
+    },
+    {
+      "expression": "isEmpty(\"\")",
+      "type": "BOOLEAN",
+      "boolean": true
+    },
+    {
+      "expression": "isEmptyStringArray(names)",
+      "type": "BOOLEAN",
+      "boolean": false
+    },
+    {
+      "expression": "isEmptyStringArray(emptyNames)",
+      "type": "BOOLEAN",
+      "boolean": true
+    },
+    {
+      "expression": "makeRange(a)",
+      "type": "NUMBER_ARRAY",
+      "numbers": [
+        2.0,
+        2.0
+      ]
+    },
+    {
+      "expression": "[a + 1, b * 2]",
+      "type": "NUMBER_ARRAY",
+      "numbers": [
+        3.0,
+        18.0
+      ]
+    },
+    {
+      "expression": "values",
+      "type": "NUMBER_ARRAY",
+      "numbers": [
+        1.0,
+        2.0
+      ]
+    },
+    {
+      "expression": "names",
+      "type": "STRING_ARRAY",
+      "strings": [
+        "x",
+        "y"
+      ]
+    },
+    {
+      "expression": "flags",
+      "type": "BOOLEAN_ARRAY",
+      "booleans": [
+        true,
+        false
+      ]
+    },
+    {
+      "expression": "emptyValues",
+      "type": "NUMBER_ARRAY",
+      "numbers": []
+    },
+    {
+      "expression": "PI",
+      "type": "NUMBER",
+      "number": 3.1415927410125732
     }
   ]
 }

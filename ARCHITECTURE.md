@@ -671,7 +671,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |
 | `CoreServer/modules/**` | `hytale-world` (core subset), later module crates | planned (M5) |
 | `builtin/**` | `hytale-builtin` feature crates | deferred (M6) |
-| `NPC/**` | `hytale-npc` | role/flock catalogs, Java direction tables, block-grid A*, `PathFollower`, pursue/evade/rotate steering and view-cone perception landed (M6, T58 first slice); builder evaluation, half-step motion-controller A*, wander/avoidance/group forces, blackboard sensors and the NPC ECS remain T58b/T59 |
+| `NPC/**` | `hytale-npc` | role/flock catalogs, reference/parameter resolution with the builder expression subset, Java direction tables, block-grid A*, `PathFollower`, pursue/evade/rotate steering and view-cone perception landed (M6, T58/T58b); the full builder graph, half-step motion-controller A*, wander/avoidance/group forces, blackboard sensors and the NPC ECS remain T58c/T59 |
 
 Deliberate exclusions are in [`REMAINING.md`](REMAINING.md).
 

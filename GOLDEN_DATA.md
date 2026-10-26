@@ -404,13 +404,14 @@ reference. Map image chunks, marker discovery/reveal, dynamic entity transforms
 and the stat/effect/projectile/weather asset packets are not gated by T57; T57b
 owns their encoder/config-burst gates (landed in sessions 48–49).
 
-### 3.13 NPC navigation, steering and perception
+### 3.13 NPC navigation, steering, expressions and perception
 
 `testdata/golden/server/npc/npc.json` is produced by
 `tools/java-dumper/run-npc.sh` (`NpcDumper`) from the real NPC classes. It
 contains the `SearchDirections.create` tables for walk/plane/fly with and
 without diagonal moves, fixed-input `SteeringForcePursue`/`Evade`/`Rotate`
-outputs and `NPCPhysicsMath.isInViewCone` results. It is RNG-free and does not
+outputs, `NPCPhysicsMath.isInViewCone` results and `Expression`/`StdScope`
+results for the role-builder expression subset. It is RNG-free and does not
 include the motion-controller A* expansion.
 
 | Check | Gate |
@@ -418,8 +419,11 @@ include the motion-controller A* expansion.
 | Direction order/distances/inverses/normals match Java | `crates/hytale-npc/tests/java_fixture.rs` |
 | Pursue/evade/rotate result, translation and yaw match Java | same |
 | View-cone results match Java | same |
-| Real role catalog loads 1,147 unique keys and reports the duplicate | `crates/hytale-npc` `role::tests` |
-| Real flock catalog loads all 8 assets and selects sizes | `crates/hytale-npc` `flock::tests` |
+| Builder expression subset matches Java `Expression`/`StdScope` | same |
+| Real role catalog loads 1,147 unique keys and reports the duplicate | `crates/hytale-npc/tests/npc_assets.rs` |
+| All 1,147 roles resolve through their reference chain with a deterministic RNG | `crates/hytale-npc/tests/npc_assets.rs` |
+| Bear_Grizzly resolves its appearance/health/ViewRange/Walk speed | same |
+| Real flock catalog loads all 8 assets and selects sizes | `crates/hytale-npc/tests/npc_assets.rs` + flock unit tests |
 | Walk-around-wall, closest-node fallback and 3D fly | `crates/hytale-npc` `navigation::tests` |
 | Waypoint advancement/rejection and flock role filtering | `crates/hytale-npc` unit tests |
 

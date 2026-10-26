@@ -68,11 +68,19 @@ cargo fmt --all -- --check
 - `hytale-math::trig_math_util` supplies the Java sin/cos/atan2 lookups used by
   the steering heading helpers (no standard-library drift).
 
+## Landed (session 50 — second slice)
+
+- T58b adds [`hytale-npc::expr`](T58b-npc-builder-expressions.md), reference
+  chain/parameter merging and `ResolvedRole`, so the 1,147 role documents now
+  resolve to usable archetype fields. The three `ReferenceSelector`
+  development roles keep nested slot-scoped expressions for a later builder
+  pass.
+
 ## Deviations
 
-- The role builder is not evaluated. `NpcRole` keeps the raw document,
-  `Reference` and `Parameters`; inherited templates and `Compute` expressions
-  are resolved by later T58 work.
+- The full builder graph is not ported. `NpcRole` keeps the raw document and
+  T58b resolves the reference chain, parameters and `Compute` expressions; the
+  `BuilderBase` slots/attributes/validators remain later work.
 - `AStarPlanner` searches block-grid nodes. Java's fractional half-block
   nodes, `MotionController.probeMove` reachability and `ProbeMoveData` are not
   ported; the direction tables/costs/limits are.
@@ -84,8 +92,9 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- T58b: role builder/expressions, full `AStarBase` half-step search and
-  motion-controller probes, wander/avoidance/group steering, blackboard
+- T58b (done): role expression evaluation and resolved archetypes.
+- T58c: the builder graph/reference slots, full `AStarBase` half-step search
+  and motion-controller probes, wander/avoidance/group steering, blackboard
   perception and sensor state.
 - T59: NPC spawning, combat, encounters, runtime entity producers and the
   `EntityGameplay` component attach.

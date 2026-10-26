@@ -171,9 +171,11 @@ Landed and green:
   the Java `SearchDirections` tables, a block-grid A* with Java node limits and
   a nearest-node fallback, `PathFollower` waypoint/rejection logic and the
   `isInViewCone` perception test. `NpcDumper` (`run-npc.sh`) gate the pure
-  direction/steering/view-cone outputs. Builder evaluation, half-step
-  motion-controller A*, wander/avoidance/group forces and blackboard sensors
-  remain T58b; spawning/combat/ECS remain T59.
+  direction/steering/view-cone outputs. T58b adds the role builder expression
+  subset, reference-chain/parameter merging and `ResolvedRole`; all 1,147 roles
+  resolve, and the expression oracle matches Java `Expression`/`StdScope`. The
+  full builder graph, half-step motion-controller A*, wander/avoidance/group
+  forces and blackboard sensors remain T58c; spawning/combat/ECS remain T59.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -200,8 +202,9 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
    T55 (projectiles/traversal), T56 (prefab/runtime entities), T57
    (block-health/runtime entity/world-map presentation) and T57b (presentation
-   follow-ups) are done. M6 starts with T58 (NPC core), whose first slice is
-   landed; T58b covers builder evaluation and the full motion-controller A*.
+   follow-ups) are done. M6 starts with T58 (NPC core), whose first slice and
+   T58b builder-expression slice are landed; T58c covers the builder graph and
+   the full motion-controller A*.
    T59/T60 presentation work waits for T57b.
 
 ## Try it

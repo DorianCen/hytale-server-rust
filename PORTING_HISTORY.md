@@ -1269,3 +1269,40 @@ This file records phase-2 sessions only.
     controller probes, wander/avoidance/group steering and perception state.
   - T59: NPC spawning, combat, encounters and the runtime entity producer.
   - T62: NPC path/search and spawn rate ceilings.
+
+---
+
+## Session 50b — T58b builder expressions and resolved archetypes (2026-10-26)
+
+- **Goal:** make the T58 role catalog usable by resolving the builder
+  expression subset and reference templates.
+- **Landed:**
+  - `hytale-npc::expr` lexer/parser/evaluator for the role expression subset:
+    numbers, strings, booleans, arrays, unary `! + -`, binary `+ - * / %`,
+    comparisons, equality, `&&`/`||`, parentheses and the `StdLib` functions
+    `max`, `min`, `isEmpty`, `isEmptyStringArray`, `isEmptyNumberArray`,
+    `makeRange`, `random`, `randomInRange` plus `PI`/`true`/`false`.
+  - Strict Java type rules and a pluggable RNG; random builtins fail clearly
+    without a source.
+  - `RoleCatalog::resolve`/`resolve_with_rng` merge the root→variant reference
+    chain, parameter defaults and computed parameter values, then resolve every
+    top-level `Compute` expression into `ResolvedRole`.
+  - Nested expressions that belong to a `Reference` slot scope are preserved in
+    `ResolvedRole::unresolved_expressions`; the three `ReferenceSelector`
+    development roles use them.
+  - `NpcDumper` now emits `expressions` cases from the real Java
+    `Expression`/`StdScope`; the fixture README/GOLDEN_DATA gates were updated.
+  - Tests resolve all 1,147 roles with a deterministic RNG and check
+    `Bear_Grizzly` appearance/health/ViewRange/inherited Walk speed.
+- **Verified:**
+  - `cargo test -p hytale-npc` (13 unit + 4 fixture + 4 asset tests).
+  - `tools/java-dumper/run-npc.sh` (expression fixture).
+  - `./tools/test.sh fast`, `./tools/test.sh assets`, clippy and rustfmt.
+- **Deviations:**
+  - The full `BuilderBase` graph (slots/attributes/validators/reference scopes)
+    is not ported; resolution is a reference chain + parameter/expression pass.
+  - `**`/bitwise operators are not used by role assets and remain unsupported.
+- **Follow-ups:**
+  - T58c: builder graph/reference scopes, full motion-controller A*, wander/
+    avoidance/group forces, blackboard perception and sensor state.
+  - T59: spawning/combat/encounters and the NPC ECS.

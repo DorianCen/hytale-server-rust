@@ -73,3 +73,52 @@ fn the_real_flock_store_loads() {
     );
     assert_eq!(group.max_grow_size, 8);
 }
+
+#[test]
+fn bear_grizzly_resolves_through_its_template() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let catalog = RoleCatalog::load_root(&repo_root().join("Assets/extracted"))
+        .expect("load the real role catalog");
+    let resolved = catalog
+        .resolve("Bear_Grizzly")
+        .expect("resolve Bear_Grizzly")
+        .expect("Bear_Grizzly exists");
+    assert_eq!(resolved.appearance(), Some("Bear_Grizzly"));
+    assert_eq!(resolved.max_health(), Some(100.0));
+    assert_eq!(resolved.view_range(), Some(12.0));
+    let walk = resolved
+        .motion_controllers()
+        .iter()
+        .find(|controller| controller.get("Type").and_then(Value::as_str) == Some("Walk"))
+        .expect("inherited Walk controller");
+    assert_eq!(walk.get("MaxWalkSpeed").and_then(Value::as_f64), Some(6.0));
+    assert_eq!(
+        resolved.parameter("MaxSpeed").and_then(Value::as_f64),
+        Some(6.0)
+    );
+}
+
+#[test]
+fn every_role_resolves_with_a_deterministic_rng() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let catalog = RoleCatalog::load_root(&repo_root().join("Assets/extracted"))
+        .expect("load the real role catalog");
+    let mut failures = Vec::new();
+    let mut rng = |low: f64, high: f64| low + (high - low) * 0.5;
+    for role in catalog.iter() {
+        if let Err(error) = catalog.resolve_with_rng(&role.key, &mut rng) {
+            failures.push((role.key.clone(), error.to_string()));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} roles failed to resolve: {failures:?}",
+        failures.len()
+    );
+}

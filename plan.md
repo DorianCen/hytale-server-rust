@@ -894,9 +894,11 @@ multi-server map state stay T61/later.
 
 **Landed (session 50):** new `hytale-npc` crate with role/flock document
 catalogs, Java `SearchDirections`/steering/view-cone ports, a block-grid A*,
-`PathFollower` and the `NpcDumper` fixture. Builder evaluation, half-step
+`PathFollower` and the `NpcDumper` fixture. T58b adds the role builder
+expression subset and reference/parameter resolution, so all 1,147 roles
+resolve to usable archetype fields. The full builder graph, half-step
 motion-controller A*, wander/avoidance/group forces and blackboard sensors are
-T58b.
+T58c.
 
 ### T59 — NPC spawning, combat and encounters
 

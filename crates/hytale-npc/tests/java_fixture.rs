@@ -192,3 +192,77 @@ fn view_cone_cases_match_java() {
         );
     }
 }
+
+#[test]
+fn builder_expressions_match_the_java_engine() {
+    use hytale_npc::expr::{evaluate, EvalContext, Value};
+
+    let fixture = fixture();
+    let vars = std::collections::BTreeMap::from([
+        ("a".to_string(), Value::Number(2.0)),
+        ("b".to_string(), Value::Number(9.0)),
+        ("name".to_string(), Value::String("x".to_string())),
+        ("flag".to_string(), Value::Bool(true)),
+        ("values".to_string(), Value::NumberArray(vec![1.0, 2.0])),
+        (
+            "names".to_string(),
+            Value::StringArray(vec!["x".to_string(), "y".to_string()]),
+        ),
+        ("flags".to_string(), Value::BoolArray(vec![true, false])),
+        ("emptyValues".to_string(), Value::NumberArray(Vec::new())),
+        ("emptyNames".to_string(), Value::StringArray(Vec::new())),
+    ]);
+    let mut context = EvalContext::new(&vars);
+    for case in fixture["expressions"].as_array().expect("expressions") {
+        let expression = case["expression"].as_str().expect("expression");
+        let actual = evaluate(expression, &mut context)
+            .unwrap_or_else(|error| panic!("{expression}: {error}"));
+        assert_eq!(
+            actual.type_name(),
+            case["type"].as_str().unwrap(),
+            "{expression}"
+        );
+        match actual {
+            Value::Number(number) => {
+                assert!(
+                    (number - case["number"].as_f64().unwrap()).abs() < 1e-9,
+                    "{expression}"
+                );
+            }
+            Value::Bool(boolean) => {
+                assert_eq!(boolean, case["boolean"].as_bool().unwrap(), "{expression}");
+            }
+            Value::String(string) => {
+                assert_eq!(string, case["string"].as_str().unwrap(), "{expression}");
+            }
+            Value::NumberArray(numbers) => {
+                let expected: Vec<f64> = case["numbers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_f64().unwrap())
+                    .collect();
+                assert_eq!(numbers, expected, "{expression}");
+            }
+            Value::StringArray(strings) => {
+                let expected: Vec<String> = case["strings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_string())
+                    .collect();
+                assert_eq!(strings, expected, "{expression}");
+            }
+            Value::BoolArray(booleans) => {
+                let expected: Vec<bool> = case["booleans"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_bool().unwrap())
+                    .collect();
+                assert_eq!(booleans, expected, "{expression}");
+            }
+            Value::EmptyArray => panic!("unexpected empty array for {expression}"),
+        }
+    }
+}

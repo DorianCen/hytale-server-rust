@@ -19,6 +19,7 @@
 
 #![deny(clippy::all)]
 
+pub mod expr;
 pub mod flock;
 pub mod navigation;
 pub mod path;
@@ -26,6 +27,7 @@ pub mod perception;
 pub mod role;
 pub mod steering;
 
+pub use expr::{evaluate, EvalContext, ExprError, Value as ExprValue};
 pub use flock::{FlockAsset, FlockCatalog, FlockSize, PersistentFlockData};
 pub use navigation::{
     search_directions, AStarConfig, AStarPath, AStarPlanner, BlockPos, SearchDirection,
