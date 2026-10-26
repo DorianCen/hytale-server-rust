@@ -164,7 +164,7 @@ Landed and green:
   map refresh on block edits and particle/weather presentation.
   Producers stay with T58/T59/T60; T57b should land before M5 is declared fully
   closed.
-- T58 (in progress, session 50): the new `hytale-npc` crate loads the real
+- T58 (done, session 50): the new `hytale-npc` crate loads the real
   `Server/NPC/Roles` documents (1,147 unique keys) and all 8 `Server/NPC/Flocks`
   definitions, selects range/weighted flock sizes with injected RNG, filters
   blocked roles, and ports `Steering` plus pursue/evade/rotate. Navigation has
@@ -175,7 +175,9 @@ Landed and green:
   subset, reference-chain/parameter merging and `ResolvedRole`; all 1,147 roles
   resolve, and the expression oracle matches Java `Expression`/`StdScope`. The
   full builder graph, half-step motion-controller A*, wander/avoidance/group
-  forces and blackboard sensors remain T58c; spawning/combat/ECS remain T59.
+  forces and blackboard sensors move with the builtin NPC module (T59/T60).
+  T58c adds `WorldGrid` real-world walk/fly planning and the Java
+  `GroupSteeringAccumulator`; T58 is done. Spawning/combat/ECS start T59.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -203,8 +205,8 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    T55 (projectiles/traversal), T56 (prefab/runtime entities), T57
    (block-health/runtime entity/world-map presentation) and T57b (presentation
    follow-ups) are done. M6 starts with T58 (NPC core), whose first slice and
-   T58b builder-expression slice are landed; T58c covers the builder graph and
-   the full motion-controller A*.
+   T58b builder-expression and T58c world-grid/group-steering slices are
+   landed. T58 is done; T59 starts NPC spawning/combat/ECS.
    T59/T60 presentation work waits for T57b.
 
 ## Try it

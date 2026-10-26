@@ -21,14 +21,17 @@
 
 pub mod expr;
 pub mod flock;
+pub mod group;
 pub mod navigation;
 pub mod path;
 pub mod perception;
 pub mod role;
 pub mod steering;
+pub mod worldgrid;
 
 pub use expr::{evaluate, EvalContext, ExprError, Value as ExprValue};
 pub use flock::{FlockAsset, FlockCatalog, FlockSize, PersistentFlockData};
+pub use group::{GroupMember, GroupSteeringAccumulator};
 pub use navigation::{
     search_directions, AStarConfig, AStarPath, AStarPlanner, BlockPos, SearchDirection,
 };
@@ -36,3 +39,4 @@ pub use path::PathFollower;
 pub use perception::is_in_view_cone;
 pub use role::{NpcRole, RoleCatalog, RoleType};
 pub use steering::{Steering, SteeringForceEvade, SteeringForcePursue, SteeringForceRotate};
+pub use worldgrid::WorldGrid;

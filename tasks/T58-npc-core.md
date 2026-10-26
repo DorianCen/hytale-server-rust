@@ -1,6 +1,6 @@
 # T58 — NPC core: archetypes, navigation, flocking and perception
 
-**Status:** in progress (session 50)
+**Status:** done (session 50)
 **Package:** new `hytale-npc`
 **Depends on:** T48, T57b
 **Agent fit:** low/medium
@@ -75,6 +75,9 @@ cargo fmt --all -- --check
   resolve to usable archetype fields. The three `ReferenceSelector`
   development roles keep nested slot-scoped expressions for a later builder
   pass.
+- T58c adds [`WorldGrid`](T58c-npc-world-grid-group.md) (real-world walk/fly
+  planning) and the Java group-steering accumulator. The T58 core goal is
+  closed; deep builder-graph and motion-controller parity move with T59/T60.
 
 ## Deviations
 
@@ -93,9 +96,9 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - T58b (done): role expression evaluation and resolved archetypes.
-- T58c: the builder graph/reference slots, full `AStarBase` half-step search
-  and motion-controller probes, wander/avoidance/group steering, blackboard
-  perception and sensor state.
+- T59: NPC spawning/combat/encounters, runtime entity navigation and the NPC
+  ECS; builder-graph/reference-slot and full motion-controller parity move with
+  the builtin NPC module (T60).
 - T59: NPC spawning, combat, encounters, runtime entity producers and the
   `EntityGameplay` component attach.
 - T62: NPC path/search and spawn rate ceilings.

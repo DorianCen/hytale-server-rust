@@ -1306,3 +1306,37 @@ This file records phase-2 sessions only.
   - T58c: builder graph/reference scopes, full motion-controller A*, wander/
     avoidance/group forces, blackboard perception and sensor state.
   - T59: spawning/combat/encounters and the NPC ECS.
+
+---
+
+## Session 50c — T58c world grid and group steering (2026-10-26)
+
+- **Goal:** close the T58 core by planning over real runtime-world blocks and
+  adding the Java group-steering accumulator.
+- **Landed:**
+  - `hytale-npc::worldgrid::WorldGrid` wraps a runtime `World` with a pluggable
+    block-solidity rule, exposes loaded-chunk/walk/fly checks and plans with the
+    shared A* planner.
+  - `hytale-npc::group::GroupSteeringAccumulator` ports range/view-cone
+    filtering, unweighted/weighted neighbour sums, normalized-distance
+    handling and the Java `end` averaging over `GroupMember` snapshots.
+  - Real-`World` tests build a floor/wall, plan a walk detour and a fly path
+    across the wall. Group tests cover range/cone rejection and weighted
+    falloff.
+  - T58/T58b/T58c are marked done; the full builder graph and motion-controller
+    half-step probes are folded into T59/T60 follow-ups.
+- **Verified:**
+  - `cargo test -p hytale-npc`.
+  - `./tools/test.sh fast`, `./tools/test.sh assets`, clippy and rustfmt.
+- **Deviations:**
+  - `WorldGrid` takes a solidity closure; T59 wires the real
+    `BlockTypeAsset.material == Solid` rule and unloaded chunks are blocked.
+  - The accumulator's random tiny-distance jitter uses a deterministic +X
+    epsilon direction.
+  - Motion-controller probes, path smoothing and the full builder graph remain
+    T59/T60.
+- **Follow-ups:**
+  - T59: NPC runtime entities, world tick/navigation, spawn/despawn
+    presentation, combat and encounters.
+  - T60: builder/reference-slot graph and full `AStarBase` half-step probes with
+    the builtin NPC module.

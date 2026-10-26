@@ -887,7 +887,7 @@ multi-server map state stay T61/later.
 
 ### T58 — NPC core: AI, pathfinding and flocking
 
-**Status:** in progress (session 50)
+**Status:** done (session 50)
 **Package:** new `hytale-npc`
 **Goal:** NPC archetypes, navigation/pathfinding, flocking/steering, perception.
 **Acceptance:** scripted NPC navigation/flocking scenarios match Java.
@@ -896,9 +896,10 @@ multi-server map state stay T61/later.
 catalogs, Java `SearchDirections`/steering/view-cone ports, a block-grid A*,
 `PathFollower` and the `NpcDumper` fixture. T58b adds the role builder
 expression subset and reference/parameter resolution, so all 1,147 roles
-resolve to usable archetype fields. The full builder graph, half-step
-motion-controller A*, wander/avoidance/group forces and blackboard sensors are
-T58c.
+resolve to usable archetype fields. T58c adds real-world walk/fly planning and
+the Java group-steering accumulator. The full builder graph, half-step
+motion-controller A*, wander/avoidance forces and blackboard sensors move with
+the builtin NPC module (T59/T60).
 
 ### T59 — NPC spawning, combat and encounters
 
