@@ -74,9 +74,10 @@ commands, persistence and session target publication; the second adds
 movement-mode spawn-position search, environment/role selection and the
 density/expected-count controller; the third adds automatic population ticks
 through `set_npc_spawn_targets`/`tick_npc_spawns`; a fourth adds loaded-section
-environment segment counting for population targets. Automatic environment
-enumeration, beacons/markers, block-set/fluid/light/suppression gates and
-CLI/bot coverage remain in T59b.
+environment segment counting for population targets; a fifth resolves the real
+`SpawnBlockSet` catalog to allowed floors. Automatic environment enumeration,
+beacons/markers, fluid-tag/light/suppression gates and CLI/bot coverage remain
+in T59b.
 
 ## Rules
 

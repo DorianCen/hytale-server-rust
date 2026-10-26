@@ -202,9 +202,10 @@ Landed and green:
   environment/role weighted selection and the density/expected-count
   controller. The third adds explicit population targets and
   `tick_npc_spawns` with session-loop wiring; the fourth discovers segment
-  counts from loaded world sections. Automatic environment enumeration,
-  beacons/markers, block-set/fluid/light/suppression gates and the encounter
-  evaluator remain T59b/T59c.
+  counts from loaded world sections; the fifth resolves the real
+  `SpawnBlockSet` catalog to allowed floors. Automatic environment enumeration,
+  beacons/markers, fluid-tag/light/suppression gates and the encounter evaluator
+  remain T59b/T59c.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -237,10 +238,10 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    combat profiles/damage and a scripted actor) and T59b's runtime plus
    spawn-position/controller/population slices (WorldThread NPC
    store/persistence/ticking, movement-mode position search, environment
-   selection, density accounting, explicit population ticks and loaded-section
-   segment discovery) are landed; T59b's automatic environment
-   enumeration/beacons and T59c (combat action graph and encounters) are next.
-   T59/T60 presentation work waits for T57b.
+   selection, density accounting, explicit population ticks, loaded-section
+   segment discovery and real `BlockSet` floor resolution) are landed; T59b's
+   automatic environment enumeration/beacons and T59c (combat action graph and
+   encounters) are next. T59/T60 presentation work waits for T57b.
 
 ## Try it
 

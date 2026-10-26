@@ -18,6 +18,7 @@ use hytale_entities::damage::{Damage, DamageCause, DamageCauses, DamageSource};
 use hytale_entities::movement::{resolve_target, PlayerShape, TargetResolution};
 use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_inventory::{ItemStack, PlayerInventory};
+use hytale_npc::block_set::BlockSetCatalog;
 use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
 use hytale_npc::flock::FlockRng;
 use hytale_npc::role::RoleCatalog;
@@ -1875,6 +1876,7 @@ fn run(
             interactions,
             mut roles,
             mut spawns,
+            mut block_sets,
             damage_causes,
             mut npcs,
             mut last_npc_tick,
@@ -2331,6 +2333,16 @@ fn run(
                                 return Ok(None);
                             };
                             let role_key = role.id.clone();
+                            let spawn_block_set = role.spawn_block_set.clone();
+                            let require_fluid = role.spawn_fluid_tag.is_some();
+                            let allowed_floor = match &spawn_block_set {
+                                Some(name) => load_block_sets(
+                                    &mut block_sets,
+                                    &options.generator.assets_pack,
+                                )?
+                                .resolve(generator.assets(), name),
+                                None => None,
+                            };
                             let is_solid = npc_solid_rule(generator.assets());
                             let position = SpawnPositionSearch::new(save.world(), is_solid).find(
                                 center,
@@ -2338,7 +2350,8 @@ fn run(
                                     radius,
                                     vertical_range: 16,
                                     mode,
-                                    ..SpawnSearchOptions::default()
+                                    allowed_floor,
+                                    require_fluid,
                                 },
                             );
                             let Some(position) = position else {
@@ -2414,6 +2427,16 @@ fn run(
                                         break;
                                     };
                                     let role_key = role.id.clone();
+                                    let spawn_block_set = role.spawn_block_set.clone();
+                                    let require_fluid = role.spawn_fluid_tag.is_some();
+                                    let allowed_floor = match &spawn_block_set {
+                                        Some(name) => load_block_sets(
+                                            &mut block_sets,
+                                            &options.generator.assets_pack,
+                                        )?
+                                        .resolve(generator.assets(), name),
+                                        None => None,
+                                    };
                                     let Some(position) =
                                         SpawnPositionSearch::new(save.world(), is_solid).find(
                                             target.center,
@@ -2421,7 +2444,8 @@ fn run(
                                                 radius: target.radius,
                                                 vertical_range: 16,
                                                 mode: target.mode,
-                                                ..SpawnSearchOptions::default()
+                                                allowed_floor,
+                                                require_fluid,
                                             },
                                         )
                                     else {
@@ -2727,6 +2751,7 @@ struct Started {
     interactions: Arc<InteractionCatalog>,
     roles: Option<RoleCatalog>,
     spawns: Option<WorldSpawnCatalog>,
+    block_sets: Option<BlockSetCatalog>,
     damage_causes: DamageCauses,
     npcs: BTreeMap<RuntimeEntityId, NpcActor>,
     last_npc_tick: Instant,
@@ -2922,6 +2947,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         interactions,
         roles,
         spawns: None,
+        block_sets: None,
         damage_causes,
         npcs,
         last_npc_tick: Instant::now(),
@@ -3230,6 +3256,19 @@ fn spawn_npc_entity(
         .entity(id)
         .cloned()
         .ok_or_else(|| "the NPC entity disappeared during spawn".to_string())
+}
+
+fn load_block_sets<'a>(
+    block_sets: &'a mut Option<BlockSetCatalog>,
+    pack_path: &std::path::Path,
+) -> Result<&'a BlockSetCatalog, String> {
+    if block_sets.is_none() {
+        let pack = AssetPack::open(pack_path).map_err(|error| error.to_string())?;
+        *block_sets = Some(BlockSetCatalog::load(&pack).map_err(|error| error.to_string())?);
+    }
+    Ok(block_sets
+        .as_ref()
+        .expect("block-set catalog was just loaded"))
 }
 
 fn load_spawn_catalog<'a>(

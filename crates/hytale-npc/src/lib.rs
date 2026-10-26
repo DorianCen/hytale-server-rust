@@ -17,6 +17,7 @@
 //!   weighted role selection.
 //! * [`spawn_position`] — deterministic walk/wade/underwater/dive/fly position
 //!   search over a real world.
+//! * [`block_set`] — `Server/Item/Block/Sets` membership for spawn floors.
 //! * [`combat`] — resolved combat profiles, interaction damage ranges and a
 //!   scripted NPC actor (targeting, chase, melee, damage, death).
 //!
@@ -25,6 +26,7 @@
 
 #![deny(clippy::all)]
 
+pub mod block_set;
 pub mod combat;
 pub mod expr;
 pub mod flock;
@@ -38,6 +40,7 @@ pub mod spawn_position;
 pub mod steering;
 pub mod worldgrid;
 
+pub use block_set::{wildcard_matches, BlockSet, BlockSetCatalog, BlockSetError};
 pub use combat::{
     npc_stat_map, CombatError, CombatProfile, DamageCalculator, DamageType, NpcActor, NpcAttack,
     NpcTarget, NpcTickReport,

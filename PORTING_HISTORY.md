@@ -1520,3 +1520,35 @@ This file records phase-2 sessions only.
   - Finish T59b: environment enumeration, beacons/markers,
     block-set/fluid/light/suppression and CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 56 — T59b block-set floor resolution (2026-10-26)
+
+- **Goal:** make `RoleSpawnParameters.SpawnBlockSet` constrain spawn positions
+  against the real block registry.
+- **Landed:**
+  - New `hytale-npc::block_set` loads all 80
+    `Server/Item/Block/Sets/**/*.json` documents, parses
+    include/exclude block-type/group globs and resolves members to registry
+    block ids. `.append` codecs do not inherit `Parent` fields, so each
+    document is evaluated on its own fields.
+  - `SpawnNpcInEnvironment` and `tick_npc_spawns` resolve the selected role's
+    `SpawnBlockSet` and pass the allowed floor ids to the position search.
+  - Real-asset tests cover Stone/StoneAndSoil/Soil membership; the runtime
+    platform scenario now uses a real `Soil_Grass` floor and the deep Goblin
+    cave environment.
+- **Verified:**
+  - `cargo test -p hytale-npc --test npc_spawn_combat real_block_sets`.
+  - `cargo test -p hytale-server --test npc_runtime spawn_commands_handle`.
+  - `cargo test -p hytale-world --test environment_segments`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - `SpawnFluidTag` still means "any fluid at the feet"; the fluid tag registry
+    is not wired in.
+  - Light/suppression gates, beacons/markers and automatic environment
+    enumeration remain.
+- **Follow-ups:**
+  - Finish T59b: fluid tags, light/suppression, beacons/markers, environment
+    enumeration and CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

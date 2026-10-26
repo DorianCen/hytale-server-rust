@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use hytale_assets::{AssetPack, AssetRegistry};
 use hytale_entities::damage::{Damage, DamageCause, DamageCauses, DamageSource};
+use hytale_npc::block_set::BlockSetCatalog;
 use hytale_npc::combat::{CombatProfile, NpcActor};
 use hytale_npc::flock::FlockRng;
 use hytale_npc::role::RoleCatalog;
@@ -207,4 +208,45 @@ fn a_real_asset_actor_takes_damage_and_dies() {
     assert_eq!(components["Npc"]["Health"], 0.0);
     assert_eq!(components["Model"]["Model"]["Id"], "Rat");
     assert_eq!(WorldSpawn::spawn_weight(2.0, 1), 1.0);
+}
+
+#[test]
+fn real_block_sets_resolve_spawn_floors() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open pack");
+    let registry = AssetRegistry::load_p0(&pack).expect("load P0");
+    let catalog = BlockSetCatalog::load(&pack).expect("load block sets");
+    assert_eq!(catalog.len(), 80);
+
+    let stone = catalog.resolve(&registry, "Stone").expect("Stone set");
+    let rock = registry
+        .block_types
+        .get("Rock_Stone")
+        .and_then(|record| record.id)
+        .expect("Rock_Stone block id");
+    assert!(stone.contains(&rock));
+
+    // `.append` codecs do not inherit parent fields; StoneAndSoil only lists
+    // `Soil*`, matching the Java BlockSet document as written.
+    let stone_and_soil = catalog
+        .resolve(&registry, "StoneAndSoil")
+        .expect("StoneAndSoil set");
+    let soil = registry
+        .block_types
+        .get("Soil_Grass")
+        .and_then(|record| record.id)
+        .expect("Soil_Grass block id");
+    assert!(stone_and_soil.contains(&soil));
+    assert!(!stone_and_soil.contains(&rock));
+
+    let soil_set = catalog.resolve(&registry, "Soil").expect("Soil set");
+    let leaves = registry
+        .block_types
+        .get("Plant_Leaves_Oak")
+        .and_then(|record| record.id)
+        .expect("Plant_Leaves_Oak block id");
+    assert!(!soil_set.contains(&leaves), "ExcludeBlockTypes applies");
 }

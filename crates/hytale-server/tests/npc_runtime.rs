@@ -192,9 +192,13 @@ fn spawn_commands_handle_unknown_roles_and_find_positions() {
     assert!(error.to_string().contains("unknown NPC role"));
 
     thread.load_chunk(0, 0).expect("load the platform chunk");
+    let soil = thread
+        .block_id_for_item("Soil_Grass")
+        .expect("block lookup")
+        .expect("Soil_Grass is a block");
     for x in 0..=8 {
         for z in 0..=8 {
-            thread.set_block(x, 80, z, 1).expect("floor");
+            thread.set_block(x, 80, z, soil).expect("floor");
             for y in 81..=83 {
                 thread.set_block(x, y, z, 0).expect("clear headroom");
             }
@@ -215,7 +219,7 @@ fn spawn_commands_handle_unknown_roles_and_find_positions() {
 
     let selected = thread
         .spawn_npc_in_environment(
-            "Env_Portal_Goblin_Surface",
+            "Env_Portal_Goblin_Cave_Deep",
             center,
             2,
             hytale_npc::spawn_position::SpawnMovementMode::Walk,
@@ -227,7 +231,7 @@ fn spawn_commands_handle_unknown_roles_and_find_positions() {
 
     thread
         .set_npc_spawn_targets(vec![hytale_server::NpcSpawnTarget {
-            environment: "Env_Portal_Goblin_Surface".to_string(),
+            environment: "Env_Portal_Goblin_Cave_Deep".to_string(),
             center,
             radius: 2,
             mode: hytale_npc::spawn_position::SpawnMovementMode::Walk,

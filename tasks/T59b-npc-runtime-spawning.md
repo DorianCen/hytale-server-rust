@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–55; runtime, spawn-position and population slices landed)
+**Status:** in progress (sessions 52–56; runtime, spawn-position and population slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -108,11 +108,23 @@ cargo fmt --all -- --check
 - `NpcSpawnTarget.segments == 0` now discovers the count from the loaded world
   for the target environment before applying the density formula.
 
+### Block-set slice (session 56)
+
+- New `hytale-npc::block_set` loads all 80
+  `Server/Item/Block/Sets/**/*.json` documents and resolves
+  `IncludeBlockTypes`/`ExcludeBlockTypes`/`IncludeBlockGroups`/
+  `ExcludeBlockGroups` globs against the real block registry.
+- `.append` block-set codecs do not inherit `Parent` fields; the catalog follows
+  Java and evaluates each document's own fields.
+- `SpawnNpcInEnvironment` and `tick_npc_spawns` resolve the selected role's
+  `SpawnBlockSet` to allowed floor block ids before the position search.
+- Real-asset tests cover Stone/StoneAndSoil/Soil membership; the platform
+  population scenario now uses a real `Soil_Grass` floor.
+
 ## Deviations
 
-- `SpawnBlockSet`/`SpawnFluidTag` references are not resolved to their asset
-  stores yet (the `BlockSet` generator is still a T35 gap); the search exposes
-  explicit block-id/fluid-requirement options instead.
+- `SpawnFluidTag` is still reduced to "any fluid at the feet"; the fluid tag
+  registry is not wired into the position search yet.
 - Light ranges and spawn suppression are not evaluated by the position search.
 - Population targets name their environment and density; segment counts can be
   discovered from loaded sections, but automatically enumerating every loaded
@@ -126,6 +138,5 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - Finish T59b: automatic environment enumeration, beacon/spawn-marker
-  controllers, block-set/fluid-tag/light/suppression gates and CLI/bot
-  coverage.
+  controllers, fluid-tag lookup, light/suppression gates and CLI/bot coverage.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.
