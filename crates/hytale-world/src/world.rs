@@ -365,6 +365,18 @@ impl World {
         Ok(changed)
     }
 
+    /// Number of loaded 32³ sections that contain `environment_id`.
+    ///
+    /// Java tracks environment segments through `ChunkSpawnData`; this is the
+    /// runtime-world approximation used by the spawn controller.
+    pub fn environment_segment_count(&self, environment_id: i32) -> usize {
+        self.chunks
+            .values()
+            .flat_map(|chunk| chunk.sections().flatten())
+            .filter(|section| section.environment.contains(environment_id))
+            .count()
+    }
+
     /// Effective environment at a block (`UNKNOWN` when absent).
     pub fn get_environment(&self, x: i32, y: i32, z: i32) -> i32 {
         self.chunk(x >> 5, z >> 5)

@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–54; runtime, spawn-position and population slices landed)
+**Status:** in progress (sessions 52–55; runtime, spawn-position and population slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -100,15 +100,23 @@ cargo fmt --all -- --check
 - The `npc_runtime` platform scenario now drives a two-NPC population to its
   expected count and verifies the next tick is saturated.
 
+### Segment discovery slice (session 55)
+
+- `World::environment_segment_count` counts loaded 32³ sections containing an
+  environment id (`EnvironmentSection.contains`), with a unit test covering
+  multiple sections and ids.
+- `NpcSpawnTarget.segments == 0` now discovers the count from the loaded world
+  for the target environment before applying the density formula.
+
 ## Deviations
 
 - `SpawnBlockSet`/`SpawnFluidTag` references are not resolved to their asset
   stores yet (the `BlockSet` generator is still a T35 gap); the search exposes
   explicit block-id/fluid-requirement options instead.
 - Light ranges and spawn suppression are not evaluated by the position search.
-- Population targets are explicit (environment/density/segment count) rather
-  than derived automatically from every loaded chunk environment; automatic
-  environment discovery is still open.
+- Population targets name their environment and density; segment counts can be
+  discovered from loaded sections, but automatically enumerating every loaded
+  environment is still open.
 - Beacons and spawn markers are not landed.
 - NPC damage targets only runtime NPC actors; player health is not modelled yet,
   so player targets produce attack events without damage (T59c).
@@ -117,7 +125,7 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Finish T59b: automatic environment/segment discovery, beacon/spawn-marker
+- Finish T59b: automatic environment enumeration, beacon/spawn-marker
   controllers, block-set/fluid-tag/light/suppression gates and CLI/bot
   coverage.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.

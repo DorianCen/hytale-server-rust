@@ -73,9 +73,10 @@ first slice adds the live WorldThread NPC store, spawn/despawn/damage/tick
 commands, persistence and session target publication; the second adds
 movement-mode spawn-position search, environment/role selection and the
 density/expected-count controller; the third adds automatic population ticks
-through `set_npc_spawn_targets`/`tick_npc_spawns`. Automatic environment/segment
-discovery, beacons/markers, block-set/fluid/light/suppression gates and CLI/bot
-coverage remain in T59b.
+through `set_npc_spawn_targets`/`tick_npc_spawns`; a fourth adds loaded-section
+environment segment counting for population targets. Automatic environment
+enumeration, beacons/markers, block-set/fluid/light/suppression gates and
+CLI/bot coverage remain in T59b.
 
 ## Rules
 

@@ -237,7 +237,8 @@ pub struct NpcSpawnTarget {
     pub mode: SpawnMovementMode,
     /// Environment spawn density.
     pub density: f64,
-    /// Tracked segment/column count for the density formula.
+    /// Tracked segment/column count for the density formula. `0` discovers the
+    /// count from loaded world sections for `environment`.
     pub segments: usize,
 }
 
@@ -2389,7 +2390,17 @@ fn run(
                                     .entry(target.environment.clone())
                                     .or_insert_with(|| WorldSpawnController::new(target.density));
                                 controller.set_density(target.density);
-                                controller.set_segment_count(target.segments);
+                                let segments = if target.segments == 0 {
+                                    generator
+                                        .assets()
+                                        .environments
+                                        .id_of(&target.environment)
+                                        .map(|id| save.world().environment_segment_count(id))
+                                        .unwrap_or(0)
+                                } else {
+                                    target.segments
+                                };
+                                controller.set_segment_count(segments);
                                 let mut budget = 8usize;
                                 while controller.missing().ceil() >= 1.0 && budget > 0 {
                                     budget -= 1;

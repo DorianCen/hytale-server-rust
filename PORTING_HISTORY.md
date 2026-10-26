@@ -1495,3 +1495,28 @@ This file records phase-2 sessions only.
   - Finish T59b: environment/segment discovery, beacons/markers,
     block-set/fluid/light/suppression and CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 55 — T59b environment segment discovery (2026-10-26)
+
+- **Goal:** derive population segment counts from the loaded world instead of
+  requiring every caller to supply them.
+- **Landed:**
+  - `World::environment_segment_count` counts loaded 32³ sections that contain
+    an environment id via `EnvironmentSection.contains`.
+  - `NpcSpawnTarget.segments == 0` now discovers the count for the target
+    environment before applying the density formula.
+  - A `hytale-world` test covers multiple sections/environments.
+- **Verified:**
+  - `cargo test -p hytale-world --test environment_segments`.
+  - `cargo test -p hytale-server --test npc_runtime spawn_commands_handle`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - Population targets still name their environment/density; enumerating every
+    loaded environment automatically is open.
+  - Beacons/markers and block-set/fluid/light/suppression gates remain.
+- **Follow-ups:**
+  - Finish T59b: environment enumeration, beacons/markers,
+    block-set/fluid/light/suppression and CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

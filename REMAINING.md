@@ -18,9 +18,10 @@ Deferred to M5/M6:
   ranges and a scripted `NpcActor`; T59b adds the live `WorldThread` NPC
   store, spawn/despawn/damage/tick commands, persistence, session ticking,
   movement-mode spawn-position search, environment/role selection,
-  density/expected-count accounting and explicit population ticks. Automatic
-  environment discovery, beacons/markers and block-set/fluid/light/suppression
-  gates remain T59b; the full builder graph,
+  density/expected-count accounting, explicit population ticks and
+  loaded-section environment segment discovery. Automatic environment
+  enumeration, beacons/markers and block-set/fluid/light/suppression gates
+  remain T59b; the full builder graph,
   motion-controller A*, wander/avoidance, blackboard sensors, combat action
   graph, encounters/instances/portals and the NPC ECS remain T59c/T60.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
