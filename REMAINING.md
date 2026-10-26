@@ -19,9 +19,10 @@ Deferred to M5/M6:
   store, spawn/despawn/damage/tick commands, persistence, session ticking,
   movement-mode spawn-position search, environment/role selection,
   density/expected-count accounting, explicit population ticks and
-  loaded-section environment segment discovery and real `BlockSet` floor
-  resolution. Automatic environment enumeration, beacons/markers and
-  fluid-tag/light/suppression gates remain T59b; the full builder graph,
+  loaded-section environment segment discovery, real `BlockSet` floor
+  resolution and `SpawnFluidTag` resolution. Automatic environment enumeration,
+  beacons/markers and light/suppression gates remain T59b; the full builder
+  graph,
   motion-controller A*, wander/avoidance, blackboard sensors, combat action
   graph, encounters/instances/portals and the NPC ECS remain T59c/T60.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:

@@ -930,8 +930,9 @@ publication and spawn/update/despawn presentation. The second slice adds
 movement-mode spawn-position search, environment/role selection, the
 density/expected-count controller and explicit automatic population ticks
 (`set_npc_spawn_targets`/`tick_npc_spawns`) plus loaded-section environment
-segment discovery and real `BlockSet` floor resolution. Automatic environment
-enumeration, beacons/markers and fluid-tag/light/suppression gates remain.
+segment discovery, real `BlockSet` floor resolution and `SpawnFluidTag`
+resolution. Automatic environment enumeration, beacons/markers and
+light/suppression gates remain.
 
 ### T59c — Combat action graph and encounters
 

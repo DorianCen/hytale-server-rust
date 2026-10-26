@@ -21,6 +21,7 @@ use hytale_inventory::{ItemStack, PlayerInventory};
 use hytale_npc::block_set::BlockSetCatalog;
 use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
 use hytale_npc::flock::FlockRng;
+use hytale_npc::fluid_tags::FluidTagIndex;
 use hytale_npc::role::RoleCatalog;
 use hytale_npc::spawn::{WorldSpawnCatalog, WorldSpawnController};
 use hytale_npc::spawn_position::{SpawnMovementMode, SpawnPositionSearch, SpawnSearchOptions};
@@ -1890,6 +1891,7 @@ fn run(
             let mut npc_targets: Vec<NpcTarget> = Vec::new();
             let mut npc_spawn_targets: Vec<NpcSpawnTarget> = Vec::new();
             let mut npc_spawn_controllers: BTreeMap<String, WorldSpawnController> = BTreeMap::new();
+            let mut fluid_tags: Option<FluidTagIndex> = None;
             let mut spawn_rng = SpawnRng::new(u64::from_le_bytes(save.config().seed.to_le_bytes()));
             let mut map_images: BTreeMap<(i32, i32), MapImage> = BTreeMap::new();
             let budget = options.chunks_per_tick.max(1);
@@ -2334,7 +2336,13 @@ fn run(
                             };
                             let role_key = role.id.clone();
                             let spawn_block_set = role.spawn_block_set.clone();
-                            let require_fluid = role.spawn_fluid_tag.is_some();
+                            let spawn_fluid_tag = role.spawn_fluid_tag.clone();
+                            let allowed_fluids = spawn_fluid_tag.as_deref().and_then(|tag| {
+                                load_fluid_tags(&mut fluid_tags, generator.assets())
+                                    .get(tag)
+                                    .cloned()
+                            });
+                            let require_fluid = spawn_fluid_tag.is_some();
                             let allowed_floor = match &spawn_block_set {
                                 Some(name) => load_block_sets(
                                     &mut block_sets,
@@ -2352,6 +2360,7 @@ fn run(
                                     mode,
                                     allowed_floor,
                                     require_fluid,
+                                    allowed_fluids,
                                 },
                             );
                             let Some(position) = position else {
@@ -2428,7 +2437,14 @@ fn run(
                                     };
                                     let role_key = role.id.clone();
                                     let spawn_block_set = role.spawn_block_set.clone();
-                                    let require_fluid = role.spawn_fluid_tag.is_some();
+                                    let spawn_fluid_tag = role.spawn_fluid_tag.clone();
+                                    let allowed_fluids =
+                                        spawn_fluid_tag.as_deref().and_then(|tag| {
+                                            load_fluid_tags(&mut fluid_tags, generator.assets())
+                                                .get(tag)
+                                                .cloned()
+                                        });
+                                    let require_fluid = spawn_fluid_tag.is_some();
                                     let allowed_floor = match &spawn_block_set {
                                         Some(name) => load_block_sets(
                                             &mut block_sets,
@@ -2446,6 +2462,7 @@ fn run(
                                                 mode: target.mode,
                                                 allowed_floor,
                                                 require_fluid,
+                                                allowed_fluids,
                                             },
                                         )
                                     else {
@@ -3256,6 +3273,13 @@ fn spawn_npc_entity(
         .entity(id)
         .cloned()
         .ok_or_else(|| "the NPC entity disappeared during spawn".to_string())
+}
+
+fn load_fluid_tags<'a>(
+    tags: &'a mut Option<FluidTagIndex>,
+    assets: &hytale_assets::AssetRegistry,
+) -> &'a FluidTagIndex {
+    tags.get_or_insert_with(|| FluidTagIndex::from_assets(assets))
 }
 
 fn load_block_sets<'a>(

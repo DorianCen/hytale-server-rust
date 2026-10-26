@@ -10,6 +10,7 @@ use hytale_entities::damage::{Damage, DamageCause, DamageCauses, DamageSource};
 use hytale_npc::block_set::BlockSetCatalog;
 use hytale_npc::combat::{CombatProfile, NpcActor};
 use hytale_npc::flock::FlockRng;
+use hytale_npc::fluid_tags::FluidTagIndex;
 use hytale_npc::role::RoleCatalog;
 use hytale_npc::spawn::{WorldSpawn, WorldSpawnCatalog};
 use hytale_world::collision::Vec3;
@@ -207,6 +208,21 @@ fn a_real_asset_actor_takes_damage_and_dies() {
     assert_eq!(components["Npc"]["Role"], "Rat");
     assert_eq!(components["Npc"]["Health"], 0.0);
     assert_eq!(components["Model"]["Model"]["Id"], "Rat");
+
+    let tags = FluidTagIndex::from_assets(&registry);
+    let water = registry
+        .fluids
+        .get("Water")
+        .and_then(|record| record.id)
+        .expect("Water fluid id");
+    let lava = registry
+        .fluids
+        .get("Lava")
+        .and_then(|record| record.id)
+        .expect("Lava fluid id");
+    assert!(tags.contains("Water", water));
+    assert!(!tags.contains("Water", lava));
+    assert!(tags.contains("Lava", lava));
     assert_eq!(WorldSpawn::spawn_weight(2.0, 1), 1.0);
 }
 

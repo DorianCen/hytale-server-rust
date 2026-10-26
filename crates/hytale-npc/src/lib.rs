@@ -18,6 +18,7 @@
 //! * [`spawn_position`] — deterministic walk/wade/underwater/dive/fly position
 //!   search over a real world.
 //! * [`block_set`] — `Server/Item/Block/Sets` membership for spawn floors.
+//! * [`fluid_tags`] — fluid tag membership for `SpawnFluidTag`.
 //! * [`combat`] — resolved combat profiles, interaction damage ranges and a
 //!   scripted NPC actor (targeting, chase, melee, damage, death).
 //!
@@ -30,6 +31,7 @@ pub mod block_set;
 pub mod combat;
 pub mod expr;
 pub mod flock;
+pub mod fluid_tags;
 pub mod group;
 pub mod navigation;
 pub mod path;
@@ -47,6 +49,7 @@ pub use combat::{
 };
 pub use expr::{evaluate, EvalContext, ExprError, Value as ExprValue};
 pub use flock::{FlockAsset, FlockCatalog, FlockSize, PersistentFlockData};
+pub use fluid_tags::FluidTagIndex;
 pub use group::{GroupMember, GroupSteeringAccumulator};
 pub use navigation::{
     search_directions, AStarConfig, AStarPath, AStarPlanner, BlockPos, SearchDirection,

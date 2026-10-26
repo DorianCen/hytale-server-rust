@@ -58,9 +58,11 @@ pub struct SpawnSearchOptions {
     pub mode: SpawnMovementMode,
     /// Optional allowed floor block ids (`RoleSpawnParameters.SpawnBlockSet`).
     pub allowed_floor: Option<BTreeSet<i32>>,
-    /// Require a non-empty fluid at the feet for walk/wade/underwater/dive
-    /// (`RoleSpawnParameters.SpawnFluidTag` until the tag store is ported).
+    /// Require a non-empty fluid at the feet.
     pub require_fluid: bool,
+    /// Allowed fluid ids (`RoleSpawnParameters.SpawnFluidTag` resolved through
+    /// [`crate::fluid_tags::FluidTagIndex`]).
+    pub allowed_fluids: Option<BTreeSet<i32>>,
 }
 
 impl Default for SpawnSearchOptions {
@@ -71,6 +73,7 @@ impl Default for SpawnSearchOptions {
             mode: SpawnMovementMode::Walk,
             allowed_floor: None,
             require_fluid: false,
+            allowed_fluids: None,
         }
     }
 }
@@ -149,15 +152,13 @@ where
         let head = self.world.get_block(x, y + 1, z);
         let feet_solid = (self.is_solid)(feet);
         let head_solid = (self.is_solid)(head);
-        let feet_fluid = self.world.get_fluid_id(x, y, z) != 0;
+        let feet_fluid_id = self.world.get_fluid_id(x, y, z);
+        let feet_fluid = feet_fluid_id != 0;
         let head_fluid = self.world.get_fluid_id(x, y + 1, z) != 0;
 
         match options.mode {
             SpawnMovementMode::Walk => {
                 if !floor_solid || feet_solid || head_solid {
-                    return false;
-                }
-                if options.require_fluid && !feet_fluid && !head_fluid {
                     return false;
                 }
             }
@@ -183,6 +184,13 @@ where
             }
         }
 
+        if let Some(allowed) = &options.allowed_fluids {
+            if !allowed.contains(&feet_fluid_id) {
+                return false;
+            }
+        } else if options.require_fluid && !feet_fluid {
+            return false;
+        }
         if let Some(allowed) = &options.allowed_floor {
             if !allowed.contains(&floor) {
                 return false;
@@ -262,6 +270,7 @@ mod tests {
             mode: SpawnMovementMode::Walk,
             allowed_floor: Some(BTreeSet::from([2])),
             require_fluid: false,
+            allowed_fluids: None,
         };
         assert!(search
             .find(Vec3::new(15.5, 1.0, 15.5), &with_block_set)
@@ -299,6 +308,20 @@ mod tests {
         assert!(search
             .find(Vec3::new(4.5, 5.0, 4.5), &options(SpawnMovementMode::Fly))
             .is_some());
+
+        let allowed = SpawnSearchOptions {
+            radius: 1,
+            vertical_range: 1,
+            mode: SpawnMovementMode::Wade,
+            allowed_fluids: Some(BTreeSet::from([1])),
+            ..SpawnSearchOptions::default()
+        };
+        assert!(search.find(Vec3::new(4.5, 1.0, 4.5), &allowed).is_some());
+        let wrong = SpawnSearchOptions {
+            allowed_fluids: Some(BTreeSet::from([2])),
+            ..allowed
+        };
+        assert!(search.find(Vec3::new(4.5, 1.0, 4.5), &wrong).is_none());
         std::fs::remove_dir_all(dir).ok();
     }
 }

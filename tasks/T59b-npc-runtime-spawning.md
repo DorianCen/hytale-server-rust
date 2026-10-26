@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–56; runtime, spawn-position and population slices landed)
+**Status:** in progress (sessions 52–57; runtime, spawn-position and population slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -121,10 +121,19 @@ cargo fmt --all -- --check
 - Real-asset tests cover Stone/StoneAndSoil/Soil membership; the platform
   population scenario now uses a real `Soil_Grass` floor.
 
+### Fluid-tag slice (session 57)
+
+- New `hytale-npc::fluid_tags::FluidTagIndex` builds `Tag -> fluid ids` from the
+  real `Fluid.Tags.Fluid` data.
+- `SpawnSearchOptions.allowed_fluids` requires the feet fluid to be in the
+  resolved set; `require_fluid` remains the "any fluid" fallback.
+- `SpawnNpcInEnvironment` and `tick_npc_spawns` resolve the selected role's
+  `SpawnFluidTag` before the position search.
+- Real-asset tests cover Water/Lava membership; the position-search test covers
+  allowed and rejected fluid ids.
+
 ## Deviations
 
-- `SpawnFluidTag` is still reduced to "any fluid at the feet"; the fluid tag
-  registry is not wired into the position search yet.
 - Light ranges and spawn suppression are not evaluated by the position search.
 - Population targets name their environment and density; segment counts can be
   discovered from loaded sections, but automatically enumerating every loaded
@@ -138,5 +147,5 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - Finish T59b: automatic environment enumeration, beacon/spawn-marker
-  controllers, fluid-tag lookup, light/suppression gates and CLI/bot coverage.
+  controllers, light/suppression gates and CLI/bot coverage.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.

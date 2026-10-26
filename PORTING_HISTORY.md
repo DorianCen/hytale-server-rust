@@ -1552,3 +1552,29 @@ This file records phase-2 sessions only.
   - Finish T59b: fluid tags, light/suppression, beacons/markers, environment
     enumeration and CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 57 — T59b fluid-tag spawn constraints (2026-10-26)
+
+- **Goal:** resolve `RoleSpawnParameters.SpawnFluidTag` through the real fluid
+  tag data.
+- **Landed:**
+  - `hytale-npc::fluid_tags::FluidTagIndex` builds `Tag -> fluid ids` from the
+    merged `Fluid.Tags.Fluid` arrays.
+  - `SpawnSearchOptions.allowed_fluids` requires the feet fluid to be in that
+    set; `require_fluid` remains the any-fluid fallback.
+  - `SpawnNpcInEnvironment` and `tick_npc_spawns` resolve the selected role's
+    `SpawnFluidTag` before the position search.
+  - Unit/asset tests cover fluid-tag lookup and allowed/rejected fluid ids.
+- **Verified:**
+  - `cargo test -p hytale-npc`.
+  - `cargo test -p hytale-server --test npc_runtime spawn_commands_handle`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - Light ranges and spawn suppression remain; beacons/markers and automatic
+    environment enumeration are still open.
+- **Follow-ups:**
+  - Finish T59b: light/suppression, beacons/markers, environment enumeration and
+    CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.
