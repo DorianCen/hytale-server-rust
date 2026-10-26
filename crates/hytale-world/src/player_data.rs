@@ -17,7 +17,7 @@
 //! - `CoreServer/.../modules/entity/component/WorldGenId.java`
 //! - `Component/.../ComponentRegistry.java` (the `Components` holder codec)
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -305,6 +305,37 @@ impl PlayerData {
     /// Remove a component document.
     pub fn remove_component(&mut self, id: &str) -> Option<Value> {
         self.components.remove(id)
+    }
+
+    /// Rust-owned component holding the per-player revealed world-map markers.
+    ///
+    /// Java stores the reveal set inside `PlayerWorldData`; this port keeps the
+    /// same information in a small explicit component until that codec is
+    /// modelled.
+    pub const REVEALED_MARKERS_COMPONENT: &'static str = "RustRevealedMarkers";
+
+    /// Revealed world-map marker ids.
+    pub fn revealed_markers(&self) -> BTreeSet<String> {
+        self.components
+            .get(Self::REVEALED_MARKERS_COMPONENT)
+            .and_then(|value| value.get("Markers"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+
+    /// Replace the revealed world-map marker ids.
+    pub fn set_revealed_markers(&mut self, markers: impl IntoIterator<Item = String>) {
+        let mut markers: Vec<String> = markers.into_iter().collect();
+        markers.sort();
+        markers.dedup();
+        self.components.insert(
+            Self::REVEALED_MARKERS_COMPONENT.to_string(),
+            json!({ "Markers": markers }),
+        );
     }
 
     /// The `UUID` component, if present.
@@ -898,6 +929,33 @@ mod tests {
         assert_eq!(appearance.armor[1], None);
         assert_eq!(appearance.right_hand, None);
         assert_eq!(appearance.left_hand.as_deref(), Some("Known"));
+    }
+
+    #[test]
+    fn revealed_map_markers_round_trip_as_a_sorted_component() {
+        let mut player = PlayerData::new(
+            "00000000-0000-0000-0000-000000000004".parse().unwrap(),
+            PlayerTransform::new(
+                Position {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Rotation {
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    roll: 0.0,
+                },
+            ),
+        );
+        player.set_revealed_markers(["marker-b".to_string(), "marker-a".to_string()]);
+        assert_eq!(
+            player.revealed_markers().into_iter().collect::<Vec<_>>(),
+            vec!["marker-a".to_string(), "marker-b".to_string()]
+        );
+        let json = player.to_json_pretty().expect("serialize");
+        let loaded = PlayerData::from_json(&json).expect("reload");
+        assert_eq!(loaded.revealed_markers(), player.revealed_markers());
     }
 
     #[test]

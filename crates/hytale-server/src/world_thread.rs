@@ -18,7 +18,7 @@ use hytale_entities::movement::{resolve_target, PlayerShape, TargetResolution};
 use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_inventory::{ItemStack, PlayerInventory};
 use hytale_protocol::generated::common::{
-    BlockDamageCmd, BlockPosition, FlyMode, MovementSettings,
+    BlockDamageCmd, BlockPosition, FlyMode, InventorySection, MapImage, MovementSettings,
 };
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_protocol::generated::world::{UpdateBlockDamage, UpdateBlockDamages};
@@ -40,6 +40,7 @@ use thiserror::Error;
 use worldgen_hytale::prefab::prefab_rotation::PrefabRotation;
 
 use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
+use crate::map_image;
 
 /// The world clock snapshot sent on join (`WorldTimeState` keeps its previous
 /// name for session compatibility).
@@ -176,6 +177,8 @@ pub struct PlayerSnapshot {
     pub appearance: PlayerAppearance,
     /// Saved inventory components.
     pub inventory: PlayerInventory,
+    /// Revealed world-map marker ids.
+    pub revealed_markers: BTreeSet<String>,
 }
 
 /// One block-health packet, on the `Chunks` stream.
@@ -201,6 +204,17 @@ pub enum RuntimeEntityEvent {
         /// Last world position.
         position: hytale_world::player_data::Position,
     },
+}
+
+/// One opened block container, ready for an `OpenWindow` packet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockContainerOpen {
+    /// Item key of the block (`window_data.blockItemId`).
+    pub block_item_id: String,
+    /// Container slot count.
+    pub capacity: u16,
+    /// Current `InventorySection` contents.
+    pub section: InventorySection,
 }
 
 /// Result of one demand-load tick.
@@ -331,6 +345,17 @@ enum Command {
         z: i32,
         reply: SyncSender<Result<Option<(String, serde_json::Value)>, String>>,
     },
+    MapChunkImage {
+        x: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<MapImage>, String>>,
+    },
+    OpenBlockContainer {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<BlockContainerOpen>, String>>,
+    },
     SetBlockState {
         x: i32,
         y: i32,
@@ -417,6 +442,12 @@ enum Command {
         deltas: Vec<hytale_world::simulation::BlockHealthDelta>,
         reply: SyncSender<Result<Vec<BlockDamagePacket>, String>>,
     },
+    TakeBlockHealthDelta {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<f32>, String>>,
+    },
     Entity {
         id: RuntimeEntityId,
         reply: SyncSender<Result<Option<RuntimeEntity>, String>>,
@@ -493,6 +524,11 @@ enum Command {
         uuid: WorldUuid,
         transform: PlayerTransform,
         inventory: Box<PlayerInventory>,
+        reply: SyncSender<Result<(), String>>,
+    },
+    SavePlayerRevealedMarkers {
+        uuid: WorldUuid,
+        markers: BTreeSet<String>,
         reply: SyncSender<Result<(), String>>,
     },
     PlayerAppearance {
@@ -804,6 +840,39 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Build (or take from the per-world cache) the world-map image of a
+    /// loaded chunk. `None` when the chunk is not loaded.
+    pub fn map_chunk_image(&self, x: i32, z: i32) -> Result<Option<MapImage>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::MapChunkImage { x, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Open a block container and return its current inventory section.
+    ///
+    /// `None` means the target is not a container block. The container is
+    /// created on first open and persisted in `block-containers.json`.
+    pub fn open_block_container(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<Option<BlockContainerOpen>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::OpenBlockContainer { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Change a block to its `State.Definitions.<state>` variant, preserving
     /// rotation/filler. Returns `(before, after)`.
     pub fn set_block_state(
@@ -1053,6 +1122,23 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::BlockDamagePackets { chunk, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Take one block's pending replication delta.
+    pub fn take_block_health_delta(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<Option<f32>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TakeBlockHealthDelta { x, y, z, reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -1356,6 +1442,26 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Persist the revealed world-map marker ids for one player.
+    pub fn save_player_revealed_markers(
+        &self,
+        uuid: WorldUuid,
+        markers: BTreeSet<String>,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SavePlayerRevealedMarkers {
+                uuid,
+                markers,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Persist the live transform and inventory together, preserving every
     /// other saved component.
     pub fn save_player_state(
@@ -1502,6 +1608,7 @@ fn run(
             }
             let seed = save.config().seed as i32;
             let mut entity_events: Vec<RuntimeEntityEvent> = Vec::new();
+            let mut map_images: BTreeMap<(i32, i32), MapImage> = BTreeMap::new();
             let budget = options.chunks_per_tick.max(1);
             let mut last_clock = Instant::now();
             let mut views = BTreeMap::from([(
@@ -1606,6 +1713,7 @@ fn run(
                         reply,
                     } => {
                         let result = set_block(&mut save, x, y, z, block_id);
+                        map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
                     Command::PlaceBlock {
@@ -1616,6 +1724,7 @@ fn run(
                         reply,
                     } => {
                         let result = place_block(&mut save, x, y, z, block_id);
+                        map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
                     Command::GetBlock { x, y, z, reply } => {
@@ -1634,6 +1743,25 @@ fn run(
                         let result = block_type_json(&save, &generator, x, y, z);
                         let _ = reply.send(result);
                     }
+                    Command::MapChunkImage { x, z, reply } => {
+                        let result = if let Some(image) = map_images.get(&(x, z)) {
+                            Ok(Some(image.clone()))
+                        } else if save.world().chunk(x, z).is_some() {
+                            let image =
+                                map_image::render_chunk(save.world(), generator.assets(), x, z);
+                            if let Some(image) = &image {
+                                map_images.insert((x, z), image.clone());
+                            }
+                            Ok(image)
+                        } else {
+                            Ok(None)
+                        };
+                        let _ = reply.send(result);
+                    }
+                    Command::OpenBlockContainer { x, y, z, reply } => {
+                        let result = open_block_container(&mut save, &generator, x, y, z);
+                        let _ = reply.send(result);
+                    }
                     Command::SetBlockState {
                         x,
                         y,
@@ -1642,6 +1770,7 @@ fn run(
                         reply,
                     } => {
                         let result = set_block_state(&mut save, &generator, x, y, z, &state);
+                        map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
                     Command::InteractionCatalog { reply } => {
@@ -1672,6 +1801,9 @@ fn run(
                         simulation.set_sunlight_factor(clock.sunlight_factor());
                         let mut result = simulation.tick(save.world_mut(), dt);
                         result.spawned_entities = spawn_simulation_drops(save.world_mut(), &result);
+                        if !result.block_changes.is_empty() || !result.fluid_changes.is_empty() {
+                            map_images.clear();
+                        }
                         let _ = reply.send(Ok(result));
                     }
                     Command::SetFluid {
@@ -1686,6 +1818,7 @@ fn run(
                             .world_mut()
                             .set_fluid(x, y, z, fluid_id, level)
                             .map_err(|error| error.to_string());
+                        map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
                     Command::WeatherAt { x, y, z, reply } => {
@@ -1770,6 +1903,9 @@ fn run(
                                 .map(|(x, y, z, health)| (x, y, z, health, 0.0)),
                         )));
                     }
+                    Command::TakeBlockHealthDelta { x, y, z, reply } => {
+                        let _ = reply.send(Ok(save.world_mut().take_block_health_delta(x, y, z)));
+                    }
                     Command::BlockDamagePacketsForDeltas { deltas, reply } => {
                         let entries = deltas.iter().map(|delta| {
                             (
@@ -1809,6 +1945,9 @@ fn run(
                                     .iter()
                                     .map(|id| RuntimeEntityEvent::Spawned(*id)),
                             );
+                        }
+                        if result.is_ok() {
+                            map_images.clear();
                         }
                         let _ = reply.send(result);
                     }
@@ -1930,6 +2069,14 @@ fn run(
                         reply,
                     } => {
                         let result = save_player_state(&mut save, uuid, transform, &inventory);
+                        let _ = reply.send(result);
+                    }
+                    Command::SavePlayerRevealedMarkers {
+                        uuid,
+                        markers,
+                        reply,
+                    } => {
+                        let result = save_player_revealed_markers(&mut save, uuid, &markers);
                         let _ = reply.send(result);
                     }
                     Command::PlayerAppearance { reply } => {
@@ -2515,7 +2662,21 @@ fn player_snapshot(
         transform,
         appearance,
         inventory,
+        revealed_markers: player.revealed_markers(),
     })
+}
+
+fn save_player_revealed_markers(
+    save: &mut WorldSave,
+    uuid: WorldUuid,
+    markers: &BTreeSet<String>,
+) -> Result<(), String> {
+    let (mut player, _created) = save
+        .load_or_create_player(uuid)
+        .map_err(|error| error.to_string())?;
+    player.set_revealed_markers(markers.iter().cloned());
+    save.save_player(uuid, &player)
+        .map_err(|error| error.to_string())
 }
 
 fn save_player_transform(
@@ -2637,10 +2798,60 @@ fn set_block_state(
     let Some(target_id) = target.id else {
         return Ok(None);
     };
+    // State variants keep the block's components and container inventory.
+    let component = save.world().block_component(x, y, z).cloned();
+    let inventory = save.world().container(x, y, z).cloned();
     save.world_mut()
         .set_block(x, y, z, target_id)
         .map_err(|error| error.to_string())?;
+    if let Some(component) = component {
+        save.world_mut()
+            .set_block_component(x, y, z, component.block_id, component.components);
+    }
+    if let Some(inventory) = inventory {
+        save.world_mut().set_container(x, y, z, inventory);
+    }
     Ok(Some((before, save.world().get_block(x, y, z))))
+}
+
+fn open_block_container(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Result<Option<BlockContainerOpen>, String> {
+    if save.world().chunk(x >> 5, z >> 5).is_none() {
+        return Ok(None);
+    }
+    let block_id = save.world().get_block(x, y, z);
+    let Some(record) = generator.assets().block_types.get_by_id(block_id) else {
+        return Ok(None);
+    };
+    let Some(capacity) = block_container_capacity(&record.value.json) else {
+        return Ok(None);
+    };
+    let block_item_id = record
+        .value
+        .container_item
+        .clone()
+        .unwrap_or_else(|| record.key.clone());
+    let container = save.world_mut().container_or_create(x, y, z, capacity);
+    Ok(Some(BlockContainerOpen {
+        block_item_id,
+        capacity,
+        section: container.to_packet(),
+    }))
+}
+
+fn block_container_capacity(json: &serde_json::Value) -> Option<u16> {
+    let capacity = json
+        .get("BlockEntity")?
+        .get("Components")?
+        .get("ItemContainerBlock")?
+        .get("Capacity")?
+        .as_u64()?;
+    u16::try_from(capacity).ok()
 }
 
 fn block_id_for_item(

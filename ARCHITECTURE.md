@@ -121,9 +121,10 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   with legacy `BlockHealthChunk` migration and pending deltas for T57. T53
   (stats/effects/damage plus the Java entity-gameplay fixture), T54 (time and
   weather), T55 (projectiles plus traversal/mount seams), T56 (prefab
-  entities/block components plus the persisted runtime store) and T57
-  (block-health/runtime-entity/world-map presentation) are done; M5 continues
-  with T58. See [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
+  entities/block components plus the persisted runtime store), T57
+  (block-health/runtime-entity/world-map presentation) and T57b's map-image and
+  container-window slice are done; M5 continues with T58. See
+  [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
   and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
   `worldgen-hytale`, `worldgen-cli`, `worldgen-server`.
@@ -421,9 +422,11 @@ loaded root/interaction catalog before placement. The executor supports
 conditions, replacement variables, serial/parallel/chaining/repeat and inline
 nodes; door/state/container/bench nodes become `WorldAction`s. Door/state
 actions apply a `State.Definitions` variant through `WorldThread` and broadcast
-the authoritative block. Unsupported node types are inert and fall through to
-T46 placement. Windows/UI, selectors, effects and exact door/filler logic remain
-later work.
+the authoritative block. Container opens send `SetPage(Bench)` plus
+`OpenWindow(Container)` backed by the persisted block container; close and
+teardown restore the `CloseWindow` state. Unsupported node types are inert and
+fall through to T46 placement. Bench crafting windows, selectors, effects and
+exact door/filler logic remain later work.
 
 Inventory state lives in `hytale-inventory`: `ItemStack` mirrors Java's codec,
 `SimpleItemContainer` implements the Java merge/move/remove transaction rules,
@@ -432,8 +435,11 @@ active-slot clamping. `PlayerData::inventory()` loads modern `*Inventory`
 components (legacy `Inventory` fallback), and teardown writes the live transform
 and inventory together. Sessions send `UpdatePlayerInventory` plus the
 hotbar/utility/tools `SetActiveSlot` packets after self-spawn; active-slot and
-held-item changes fan out as equipment entity updates. Inventory windows, block
-containers and world item entities remain later gameplay work.
+held-item changes fan out as equipment entity updates. Block container
+inventories persist with the world and are exposed through the minimal
+`OpenWindow(Container)`/`CloseWindow` packet round trip; `MoveItemStack`
+transactions, crafting windows and world item entities remain later gameplay
+work.
 
 Block simulation is owned by `hytale-world::simulation`. `BlockSection` carries
 a transient `(tick, index)` scheduled queue; `begin_tick` moves due requests
@@ -462,12 +468,17 @@ persistence.
 - `hytale-entities` provides deterministic gameplay models (stats/effects/
   damage/projectiles/movement); a general `bevy_ecs` store is still a later
   seam, not the current implementation.
-- Each `World` owns `hytale_world::runtime::RuntimeEntityStore` and
-  `BlockComponentStore`: stable runtime ids, transforms, prefab/item/projectile
-  kinds and the original component JSON documents. Both commit to versioned,
-  atomically written JSON sidecars (`entities.json`,
-  `block-components.json`) with the world save. Java's ECS codec is not ported,
+- Each `World` owns `hytale_world::runtime::RuntimeEntityStore`,
+  `BlockComponentStore` and `containers::BlockContainerStore`: stable runtime
+  ids, transforms, prefab/item/projectile kinds, the original component JSON
+  documents and per-block container inventories. All commit to versioned,
+  atomically written JSON sidecars (`entities.json`, `block-components.json`,
+  `block-containers.json`) with the world save. Java's ECS codec is not ported,
   so these sidecars are not part of the Java-readable chunk regions.
+- Chunk world-map images are rendered on demand by `hytale-server::map_image`
+  from the loaded chunk's heightmap, tint, block and fluid assets, cached per
+  chunk in `WorldThread`, and sent as `UpdateWorldMap.chunks` images/unloads
+  when the session view changes.
 - Systems run on the world thread. Java's `CommandBuffer`/`Ref` behavior maps
   to deferred commands and runtime ids; exact ECS API parity is not a goal.
 - `PlayerRef` is a handle containing UUID, username, connection, world, and the
@@ -644,8 +655,8 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
 | `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence, per-second `UpdateTime`, current hour and moon phase landed (M4/T54); weather state/forecasts, `WorldThread::weather_at` and session `UpdateWeather` landed (T54 done; full `UpdateWeathers` asset packet is a split follow-up) |
-| `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); windows and world item entities deferred |
-| `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes and door state broadcasts landed (M5); selectors/effects/cooldowns, item/entity roots and windows deferred |
+| `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); block-container persistence and the `OpenWindow`/`CloseWindow` round trip landed (T57b); `MoveItemStack` routing and world item entities deferred |
+| `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes, door state broadcasts and container windows landed (M5); selectors/effects/cooldowns, item/entity roots and bench crafting windows deferred |
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::{collision,player_data}` | saved model reference and inventory components decoded (M4); `movement` AABB sweep, one-block step, bounds, gravity/jump/fly/climb integrator, slide/roll/mantle traversal state, mount seam and the internal `MovementConfig` join packet landed (M5); full `ModelAsset` protocol expansion, ECS lifecycle, fluids/triggers, entity collisions and mount entities deferred |
 | `CoreServer/.../entity/entities/ProjectileComponent`, `modules/projectile/{config,system}`, `modules/physics/{SimplePhysicsProvider,PhysicsMath}` | `hytale-entities::projectile` + `hytale-assets` | legacy `Projectile`/new `ProjectileConfig` stores (86/188), Java launch offset/angle math, gravity/terminal cap, swept block/entity collision, bounce/stick/rest, hit/miss/death timers, TTL and the T53 damage handoff landed (M5, T55 done); density/drag/buoyancy/rolling, predicted/pierce projectiles, explosions and spawn packets deferred |
 | `CoreServer/.../modules/entitystats/**`, `asset/type/entityeffect/**`, `modules/entity/damage/**` | `hytale-entities::{stats,effects,damage,components}` | stat types/values/maps, static modifiers, regeneration/reset, active effects with overlap/expiry/invulnerability, damage causes/resistance/outgoing, health/death core and the `EntityGameplay` component seam landed (M5, T53 done); the `EntityStatType`/`EntityEffect`/`DamageCause` stores and the Java `entity/entity-gameplay.json` fixture gate the data; conditions, calculators, DoT and per-entity/config stat/effect packets deferred to T59 |

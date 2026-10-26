@@ -1,6 +1,6 @@
 # T57b — Presentation follow-ups
 
-**Status:** in progress (session 48)
+**Status:** in progress (session 49)
 **Package:** `hytale-assets`, `hytale-server`, `tools/client-bot`
 **Depends on:** T57
 **Agent fit:** low/medium
@@ -79,6 +79,20 @@ cargo fmt --all -- --check
   (`Durability`, `MaxDurability`, `Quality`, `OverrideDroppedItemAnimation`,
   `Metadata`) from `DropItemStack`, and `runtime_entity_updates` maps it into
   `ItemWithAllMetadata`.
+- Partial-hit block breaking: `SessionOptions.block_break_damage` (default
+  `1.0`, preserving one-hit breaks) applies block health per left click; a
+  partial hit queues one immediate `UpdateBlockDamage` packet and keeps the
+  block until health reaches zero. The immediate delta is consumed so the next
+  simulation tick does not replay it. The door loopback exercises a `0.5` hit.
+- Other-player map markers: joins, 10 Hz movement and leaves now update
+  `UpdateWorldMap` with `Player.png` markers carrying the player UUID/name.
+  Markers are global (not view-filtered), matching the Java player marker
+  provider. The player registry unit test covers join/move/remove.
+- Marker discovery/reveal: discoverable `BlockMapMarker`s within 32 blocks are
+  added on join/tick and the id set persists through the player save
+  (`RustRevealedMarkers`, a typed placeholder for Java `PlayerWorldData`).
+  Non-discoverable markers are always visible; previously revealed markers are
+  restored on reconnect.
 - Runtime entity lifecycle: `WorldThread` queues `RuntimeEntityEvent`
   Spawned/Updated/Despawned values for prefab, item and explicit despawn
   commands; `update_entity_transform` moves an entity and queues an update.
@@ -87,12 +101,48 @@ cargo fmt --all -- --check
 - New `crates/hytale-assets/tests/entity_packets.rs` gates the stat/effect/
   projectile/weather payloads; `players` unit tests gate the full item payload.
 
-**Still open:** partial-hit block breaking, map images/discovery and HUD/window
-packets. Projectile physics/visual subfields and the full weather document
+**Still open after session 48:** map chunk images and HUD/window packets. Projectile
+physics/visual subfields and the full weather document
 (clouds/colors/particles/fog) are mapped through the core fields only. The
 stat/effect slice maps the core fields; application effects, model overrides,
 min/max stat particles and full damage-calculator presentation remain part of
 the T59 producer work.
+
+## Landed (session 49 — second slice)
+
+- Map chunk images: `hytale-server::map_image` renders one 96×96 palette image
+  per loaded chunk from the legacy heightmap, column tint, `BlockType`
+  tint/particle colours and top fluid layer, with height shading and water
+  blending. `WorldThread::map_chunk_image` caches images per chunk and
+  invalidates them on block/fluid/prefab changes.
+- Joins and view changes send `UpdateWorldMap.chunks` for every loaded chunk in
+  the session view and `MapChunk { image: None }` for images that leave it.
+  Images are batched (32 per packet) so large views stay under `MAX_FRAME`.
+- Block container windows: `hytale-world::containers` persists per-block
+  `SimpleItemContainer` inventories in `block-containers.json`; container
+  capacity/block-item data comes from `BlockEntity.Components.ItemContainerBlock`
+  and `BlockType.container_item`. A right-click `OpenContainer` sends
+  `SetPage(Bench)` + `OpenWindow(Container)` with the live `InventorySection`
+  and switches the block to its `OpenWindow` state; `CloseWindow`/teardown send
+  the close packets and restore `CloseWindow`.
+- `hytale-world` state variants preserve block components and container
+  inventories, so opening/closing a chest no longer drops its contents.
+- `client-bot` records `UpdateWorldMap.chunks`, `SetPage`, `OpenWindow`,
+  `UpdateWindow` and `CloseWindow`, and the ignored container loopback verifies
+  the window/page/image payloads. New unit/loopback gates:
+  `hytale-world::containers`, `world_thread::{map_chunk_images,block_containers}`,
+  `map_image::tests` and `block_interactions::container_use_...`.
+- `GameReport`/`GameLoopReport` expose `map_chunks`, `map_chunks_unloaded`,
+  `windows_opened` and `windows_closed`.
+
+**Remaining T57b gaps:** bench-specific crafting windows/page data stay with
+the builtin Crafting module (T60); container `MoveItemStack` transactions and
+window distance validation remain gameplay work. Map images refresh on view
+changes rather than on every block edit, and the image generator follows the
+Java palette/silhouette contract but is not byte-identical (documented in
+`GOLDEN_DATA.md`). Particles/sounds and weather presentation remain with
+T59/T60; the T57b stat/effect/projectile/weather config packets and item
+metadata are already landed.
 
 ## Ownership split
 

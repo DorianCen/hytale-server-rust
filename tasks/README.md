@@ -35,7 +35,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T55](T55-projectiles-traversal.md) | Projectiles and traversal | T51, T53 | low/medium | done (session 45) |
 | [T56](T56-prefab-runtime-entities.md) | Prefab spawner and runtime entities | T45, T50 | low/medium | done (session 46) |
 | [T57](T57-ui-block-health-presentation.md) | UI basics and block-health presentation | T46, T53 | low/medium | done (session 47) |
-| [T57b](T57b-presentation-followups.md) | Presentation follow-ups | T57 | low/medium | in progress (session 48) |
+| [T57b](T57b-presentation-followups.md) | Presentation follow-ups | T57 | low/medium | in progress (session 49) |
 | T58 | NPC core: AI, pathfinding, flocking | T48 | low/medium | planned |
 | T59 | NPC spawning, combat and encounters | T58 | low/medium | planned |
 | T60 | Builtin module runtime and selected modules | T58, T59 | low/medium | planned |
@@ -52,7 +52,10 @@ and traversal seam; T56 lands prefab entities/block components and the
 persisted runtime entity store; T57 lands block-health replication, runtime entity spawns and
 world-map basics. T57b is the M5 presentation follow-up: partial-hit block
 interaction, entity lifecycle/metadata, the stat/effect/projectile/weather
-config packets, map images/discovery and the minimal HUD/window packets. T58
+config packets, map images/discovery and the minimal HUD/window packets. Its
+second slice lands chunk map images and container windows; bench crafting
+windows, container transactions and particle/weather presentation remain
+T59/T60. T58
 (NPC core) starts M6 after T57b; T58 may run in parallel in a separate
 worktree, but T59/T60 presentation work waits for T57b.
 

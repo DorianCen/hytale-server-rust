@@ -367,7 +367,8 @@ is `Hunt/Generic/Site.prefab.json` (10 blocks, 3 entities, one `Hunt_Trap`
 `crates/hytale-server/tests/prefab.rs` pastes the same prefab through the world
 thread at a 90° rotation, checks the rotated block/component/entity positions,
 despawns one entity and reopens the save to verify the JSON sidecars
-(`entities.json`, `block-components.json`) and the block edit survive.
+(`entities.json`, `block-components.json`, `block-containers.json`) and the
+block edit survive.
 
 The sidecars are asserted for Rust round-trip only; they are not a Java codec
 golden. Java-readable runtime entity saves require the `EntityStore`/
@@ -388,10 +389,20 @@ T57 reuses the real block-health state from T52d and the real
 | Real dev join sees map settings, the site marker and three prefab entity spawns | `tools/client-bot/tests/dev_join.rs` (`#[ignore]`, assets + loopback) |
 | Entity stat/effect/projectile/weather config packets decode and carry the real stores | `crates/hytale-assets/tests/entity_packets.rs` |
 | Item entity spawn carries durability/quality/metadata | `crates/hytale-server/src/players.rs` unit tests |
+| Other-player map markers follow join/move/leave | `crates/hytale-server/src/players.rs` unit test |
+| Revealed markers survive player save/reopen | `crates/hytale-server/tests/world_thread.rs` |
+| Map palette encoding/round-trip and transparent void pixels | `crates/hytale-server/src/map_image.rs` unit tests |
+| Loaded chunks produce 96×96 images with opaque terrain and cache hits | `crates/hytale-server/tests/world_thread.rs` |
+| Container inventories persist through `block-containers.json` | `crates/hytale-world` `containers::tests` |
+| Chest capacity/block item and removal come from the real `BlockType` | `crates/hytale-server/tests/world_thread.rs` |
+| Join sends `UpdateWorldMap.chunks` and a container window/page | `tools/client-bot/tests/block_interactions.rs` (`#[ignore]`, assets + loopback) |
 
-Map image chunks, marker discovery/reveal, dynamic entity transforms and the
-stat/effect/projectile/weather asset packets are not gated by T57; T57b owns
-their encoder/config-burst gates.
+Map images are a semantic gate, not a byte golden: Java's `ImageBuilder` shading
+and quantisation tuning are not reproduced exactly, but the palette/bit-pack
+form, 96×96 size, height shading, transparency and fluid blending follow the
+reference. Map image chunks, marker discovery/reveal, dynamic entity transforms
+and the stat/effect/projectile/weather asset packets are not gated by T57; T57b
+owns their encoder/config-burst gates (landed in sessions 48–49).
 
 ### 3.9 `trace/`
 

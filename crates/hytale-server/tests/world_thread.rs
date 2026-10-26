@@ -75,6 +75,58 @@ fn config_assets_are_cached_per_world() {
 }
 
 #[test]
+fn revealed_map_markers_persist_with_the_player() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let save_dir = temp_dir("revealed-markers");
+    let options = WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, start) = WorldThread::spawn(options).expect("spawn the world thread");
+    let uuid = start.player_uuid.parse().expect("player uuid");
+    let markers = std::collections::BTreeSet::from(["block:4:201:4".to_string()]);
+    thread
+        .save_player_revealed_markers(uuid, markers.clone())
+        .expect("save markers");
+    assert_eq!(
+        thread
+            .player_snapshot(uuid)
+            .expect("player snapshot")
+            .revealed_markers,
+        markers
+    );
+    thread.shutdown().expect("shutdown");
+
+    let (thread, _) = WorldThread::spawn(WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    ))
+    .expect("reopen the world thread");
+    assert_eq!(
+        thread
+            .player_snapshot(uuid)
+            .expect("player snapshot")
+            .revealed_markers,
+        markers
+    );
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn block_health_load_and_delta_packets_use_absolute_health() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
@@ -580,6 +632,100 @@ fn world_clock_progresses_pauses_and_survives_save_reload() {
     );
     let moved = thread.advance_time(1.0).expect("advance after resume");
     assert!(moved.game_time_seconds > resumed.game_time_seconds);
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn map_chunk_images_follow_loaded_chunks() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let save_dir = temp_dir("map-images");
+    let options = WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, _start) = WorldThread::spawn(options).expect("spawn the world thread");
+    thread.load_chunk(0, 0).expect("load the chunk");
+
+    let image = thread
+        .map_chunk_image(0, 0)
+        .expect("map image")
+        .expect("loaded chunk image");
+    assert_eq!(image.width, 96);
+    assert_eq!(image.height, 96);
+    let palette = image.palette.as_ref().expect("palette");
+    assert!(!palette.is_empty());
+    assert!(
+        palette.iter().any(|color| color & 0xFF != 0),
+        "terrain must produce at least one opaque pixel"
+    );
+    assert!(image
+        .packed_indices
+        .as_ref()
+        .is_some_and(|indices| !indices.is_empty()));
+
+    let cached = thread
+        .map_chunk_image(0, 0)
+        .expect("cached map image")
+        .expect("cached image");
+    assert_eq!(cached, image);
+
+    assert!(thread
+        .map_chunk_image(1000, 1000)
+        .expect("unloaded chunk")
+        .is_none());
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn block_containers_open_with_their_block_capacity() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let save_dir = temp_dir("block-containers");
+    let options = WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    );
+    let (thread, _start) = WorldThread::spawn(options).expect("spawn the world thread");
+    thread.load_chunk(0, 0).expect("load the chunk");
+    let chest = thread
+        .block_id_for_item("Furniture_Crude_Chest_Large")
+        .expect("block lookup")
+        .expect("chest block");
+    thread.set_block(4, 200, 4, chest).expect("place chest");
+
+    let open = thread
+        .open_block_container(4, 200, 4)
+        .expect("open container")
+        .expect("chest container");
+    assert_eq!(open.block_item_id, "Furniture_Crude_Chest_Large");
+    assert_eq!(open.capacity, 36);
+    assert_eq!(open.section.capacity, 36);
+    assert!(open.section.items.is_none() || open.section.items.as_ref().unwrap().is_empty());
+
+    thread.set_block(4, 200, 4, 0).expect("remove chest");
+    assert!(thread
+        .open_block_container(4, 200, 4)
+        .expect("removed container")
+        .is_none());
 
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();

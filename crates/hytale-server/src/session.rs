@@ -19,7 +19,7 @@
 //! rules are the same as the live session service; only the key authority is
 //! local.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
@@ -39,16 +39,17 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    DisconnectType, FormattedMessage, GameMode, InstantData, MapMarker, MapMarkerIconSize,
-    MouseButtonState, MouseButtonType, MovementSettings, MovementStates, PlayerSkin, PongType,
-    Position as ProtocolPosition, Transform as ProtocolTransform, UpdateType,
+    DisconnectType, FormattedMessage, GameMode, InstantData, MapChunk, MapMarker,
+    MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings, MovementStates,
+    PlayerSkin, PongType, Position as ProtocolPosition, Transform as ProtocolTransform, UpdateType,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
-use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo};
+use hytale_protocol::generated::interface_::Page;
+use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo, SetPage};
 use hytale_protocol::generated::inventory::{DropItemStack, SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
@@ -60,6 +61,7 @@ use hytale_protocol::generated::setup::{
     ServerTags, SetTimeDilation, SetUpdateRate, SetupFinalize, UpdateFeatures, ViewRadius,
     WorldLoadFinished, WorldLoadProgress, WorldSettings,
 };
+use hytale_protocol::generated::window::{CloseWindow, OpenWindow, SendWindowAction, WindowType};
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::ClearChunks;
 use hytale_protocol::generated::world::{
@@ -144,6 +146,9 @@ pub struct SessionOptions {
     pub idle_timeout: Duration,
     /// Authentication mode.
     pub auth: AuthMode,
+    /// Health removed from a block per left-click hit (`1.0` = break a full
+    /// health block in one hit, the pre-T57b behavior).
+    pub block_break_damage: f32,
     /// Optional packet trace recorder shared by every connection.
     pub trace: Option<Arc<TraceRecorder>>,
 }
@@ -160,6 +165,7 @@ impl Default for SessionOptions {
             world_join_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             auth: AuthMode::Insecure,
+            block_break_damage: 1.0,
             trace: None,
         }
     }
@@ -213,6 +219,10 @@ pub struct GameReport {
     pub movement_settings: bool,
     /// World-map settings/markers were written.
     pub world_map: bool,
+    /// World-map chunk images written on join.
+    pub map_chunks: usize,
+    /// World-map chunk images unloaded on join.
+    pub map_chunks_unloaded: usize,
     /// Runtime entities spawned after the chunk snapshot.
     pub runtime_entities: usize,
 }
@@ -276,6 +286,14 @@ pub struct GameLoopReport {
     pub block_uses: usize,
     /// Block state changes applied by interactions.
     pub block_state_changes: usize,
+    /// Block-container windows opened.
+    pub windows_opened: usize,
+    /// Block-container windows closed by the client or teardown.
+    pub windows_closed: usize,
+    /// World-map chunk images written while the player moved.
+    pub map_chunks: usize,
+    /// World-map chunk images unloaded while the player moved.
+    pub map_chunks_unloaded: usize,
     /// The client disconnected (or the connection closed) cleanly.
     pub disconnected: bool,
     /// The server disconnected the client for idling.
@@ -398,6 +416,15 @@ struct LiveGame<'a> {
     transform: &'a mut PlayerTransform,
     inventory: &'a mut PlayerInventory,
     interactions: Arc<InteractionCatalog>,
+    revealed_markers: &'a mut BTreeSet<String>,
+    map_chunks: &'a mut BTreeSet<(i32, i32)>,
+}
+
+/// The one block-container window this session owns (`OpenWindow.id`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OpenContainerWindow {
+    id: i32,
+    position: (i32, i32, i32),
 }
 
 /// Run authentication + setup on an accepted connection, transition to `Game`,
@@ -470,6 +497,7 @@ pub async fn serve_connection_with_registry(
     let mut player_transform = player_state.transform;
     let appearance = player_state.appearance;
     let mut inventory = player_state.inventory;
+    let mut revealed_markers = player_state.revealed_markers;
     let player_chunk = (
         block_to_chunk(player_transform.position.x),
         block_to_chunk(player_transform.position.z),
@@ -568,11 +596,45 @@ pub async fn serve_connection_with_registry(
                     options.chunk_compression_level,
                 )
                 .await?;
-            if let Some(markers) = world_map_markers(thread)? {
+            let (visible_markers, new_markers) =
+                map_markers_for_player(thread, &revealed_markers, player_transform.position)?;
+            if !visible_markers.is_empty() {
                 writer
-                    .write_packet(&markers, options.chunk_compression_level)
+                    .write_packet(
+                        &UpdateWorldMap {
+                            chunks: None,
+                            added_markers: Some(visible_markers),
+                            removed_markers: None,
+                        },
+                        options.chunk_compression_level,
+                    )
                     .await?;
             }
+            revealed_markers.extend(new_markers);
+            if !join.player_markers.is_empty() {
+                writer
+                    .write_packet(
+                        &UpdateWorldMap {
+                            chunks: None,
+                            added_markers: Some(join.player_markers.clone()),
+                            removed_markers: None,
+                        },
+                        options.chunk_compression_level,
+                    )
+                    .await?;
+            }
+            let mut map_chunks = BTreeSet::new();
+            let (map_added, map_removed) = send_world_map_images(
+                thread,
+                &mut writer,
+                player_chunk,
+                radius,
+                &mut map_chunks,
+                options.chunk_compression_level,
+            )
+            .await?;
+            game.map_chunks = map_added;
+            game.map_chunks_unloaded = map_removed;
             game.world_map = true;
             // Entities already present in the snapshot do not need their
             // queued spawn events replayed.
@@ -597,6 +659,8 @@ pub async fn serve_connection_with_registry(
                     transform: &mut player_transform,
                     inventory: &mut inventory,
                     interactions,
+                    revealed_markers: &mut revealed_markers,
+                    map_chunks: &mut map_chunks,
                 },
                 options,
             )
@@ -613,6 +677,8 @@ pub async fn serve_connection_with_registry(
         .await;
 
     let save_result = thread.save_player_state(player_uuid, player_transform, inventory);
+    let save_markers_result =
+        thread.save_player_revealed_markers(player_uuid, revealed_markers.clone());
     let view_report = thread.remove_view(view_id);
     // Unregister after the save so a reconnect can never observe the old entity
     // removal after the new player has already loaded its saved state.
@@ -620,6 +686,7 @@ pub async fn serve_connection_with_registry(
 
     let (game, game_loop, mut stream) = game_result?;
     save_result?;
+    save_markers_result?;
     stream.unloaded += view_report?.unloaded;
 
     Ok(SessionReport {
@@ -1325,19 +1392,42 @@ fn world_map_settings_packet() -> UpdateWorldMapSettings {
     }
 }
 
-fn world_map_markers(thread: &WorldThread) -> Result<Option<UpdateWorldMap>, WorldThreadError> {
-    let markers: Vec<MapMarker> = thread
-        .block_components()?
-        .into_iter()
-        .filter_map(|((x, y, z), component)| {
-            map_marker_from_component(x, y, z, &component.components)
-        })
-        .collect();
-    Ok((!markers.is_empty()).then_some(UpdateWorldMap {
-        chunks: None,
-        added_markers: Some(markers),
-        removed_markers: None,
-    }))
+fn map_markers_for_player(
+    thread: &WorldThread,
+    revealed: &BTreeSet<String>,
+    position: hytale_world::player_data::Position,
+) -> Result<(Vec<MapMarker>, Vec<String>), WorldThreadError> {
+    const DISCOVERY_RADIUS: f64 = 32.0;
+    let mut visible = Vec::new();
+    let mut discovered = Vec::new();
+    for ((x, y, z), component) in thread.block_components()? {
+        let Some(marker) = map_marker_from_component(x, y, z, &component.components) else {
+            continue;
+        };
+        let discoverable = marker_discoverable(&component.components);
+        let distance_squared =
+            (f64::from(x) + 0.5 - position.x).powi(2) + (f64::from(z) + 0.5 - position.z).powi(2);
+        let already_revealed = revealed.contains(&marker.id);
+        if already_revealed
+            || !discoverable
+            || distance_squared <= DISCOVERY_RADIUS * DISCOVERY_RADIUS
+        {
+            if !already_revealed {
+                discovered.push(marker.id.clone());
+            }
+            visible.push(marker);
+        }
+    }
+    Ok((visible, discovered))
+}
+
+fn marker_discoverable(components: &serde_json::Value) -> bool {
+    components
+        .get("Components")
+        .and_then(|value| value.get("BlockMapMarker"))
+        .and_then(|value| value.get("Discoverable"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn map_marker_from_component(
@@ -1378,6 +1468,150 @@ fn map_marker_from_component(
     })
 }
 
+async fn send_world_map_images(
+    thread: &WorldThread,
+    writer: &mut FrameWriter,
+    center: (i32, i32),
+    radius: u32,
+    map_chunks: &mut BTreeSet<(i32, i32)>,
+    compression_level: i32,
+) -> Result<(usize, usize), SessionError> {
+    const MAX_CHUNKS_PER_PACKET: usize = 32;
+    let radius = i32::try_from(radius).unwrap_or(i32::MAX);
+    let desired: BTreeSet<(i32, i32)> = thread
+        .loaded_chunks()?
+        .into_iter()
+        .filter(|(x, z)| (x - center.0).abs() <= radius && (z - center.1).abs() <= radius)
+        .collect();
+    let removed: Vec<(i32, i32)> = map_chunks.difference(&desired).copied().collect();
+    let added: Vec<(i32, i32)> = desired.difference(map_chunks).copied().collect();
+
+    let mut updates = Vec::new();
+    let mut added_count = 0;
+    for (x, z) in added {
+        if let Some(image) = thread.map_chunk_image(x, z)? {
+            updates.push(MapChunk {
+                chunk_x: x,
+                chunk_z: z,
+                image: Some(image),
+            });
+            map_chunks.insert((x, z));
+            added_count += 1;
+        }
+    }
+    let removed_count = removed.len();
+    for (x, z) in removed {
+        updates.push(MapChunk {
+            chunk_x: x,
+            chunk_z: z,
+            image: None,
+        });
+        map_chunks.remove(&(x, z));
+    }
+
+    for batch in updates.chunks(MAX_CHUNKS_PER_PACKET) {
+        writer
+            .write_packet(
+                &UpdateWorldMap {
+                    chunks: Some(batch.to_vec()),
+                    added_markers: None,
+                    removed_markers: None,
+                },
+                compression_level,
+            )
+            .await?;
+    }
+
+    Ok((added_count, removed_count))
+}
+
+async fn open_container_window(
+    thread: &WorldThread,
+    writer: &mut FrameWriter,
+    players: &PlayerRegistry,
+    (x, y, z): (i32, i32, i32),
+    window_id: i32,
+    compression_level: i32,
+) -> Result<Option<OpenContainerWindow>, SessionError> {
+    let Some(open) = thread.open_block_container(x, y, z)? else {
+        return Ok(None);
+    };
+    if let Ok(Some((before, after))) = thread.set_block_state(x, y, z, "OpenWindow") {
+        if before != after {
+            players.broadcast_block(ServerSetBlock {
+                x,
+                y,
+                z,
+                block_id: after,
+                filler: 0,
+                rotation: 0,
+            });
+        }
+    }
+    writer
+        .write_packet(
+            &SetPage {
+                page: Page::Bench,
+                can_close_through_interaction: true,
+            },
+            compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &OpenWindow {
+                id: window_id,
+                window_type: WindowType::Container,
+                window_data: Some(
+                    serde_json::json!({ "blockItemId": open.block_item_id }).to_string(),
+                ),
+                inventory: Some(open.section),
+                extra_resources: None,
+            },
+            compression_level,
+        )
+        .await?;
+    Ok(Some(OpenContainerWindow {
+        id: window_id,
+        position: (x, y, z),
+    }))
+}
+
+async fn close_container_window(
+    thread: &WorldThread,
+    writer: &mut FrameWriter,
+    players: &PlayerRegistry,
+    open: OpenContainerWindow,
+    compression_level: i32,
+) -> Result<(), SessionError> {
+    let (x, y, z) = open.position;
+    if let Ok(Some((before, after))) = thread.set_block_state(x, y, z, "CloseWindow") {
+        if before != after {
+            players.broadcast_block(ServerSetBlock {
+                x,
+                y,
+                z,
+                block_id: after,
+                filler: 0,
+                rotation: 0,
+            });
+        }
+    }
+    writer
+        .write_packet(&CloseWindow { id: open.id }, compression_level)
+        .await?;
+    writer
+        .write_packet(
+            &SetPage {
+                page: Page::None,
+                can_close_through_interaction: false,
+            },
+            compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
 async fn run_game_loop(
     connection: &quinn::Connection,
     thread: &WorldThread,
@@ -1400,6 +1634,8 @@ async fn run_game_loop(
         transform,
         inventory,
         interactions,
+        revealed_markers,
+        map_chunks,
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
@@ -1417,6 +1653,9 @@ async fn run_game_loop(
     let mut registry_center = center;
     let mut pending_movement = false;
     let mut last_movement: Option<std::time::Instant> = None;
+    let mut open_window: Option<OpenContainerWindow> = None;
+    let mut next_window_id = 1i32;
+    let mut last_map_view = (center, radius);
 
     if ready_for_gameplay {
         report.ready_for_gameplay = true;
@@ -1598,6 +1837,7 @@ async fn run_game_loop(
                             inventory,
                             &interactions,
                             &interaction,
+                            options.block_break_damage,
                         ) {
                             BlockInteractionOutcome::Edit { consumed } => {
                                 report.block_edits += 1;
@@ -1612,9 +1852,38 @@ async fn run_game_loop(
                                     broadcast_held_items(&players, network_id, inventory);
                                 }
                             }
-                            BlockInteractionOutcome::Use { state_changes } => {
+                            BlockInteractionOutcome::Use {
+                                state_changes,
+                                open_container,
+                            } => {
                                 report.block_uses += 1;
                                 report.block_state_changes += state_changes;
+                                if let Some(position) = open_container {
+                                    if let Some(previous) = open_window.take() {
+                                        close_container_window(
+                                            thread,
+                                            writer,
+                                            &players,
+                                            previous,
+                                            options.chunk_compression_level,
+                                        )
+                                        .await?;
+                                    }
+                                    if let Some(opened) = open_container_window(
+                                        thread,
+                                        writer,
+                                        &players,
+                                        position,
+                                        next_window_id,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?
+                                    {
+                                        next_window_id = next_window_id.saturating_add(1).max(1);
+                                        open_window = Some(opened);
+                                        report.windows_opened += 1;
+                                    }
+                                }
                             }
                             BlockInteractionOutcome::Rejected => {
                                 report.block_edit_rejections += 1;
@@ -1658,6 +1927,29 @@ async fn run_game_loop(
                             report.inventory_updates += 1;
                             broadcast_held_items(&players, network_id, inventory);
                         }
+                    }
+                    CloseWindow::ID => {
+                        let packet: CloseWindow = frame.decode()?;
+                        if let Some(open) = open_window {
+                            if open.id == packet.id {
+                                close_container_window(
+                                    thread,
+                                    writer,
+                                    &players,
+                                    open,
+                                    options.chunk_compression_level,
+                                )
+                                .await?;
+                                open_window = None;
+                                report.windows_closed += 1;
+                            }
+                        }
+                    }
+                    SendWindowAction::ID => {
+                        // T57b exposes the window/page contract only; recipe
+                        // and container transaction actions remain gameplay
+                        // work (T59/T60). Decoding keeps the packet framed.
+                        let _action: SendWindowAction = frame.decode()?;
                     }
                     ViewRadius::ID => {
                         let packet: ViewRadius = frame.decode()?;
@@ -1768,6 +2060,42 @@ async fn run_game_loop(
         }
 
         if time_ticker.elapsed() >= Duration::from_secs(1) {
+            let (visible, discovered) =
+                map_markers_for_player(thread, revealed_markers, transform.position)?;
+            if !discovered.is_empty() {
+                let discovered: BTreeSet<String> = discovered.into_iter().collect();
+                let added: Vec<MapMarker> = visible
+                    .into_iter()
+                    .filter(|marker| discovered.contains(&marker.id))
+                    .collect();
+                if !added.is_empty() {
+                    writer
+                        .write_packet(
+                            &UpdateWorldMap {
+                                chunks: None,
+                                added_markers: Some(added),
+                                removed_markers: None,
+                            },
+                            options.chunk_compression_level,
+                        )
+                        .await?;
+                }
+                revealed_markers.extend(discovered);
+            }
+            if last_map_view != (center, radius) {
+                let (added, removed) = send_world_map_images(
+                    thread,
+                    writer,
+                    center,
+                    radius,
+                    map_chunks,
+                    options.chunk_compression_level,
+                )
+                .await?;
+                report.map_chunks += added;
+                report.map_chunks_unloaded += removed;
+                last_map_view = (center, radius);
+            }
             let current_weather = thread.weather_at(
                 transform.position.x.floor() as i32,
                 transform.position.y.floor() as i32,
@@ -1820,6 +2148,18 @@ async fn run_game_loop(
             }
             time_ticker = std::time::Instant::now();
         }
+    }
+
+    if let Some(open) = open_window.take() {
+        let _ = close_container_window(
+            thread,
+            writer,
+            &players,
+            open,
+            options.chunk_compression_level,
+        )
+        .await;
+        report.windows_closed += 1;
     }
 
     Ok(report)
@@ -1897,8 +2237,13 @@ fn parse_block_edit(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BlockInteractionOutcome {
-    Edit { consumed: bool },
-    Use { state_changes: usize },
+    Edit {
+        consumed: bool,
+    },
+    Use {
+        state_changes: usize,
+        open_container: Option<(i32, i32, i32)>,
+    },
     Rejected,
 }
 
@@ -1909,6 +2254,7 @@ fn handle_block_interaction(
     inventory: &mut PlayerInventory,
     interactions: &InteractionCatalog,
     interaction: &MouseInteraction,
+    block_break_damage: f32,
 ) -> BlockInteractionOutcome {
     if let Some(outcome) = try_block_use(thread, players, transform, interactions, interaction) {
         return outcome;
@@ -1916,10 +2262,35 @@ fn handle_block_interaction(
 
     match parse_block_edit(transform, interaction) {
         Some(BlockEdit::Break { x, y, z }) => {
-            // One click deals the full current health (Java's block-health map is
-            // still authoritative for commands/mod APIs and partial damage).
-            if thread.damage_block(x, y, z, 1.0).is_err() {
-                return BlockInteractionOutcome::Rejected;
+            // Block health is authoritative. The default damage breaks a full
+            // health block in one hit (pre-T57b behavior); a lower configured
+            // value sends partial damage and keeps the block until health hits
+            // zero.
+            let damage = block_break_damage.clamp(f32::EPSILON, 1.0);
+            let remaining = match thread.damage_block(x, y, z, damage) {
+                Ok(remaining) => remaining,
+                Err(_) => return BlockInteractionOutcome::Rejected,
+            };
+            if remaining > 0.0 {
+                let delta = match thread.take_block_health_delta(x, y, z) {
+                    Ok(delta) => delta.unwrap_or(-damage),
+                    Err(_) => -damage,
+                };
+                if let Ok(packets) = thread.block_damage_packets_for_deltas(&[
+                    hytale_world::simulation::BlockHealthDelta { x, y, z, delta },
+                ]) {
+                    for packet in packets {
+                        match packet {
+                            BlockDamagePacket::Single(packet) => {
+                                players.broadcast_block_damage(packet)
+                            }
+                            BlockDamagePacket::Section(packet) => {
+                                players.broadcast_block_damages(packet)
+                            }
+                        }
+                    }
+                }
+                return BlockInteractionOutcome::Edit { consumed: false };
             }
             let Ok((before, after)) = thread.set_block(x, y, z, 0) else {
                 return BlockInteractionOutcome::Rejected;
@@ -1988,10 +2359,16 @@ fn try_block_use(
     let block = BlockInteractions::from_json(&block_key, &block_json);
 
     if block.bench {
-        return Some(BlockInteractionOutcome::Use { state_changes: 0 });
+        return Some(BlockInteractionOutcome::Use {
+            state_changes: 0,
+            open_container: None,
+        });
     }
     if block.container {
-        return Some(BlockInteractionOutcome::Use { state_changes: 0 });
+        return Some(BlockInteractionOutcome::Use {
+            state_changes: 0,
+            open_container: Some((x, y, z)),
+        });
     }
 
     let (interaction_type, root_id) = block.use_root()?;
@@ -2007,6 +2384,7 @@ fn try_block_use(
 
     let mut handled = false;
     let mut state_changes = 0;
+    let mut open_container = None;
     for action in outcome.actions {
         match action {
             WorldAction::Door { .. } => {
@@ -2044,7 +2422,10 @@ fn try_block_use(
                     handled = true;
                 }
             }
-            WorldAction::OpenContainer => handled = true,
+            WorldAction::OpenContainer => {
+                open_container = Some((x, y, z));
+                handled = true;
+            }
             WorldAction::OpenBench => handled = true,
             WorldAction::BreakBlock => {
                 if let Ok((before, after)) = thread.set_block(x, y, z, 0) {
@@ -2068,7 +2449,10 @@ fn try_block_use(
         }
     }
 
-    handled.then_some(BlockInteractionOutcome::Use { state_changes })
+    handled.then_some(BlockInteractionOutcome::Use {
+        state_changes,
+        open_container,
+    })
 }
 
 fn toggle_door(
@@ -2558,6 +2942,12 @@ mod tests {
                 .map(|position| (position.x, position.y, position.z)),
             Some((10.5, 64.5, -2.5))
         );
+        assert!(marker_discoverable(&serde_json::json!({
+            "Components": {"BlockMapMarker": {"Discoverable": true}}
+        })));
+        assert!(!marker_discoverable(&serde_json::json!({
+            "Components": {"BlockMapMarker": {}}
+        })));
         let settings = world_map_settings_packet();
         assert!(settings.enabled);
         assert_eq!(settings.default_scale, 128.0);

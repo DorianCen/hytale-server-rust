@@ -25,14 +25,17 @@ use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, Serv
 use hytale_protocol::generated::common::{
     Asset, BlockDamageCmd, BlockPosition, ClientDisconnectReason, ComponentUpdate, DisconnectType,
     FormattedMessage, MapMarker, MouseButtonEvent, MouseButtonState, MouseButtonType,
-    MovementSettings, PlayerSkin, PongType, Position, TeleportAck, WorldInteraction,
+    MovementSettings, Page, PlayerSkin, PongType, Position, TeleportAck, WindowType,
+    WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
-use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
+use hytale_protocol::generated::interface_::{
+    AddToServerPlayerList, RemoveFromServerPlayerList, SetPage,
+};
 use hytale_protocol::generated::inventory::{SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
@@ -43,6 +46,7 @@ use hytale_protocol::generated::setup::{
     ServerTags, SetTimeDilation, SetUpdateRate, SetupFinalize, UpdateFeatures, ViewRadius,
     WorldLoadFinished, WorldSettings,
 };
+use hytale_protocol::generated::window::{CloseWindow, OpenWindow, UpdateWindow};
 use hytale_protocol::generated::wire::{Packet, Vector2f, Wire};
 use hytale_protocol::generated::world::{
     ClearChunks, ServerSetBlock, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn,
@@ -443,6 +447,51 @@ pub struct ObservedMapMarker {
     pub position: Option<Position>,
 }
 
+/// One world-map chunk image (or unload) from `UpdateWorldMap.chunks`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedMapChunk {
+    /// Chunk x.
+    pub chunk_x: i32,
+    /// Chunk z.
+    pub chunk_z: i32,
+    /// False for an unload (`image: None`).
+    pub loaded: bool,
+    /// Image width when loaded.
+    pub width: Option<i32>,
+    /// Image height when loaded.
+    pub height: Option<i32>,
+    /// Palette entry count when loaded.
+    pub palette_entries: Option<usize>,
+}
+
+/// One window packet seen during the observation window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedWindow {
+    /// Window id.
+    pub id: i32,
+    /// Packet that carried it.
+    pub event: ObservedWindowEvent,
+    /// `OpenWindow.windowType` when opened.
+    pub window_type: Option<WindowType>,
+    /// `OpenWindow.windowData` JSON string when opened.
+    pub window_data: Option<String>,
+    /// Container capacity when present.
+    pub capacity: Option<i16>,
+    /// Occupied container slots when present.
+    pub occupied_slots: Option<usize>,
+}
+
+/// Window packet kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservedWindowEvent {
+    /// `OpenWindow`.
+    Open,
+    /// `UpdateWindow`.
+    Update,
+    /// `CloseWindow`.
+    Close,
+}
+
 /// Player-list, entity and block broadcasts observed after a join.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlayerObservation {
@@ -458,6 +507,12 @@ pub struct PlayerObservation {
     pub block_damages: Vec<ObservedBlockDamage>,
     /// World-map markers from the default stream.
     pub map_markers: Vec<ObservedMapMarker>,
+    /// World-map chunk images/unloads from the default stream.
+    pub map_chunks: Vec<ObservedMapChunk>,
+    /// Window open/update/close packets.
+    pub windows: Vec<ObservedWindow>,
+    /// `SetPage` values.
+    pub pages: Vec<Page>,
     /// Authoritative `ClientTeleport` corrections received from the server.
     pub teleports: Vec<Position>,
 }
@@ -756,11 +811,72 @@ async fn observe_players(
                     }
                     UpdateWorldMap::ID => {
                         let packet: UpdateWorldMap = frame.decode()?;
+                        if let Some(chunks) = packet.chunks {
+                            observation.map_chunks.extend(chunks.into_iter().map(|chunk| {
+                                let image = chunk.image;
+                                ObservedMapChunk {
+                                    chunk_x: chunk.chunk_x,
+                                    chunk_z: chunk.chunk_z,
+                                    loaded: image.is_some(),
+                                    width: image.as_ref().map(|image| image.width),
+                                    height: image.as_ref().map(|image| image.height),
+                                    palette_entries: image
+                                        .as_ref()
+                                        .and_then(|image| image.palette.as_ref())
+                                        .map(Vec::len),
+                                }
+                            }));
+                        }
                         if let Some(markers) = packet.added_markers {
                             observation.map_markers.extend(
                                 markers.into_iter().filter_map(observed_map_marker),
                             );
                         }
+                    }
+                    OpenWindow::ID => {
+                        let packet: OpenWindow = frame.decode()?;
+                        observation.windows.push(ObservedWindow {
+                            id: packet.id,
+                            event: ObservedWindowEvent::Open,
+                            window_type: Some(packet.window_type),
+                            window_data: packet.window_data,
+                            capacity: packet.inventory.as_ref().map(|section| section.capacity),
+                            occupied_slots: packet
+                                .inventory
+                                .as_ref()
+                                .and_then(|section| section.items.as_ref())
+                                .map(BTreeMap::len),
+                        });
+                    }
+                    UpdateWindow::ID => {
+                        let packet: UpdateWindow = frame.decode()?;
+                        observation.windows.push(ObservedWindow {
+                            id: packet.id,
+                            event: ObservedWindowEvent::Update,
+                            window_type: None,
+                            window_data: packet.window_data,
+                            capacity: packet.inventory.as_ref().map(|section| section.capacity),
+                            occupied_slots: packet
+                                .inventory
+                                .as_ref()
+                                .and_then(|section| section.items.as_ref())
+                                .map(BTreeMap::len),
+                        });
+                    }
+                    CloseWindow::ID => {
+                        let packet: CloseWindow = frame.decode()?;
+                        observation.windows.push(ObservedWindow {
+                            id: packet.id,
+                            event: ObservedWindowEvent::Close,
+                            window_type: None,
+                            window_data: None,
+                            capacity: None,
+                            occupied_slots: None,
+                        });
+                    }
+                    SetPage::ID => {
+                        let packet: SetPage = frame.decode()?;
+                        observation.pages.push(packet.page);
                     }
                     UpdatePlayerInventory::ID => {
                         game.inventory = Some(frame.decode()?);

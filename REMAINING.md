@@ -15,7 +15,7 @@ Deferred to M5:
   T53 lands the stat/effect/damage models, the Java asset fixture and the
   `EntityGameplay` component seam; T57 lands block-health/runtime-entity/map
   presentation, but condition evaluation, damage calculators, effect DoT and
-  per-entity stat/effect/damage packets remain T57b/T59.
+  per-entity stat/effect/damage packets remain T59.
 - Crafting, recipes, item quality, drops, shops, rewards.
 - Projectiles beyond T55's deterministic core (legacy flight, block/entity hit,
   bounce/stick/TTL, new-config seam): density/drag/buoyancy/rolling and
@@ -29,16 +29,18 @@ Deferred to M5:
   beyond the T49 item-stack/container/transaction core and T56's persisted item
   entities (hotbar/utility/armor/storage/tools/backpack, active slots,
   held-item consumption and save/reconnect are landed; fixed-item simulation
-  drops spawn runtime item entities, but full item metadata/quality in entity
-  spawn packets and weighted drop lists remain T57b/T59).
+  drops spawn runtime item entities, block-container inventories persist and the
+  minimal `OpenWindow`/`CloseWindow` round trip is landed by T57b, but
+  `MoveItemStack` routing, bench crafting windows and weighted drop lists remain
+  T59/T60).
 - Interaction graph beyond the T50 block `Use`/door/state core: item and entity
   roots, selectors, effects/sounds, cooldowns, client-chain sync and
-  container/bench windows (T57b/T59).
+  bench/crafting windows (T59/T60); container windows are landed by T57b.
 - Block physics/ticking/fluids beyond T52/T52b/T52c: builtin
   `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks`/`Fluid` module
   lifecycle (T60), weather-driven fire (T54) and sound playback (T60). T57
-  landed the block-health load/delta packets and fragility clearing; T57b owns
-  partial-hit breaking and the remaining presentation. T52b/d
+  landed the block-health load/delta packets and fragility clearing; T57b adds
+  partial-hit breaking and the window/map-image presentation. T52b/d
   cover partial-hitbox fluid coverage, waterlogging, finite/fire tickers,
   disabled tickers,
   `MaxSupportDistance` chains, filler/self-face support, light/fluid gates,
@@ -51,11 +53,12 @@ Deferred to M5:
   helper. Per-packet speed/teleport anti-cheat remains T62; fluids, triggers,
   world mount entities and entity collisions remain T52/T56/T58.
 - Instances, encounters, portals, adventure plugins.
-- Full world map UI/image provider and live map rendering beyond T57's settings
-  and `BlockMapMarker` points of interest (T57b/T60).
-- Weather presentation beyond T54's state/forecast/transition core: full
-  `UpdateWeathers` asset-document parity, particles/screen effects/audio and the
-  editor preview lock (T57b/T60).
+- Full world map UI/image provider and live map rendering beyond T57's settings,
+  `BlockMapMarker` points of interest and T57b's per-chunk palette images
+  (T60/later).
+- Weather presentation beyond T54's state/forecast/transition core: particles/
+  screen effects/audio and the editor preview lock (T59/T60); the
+  `UpdateWeathers` config packet is landed by T57b.
 
 Deferred to M6:
 

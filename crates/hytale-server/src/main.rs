@@ -586,6 +586,7 @@ fn run_serve_command(args: ServeArgs) -> ExitCode {
         world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
         idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
         auth,
+        block_break_damage: 1.0,
         trace: None,
     };
     let options = ServeOptions {
@@ -712,6 +713,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
             world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
             idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
             auth,
+            block_break_damage: 1.0,
             trace: None,
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),

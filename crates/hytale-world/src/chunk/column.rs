@@ -81,6 +81,21 @@ impl Heightmap {
             Self::Tree(_) => None,
         }
     }
+
+    /// One column's height in the legacy backend, or `None` for the tree
+    /// backend / out-of-range coordinates.
+    pub fn height(&self, x: i32, z: i32) -> Option<i32> {
+        if !(0..SIZE).contains(&x) || !(0..SIZE).contains(&z) {
+            return None;
+        }
+        match self {
+            Self::Legacy(heights) => heights
+                .get(column_index(x, z))
+                .copied()
+                .filter(|height| *height != NO_HEIGHT),
+            Self::Tree(_) => None,
+        }
+    }
 }
 
 /// A runtime chunk column.

@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 48)
+# Next steps — CoreServer rewrite, phase 2 (session 49)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -148,15 +148,22 @@ Landed and green:
   ignored dev-join loopback verifies the marker and three prefab entity spawns.
   Map chunk images, discovery/reveal, dynamic entity transforms and the
   remaining presentation packets are T57b.
-- T57b (in progress, session 48): the M5 presentation follow-up now encodes
+- T57b (in progress, session 49): the M5 presentation follow-up now encodes
   `UpdateEntityStatTypes` (72), `UpdateEntityEffects` (51),
   `UpdateProjectileConfigs` (85) and `UpdateWeathers` (47) in the 21-packet
   cached config burst, carries the full item stack payload
   (durability/quality/metadata) in item entity spawns, and delivers runtime
-  entity lifecycle events (spawn/update/despawn) to viewers. Still open:
-  partial-hit block breaking, map images/discovery and the minimal HUD/window
-  packets. Producers stay with T58/T59/T60; T57b should land before M5 is
-  declared fully closed.
+  entity lifecycle events (spawn/update/despawn) to viewers. Partial-hit block
+  breaking is supported through `SessionOptions.block_break_damage` (default
+  1.0), other-player map markers follow joins/moves/leaves, and discoverable
+  block markers are revealed/persisted. Session 49 adds 96×96 palette map
+  images for the loaded view with `UpdateWorldMap.chunks` load/unload diffs,
+  and persisted block-container inventories with the
+  `SetPage(Bench)`/`OpenWindow(Container)`/`CloseWindow` round trip. Still
+  open: bench crafting windows (T60 builtin), container item transactions,
+  map refresh on block edits and particle/weather presentation.
+  Producers stay with T58/T59/T60; T57b should land before M5 is declared fully
+  closed.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset

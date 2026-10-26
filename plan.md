@@ -856,7 +856,7 @@ block health/breaking presentation.
 
 ### T57b — Presentation follow-ups
 
-**Status:** in progress (session 48)
+**Status:** in progress (session 49)
 **Package:** `hytale-assets`, `hytale-server`, `tools/client-bot`
 **Depends on:** T57
 **Agent fit:** low/medium
@@ -871,6 +871,12 @@ the packet/encoder/UI contract and scripted client coverage.
 full item metadata, all new config packets in the join burst, map
 images/discovery and the M5 HUD/window packets are visible in scripted runs;
 existing v1/T56/T57 gates stay green.
+
+**Landed (session 49):** chunk world-map images with join/view-change load and
+unload, plus persisted block-container inventories and the
+`SetPage(Bench)`/`OpenWindow(Container)`/`CloseWindow` window round trip.
+Bench-specific crafting windows stay with the builtin Crafting module (T60);
+container item transactions and map refresh on block edits are follow-ups.
 
 **Follow-ups:** full UI framework, editor/builder tools, machinima and
 multi-server map state stay T61/later.

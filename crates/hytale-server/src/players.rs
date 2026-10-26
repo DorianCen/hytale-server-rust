@@ -17,15 +17,18 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use hytale_protocol::generated::common::{
-    ComponentUpdate, Direction, EntityUpdate, EquipmentUpdate, ItemUpdate, ItemWithAllMetadata,
-    Model, ModelTransform, ModelUpdate, NameplateUpdate, PlayerSkin, PlayerSkinUpdate,
-    Position as ProtocolPosition, ServerPlayerListPlayer, TransformUpdate,
+    ComponentUpdate, Direction, EntityUpdate, EquipmentUpdate, FormattedMessage, ItemUpdate,
+    ItemWithAllMetadata, MapMarker, MapMarkerComponent, MapMarkerIconSize, Model, ModelTransform,
+    ModelUpdate, NameplateUpdate, PlayerMarkerComponent, PlayerSkin, PlayerSkinUpdate,
+    Position as ProtocolPosition, ServerPlayerListPlayer, Transform as ProtocolTransform,
+    TransformUpdate,
 };
 use hytale_protocol::generated::entities::EntityUpdates;
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
 use hytale_protocol::generated::world::{
     ServerSetBlock, ServerSetFluid, UpdateBlockDamage, UpdateBlockDamages,
 };
+use hytale_protocol::generated::worldmap::UpdateWorldMap;
 use hytale_protocol::io::Uuid;
 use hytale_world::player_data::{
     PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
@@ -49,6 +52,8 @@ pub enum PlayerMessage {
     BlockDamage(UpdateBlockDamage),
     /// A section's block-health changes on the chunks stream.
     BlockDamages(UpdateBlockDamages),
+    /// A world-map marker add/remove batch.
+    WorldMap(UpdateWorldMap),
 }
 
 /// A queued player/entity/block message failed to write.
@@ -92,6 +97,8 @@ pub struct PlayerJoin {
     pub network_id: i32,
     /// The complete player list to send to the joining client (self included).
     pub player_list: Vec<ServerPlayerListPlayer>,
+    /// Existing players' map markers for the joining client.
+    pub player_markers: Vec<MapMarker>,
 }
 
 struct PlayerEntry {
@@ -203,12 +210,32 @@ impl PlayerRegistry {
                 PlayerMessage::AddToPlayerList(vec![list_entry.clone()]),
             );
         }
+        // Map markers are global, not view-filtered.
+        let new_marker = player_marker(&inner.players[&network_id]);
+        for player in inner.players.values() {
+            if player.network_id != network_id {
+                queue(
+                    player,
+                    PlayerMessage::WorldMap(UpdateWorldMap {
+                        chunks: None,
+                        added_markers: Some(vec![new_marker.clone()]),
+                        removed_markers: None,
+                    }),
+                );
+            }
+        }
 
         let player_list = inner
             .players
             .values()
             .map(PlayerEntry::list_entry)
             .collect::<Vec<_>>();
+        let player_markers = inner
+            .players
+            .values()
+            .filter(|player| player.network_id != network_id)
+            .map(player_marker)
+            .collect();
         recompute_visibility(&mut inner);
         drop(inner);
 
@@ -220,6 +247,7 @@ impl PlayerRegistry {
             PlayerJoin {
                 network_id,
                 player_list,
+                player_markers,
             },
         )
     }
@@ -230,8 +258,17 @@ impl PlayerRegistry {
         let entry = inner.players.remove(&network_id)?;
         let uuid = entry.uuid;
         let list = vec![uuid];
+        let marker_id = format!("Player-{uuid}");
         for player in inner.players.values() {
             queue(player, PlayerMessage::RemoveFromPlayerList(list.clone()));
+            queue(
+                player,
+                PlayerMessage::WorldMap(UpdateWorldMap {
+                    chunks: None,
+                    added_markers: None,
+                    removed_markers: Some(vec![marker_id.clone()]),
+                }),
+            );
         }
         recompute_visibility(&mut inner);
         Some(uuid)
@@ -498,9 +535,15 @@ fn broadcast_transform(inner: &Inner, network_id: i32) {
         return;
     };
     let updates = transform_entity_updates(network_id, target.transform);
+    let map_update = UpdateWorldMap {
+        chunks: None,
+        added_markers: Some(vec![player_marker(target)]),
+        removed_markers: None,
+    };
     for (viewer_id, viewer) in &inner.players {
         if *viewer_id != network_id && viewer.visible.contains(&network_id) {
             queue(viewer, PlayerMessage::EntityUpdates(updates.clone()));
+            queue(viewer, PlayerMessage::WorldMap(map_update.clone()));
         }
     }
 }
@@ -706,6 +749,33 @@ fn runtime_entity_name(entity: &RuntimeEntity) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn player_marker(player: &PlayerEntry) -> MapMarker {
+    MapMarker {
+        id: format!("Player-{}", player.uuid),
+        name: Some(FormattedMessage {
+            raw_text: Some(player.username.clone()),
+            ..FormattedMessage::default()
+        }),
+        marker_image: "Player.png".to_string(),
+        transform: ProtocolTransform {
+            position: Some(ProtocolPosition {
+                x: player.transform.position.x,
+                y: player.transform.position.y,
+                z: player.transform.position.z,
+            }),
+            orientation: None,
+        },
+        context_menu_items: None,
+        components: Some(vec![MapMarkerComponent::PlayerMarkerComponent(
+            PlayerMarkerComponent {
+                player_id: player.uuid,
+            },
+        )]),
+        icon_size: MapMarkerIconSize::Default,
+        compass_image: None,
+    }
+}
+
 /// Convert a saved transform to the protocol model transform.
 pub fn model_transform(transform: PlayerTransform) -> ModelTransform {
     let position = ProtocolPosition {
@@ -796,6 +866,9 @@ pub async fn write_message(
         }
         PlayerMessage::BlockDamages(update) => {
             chunks.write_packet(&update, compression_level).await?;
+        }
+        PlayerMessage::WorldMap(update) => {
+            writer.write_packet(&update, compression_level).await?;
         }
     }
     Ok(())
@@ -998,6 +1071,48 @@ mod tests {
         assert_eq!(item.item.quality, 4);
         assert!(item.item.override_dropped_item_animation);
         assert_eq!(item.item.metadata.as_deref(), Some("{\"Test\":true}"));
+    }
+
+    #[test]
+    fn player_markers_follow_joins_moves_and_leaves() {
+        let registry = Arc::new(PlayerRegistry::new());
+        let (first_tx, first_rx) = channel();
+        let (first, _) = registry.register(request(Uuid::new(1, 1), "First", (0, 0), first_tx));
+        let (second_tx, _second_rx) = channel();
+        let (second, second_join) =
+            registry.register(request(Uuid::new(1, 2), "Second", (0, 0), second_tx));
+        assert!(second_join
+            .player_markers
+            .iter()
+            .any(|marker| marker.id == format!("Player-{}", Uuid::new(1, 1))));
+
+        let first_messages = drain(&first_rx);
+        assert!(first_messages.iter().any(|message| matches!(
+            message,
+            PlayerMessage::WorldMap(update)
+                if update.added_markers.as_ref().is_some_and(|markers| markers
+                    .iter()
+                    .any(|marker| marker.id == format!("Player-{}", Uuid::new(1, 2))))
+        )));
+
+        assert!(registry.update_transform(2, transform(12.0, 12.0)));
+        let first_messages = drain(&first_rx);
+        assert!(first_messages.iter().any(|message| matches!(
+            message,
+            PlayerMessage::WorldMap(update)
+                if update.added_markers.as_ref().is_some_and(|markers| markers
+                    .iter()
+                    .any(|marker| marker.id == format!("Player-{}", Uuid::new(1, 2))))
+        )));
+
+        drop(second);
+        let first_messages = drain(&first_rx);
+        assert!(first_messages.iter().any(|message| matches!(
+            message,
+            PlayerMessage::WorldMap(update)
+                if update.removed_markers.as_deref() == Some([format!("Player-{}", Uuid::new(1, 2))].as_slice())
+        )));
+        drop(first);
     }
 
     #[test]

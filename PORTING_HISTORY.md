@@ -1103,18 +1103,17 @@ This file records phase-2 sessions only.
   - `HYTALE_SHARED_ASSETS=1 cargo test -p client-bot --test dev_join -- --ignored`.
   - Clippy `-D warnings` and rustfmt.
 - **Deviations:**
-  - Block-health packets cover load snapshots and simulation deltas; the
-    client-side breaking animation/partial-hit interaction loop is later combat
-    work.
+  - Block-health packets cover load snapshots and simulation deltas; T57b adds
+    configurable partial-hit damage and the immediate hit packet.
   - World-map image chunks, discovery/reveal and dynamic entity transforms are
     not implemented; markers are sent as points of interest and runtime entities
     are static spawn presentations.
   - `UpdateEntityStatTypes`/`UpdateEntityEffects`/`UpdateProjectileConfigs`/
     `UpdateWeathers`, particles/sounds and HUD windows remain T59/T60.
 - **Follow-ups:**
-  - T57b tracks the remaining T57 presentation gaps: partial-hit block
-    interaction, entity transform/despawn/metadata, the stat/effect/projectile/
-    weather config packets, map images/discovery and minimal HUD/window packets.
+  - T57b tracks the remaining T57 presentation gaps; its first slices add
+    entity config packets, item metadata, entity lifecycle events and partial-hit
+    block damage. Map images/discovery and HUD/window packets remain.
   - T58/T59 add NPC entities and the combat/stat/effect/damage producers those
     packets present.
   - T60 ports the selected builtin world-map/weather modules.
@@ -1139,6 +1138,14 @@ This file records phase-2 sessions only.
   - `DropItemStack` item entities now carry durability, max durability,
     quality, dropped-animation override and metadata; `ItemWithAllMetadata`
     maps all of them.
+  - Partial-hit block breaking is configurable through
+    `SessionOptions.block_break_damage` (default 1.0). A partial hit sends one
+    immediate `UpdateBlockDamage` and consumes the pending delta; the door
+    loopback covers a 0.5 hit.
+  - Other-player map markers are sent on join/move/leave as `Player.png`
+    markers with `PlayerMarkerComponent`, globally like Java. Discoverable
+    block markers are revealed within 32 blocks and persisted in the player save
+    through `RustRevealedMarkers` (the Java `PlayerWorldData` placeholder).
   - Runtime entity lifecycle events (Spawned/Updated/Despawned) are queued by
     the world thread, drained by sessions and broadcast to viewers;
     `update_entity_transform` is the transform-update producer seam.
@@ -1151,6 +1158,66 @@ This file records phase-2 sessions only.
   - `cargo test -p hytale-server --test world_thread config_assets_are_cached_per_world`.
   - `HYTALE_SHARED_ASSETS=1 cargo test -p client-bot --test auth_join -- --ignored`.
   - `./tools/test.sh fast`, clippy and rustfmt.
-- **Still open in T57b:** partial-hit block breaking, map images/discovery and
-  HUD/window packets. Projectile physics/visual subfields and the full weather
-  document (clouds/colors/particles/fog) are core-field mappings only.
+- **Still open in T57b:** map chunk images and HUD/window packets. Discovery
+  uses proximity rather than Java's aim/view-cone rule.
+  Projectile physics/visual subfields and the full weather document
+  (clouds/colors/particles/fog) are core-field mappings only.
+
+---
+
+## Session 49 — T57b second slice: map images and container windows (2026-10-26)
+
+- **Goal:** close the two T57b gaps left after session 48 — chunk world-map
+  images and the minimal HUD/window packets.
+- **Landed:**
+  - `hytale-server::map_image` renders one 96×96 palette image per loaded
+    chunk from the legacy heightmap, column tint, `BlockType` tint/particle
+    colours and the top fluid layer. Pixels use Java's ARGB packing, palette
+    bit packing and quantization; height shading and water blending follow
+    `ImageBuilder`. Images are cached per chunk in `WorldThread` and
+    invalidated by block/fluid/simulation/prefab changes.
+  - Sessions send `UpdateWorldMap.chunks` for loaded chunks in view on join and
+    after view changes, and `MapChunk { image: None }` for images that leave
+    the view. Batches are capped at 32 chunks per packet to stay below the
+    Java frame limit.
+  - `hytale-world::containers` adds a persisted `BlockContainerStore`
+    (`block-containers.json`, runtime-state version 1) keyed by block position;
+    `World` exposes get/set/remove/get-or-create and loads/saves it with the
+    other runtime sidecars. Replacing a block drops its container.
+  - `WorldThread::open_block_container` reads
+    `BlockEntity.Components.ItemContainerBlock.Capacity` and
+    `BlockType.container_item` from the real merged block asset, creates the
+    inventory on first open and returns its `InventorySection`.
+  - A right-click `OpenContainer` interaction sends `SetPage(Bench)` then
+    `OpenWindow(Container)` with `blockItemId`, the live inventory and the
+    block's `OpenWindow` state variant. `CloseWindow` and session teardown echo
+    the close, switch back to `CloseWindow` and send `SetPage(None)`.
+  - State variant changes now preserve block components and container
+    inventories instead of deleting them with the block.
+  - `client-bot` records map chunks, pages and window packets; the ignored
+    container loopback verifies the 96×96 image, bench page, 36-slot window and
+    server-side open/close counters.
+  - `GameReport`/`GameLoopReport` report map image load/unload and window
+    counts.
+- **Verified:**
+  - `cargo test -p hytale-world --lib containers::tests`.
+  - `cargo test -p hytale-server --test world_thread map_chunk_images_follow_loaded_chunks`.
+  - `cargo test -p hytale-server --test world_thread block_containers_open_with_their_block_capacity`.
+  - `cargo test -p client-bot --test block_interactions container_use_opens_a_window_and_map_image -- --ignored`.
+  - `./tools/test.sh fast` (1332 tests).
+  - `cargo clippy --workspace --all-targets -- -D warnings` and rustfmt.
+- **Deviations:**
+  - Map images are not byte-identical to Java (`ImageBuilder` shading/dither
+    tuning); the palette form, size, transparency and terrain/water silhouette
+    follow the reference. Images refresh on view changes, not on every block
+    edit.
+  - Map view radius follows the session chunk view instead of Java's
+    `viewRadius * 2` clamp; only loaded chunks produce images.
+  - Container windows are presentation-only: `MoveItemStack`/`SmartMoveItemStack`
+    routing, distance validation and multi-viewer open-state counting remain
+    gameplay work. Bench crafting windows/page data stay with the builtin
+    Crafting module (T60); a bench block is still a handled no-op.
+- **Follow-ups:**
+  - T59/T60 add container transactions, bench windows, particles/sounds and
+    weather presentation.
+  - T62 rate-limits map image packets and window traffic.

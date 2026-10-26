@@ -18,6 +18,7 @@ use crate::chunk::section::SectionError;
 use crate::chunk::storage::{
     parse_region_file_name, region_coords, region_path, ChunkCodec, ChunkStorageError, RegionFile,
 };
+use crate::containers::BlockContainerStore;
 use crate::player_data::{
     PlayerData, PlayerDataError, PlayerStorage, PlayerTransform, Position, Rotation,
 };
@@ -222,6 +223,8 @@ pub struct World {
     entities: RuntimeEntityStore,
     /// Per-position block-component documents (Java `BlockComponentSection`).
     block_components: BlockComponentStore,
+    /// Per-position block container inventories (Java `ItemContainerBlock`).
+    containers: BlockContainerStore,
 }
 
 impl World {
@@ -236,6 +239,7 @@ impl World {
             block_support: BTreeMap::new(),
             entities: RuntimeEntityStore::new(),
             block_components: BlockComponentStore::new(),
+            containers: BlockContainerStore::new(),
         }
     }
 
@@ -314,6 +318,7 @@ impl World {
             self.changed_blocks.insert((x, y, z));
             self.block_support.remove(&(x, y, z));
             self.block_components.remove(x, y, z);
+            self.containers.remove(x, y, z);
         }
         Ok(changed)
     }
@@ -355,6 +360,7 @@ impl World {
             self.changed_blocks.insert((x, y, z));
             self.block_support.remove(&(x, y, z));
             self.block_components.remove(x, y, z);
+            self.containers.remove(x, y, z);
         }
         Ok(changed)
     }
@@ -484,11 +490,65 @@ impl World {
         self.block_components.remove(x, y, z)
     }
 
-    /// Load `entities.json` and `block-components.json` from the save root.
+    /// Block-container store.
+    pub fn containers(&self) -> &BlockContainerStore {
+        &self.containers
+    }
+
+    /// Mutable block-container store.
+    pub fn containers_mut(&mut self) -> &mut BlockContainerStore {
+        &mut self.containers
+    }
+
+    /// One block's container inventory.
+    pub fn container(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Option<&hytale_inventory::SimpleItemContainer> {
+        self.containers.get(x, y, z)
+    }
+
+    /// Install/replace one block's container inventory.
+    pub fn set_container(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        container: hytale_inventory::SimpleItemContainer,
+    ) {
+        self.containers.set(x, y, z, container);
+    }
+
+    /// Get or create one block's container inventory.
+    pub fn container_or_create(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        capacity: u16,
+    ) -> &mut hytale_inventory::SimpleItemContainer {
+        self.containers.get_or_create(x, y, z, capacity)
+    }
+
+    /// Remove one block's container inventory.
+    pub fn remove_container(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Option<hytale_inventory::SimpleItemContainer> {
+        self.containers.remove(x, y, z)
+    }
+
+    /// Load `entities.json`, `block-components.json` and
+    /// `block-containers.json` from the save root.
     pub fn load_runtime_state(&mut self) -> Result<()> {
         let save_dir = self.storage.save_dir().to_path_buf();
         self.entities = RuntimeEntityStore::load(&save_dir)?;
         self.block_components = BlockComponentStore::load(&save_dir)?;
+        self.containers = BlockContainerStore::load(&save_dir)?;
         Ok(())
     }
 
@@ -497,7 +557,8 @@ impl World {
         let save_dir = self.storage.save_dir().to_path_buf();
         let entities = self.entities.save(&save_dir)?;
         let blocks = self.block_components.save(&save_dir)?;
-        Ok(entities || blocks)
+        let containers = self.containers.save(&save_dir)?;
+        Ok(entities || blocks || containers)
     }
 
     /// Remaining block health (`1.0` when undamaged).
@@ -530,6 +591,14 @@ impl World {
         let mut entries = Vec::new();
         collect_health_entries(column, x, z, &mut entries);
         entries
+    }
+
+    /// Take and clear one block's pending health replication delta.
+    pub fn take_block_health_delta(&mut self, x: i32, y: i32, z: i32) -> Option<f32> {
+        self.chunks
+            .get_mut(&index_chunk(x >> 5, z >> 5))
+            .and_then(|column| column.section_mut(y))
+            .and_then(|section| section.health.take_delta(index_local(x, y, z)))
     }
 
     /// Java `BlockHealthSection.damage`: subtract `amount` and return the rest.

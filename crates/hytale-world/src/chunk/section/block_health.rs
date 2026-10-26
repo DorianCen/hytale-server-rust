@@ -179,6 +179,12 @@ impl BlockHealthSection {
             .collect()
     }
 
+    /// Take the pending delta of one block (used when a hit is replicated
+    /// immediately and must not be sent again by the simulation tick).
+    pub fn take_delta(&mut self, index: u16) -> Option<f32> {
+        self.pending_deltas.remove(&index)
+    }
+
     /// Insert a migrated health entry, keeping any section entry that already exists.
     pub fn put_health_if_absent(&mut self, index: u16, entry: BlockHealth) {
         if is_damaged(entry.health) {

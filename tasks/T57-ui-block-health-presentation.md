@@ -96,6 +96,7 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - T57b owns partial-hit breaking, entity lifecycle/metadata, the remaining
-  config packets and map images/discovery.
+  config packets, map images/discovery and the minimal window packets; sessions
+  48–49 landed those slices.
 - T58/T59 add NPC/combat producers; T60 ports the selected world-map/weather
   modules; T62 adds packet-rate limits.

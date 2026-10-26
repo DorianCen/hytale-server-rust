@@ -56,6 +56,9 @@ pub enum RuntimeStateError {
         /// Duplicated id.
         id: u64,
     },
+    /// A persisted block container could not be decoded.
+    #[error("block container state: {0}")]
+    Container(String),
 }
 
 /// What spawned an entity.
@@ -443,7 +446,10 @@ struct BlockRecord {
 
 /// Write `document` to `path` through a temporary sibling + rename so a crash
 /// never leaves a truncated save.
-fn write_json_atomic<T: Serialize>(path: &Path, document: &T) -> Result<(), RuntimeStateError> {
+pub(crate) fn write_json_atomic<T: Serialize>(
+    path: &Path,
+    document: &T,
+) -> Result<(), RuntimeStateError> {
     let bytes = serde_json::to_vec(document)?;
     let temporary = temporary_path(path);
     std::fs::write(&temporary, bytes)?;
