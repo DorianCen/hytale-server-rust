@@ -185,6 +185,9 @@ struct WorldBootArgs {
     /// Optional block edit as `x,y,z,block_id` in world coordinates.
     #[arg(long, value_parser = parse_block)]
     set_block: Option<(i32, i32, i32, i32)>,
+    /// Optional NPC role to spawn at the player/world spawn.
+    #[arg(long)]
+    spawn_npc: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -350,6 +353,9 @@ struct ServeArgs {
     /// zstd compression level for chunk frames.
     #[arg(long, default_value_t = 3)]
     compression_level: i32,
+    /// Optional NPC role to spawn at the world spawn on startup.
+    #[arg(long)]
+    spawn_npc: Option<String>,
     /// Concurrent session limit.
     #[arg(long, default_value_t = 20)]
     max_connections: usize,
@@ -603,6 +609,7 @@ fn run_serve_command(args: ServeArgs) -> ExitCode {
         view_radius: args.view_radius,
         chunks_per_tick: args.chunks_per_tick,
         session,
+        spawn_npc: args.spawn_npc,
         shutdown_timeout: std::time::Duration::from_secs(args.shutdown_timeout),
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
         trace_path: args.trace,
@@ -881,6 +888,7 @@ fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
         world_uuid: args.uuid,
         player_uuid: args.player_uuid,
         set_block: args.set_block,
+        spawn_npc: args.spawn_npc,
     };
     match run_world_boot(&options) {
         Ok(report) => {
@@ -906,6 +914,9 @@ fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
             );
             if let Some((x, y, z, before, after)) = report.block_edit {
                 println!("block edit ({x}, {y}, {z}): {before} -> {after}");
+            }
+            if let Some((role, id)) = report.spawned_npc {
+                println!("spawned NPC `{role}` as runtime entity {id}");
             }
             ExitCode::SUCCESS
         }

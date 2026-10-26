@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–59; runtime, spawn-position and population slices landed)
+**Status:** in progress (sessions 52–60; runtime, position, population and CLI slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -160,15 +160,25 @@ cargo fmt --all -- --check
   tests cover the catalogs and Bat/Edible_Rat entries.
 - Live beacon/marker controllers and persistent cooldown state remain open.
 
+### CLI slice (session 60)
+
+- `world-boot --spawn-npc ROLE` spawns a role at the player/world spawn,
+  reports the runtime id, and persists it through the normal shutdown path.
+- `serve --spawn-npc ROLE` spawns the role when the world starts, before
+  accepting sessions.
+- `WorldBootReport` carries `spawned_npc` and the world-boot gate asserts the
+  persisted `entities.json` entry.
+- The server CLI is now usable for manual NPC/runtime inspection; the client
+  bot scenario remains open.
+
 ## Deviations
 
 - Spawn suppression is not evaluated by the position search.
 - Beacon/marker catalogs are landed, but no world entities/timers consume them
-  yet.
+  yet; live controllers and persistent cooldown state are open.
 - Population targets name their environment and density; segment counts can be
   discovered from loaded sections, but automatically enumerating every loaded
   environment is still open.
-- Beacons and spawn markers are not landed.
 - NPC damage targets only runtime NPC actors; player health is not modelled yet,
   so player targets produce attack events without damage (T59c).
 - The session loop only ticks actors when a session is live; a headless world
@@ -177,5 +187,6 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - Finish T59b: automatic environment enumeration, live beacon/marker
-  controllers and cooldown state, spawn suppression and CLI/bot coverage.
+  controllers and cooldown state, spawn suppression and the client-bot
+  scenario.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.

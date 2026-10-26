@@ -1,6 +1,6 @@
 # T59 — NPC spawning, combat and encounters
 
-**Status:** in progress (session 51; first slice landed)
+**Status:** in progress (sessions 51–60; core and runtime slices landed)
 **Package:** `hytale-npc`, `hytale-world` (+ `hytale-server` in T59b)
 **Depends on:** T58, T58b, T58c
 **Agent fit:** low/medium
@@ -89,11 +89,11 @@ cargo fmt --all -- --check
 ## Deviations
 
 - T59b's runtime slice attaches `NpcActor` to `WorldThread`, ticks it, persists
-  health and broadcasts spawn/despawn/transform. Spawn-position search, the
-  world spawn controller, beacons/markers and live encounter producers remain
-  T59b/T59c.
-- Spawn-position search, block-set/fluid-tag/light checks, spawn suppression,
-  beacons and markers are T59b. This slice only exposes the config data.
+  health and broadcasts spawn/despawn/transform. Later T59b slices add
+  movement-mode spawn-position search, environment/density population ticks,
+  block-set/fluid-tag/light constraints and beacon/spawn-marker catalogs.
+  Spawn suppression, live beacon/marker controllers and automatic environment
+  enumeration remain T59b; the full encounter producer is T59c.
 - `NpcActor` uses the `PathFollower` block-centre path without Java
   `MotionController` smoothing; it chases the nearest in-range target and uses
   the highest-damage specific attack. Full `ActionAttack` selector/aiming,
@@ -109,7 +109,8 @@ cargo fmt --all -- --check
   explicit population ticks (session 54), loaded-section segment discovery
   (session 55), real `BlockSet` floor resolution (session 56), fluid-tag
   resolution (session 57), light ranges (session 58) and beacon/spawn-marker
-  catalogs (session 59); automatic environment enumeration, live beacon/marker
-  controllers, spawn suppression and CLI/bot coverage remain.
+  catalogs (session 59) and `--spawn-npc` CLI coverage (session 60); automatic
+  environment enumeration, live beacon/marker controllers, spawn suppression
+  and the client-bot scenario remain.
 - T59c: full combat action graph and the `EncounterManager` evaluator
   (encounters/instances/portals).

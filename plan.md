@@ -904,20 +904,22 @@ the builtin NPC module (T59/T60).
 
 ### T59 — NPC spawning, combat and encounters
 
-**Status:** in progress (session 51; first slice landed)
+**Status:** in progress (sessions 51–60; core and runtime slices landed)
 **Package:** `hytale-npc`, `hytale-world`
 **Goal:** spawn rules, combat, encounters/instances/portals.
 **Acceptance:** scripted encounter/combat scenario matches Java.
 
 The first slice lands the 98 world spawn documents, Java time/moon/flock
 selection, role combat profiles, `DamageCalculator` ranges and a scripted
-`NpcActor` (targeting/chase/melee/damage/death). The live NPC producer,
-spawn-position search, beacons/markers and persistence are T59b; the full
+`NpcActor` (targeting/chase/melee/damage/death). T59b lands the live NPC
+producer, movement-mode position search, population ticks, block/fluid/light
+constraints and beacon/marker catalogs; live beacon/marker controllers, spawn
+suppression and automatic environment enumeration remain in T59b. The full
 combat action graph and `EncounterManager` evaluator are T59c.
 
 ### T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (session 52; runtime slice landed)
+**Status:** in progress (sessions 52–60; runtime, position and population slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Goal:** attach actors to runtime entities, find Java-compatible spawn
 positions, tick/persist and broadcast NPCs.
@@ -932,8 +934,8 @@ density/expected-count controller and explicit automatic population ticks
 (`set_npc_spawn_targets`/`tick_npc_spawns`) plus loaded-section environment
 segment discovery, real `BlockSet` floor resolution, `SpawnFluidTag`
 resolution, spawn `LightRanges` and beacon/spawn-marker catalogs with weighted
-selection/cooldowns. Automatic environment enumeration, live beacon/marker
-controllers and spawn suppression remain.
+selection/cooldowns, plus `--spawn-npc` CLI coverage. Automatic environment
+enumeration, live beacon/marker controllers and spawn suppression remain.
 
 ### T59c — Combat action graph and encounters
 

@@ -52,6 +52,7 @@ fn creates_then_reopens_a_config_and_player() {
         world_uuid: None,
         player_uuid: None,
         set_block: None,
+        spawn_npc: Some("Rat".to_string()),
     };
 
     let first = run_world_boot(&options).expect("first boot");
@@ -64,7 +65,19 @@ fn creates_then_reopens_a_config_and_player() {
     assert_eq!(first.saved_chunks, 1);
     assert_eq!(first.seed, 5);
     assert_eq!(first.block_edit, None);
+    let (role, npc_id) = first.spawned_npc.as_ref().expect("spawned NPC");
+    assert_eq!(role, "Rat");
+    assert!(*npc_id >= 1);
     assert!(save_dir.join("config.json").is_file());
+    let entities: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(save_dir.join("entities.json")).expect("read entities"),
+    )
+    .expect("entities JSON");
+    assert!(entities["entities"]
+        .as_array()
+        .expect("entities array")
+        .iter()
+        .any(|entity| entity["kind"] == "npc" && entity["components"]["Npc"]["Role"] == "Rat"));
 
     let config = WorldConfig::load(save_dir.join("config.json")).expect("load config");
     assert_eq!(config.seed, 5);

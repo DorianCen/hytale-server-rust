@@ -41,6 +41,8 @@ pub struct WorldBootOptions {
     pub player_uuid: Option<String>,
     /// Optional block edit as `(x, y, z, block_id)` in world coordinates.
     pub set_block: Option<(i32, i32, i32, i32)>,
+    /// Optional NPC role to spawn at the player/world spawn.
+    pub spawn_npc: Option<String>,
 }
 
 /// What the saved-world boot produced.
@@ -72,6 +74,8 @@ pub struct WorldBootReport {
     pub saved_chunks: usize,
     /// Block edit as `(x, y, z, before, after)`.
     pub block_edit: Option<(i32, i32, i32, i32, i32)>,
+    /// Spawned NPC `(role, runtime id)`, when requested.
+    pub spawned_npc: Option<(String, u64)>,
 }
 
 /// Errors from the saved-world boot.
@@ -124,6 +128,17 @@ pub fn run(options: &WorldBootOptions) -> Result<WorldBootReport, WorldBootError
         None => None,
     };
 
+    let spawned_npc = match &options.spawn_npc {
+        Some(role) => {
+            let transform = thread.player_transform()?.unwrap_or_else(|| {
+                hytale_world::runtime::transform([0.0, 64.0, 0.0], [0.0, 0.0, 0.0])
+            });
+            let entity = thread.spawn_npc(role, transform)?;
+            Some((role.clone(), entity.id))
+        }
+        None => None,
+    };
+
     let saved_chunks = thread.shutdown()?;
 
     Ok(WorldBootReport {
@@ -140,5 +155,6 @@ pub fn run(options: &WorldBootOptions) -> Result<WorldBootReport, WorldBootError
         generated_chunks,
         saved_chunks,
         block_edit,
+        spawned_npc,
     })
 }

@@ -1631,3 +1631,25 @@ This file records phase-2 sessions only.
   - Finish T59b: live beacon/marker controllers, suppression, environment
     enumeration and CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 60 — T59b NPC CLI coverage (2026-10-26)
+
+- **Goal:** make spawned NPCs reachable from the operator-facing CLI.
+- **Landed:**
+  - `world-boot --spawn-npc ROLE` spawns at the player/world spawn and reports
+    the runtime id; `WorldBootReport.spawned_npc` carries it.
+  - `serve --spawn-npc ROLE` spawns before accepting sessions and logs the id.
+  - The world-boot gate asserts the NPC is present in `entities.json`, proving
+    the CLI path persists through the normal shutdown.
+- **Verified:**
+  - `cargo test -p hytale-server --test world_boot`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - The client-bot scenario, automatic environment enumeration, live
+    beacon/marker controllers and spawn suppression remain T59b.
+- **Follow-ups:**
+  - Finish T59b: environment enumeration, beacon/marker controllers,
+    suppression and the bot scenario.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

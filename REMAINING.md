@@ -21,8 +21,9 @@ Deferred to M5/M6:
   density/expected-count accounting, explicit population ticks and
   loaded-section environment segment discovery, real `BlockSet` floor
   resolution, `SpawnFluidTag` resolution, spawn `LightRanges` and beacon/
-  spawn-marker catalogs. Automatic environment enumeration, live beacon/marker
-  controllers and spawn suppression remain T59b; the full builder graph,
+  spawn-marker catalogs and `--spawn-npc` CLI coverage. Automatic environment
+  enumeration, live beacon/marker controllers, spawn suppression and the client
+  bot scenario remain T59b; the full builder graph,
   motion-controller A*, wander/avoidance, blackboard sensors, combat action
   graph, encounters/instances/portals and the NPC ECS remain T59c/T60.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:

@@ -39,8 +39,8 @@ context. The main agent owns sequencing and shared-file edits.
 | [T58](T58-npc-core.md) | NPC core: AI, pathfinding, flocking | T48, T57b | low/medium | done (session 50) |
 | [T58b](T58b-npc-builder-expressions.md) | NPC builder expressions and resolved archetypes | T58 | medium | done (session 50) |
 | [T58c](T58c-npc-world-grid-group.md) | NPC world grid and group steering | T58, T58b | medium | done (session 50) |
-| [T59](T59-npc-spawning-combat.md) | NPC spawning, combat and encounters | T58 | low/medium | in progress (session 51) |
-| [T59b](T59b-npc-runtime-spawning.md) | NPC runtime, spawn positions and beacons | T59 | low/medium | in progress (session 52) |
+| [T59](T59-npc-spawning-combat.md) | NPC spawning, combat and encounters | T58 | low/medium | in progress (sessions 51–60) |
+| [T59b](T59b-npc-runtime-spawning.md) | NPC runtime, spawn positions and beacons | T59 | low/medium | in progress (sessions 52–60) |
 | [T59c](T59c-npc-combat-encounters.md) | Combat action graph and encounters | T59, T59b | low/medium | planned |
 | T60 | Builtin module runtime and selected modules | T58, T59 | low/medium | planned |
 | T61 | Editor/builder/machinima/voice/cosmetics scope | T60 | low | planned |
@@ -78,8 +78,9 @@ environment segment counting for population targets; a fifth resolves the real
 `SpawnBlockSet` catalog to allowed floors; a sixth resolves `SpawnFluidTag`
 through the fluid tag index, a seventh evaluates config `LightRanges` and an
 eighth loads the beacon/spawn-marker catalogs with weighted selection and
-ISO-8601 cooldowns. Automatic environment enumeration, live beacon/marker
-controllers, spawn suppression and CLI/bot coverage remain in T59b.
+ISO-8601 cooldowns; a ninth adds `--spawn-npc` to `world-boot`/`serve`.
+Automatic environment enumeration, live beacon/marker controllers, spawn
+suppression and the client-bot scenario remain in T59b.
 
 ## Rules
 

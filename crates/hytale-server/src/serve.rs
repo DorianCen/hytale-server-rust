@@ -46,6 +46,8 @@ pub struct ServeOptions {
     pub shutdown_timeout: Duration,
     /// How long to wait for a connection to close after its session ends.
     pub close_timeout: Duration,
+    /// Optional NPC role spawned at the world spawn on startup.
+    pub spawn_npc: Option<String>,
     /// Optional JSONL packet trace written for every accepted session.
     pub trace_path: Option<PathBuf>,
     /// Optional test/CLI hook that receives the actual bound address.
@@ -71,6 +73,7 @@ impl ServeOptions {
             session,
             shutdown_timeout: Duration::from_secs(10),
             close_timeout: Duration::from_secs(5),
+            spawn_npc: None,
             trace_path: None,
             bound_tx: None,
         }
@@ -173,6 +176,9 @@ pub enum ServeError {
     /// Universe/world startup or shutdown failed.
     #[error(transparent)]
     Universe(#[from] UniverseRuntimeError),
+    /// A world-thread operation failed.
+    #[error(transparent)]
+    Thread(#[from] crate::world_thread::WorldThreadError),
     /// Reading the universe catalog failed.
     #[error(transparent)]
     Catalog(#[from] hytale_world::universe::UniverseError),
@@ -226,6 +232,16 @@ where
     runtime.start_world(&world_name)?;
     let thread = runtime.world_thread(&world_name)?;
     let thread_uuid = descriptor.uuid;
+    if let Some(role) = &options.spawn_npc {
+        let transform = thread
+            .player_transform()?
+            .unwrap_or_else(|| hytale_world::runtime::transform([0.0, 64.0, 0.0], [0.0, 0.0, 0.0]));
+        let entity = thread.spawn_npc(role, transform)?;
+        println!(
+            "spawned NPC `{role}` as runtime entity {} in world {}",
+            entity.id, descriptor.name
+        );
+    }
 
     let mut session_options = options.session.clone();
     if let Some(path) = &options.trace_path {
