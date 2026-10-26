@@ -98,6 +98,7 @@ build_module_jar libs/ConcurrentFastUtil ConcurrentFastUtil
 build_module_jar builtin/BlockTick BlockTick
 build_module_jar builtin/RandomTick RandomTick
 build_module_jar builtin/adventure/Farming Farming
+build_module_jar NPC NPC
 build_module_jar builtin/adventure/WorldLocationCondition WorldLocationCondition
 build_module_jar builtin/FallingBlocks FallingBlocks
 
@@ -150,7 +151,7 @@ for module in Math ProceduralLibrary WorldGenerator \
              AssetStore Codec Common Component Protocol CoreServer \
              Logger Event SneakyThrow Registry Storage Unsafe \
              FunctionalInterfaces Metrics ConcurrentFastUtil \
-             BlockTick RandomTick Farming FallingBlocks WorldLocationCondition; do
+             BlockTick RandomTick Farming FallingBlocks WorldLocationCondition NPC; do
     CP="$CP:$LIB_DIR/hytale-$module.jar"
 done
 CP="$CP:$GSON_JAR:$JOML_JAR:$FASTUTIL_JAR:$SENTRY_JAR"

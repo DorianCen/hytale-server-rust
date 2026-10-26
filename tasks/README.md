@@ -36,7 +36,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T56](T56-prefab-runtime-entities.md) | Prefab spawner and runtime entities | T45, T50 | low/medium | done (session 46) |
 | [T57](T57-ui-block-health-presentation.md) | UI basics and block-health presentation | T46, T53 | low/medium | done (session 47) |
 | [T57b](T57b-presentation-followups.md) | Presentation follow-ups | T57 | low/medium | in progress (session 49) |
-| T58 | NPC core: AI, pathfinding, flocking | T48 | low/medium | planned |
+| [T58](T58-npc-core.md) | NPC core: AI, pathfinding, flocking | T48, T57b | low/medium | in progress (session 50) |
 | T59 | NPC spawning, combat and encounters | T58 | low/medium | planned |
 | T60 | Builtin module runtime and selected modules | T58, T59 | low/medium | planned |
 | T61 | Editor/builder/machinima/voice/cosmetics scope | T60 | low | planned |
@@ -56,8 +56,11 @@ config packets, map images/discovery and the minimal HUD/window packets. Its
 second slice lands chunk map images and container windows; bench crafting
 windows, container transactions and particle/weather presentation remain
 T59/T60. T58
-(NPC core) starts M6 after T57b; T58 may run in parallel in a separate
-worktree, but T59/T60 presentation work waits for T57b.
+(NPC core) starts M6 after T57b; its first slice lands the role/flock catalogs,
+Java direction tables, block-grid A*, path following, pursue/evade/rotate
+steering and view-cone perception, with the builder/motion-controller work
+following in T58b. T58 may run in parallel in a separate worktree, but T59/T60
+presentation work waits for T57b.
 
 ## Rules
 

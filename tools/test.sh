@@ -109,6 +109,7 @@ case "$tier" in
             -p hytale-assets
             -p hytale-entities
             -p hytale-interactions
+            -p hytale-npc
             -p hytale-world
         )
         if $use_nextest; then

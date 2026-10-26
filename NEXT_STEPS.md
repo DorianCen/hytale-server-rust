@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 49)
+# Next steps — CoreServer rewrite, phase 2 (session 50)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -7,9 +7,9 @@ the task board is [`tasks/README.md`](tasks/README.md).
 
 **Tasks landed:** **T53** (entity stats/effects/combat plus the Java
 entity-gameplay fixture), **T54** (time and weather), **T55** (projectiles and
-traversal) and **T56** (prefab entities/block components plus the persisted
+traversal), **T56** (prefab entities/block components plus the persisted
 runtime entity store) and **T57** (block-health replication, runtime entity
-spawns and world-map basics); M5 continues with **T58** (NPC core).
+spawns and world-map basics); M6 starts with **T58** (NPC core).
 
 ## Current state
 
@@ -164,6 +164,16 @@ Landed and green:
   map refresh on block edits and particle/weather presentation.
   Producers stay with T58/T59/T60; T57b should land before M5 is declared fully
   closed.
+- T58 (in progress, session 50): the new `hytale-npc` crate loads the real
+  `Server/NPC/Roles` documents (1,147 unique keys) and all 8 `Server/NPC/Flocks`
+  definitions, selects range/weighted flock sizes with injected RNG, filters
+  blocked roles, and ports `Steering` plus pursue/evade/rotate. Navigation has
+  the Java `SearchDirections` tables, a block-grid A* with Java node limits and
+  a nearest-node fallback, `PathFollower` waypoint/rejection logic and the
+  `isInViewCone` perception test. `NpcDumper` (`run-npc.sh`) gate the pure
+  direction/steering/view-cone outputs. Builder evaluation, half-step
+  motion-controller A*, wander/avoidance/group forces and blackboard sensors
+  remain T58b; spawning/combat/ECS remain T59.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -188,11 +198,11 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
 3. **M4 — v1:** T43 (done) → T44 (done) → T45 (done) → T46 (done) → T47 (done)
    → T48 (done). M4/v1 is closed.
 4. **M5/M6/M7:** gameplay, builtins/NPC, hardening (see [`plan.md`](plan.md));
-   T55 (projectiles/traversal), T56 (prefab/runtime entities) and T57
-   (block-health/runtime entity/world-map presentation) are done. T57b is the
-   immediate M5 close-out and should land before T58 (NPC core) starts M6; T58
-   may run in parallel in a separate worktree, but T59/T60 presentation work
-   waits for T57b.
+   T55 (projectiles/traversal), T56 (prefab/runtime entities), T57
+   (block-health/runtime entity/world-map presentation) and T57b (presentation
+   follow-ups) are done. M6 starts with T58 (NPC core), whose first slice is
+   landed; T58b covers builder evaluation and the full motion-controller A*.
+   T59/T60 presentation work waits for T57b.
 
 ## Try it
 

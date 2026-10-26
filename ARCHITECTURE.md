@@ -123,7 +123,8 @@ runtime topology, invariants, and the Java→Rust mapping as modules land.
   weather), T55 (projectiles plus traversal/mount seams), T56 (prefab
   entities/block components plus the persisted runtime store), T57
   (block-health/runtime-entity/world-map presentation) and T57b's map-image and
-  container-window slice are done; M5 continues with T58. See
+  container-window slice are done; M6 starts with T58, whose NPC
+  navigation/steering/flock first slice is landed. See
   [`plan.md`](plan.md), [`NEXT_STEPS.md`](NEXT_STEPS.md)
   and [`tasks/README.md`](tasks/README.md).
 - **Reused base:** `hytale-math`, `procedural`, `worldgen-model`,
@@ -138,7 +139,7 @@ Paths are relative to the repository root unless noted.
 
 ## 1. Workspace layout
 
-The existing worldgen crates stay where they are. The server adds ten crates:
+The existing worldgen crates stay where they are. The server crates:
 
 ```text
 crates/
@@ -151,6 +152,8 @@ crates/
   hytale-inventory/  item stacks, containers, player inventory and transactions
   hytale-interactions/ interaction graph loader/executor and block metadata
   hytale-entities/   ECS wrapper, components, systems, player/entity lifecycle
+  hytale-npc/        role/flock catalogs, A* navigation, path following, steering
+                     and perception
   hytale-net/        QUIC transport, streams, sessions, packet state machine
   hytale-auth/       EdDSA JWT keys/claims, certificate binding, local authority;
                      OAuth/session-service adapters planned
@@ -668,7 +671,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |
 | `CoreServer/modules/**` | `hytale-world` (core subset), later module crates | planned (M5) |
 | `builtin/**` | `hytale-builtin` feature crates | deferred (M6) |
-| `NPC/**` | `hytale-npc` | deferred (M6) |
+| `NPC/**` | `hytale-npc` | role/flock catalogs, Java direction tables, block-grid A*, `PathFollower`, pursue/evade/rotate steering and view-cone perception landed (M6, T58 first slice); builder evaluation, half-step motion-controller A*, wander/avoidance/group forces, blackboard sensors and the NPC ECS remain T58b/T59 |
 
 Deliberate exclusions are in [`REMAINING.md`](REMAINING.md).
 

@@ -30,7 +30,7 @@ Extra arguments are forwarded to cargo:
 | `unit` | `#[cfg(test)]` modules in every crate (`cargo test --workspace --lib`) | No real asset pack |
 | `fast` | unit tests plus non-E2E integration tests, with asset-backed tests skipped | No |
 | `integration` | every non-`#[ignore]` integration test | Yes, when available |
-| `assets` | fast asset/golden packages: `hytale-assets`, `hytale-entities`, `hytale-interactions`, `hytale-world` | Yes |
+| `assets` | fast asset/golden packages: `hytale-assets`, `hytale-entities`, `hytale-interactions`, `hytale-npc`, `hytale-world` | Yes |
 | `slow` | worldgen generation and world-boot suites: `worldgen-hytale`, `worldgen-cli`, `worldgen-server`, `hytale-server` | Yes |
 | `e2e` | the `#[ignore]`d QUIC loopback, auth join, bot and trace-replay tests, one test thread | Yes + loopback UDP |
 | `all` | the current release gate (`cargo test --workspace`) | Yes |

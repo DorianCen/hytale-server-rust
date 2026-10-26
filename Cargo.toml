@@ -15,6 +15,7 @@ members = [
     "crates/hytale-entities",
     "crates/hytale-inventory",
     "crates/hytale-interactions",
+    "crates/hytale-npc",
     "crates/hytale-net",
     "crates/hytale-auth",
     "crates/hytale-commands",

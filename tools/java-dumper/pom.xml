@@ -199,6 +199,17 @@
             <scope>system</scope>
             <systemPath>${project.basedir}/lib/hytale-FallingBlocks.jar</systemPath>
         </dependency>
+        <!--
+          The NPC navigation/steering golden uses the real SearchDirections
+          tables and steering-force classes.
+        -->
+        <dependency>
+            <groupId>com.hypixel.hytale</groupId>
+            <artifactId>NPC</artifactId>
+            <version>0.0.0-dev</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/hytale-NPC.jar</systemPath>
+        </dependency>
 
         <dependency>
             <groupId>com.google.code.gson</groupId>

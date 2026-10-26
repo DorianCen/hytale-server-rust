@@ -8,9 +8,14 @@ it is part of M2 and listed in [`tasks/README.md`](tasks/README.md).
 
 ## 1. Gameplay systems
 
-Deferred to M5:
+Deferred to M5/M6:
 
-- NPC AI, pathfinding, flocking, spawning and combat (`NPC/`, 1,051 files).
+- NPC AI, pathfinding, flocking, spawning and combat (`NPC/`, 1,008 files).
+  T58's first slice lands the role/flock document catalogs, Java direction
+  tables, block-grid A*, `PathFollower`, pursue/evade/rotate steering and
+  view-cone perception; the builder expression language, full motion-controller
+  A*, wander/avoidance/group forces, blackboard sensors and the NPC ECS remain
+  T58b/T59.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
   T53 lands the stat/effect/damage models, the Java asset fixture and the
   `EntityGameplay` component seam; T57 lands block-health/runtime-entity/map

@@ -1221,3 +1221,51 @@ This file records phase-2 sessions only.
   - T59/T60 add container transactions, bench windows, particles/sounds and
     weather presentation.
   - T62 rate-limits map image packets and window traffic.
+
+---
+
+## Session 50 — T58 first slice: NPC navigation, steering and flock assets (2026-10-26)
+
+- **Goal:** start M6 with the deterministic NPC core and a Java oracle for
+  navigation/steering.
+- **Landed:**
+  - New `crates/hytale-npc` with `role`, `flock`, `steering`, `navigation`,
+    `path` and `perception` modules.
+  - `RoleCatalog` loads the real `Server/NPC/Roles` documents (1,147 unique
+    keys; the `Test_Patrol_Path` development duplicate is reported) and keeps
+    `Type`/`Reference`/`Parameters`/raw JSON for the later builder evaluation.
+  - `FlockCatalog` loads all 8 `Server/NPC/Flocks` assets, parses the
+    `Range`/`Weighted` size rules, picks sizes with an injectable RNG and
+    implements `PersistentFlockData` blocked-role filtering.
+  - `Steering`, `SteeringForcePursue`, `SteeringForceEvade` and
+    `SteeringForceRotate` follow the Java distance/falloff/turn-angle formulas
+    and use `hytale-math::trig_math_util` for the heading lookups.
+  - `SearchDirections` is a byte-for-byte port of the Java generation order;
+    `AStarPlanner` searches block-grid nodes with the same 6/26-neighbour
+    tables, Euclidean costs and path/open/total limits, including the
+    nearest-node fallback. `PathFollower` ports waypoint advancement,
+    passed-waypoint projection, path rejection and final-stage freezing.
+  - `perception::is_in_view_cone` ports `NPCPhysicsMath.isInViewCone`.
+  - `NpcDumper` and `tools/java-dumper/run-npc.sh` emit
+    `testdata/golden/server/npc/npc.json`; `run.sh` packages the NPC module and
+    adds it to the dumper classpath.
+  - Tests: real role/flock stores, the Java direction/steering/view-cone
+    fixture, wall detour, closest-node fallback, 3D fly, waypoint
+    advancement/rejection and flock size/role selection.
+- **Verified:**
+  - `cargo test -p hytale-npc` (12 unit + 3 fixture tests).
+  - `cargo clippy -p hytale-npc --all-targets -- -D warnings`.
+  - `tools/java-dumper/run-npc.sh`.
+- **Deviations:**
+  - The role builder/expression language and inherited-template evaluation are
+    not ported; the catalog preserves the input.
+  - A* uses block-grid nodes instead of Java's fractional half-block nodes and
+    `MotionController.probeMove` reachability.
+  - `PathFollower` omits motion-controller path smoothing/heading blending.
+  - Wander (RNG), collision avoidance, group forces, blackboard sensors and the
+    NPC ECS remain T58b/T59.
+- **Follow-ups:**
+  - T58b: builder evaluation, full `AStarBase` half-step search, motion
+    controller probes, wander/avoidance/group steering and perception state.
+  - T59: NPC spawning, combat, encounters and the runtime entity producer.
+  - T62: NPC path/search and spawn rate ceilings.

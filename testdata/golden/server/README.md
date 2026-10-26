@@ -14,6 +14,7 @@ subdirectory, never by hand.
 | `player-data/` | `tools/java-dumper/run-player-data.sh` | session 10: real Java `EntityStore` player holder |
 | `fluid/` | `tools/java-dumper/run-fluid.sh` | session 41: Java fluid ticker/hitbox coverage |
 | `entity/` | `tools/java-dumper/run-entity-gameplay.sh` | session 44/45: real Java `EntityStatType`/`EntityEffect`/`DamageCause` ids/fields plus legacy `Projectile` and `ProjectileConfig` maps |
+| `npc/` | `tools/java-dumper/run-npc.sh` | session 50: Java `SearchDirections`, steering-force outputs and view-cone results |
 | `trace/` | `hytale-server serve --trace` (`hytale-net::trace`) | session 36: normalized v1 lifecycle packet ids/channels/order/hashes + real-client capture runbook |
 
 Keep fast fixtures committed. Full-pack runs belong behind an environment

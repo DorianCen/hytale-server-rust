@@ -878,6 +878,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hytale-npc"
+version = "0.1.0"
+dependencies = [
+ "hytale-assets",
+ "hytale-math",
+ "hytale-world",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hytale-protocol"
 version = "0.1.0"
 dependencies = [

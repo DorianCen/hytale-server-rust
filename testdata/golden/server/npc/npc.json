@@ -1,0 +1,782 @@
+{
+  "meta": {
+    "producer": "com.hypixel.hytale.tools.golden.NpcDumper",
+    "searchDirections": "SearchDirections.create for walk/fly with and without diagonal moves",
+    "steering": "SteeringForcePursue/Evade/Rotate with fixed inputs; no RNG",
+    "perception": "NPCPhysicsMath.isInViewCone with fixed viewer/direction/object inputs"
+  },
+  "searchDirections": {
+    "walkNoDiagonal": {
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "distances": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "inverseDirections": [
+        3,
+        2,
+        1,
+        0
+      ],
+      "normalDirections": null,
+      "normalsPerDirection": 0
+    },
+    "walkDiagonal": {
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          1.0,
+          0.0,
+          -1.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distances": [
+        1.4142135623730951,
+        1.0,
+        1.4142135623730951,
+        1.0,
+        1.0,
+        1.4142135623730951,
+        1.0,
+        1.4142135623730951
+      ],
+      "inverseDirections": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ],
+      "normalDirections": [
+        2,
+        3,
+        0,
+        1,
+        1,
+        0,
+        3,
+        2
+      ],
+      "normalsPerDirection": 1
+    },
+    "planeXyNoDiagonal": {
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "distances": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "inverseDirections": [
+        3,
+        2,
+        1,
+        0
+      ],
+      "normalDirections": null,
+      "normalsPerDirection": 0
+    },
+    "planeYzNoDiagonal": {
+      "directions": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "distances": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "inverseDirections": [
+        3,
+        2,
+        1,
+        0
+      ],
+      "normalDirections": null,
+      "normalsPerDirection": 0
+    },
+    "flyNoDiagonal": {
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "distances": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "inverseDirections": [
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ],
+      "normalDirections": null,
+      "normalsPerDirection": 0
+    },
+    "flyDiagonal": {
+      "directions": [
+        [
+          -1.0,
+          -1.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          -1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          -1.0,
+          1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          1.0
+        ],
+        [
+          -1.0,
+          1.0,
+          -1.0
+        ],
+        [
+          -1.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          1.0,
+          1.0
+        ],
+        [
+          0.0,
+          -1.0,
+          -1.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          -1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          1.0
+        ],
+        [
+          1.0,
+          -1.0,
+          -1.0
+        ],
+        [
+          1.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          -1.0,
+          1.0
+        ],
+        [
+          1.0,
+          0.0,
+          -1.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          1.0
+        ],
+        [
+          1.0,
+          1.0,
+          -1.0
+        ],
+        [
+          1.0,
+          1.0,
+          0.0
+        ],
+        [
+          1.0,
+          1.0,
+          1.0
+        ]
+      ],
+      "distances": [
+        1.7320508075688772,
+        1.4142135623730951,
+        1.7320508075688772,
+        1.4142135623730951,
+        1.0,
+        1.4142135623730951,
+        1.7320508075688772,
+        1.4142135623730951,
+        1.7320508075688772,
+        1.4142135623730951,
+        1.0,
+        1.4142135623730951,
+        1.0,
+        1.0,
+        1.4142135623730951,
+        1.0,
+        1.4142135623730951,
+        1.7320508075688772,
+        1.4142135623730951,
+        1.7320508075688772,
+        1.4142135623730951,
+        1.0,
+        1.4142135623730951,
+        1.7320508075688772,
+        1.4142135623730951,
+        1.7320508075688772
+      ],
+      "inverseDirections": [
+        25,
+        24,
+        23,
+        22,
+        21,
+        20,
+        19,
+        18,
+        17,
+        16,
+        15,
+        14,
+        13,
+        12,
+        11,
+        10,
+        9,
+        8,
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ],
+      "normalDirections": null,
+      "normalsPerDirection": 0
+    }
+  },
+  "steering": {
+    "pursue": [
+      {
+        "kind": "pursue",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          30.0,
+          0.0,
+          0.0
+        ],
+        "result": true,
+        "hasTranslation": true,
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "stopDistance": 5.0,
+        "slowdownDistance": 20.0,
+        "falloff": 3.0
+      },
+      {
+        "kind": "pursue",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "result": true,
+        "hasTranslation": true,
+        "x": 0.6933612743506347,
+        "y": 0.0,
+        "z": 0.0,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "stopDistance": 5.0,
+        "slowdownDistance": 20.0,
+        "falloff": 3.0
+      },
+      {
+        "kind": "pursue",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          3.0,
+          0.0,
+          0.0
+        ],
+        "result": false,
+        "hasTranslation": false,
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "stopDistance": 5.0,
+        "slowdownDistance": 20.0,
+        "falloff": 3.0
+      },
+      {
+        "kind": "pursue",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "result": false,
+        "hasTranslation": false,
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "stopDistance": 5.0,
+        "slowdownDistance": 20.0,
+        "falloff": 3.0
+      }
+    ],
+    "evade": [
+      {
+        "kind": "evade",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "result": true,
+        "hasTranslation": true,
+        "x": -0.8735804647362989,
+        "y": 0.0,
+        "z": 0.0,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "slowdownDistance": 5.0,
+        "stopDistance": 20.0,
+        "falloff": 3.0,
+        "directionHint": 0.0,
+        "adhereToDirectionHint": false
+      },
+      {
+        "kind": "evade",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          2.0,
+          0.0,
+          0.0
+        ],
+        "result": true,
+        "hasTranslation": true,
+        "x": -1.0,
+        "y": 0.0,
+        "z": 0.0,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "slowdownDistance": 5.0,
+        "stopDistance": 20.0,
+        "falloff": 3.0,
+        "directionHint": 0.0,
+        "adhereToDirectionHint": false
+      },
+      {
+        "kind": "evade",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          30.0,
+          0.0,
+          0.0
+        ],
+        "result": false,
+        "hasTranslation": false,
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "slowdownDistance": 5.0,
+        "stopDistance": 20.0,
+        "falloff": 3.0,
+        "directionHint": 0.0,
+        "adhereToDirectionHint": false
+      },
+      {
+        "kind": "evade",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "result": true,
+        "hasTranslation": true,
+        "x": -0.4788205623626709,
+        "y": 0.0,
+        "z": -0.8779128193855286,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "slowdownDistance": 5.0,
+        "stopDistance": 20.0,
+        "falloff": 3.0,
+        "directionHint": 0.5,
+        "adhereToDirectionHint": false
+      },
+      {
+        "kind": "evade",
+        "self": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "result": true,
+        "hasTranslation": true,
+        "x": -0.4182882790659649,
+        "y": 0.0,
+        "z": -0.76692746982027,
+        "hasYaw": false,
+        "hasPitch": false,
+        "hasRoll": false,
+        "slowdownDistance": 5.0,
+        "stopDistance": 20.0,
+        "falloff": 3.0,
+        "directionHint": 0.5,
+        "adhereToDirectionHint": true
+      }
+    ],
+    "rotate": [
+      {
+        "kind": "rotate",
+        "desiredHeading": 0.5,
+        "heading": 0.1,
+        "toleranceDegrees": 3.0,
+        "result": true,
+        "hasYaw": true,
+        "yaw": 0.5
+      },
+      {
+        "kind": "rotate",
+        "desiredHeading": 0.01,
+        "heading": 0.0,
+        "toleranceDegrees": 3.0,
+        "result": false,
+        "hasYaw": false,
+        "yaw": 0.0
+      },
+      {
+        "kind": "rotate",
+        "desiredHeading": -0.5,
+        "heading": -0.6,
+        "toleranceDegrees": 3.0,
+        "result": true,
+        "hasYaw": true,
+        "yaw": -0.5
+      }
+    ]
+  },
+  "perception": [
+    {
+      "viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "viewDirection": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "cosHalfAngle": 0.70710677,
+      "object": [
+        5.0,
+        0.0,
+        1.0
+      ],
+      "result": true
+    },
+    {
+      "viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "viewDirection": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "cosHalfAngle": 0.70710677,
+      "object": [
+        5.0,
+        0.0,
+        5.0
+      ],
+      "result": true
+    },
+    {
+      "viewer": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "viewDirection": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "cosHalfAngle": 0.70710677,
+      "object": [
+        -5.0,
+        0.0,
+        0.0
+      ],
+      "result": false
+    },
+    {
+      "viewer": [
+        10.0,
+        20.0,
+        30.0
+      ],
+      "viewDirection": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "cosHalfAngle": 0.5,
+      "object": [
+        10.0,
+        20.0,
+        25.0
+      ],
+      "result": true
+    }
+  ]
+}
