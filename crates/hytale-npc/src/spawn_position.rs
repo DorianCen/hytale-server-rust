@@ -19,6 +19,7 @@ use std::collections::BTreeSet;
 use hytale_world::collision::Vec3;
 use hytale_world::world::World;
 
+use crate::light::LightRanges;
 use crate::navigation::BlockPos;
 
 /// Java `MovementMode` subset used by spawning.
@@ -48,7 +49,7 @@ pub struct SpawnPosition {
 }
 
 /// Search settings.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpawnSearchOptions {
     /// Horizontal radius in blocks.
     pub radius: i32,
@@ -63,6 +64,10 @@ pub struct SpawnSearchOptions {
     /// Allowed fluid ids (`RoleSpawnParameters.SpawnFluidTag` resolved through
     /// [`crate::fluid_tags::FluidTagIndex`]).
     pub allowed_fluids: Option<BTreeSet<i32>>,
+    /// Optional `NPCSpawn.LightRanges` constraints.
+    pub light_ranges: LightRanges,
+    /// World clock sunlight factor (`0..1`).
+    pub sunlight_factor: f64,
 }
 
 impl Default for SpawnSearchOptions {
@@ -74,6 +79,8 @@ impl Default for SpawnSearchOptions {
             allowed_floor: None,
             require_fluid: false,
             allowed_fluids: None,
+            light_ranges: LightRanges::default(),
+            sunlight_factor: 1.0,
         }
     }
 }
@@ -196,6 +203,17 @@ where
                 return false;
             }
         }
+        if !options.light_ranges.is_empty() {
+            let Some(sample) = self.world.light_sample(x, y, z) else {
+                return false;
+            };
+            if !options
+                .light_ranges
+                .matches(sample, options.sunlight_factor)
+            {
+                return false;
+            }
+        }
         true
     }
 }
@@ -214,9 +232,11 @@ fn candidate_offsets(radius: i32) -> Vec<(i32, i32)> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     use hytale_world::chunk::column::ChunkColumn;
+    use hytale_world::chunk::section::light::{LightData, LIGHT_BLOCK_COUNT};
     use hytale_world::world::WorldStorage;
 
     use super::*;
@@ -271,10 +291,45 @@ mod tests {
             allowed_floor: Some(BTreeSet::from([2])),
             require_fluid: false,
             allowed_fluids: None,
+            ..SpawnSearchOptions::default()
         };
         assert!(search
             .find(Vec3::new(15.5, 1.0, 15.5), &with_block_set)
             .is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn light_ranges_use_the_global_light_sample() {
+        let (mut world, dir) = flat_world("light");
+        let values = vec![15u16 << 12; LIGHT_BLOCK_COUNT];
+        world
+            .chunk_mut(0, 0)
+            .expect("chunk")
+            .section_mut(1)
+            .expect("section")
+            .block
+            .set_global_light(LightData::from_values(values, 0));
+
+        let search = SpawnPositionSearch::new(&world, |block| block != 0);
+        let mut bright = BTreeMap::new();
+        bright.insert("SkyLight".to_string(), [90.0, 100.0]);
+        let options = SpawnSearchOptions {
+            radius: 1,
+            vertical_range: 1,
+            mode: SpawnMovementMode::Walk,
+            light_ranges: LightRanges::from_map(&bright),
+            ..SpawnSearchOptions::default()
+        };
+        assert!(search.find(Vec3::new(4.5, 1.0, 4.5), &options).is_some());
+
+        let mut dark = BTreeMap::new();
+        dark.insert("Light".to_string(), [0.0, 8.0]);
+        let options = SpawnSearchOptions {
+            light_ranges: LightRanges::from_map(&dark),
+            ..options
+        };
+        assert!(search.find(Vec3::new(4.5, 1.0, 4.5), &options).is_none());
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -207,6 +207,32 @@ impl std::fmt::Debug for WorldStorage {
     }
 }
 
+/// One block's global light channels (`0..=15`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LightSample {
+    /// Sky light.
+    pub sky: u8,
+    /// Red block light.
+    pub red: u8,
+    /// Green block light.
+    pub green: u8,
+    /// Blue block light.
+    pub blue: u8,
+}
+
+impl LightSample {
+    /// Maximum RGB block-light channel.
+    pub fn block_light(&self) -> u8 {
+        self.red.max(self.green).max(self.blue)
+    }
+
+    /// Java `LightRangePredicate.calculateLightValue` (`SkyLight * factor`
+    /// against the strongest block-light channel).
+    pub fn total(&self, sunlight_factor: f64) -> u8 {
+        ((f64::from(self.sky) * sunlight_factor).round() as u8).max(self.block_light())
+    }
+}
+
 /// Loaded runtime chunks of one world plus their dirty state.
 #[derive(Debug)]
 pub struct World {
@@ -375,6 +401,21 @@ impl World {
             .flat_map(|chunk| chunk.sections().flatten())
             .filter(|section| section.environment.contains(environment_id))
             .count()
+    }
+
+    /// Global packed-light sample at a block (`None` when the section is absent).
+    pub fn light_sample(&self, x: i32, y: i32, z: i32) -> Option<LightSample> {
+        let section = self.chunk(x >> 5, z >> 5)?.section(y)?;
+        let packed = section
+            .block
+            .global_light()
+            .get(usize::from(index_local(x, y, z)));
+        Some(LightSample {
+            sky: ((packed >> 12) & 0xF) as u8,
+            red: (packed & 0xF) as u8,
+            green: ((packed >> 4) & 0xF) as u8,
+            blue: ((packed >> 8) & 0xF) as u8,
+        })
     }
 
     /// Effective environment at a block (`UNKNOWN` when absent).

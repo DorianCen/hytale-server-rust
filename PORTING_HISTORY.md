@@ -1578,3 +1578,28 @@ This file records phase-2 sessions only.
   - Finish T59b: light/suppression, beacons/markers, environment enumeration and
     CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 58 — T59b spawn light ranges (2026-10-26)
+
+- **Goal:** honour `NPCSpawn.LightRanges` in position validation.
+- **Landed:**
+  - `World::light_sample` exposes the packed global sky/RGB channels plus the
+    Java total calculation.
+  - New `hytale-npc::light::LightRanges` ports `LightRangePredicate`'s
+    percentage-to-packed conversion and all six channels.
+  - `SpawnSearchOptions` carries the resolved ranges and clock sunlight factor;
+    environment/population spawns pass the selected config's ranges.
+  - Unit coverage sets a lit section and checks bright/dark ranges.
+- **Verified:**
+  - `cargo test -p hytale-npc`.
+  - `cargo test -p hytale-server --test npc_runtime spawn_commands_handle`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - Spawn suppression, beacons/markers and automatic environment enumeration
+    remain.
+- **Follow-ups:**
+  - Finish T59b: suppression, beacons/markers, environment enumeration and
+    CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

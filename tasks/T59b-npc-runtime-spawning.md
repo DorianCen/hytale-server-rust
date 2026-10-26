@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–57; runtime, spawn-position and population slices landed)
+**Status:** in progress (sessions 52–58; runtime, spawn-position and population slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -132,9 +132,22 @@ cargo fmt --all -- --check
 - Real-asset tests cover Water/Lava membership; the position-search test covers
   allowed and rejected fluid ids.
 
+### Light-range slice (session 58)
+
+- `World::light_sample` exposes the packed global light channels
+  (`sky`/`red`/`green`/`blue`) and the Java total (`sky * sunlight factor` vs
+  block light).
+- New `hytale-npc::light::LightRanges` ports the `LightRangePredicate`
+  percentage-to-packed conversion and the `Light`/`SkyLight`/`Sunlight`/RGB
+  channels.
+- `SpawnSearchOptions` carries the resolved ranges and the clock sunlight
+  factor; population/environment spawns pass the selected config's
+  `LightRanges`.
+- Unit coverage sets a lit section and checks bright/dark ranges.
+
 ## Deviations
 
-- Light ranges and spawn suppression are not evaluated by the position search.
+- Spawn suppression is not evaluated by the position search.
 - Population targets name their environment and density; segment counts can be
   discovered from loaded sections, but automatically enumerating every loaded
   environment is still open.
@@ -147,5 +160,5 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - Finish T59b: automatic environment enumeration, beacon/spawn-marker
-  controllers, light/suppression gates and CLI/bot coverage.
+  controllers, spawn suppression and CLI/bot coverage.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.

@@ -22,6 +22,7 @@ use hytale_npc::block_set::BlockSetCatalog;
 use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
 use hytale_npc::flock::FlockRng;
 use hytale_npc::fluid_tags::FluidTagIndex;
+use hytale_npc::light::LightRanges;
 use hytale_npc::role::RoleCatalog;
 use hytale_npc::spawn::{WorldSpawnCatalog, WorldSpawnController};
 use hytale_npc::spawn_position::{SpawnMovementMode, SpawnPositionSearch, SpawnSearchOptions};
@@ -2326,7 +2327,7 @@ fn run(
                                 save.world().tick()
                                     ^ save.world().entities().next_id().rotate_left(17),
                             );
-                            let Some((_, role)) = catalog.pick_spawn(
+                            let Some((spawn, role)) = catalog.pick_spawn(
                                 &environment,
                                 &clock,
                                 i32::from(clock.moon_phase()),
@@ -2335,6 +2336,7 @@ fn run(
                                 return Ok(None);
                             };
                             let role_key = role.id.clone();
+                            let light_ranges = LightRanges::from_map(&spawn.light_ranges);
                             let spawn_block_set = role.spawn_block_set.clone();
                             let spawn_fluid_tag = role.spawn_fluid_tag.clone();
                             let allowed_fluids = spawn_fluid_tag.as_deref().and_then(|tag| {
@@ -2361,6 +2363,8 @@ fn run(
                                     allowed_floor,
                                     require_fluid,
                                     allowed_fluids,
+                                    light_ranges,
+                                    sunlight_factor: f64::from(clock.sunlight_factor()),
                                 },
                             );
                             let Some(position) = position else {
@@ -2426,7 +2430,7 @@ fn run(
                                 let mut budget = 8usize;
                                 while controller.missing().ceil() >= 1.0 && budget > 0 {
                                     budget -= 1;
-                                    let Some((_, role)) = catalog.pick_spawn(
+                                    let Some((spawn, role)) = catalog.pick_spawn(
                                         &target.environment,
                                         &clock,
                                         i32::from(clock.moon_phase()),
@@ -2436,6 +2440,7 @@ fn run(
                                         break;
                                     };
                                     let role_key = role.id.clone();
+                                    let light_ranges = LightRanges::from_map(&spawn.light_ranges);
                                     let spawn_block_set = role.spawn_block_set.clone();
                                     let spawn_fluid_tag = role.spawn_fluid_tag.clone();
                                     let allowed_fluids =
@@ -2463,6 +2468,8 @@ fn run(
                                                 allowed_floor,
                                                 require_fluid,
                                                 allowed_fluids,
+                                                light_ranges,
+                                                sunlight_factor: f64::from(clock.sunlight_factor()),
                                             },
                                         )
                                     else {

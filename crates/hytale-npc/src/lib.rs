@@ -19,6 +19,7 @@
 //!   search over a real world.
 //! * [`block_set`] — `Server/Item/Block/Sets` membership for spawn floors.
 //! * [`fluid_tags`] — fluid tag membership for `SpawnFluidTag`.
+//! * [`light`] — `LightRanges` spawn constraints over packed world light.
 //! * [`combat`] — resolved combat profiles, interaction damage ranges and a
 //!   scripted NPC actor (targeting, chase, melee, damage, death).
 //!
@@ -33,6 +34,7 @@ pub mod expr;
 pub mod flock;
 pub mod fluid_tags;
 pub mod group;
+pub mod light;
 pub mod navigation;
 pub mod path;
 pub mod perception;
@@ -51,6 +53,7 @@ pub use expr::{evaluate, EvalContext, ExprError, Value as ExprValue};
 pub use flock::{FlockAsset, FlockCatalog, FlockSize, PersistentFlockData};
 pub use fluid_tags::FluidTagIndex;
 pub use group::{GroupMember, GroupSteeringAccumulator};
+pub use light::{LightChannel, LightRanges};
 pub use navigation::{
     search_directions, AStarConfig, AStarPath, AStarPlanner, BlockPos, SearchDirection,
 };
