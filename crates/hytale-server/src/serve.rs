@@ -106,6 +106,8 @@ pub struct SessionSummary {
     pub simulation_block_changes: usize,
     /// Fluid changes emitted by the simulation.
     pub simulation_fluid_changes: usize,
+    /// NPCs spawned by the automatic population tick.
+    pub npc_spawns: usize,
     /// NPC actors advanced by the world tick.
     pub npc_ticks: usize,
     /// NPC actors that moved.
@@ -132,6 +134,7 @@ impl From<&SessionReport> for SessionSummary {
             simulation_ticks: report.game_loop.simulation_ticks,
             simulation_block_changes: report.game_loop.simulation_block_changes,
             simulation_fluid_changes: report.game_loop.simulation_fluid_changes,
+            npc_spawns: report.game_loop.npc_spawns,
             npc_ticks: report.game_loop.npc_ticks,
             npc_moves: report.game_loop.npc_moves,
             npc_attacks: report.game_loop.npc_attacks,

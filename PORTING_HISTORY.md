@@ -1466,3 +1466,32 @@ This file records phase-2 sessions only.
   - Finish T59b: population ticking, beacons/markers, light/suppression and
     CLI/bot coverage.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 54 — T59b automatic population ticks (2026-10-26)
+
+- **Goal:** let a world spawn toward its configured environment populations
+  instead of only spawning one NPC per call.
+- **Landed:**
+  - `NpcSpawnTarget` / `NpcSpawnReport` and
+    `WorldThread::{set_npc_spawn_targets,tick_npc_spawns}`.
+  - The population tick keeps one `WorldSpawnController` per environment and
+    spawns until the density-derived expected count is reached, with an
+    eight-spawn attempt budget per target. Roles come from the real environment
+    selection and positions from the movement-mode search.
+  - Sessions call `tick_npc_spawns` from the game loop and report `npc_spawns`.
+  - The `npc_runtime` platform scenario now configures a two-NPC population,
+    verifies it is reached and that the next tick is saturated.
+- **Verified:**
+  - `cargo test -p hytale-server --test npc_runtime spawn_commands_handle`.
+  - `cargo test -p hytale-npc`.
+  - `./tools/test.sh fast`, clippy and rustfmt.
+- **Deviations:**
+  - Population targets are explicit (environment/density/segment count);
+    automatic discovery of environment segments from loaded chunks is open.
+  - Beacons/markers and block-set/fluid/light/suppression gates are still open.
+- **Follow-ups:**
+  - Finish T59b: environment/segment discovery, beacons/markers,
+    block-set/fluid/light/suppression and CLI/bot coverage.
+  - T59c: encounter/instance/portal evaluator and the full combat action graph.

@@ -12,8 +12,9 @@ runtime entity store), **T57** (block-health replication, runtime entity
 spawns and world-map basics) and **T58** (NPC core). **T59**'s first slice lands
 the world spawn rules, role combat profiles, damage ranges and a scripted NPC
 actor; **T59b** adds the live WorldThread NPC runtime, persistence, session
-ticking and movement-mode spawn-position/environment selection. Automatic
-population/beacons and **T59c** encounters remain.
+ticking, movement-mode spawn-position/environment selection and automatic
+population ticks. Automatic environment discovery/beacons and **T59c**
+encounters remain.
 
 ## Current state
 
@@ -199,8 +200,10 @@ Landed and green:
   player positions as targets and tick NPCs with the game loop. The second
   slice adds walk/wade/underwater/dive/fly spawn-position search,
   environment/role weighted selection and the density/expected-count
-  controller. Automatic population ticks, beacons/markers, light/suppression
-  gates and the encounter evaluator remain T59b/T59c.
+  controller. The third adds explicit population targets and
+  `tick_npc_spawns` with session-loop wiring. Automatic environment discovery,
+  beacons/markers, block-set/fluid/light/suppression gates and the encounter
+  evaluator remain T59b/T59c.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -231,11 +234,11 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    T58b builder-expression and T58c world-grid/group-steering slices are
    landed. T58 is done. T59's first slice (spawn configuration/selection,
    combat profiles/damage and a scripted actor) and T59b's runtime plus
-   spawn-position/controller slices (WorldThread NPC store/persistence/ticking,
-   movement-mode position search, environment selection and density
-   accounting) are landed; T59b's automatic population/beacons and T59c
-   (combat action graph and encounters) are next. T59/T60 presentation work
-   waits for T57b.
+   spawn-position/controller/population slices (WorldThread NPC
+   store/persistence/ticking, movement-mode position search, environment
+   selection, density accounting and explicit population ticks) are landed;
+   T59b's automatic environment discovery/beacons and T59c (combat action graph
+   and encounters) are next. T59/T60 presentation work waits for T57b.
 
 ## Try it
 

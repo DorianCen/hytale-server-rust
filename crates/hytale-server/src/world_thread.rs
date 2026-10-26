@@ -21,7 +21,7 @@ use hytale_inventory::{ItemStack, PlayerInventory};
 use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
 use hytale_npc::flock::FlockRng;
 use hytale_npc::role::RoleCatalog;
-use hytale_npc::spawn::WorldSpawnCatalog;
+use hytale_npc::spawn::{WorldSpawnCatalog, WorldSpawnController};
 use hytale_npc::spawn_position::{SpawnMovementMode, SpawnPositionSearch, SpawnSearchOptions};
 use hytale_protocol::generated::common::{
     BlockDamageCmd, BlockMaterial, BlockPosition, FlyMode, InventorySection, MapImage,
@@ -222,6 +222,34 @@ pub struct BlockContainerOpen {
     pub capacity: u16,
     /// Current `InventorySection` contents.
     pub section: InventorySection,
+}
+
+/// One environment population target for automatic spawning.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NpcSpawnTarget {
+    /// Environment asset id used to select spawn configurations.
+    pub environment: String,
+    /// Search center.
+    pub center: Vec3,
+    /// Horizontal search radius in blocks.
+    pub radius: i32,
+    /// Movement mode used by the position search.
+    pub mode: SpawnMovementMode,
+    /// Environment spawn density.
+    pub density: f64,
+    /// Tracked segment/column count for the density formula.
+    pub segments: usize,
+}
+
+/// Result of one automatic population tick.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NpcSpawnReport {
+    /// NPCs spawned this tick.
+    pub spawned: usize,
+    /// Targets that could not find a role or position.
+    pub failed: usize,
+    /// Total tracked live NPCs across targets.
+    pub population: i32,
 }
 
 /// Result of one NPC runtime tick.
@@ -512,6 +540,13 @@ enum Command {
     SetNpcTargets {
         targets: Vec<NpcTarget>,
         reply: SyncSender<()>,
+    },
+    SetNpcSpawnTargets {
+        targets: Vec<NpcSpawnTarget>,
+        reply: SyncSender<()>,
+    },
+    TickNpcSpawns {
+        reply: SyncSender<Result<NpcSpawnReport, String>>,
     },
     TickNpcs {
         reply: SyncSender<Result<NpcRuntimeReport, String>>,
@@ -1354,6 +1389,33 @@ impl WorldThread {
         Ok(())
     }
 
+    /// Replace the automatic environment population targets.
+    pub fn set_npc_spawn_targets(
+        &self,
+        targets: Vec<NpcSpawnTarget>,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetNpcSpawnTargets { targets, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        Ok(())
+    }
+
+    /// Spawn toward the configured environment populations.
+    pub fn tick_npc_spawns(&self) -> Result<NpcSpawnReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TickNpcSpawns { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Advance every live NPC by the elapsed wall-clock time.
     pub fn tick_npcs(&self) -> Result<NpcRuntimeReport, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -1823,6 +1885,9 @@ fn run(
             let seed = save.config().seed as i32;
             let mut entity_events: Vec<RuntimeEntityEvent> = Vec::new();
             let mut npc_targets: Vec<NpcTarget> = Vec::new();
+            let mut npc_spawn_targets: Vec<NpcSpawnTarget> = Vec::new();
+            let mut npc_spawn_controllers: BTreeMap<String, WorldSpawnController> = BTreeMap::new();
+            let mut spawn_rng = SpawnRng::new(u64::from_le_bytes(save.config().seed.to_le_bytes()));
             let mut map_images: BTreeMap<(i32, i32), MapImage> = BTreeMap::new();
             let budget = options.chunks_per_tick.max(1);
             let mut last_clock = Instant::now();
@@ -2305,6 +2370,78 @@ fn run(
                     Command::SetNpcTargets { targets, reply } => {
                         npc_targets = targets;
                         let _ = reply.send(());
+                    }
+                    Command::SetNpcSpawnTargets { targets, reply } => {
+                        npc_spawn_targets = targets;
+                        npc_spawn_controllers.clear();
+                        let _ = reply.send(());
+                    }
+                    Command::TickNpcSpawns { reply } => {
+                        let result = (|| {
+                            let role_catalog =
+                                load_npc_roles(&mut roles, &options.generator.assets_pack)?;
+                            let catalog =
+                                load_spawn_catalog(&mut spawns, &options.generator.assets_root)?;
+                            let is_solid = npc_solid_rule(generator.assets());
+                            let mut report = NpcSpawnReport::default();
+                            for target in &npc_spawn_targets {
+                                let controller = npc_spawn_controllers
+                                    .entry(target.environment.clone())
+                                    .or_insert_with(|| WorldSpawnController::new(target.density));
+                                controller.set_density(target.density);
+                                controller.set_segment_count(target.segments);
+                                let mut budget = 8usize;
+                                while controller.missing().ceil() >= 1.0 && budget > 0 {
+                                    budget -= 1;
+                                    let Some((_, role)) = catalog.pick_spawn(
+                                        &target.environment,
+                                        &clock,
+                                        i32::from(clock.moon_phase()),
+                                        &mut spawn_rng,
+                                    ) else {
+                                        report.failed += 1;
+                                        break;
+                                    };
+                                    let role_key = role.id.clone();
+                                    let Some(position) =
+                                        SpawnPositionSearch::new(save.world(), is_solid).find(
+                                            target.center,
+                                            &SpawnSearchOptions {
+                                                radius: target.radius,
+                                                vertical_range: 16,
+                                                mode: target.mode,
+                                                ..SpawnSearchOptions::default()
+                                            },
+                                        )
+                                    else {
+                                        report.failed += 1;
+                                        break;
+                                    };
+                                    match spawn_npc_entity(
+                                        &mut save,
+                                        generator.assets(),
+                                        role_catalog,
+                                        &role_key,
+                                        npc_transform(position.position),
+                                        &mut npcs,
+                                    ) {
+                                        Ok(entity) => {
+                                            entity_events
+                                                .push(RuntimeEntityEvent::Spawned(entity.id));
+                                            controller.record_spawn();
+                                            report.spawned += 1;
+                                        }
+                                        Err(_) => {
+                                            report.failed += 1;
+                                            break;
+                                        }
+                                    }
+                                }
+                                report.population += controller.actual;
+                            }
+                            Ok(report)
+                        })();
+                        let _ = reply.send(result);
                     }
                     Command::TickNpcs { reply } => {
                         let now = Instant::now();

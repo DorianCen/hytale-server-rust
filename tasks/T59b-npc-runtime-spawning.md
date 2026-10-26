@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–53; runtime and spawn-position slices landed)
+**Status:** in progress (sessions 52–54; runtime, spawn-position and population slices landed)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -84,14 +84,31 @@ cargo fmt --all -- --check
   cleared test platform and selects `Env_Portal_Goblin_Surface` through the
   real spawn store.
 
+### Automatic population slice (session 54)
+
+- New `NpcSpawnTarget` / `NpcSpawnReport` and
+  `WorldThread::{set_npc_spawn_targets,tick_npc_spawns}`. Each target carries
+  its environment, center/radius, movement mode, density and tracked segment
+  count.
+- The population tick maintains one `WorldSpawnController` per environment,
+  selects eligible roles with the real spawn catalog, finds a position, spawns
+  through the shared actor builder and records controller population. It stops
+  at the density-derived expected count with an eight-spawn attempt budget per
+  target.
+- Sessions call `tick_npc_spawns` from the game loop and report
+  `npc_spawns` in `GameLoopReport`/`SessionSummary`.
+- The `npc_runtime` platform scenario now drives a two-NPC population to its
+  expected count and verifies the next tick is saturated.
+
 ## Deviations
 
 - `SpawnBlockSet`/`SpawnFluidTag` references are not resolved to their asset
   stores yet (the `BlockSet` generator is still a T35 gap); the search exposes
   explicit block-id/fluid-requirement options instead.
 - Light ranges and spawn suppression are not evaluated by the position search.
-- The world spawn controller is a pure accounting/selection unit; automatic
-  population ticks and environment-density wiring are not in `WorldThread` yet.
+- Population targets are explicit (environment/density/segment count) rather
+  than derived automatically from every loaded chunk environment; automatic
+  environment discovery is still open.
 - Beacons and spawn markers are not landed.
 - NPC damage targets only runtime NPC actors; player health is not modelled yet,
   so player targets produce attack events without damage (T59c).
@@ -100,6 +117,7 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Finish T59b: automatic spawn-controller wiring, beacon/spawn-marker
-  controllers, light/suppression gates and CLI/bot coverage.
+- Finish T59b: automatic environment/segment discovery, beacon/spawn-marker
+  controllers, block-set/fluid-tag/light/suppression gates and CLI/bot
+  coverage.
 - T59c: encounter/instance/portal evaluator and the full combat action graph.

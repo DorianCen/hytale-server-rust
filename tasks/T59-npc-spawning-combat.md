@@ -105,8 +105,9 @@ cargo fmt --all -- --check
 ## Follow-ups
 
 - T59b: runtime producer in `WorldThread` (landed session 52) and
-  spawn-position/environment selection plus the density controller (session 53);
-  automatic population ticks, beacons/markers, light/suppression gates and
-  CLI/bot coverage remain.
+  spawn-position/environment selection plus the density controller (session 53)
+  and explicit population ticks (session 54); automatic environment discovery,
+  beacons/markers, block-set/fluid/light/suppression gates and CLI/bot coverage
+  remain.
 - T59c: full combat action graph and the `EncounterManager` evaluator
   (encounters/instances/portals).

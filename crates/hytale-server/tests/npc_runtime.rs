@@ -225,6 +225,23 @@ fn spawn_commands_handle_unknown_roles_and_find_positions() {
     assert_eq!(selected.kind, RuntimeEntityKind::Npc);
     assert!(thread.npc_actors().expect("actors").len() >= 2);
 
+    thread
+        .set_npc_spawn_targets(vec![hytale_server::NpcSpawnTarget {
+            environment: "Env_Portal_Goblin_Surface".to_string(),
+            center,
+            radius: 2,
+            mode: hytale_npc::spawn_position::SpawnMovementMode::Walk,
+            density: 1.0,
+            segments: 2048,
+        }])
+        .expect("set population target");
+    let first = thread.tick_npc_spawns().expect("population tick");
+    assert_eq!(first.spawned, 2, "expected population is two NPCs");
+    assert_eq!(first.population, 2);
+    let second = thread.tick_npc_spawns().expect("saturated tick");
+    assert_eq!(second.spawned, 0);
+    assert_eq!(second.population, 2);
+
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();
 }

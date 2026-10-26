@@ -256,6 +256,8 @@ pub struct GameLoopReport {
     pub runtime_entity_updates: usize,
     /// Runtime entity despawn events broadcast.
     pub runtime_entity_despawns: usize,
+    /// NPCs spawned by the automatic population tick.
+    pub npc_spawns: usize,
     /// NPC actors advanced by the world tick.
     pub npc_ticks: usize,
     /// NPC actors that moved.
@@ -1685,6 +1687,8 @@ async fn run_game_loop(
         }
 
         thread.set_npc_targets(players.npc_targets())?;
+        let spawn_report = thread.tick_npc_spawns()?;
+        report.npc_spawns += spawn_report.spawned;
         let npc_report = thread.tick_npcs()?;
         report.npc_ticks += npc_report.ticked;
         report.npc_moves += npc_report.moved;
