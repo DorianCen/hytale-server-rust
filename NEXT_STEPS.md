@@ -14,9 +14,10 @@ the world spawn rules, role combat profiles, damage ranges and a scripted NPC
 actor; **T59b** adds the live WorldThread NPC runtime, persistence, session
 ticking, movement-mode spawn-position/environment selection, automatic
 population ticks, block/fluid/light constraints and beacon/spawn-marker
-catalogs plus `world-boot`/`serve --spawn-npc`. Automatic environment
-enumeration, live beacon/marker controllers, spawn suppression and **T59c**
-encounters remain.
+catalogs plus `world-boot`/`serve --spawn-npc`, and **T59c** adds the real
+combat action graph, the `EncounterManager` catalog/evaluator and live
+world-thread encounter commands. T59b's automatic environment enumeration,
+live beacon/marker controllers and spawn suppression remain.
 
 ## Current state
 
@@ -118,8 +119,9 @@ Landed and green:
   `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` names resolve to
   deterministic stat ids. `EntityGameplay` is the component seam for T55/T57/
   T59c, and `testdata/golden/server/entity/entity-gameplay.json` gates all 13
-  stats, 260 effects and 20 damage causes against Java. Client packets,
-  conditions, damage calculators and DoT remain T59c.
+  stats, 260 effects and 20 damage causes against Java. T59c lands the NPC
+  damage-calculator action graph; client stat/effect packets and effect DoT
+  remain T60.
 - T54 (done): `Server/Weathers` loads with `Unknown` at id 0;
   environment forecasts are parsed from the real 24-hour tables;
   `hytale_world::weather` selects deterministic weather per hour, honors
@@ -136,7 +138,7 @@ Landed and green:
   the slide/roll/mantle traversal state and a `MountState` rider seam. The
   Java entity fixture now gates both projectile stores; `--validate-assets`
   reports 27 stores. Packets, explosions, prediction and new-physics
-  density/drag remain T59c.
+  density/drag remain T60.
 - T56 (done): prefab parsing now keeps block `components` and entity
   `Components`; `hytale-world::runtime` owns stable-id runtime entities and
   block components with versioned atomic JSON sidecars, and
@@ -195,7 +197,19 @@ Landed and green:
   (target acquisition, A* chase, melee, damage, death). Role `Modify` blocks
   are now flattened, so variant health/attack fields resolve correctly. The
   `NpcDumper` fixture gates `DamageCalculator.computeDamageRange`.
-- T59b (in progress, sessions 52–60): `WorldThread` owns a live NPC actor map with
+- T59c (done, session 61): `hytale-interactions::combat` walks attack roots
+  through selectors/`Replace`/`Chaining` and resolves `DamageEntity` damage,
+  targeted/angled overrides and `DamageEffects`. `hytale-npc::combat` parses
+  role `ActionAttack` nodes (aiming, charge, pause range, line-of-sight,
+  ballistic/friendly-fire flags) and `NpcActor` now fires through the real
+  damage node. `hytale-npc::encounter` loads all 67
+  `Server/EncounterManager` documents, resolves variants/macros/forwarded
+  slots and evaluates state transitions, timers, flags, target/stat/beacon
+  sensors and boss-bar/audio/weather/portal actions; world-owned actions are
+  deferred events. `WorldThread` exposes encounter spawn/tick/target/beacon
+  commands and `Example_Boss` runs from trigger to `Complete` in the
+  `npc_encounter` scenario.
+- T59b (in progress, sessions 52–60; T59c now landed): `WorldThread` owns a live NPC actor map with
   `spawn_npc`/`despawn_npc`/`damage_npc`/`set_npc_targets`/`tick_npcs`, rebuilds
   actors and health from `entities.json` on boot, writes health before save and
   turns movement/death into runtime entity events. Sessions publish registered
@@ -210,7 +224,7 @@ Landed and green:
   loads beacon/spawn-marker catalogs and the ninth adds
   `world-boot`/`serve --spawn-npc`. Automatic environment enumeration, live
   beacon/marker controllers, spawn suppression and the client-bot scenario
-  remain T59b/T59c.
+  remain T59b/T60.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -246,10 +260,10 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    selection, density accounting, explicit population ticks, loaded-section
    segment discovery, real `BlockSet` floor resolution, fluid-tag resolution,
    light ranges, beacon/marker catalogs and `--spawn-npc` CLI coverage) are
-   landed; T59b's automatic environment enumeration, live beacon/marker
-   controllers/suppression and the client-bot scenario, plus T59c (combat
-   action graph and encounters), are next. T59/T60 presentation work waits for
-   T57b.
+   landed, and T59c's combat action graph plus encounter evaluator/world
+   commands are landed (session 61). T59b's automatic environment enumeration,
+   live beacon/marker controllers/suppression and the client-bot scenario
+   remain next. T59/T60 presentation work waits for T57b.
 
 ## Try it
 

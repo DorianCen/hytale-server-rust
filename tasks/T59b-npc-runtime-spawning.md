@@ -189,4 +189,5 @@ cargo fmt --all -- --check
 - Finish T59b: automatic environment enumeration, live beacon/marker
   controllers and cooldown state, spawn suppression and the client-bot
   scenario.
-- T59c: encounter/instance/portal evaluator and the full combat action graph.
+- T59c landed the encounter/instance/portal evaluator, world-thread encounter
+  commands and the full combat action graph (session 61).

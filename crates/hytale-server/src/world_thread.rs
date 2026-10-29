@@ -20,6 +20,10 @@ use hytale_interactions::{InteractionCatalog, InteractionError};
 use hytale_inventory::{ItemStack, PlayerInventory};
 use hytale_npc::block_set::BlockSetCatalog;
 use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
+use hytale_npc::encounter::{
+    BeaconMessage, EncounterCatalog, EncounterContext, EncounterRuntime, EncounterTarget,
+    EncounterTickReport,
+};
 use hytale_npc::flock::FlockRng;
 use hytale_npc::fluid_tags::FluidTagIndex;
 use hytale_npc::light::LightRanges;
@@ -563,6 +567,33 @@ enum Command {
     },
     NpcActors {
         reply: SyncSender<Vec<(RuntimeEntityId, NpcActor)>>,
+    },
+    SpawnEncounter {
+        key: String,
+        reply: SyncSender<Result<String, String>>,
+    },
+    TickEncounters {
+        dt: f64,
+        reply: SyncSender<Vec<(String, EncounterTickReport)>>,
+    },
+    SetEncounterTarget {
+        key: String,
+        slot: String,
+        target: EncounterTarget,
+        reply: SyncSender<bool>,
+    },
+    SendEncounterBeacon {
+        key: String,
+        message: BeaconMessage,
+        reply: SyncSender<bool>,
+    },
+    ClearEncounterTarget {
+        key: String,
+        slot: String,
+        reply: SyncSender<bool>,
+    },
+    EncounterStates {
+        reply: SyncSender<Vec<(String, String)>>,
     },
     UpdateEntityTransform {
         id: RuntimeEntityId,
@@ -1463,6 +1494,100 @@ impl WorldThread {
         response.recv().map_err(|_| WorldThreadError::ChannelClosed)
     }
 
+    /// Spawn a live encounter from the `Server/EncounterManager` catalog.
+    pub fn spawn_encounter(&self, key: impl Into<String>) -> Result<String, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnEncounter {
+                key: key.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Advance every live encounter using the current player targets.
+    pub fn tick_encounters(&self) -> Result<Vec<(String, EncounterTickReport)>, WorldThreadError> {
+        self.tick_encounters_for(1.0 / 20.0)
+    }
+
+    /// Advance every live encounter by `dt` seconds.
+    pub fn tick_encounters_for(
+        &self,
+        dt: f64,
+    ) -> Result<Vec<(String, EncounterTickReport)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TickEncounters { dt, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Bind/replace one target slot on a live encounter.
+    pub fn set_encounter_target(
+        &self,
+        key: impl Into<String>,
+        slot: impl Into<String>,
+        target: EncounterTarget,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetEncounterTarget {
+                key: key.into(),
+                slot: slot.into(),
+                target,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Remove one target slot from a live encounter.
+    pub fn clear_encounter_target(
+        &self,
+        key: impl Into<String>,
+        slot: impl Into<String>,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ClearEncounterTarget {
+                key: key.into(),
+                slot: slot.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Send one beacon message to a live encounter.
+    pub fn send_encounter_beacon(
+        &self,
+        key: impl Into<String>,
+        message: BeaconMessage,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SendEncounterBeacon {
+                key: key.into(),
+                message,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Current `(key, state)` for every live encounter.
+    pub fn encounter_states(&self) -> Result<Vec<(String, String)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::EncounterStates { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
     /// Move a runtime entity and queue an update event for viewers.
     pub fn update_entity_transform(
         &self,
@@ -1892,6 +2017,8 @@ fn run(
             let mut npc_targets: Vec<NpcTarget> = Vec::new();
             let mut npc_spawn_targets: Vec<NpcSpawnTarget> = Vec::new();
             let mut npc_spawn_controllers: BTreeMap<String, WorldSpawnController> = BTreeMap::new();
+            let mut encounters: BTreeMap<String, EncounterRuntime> = BTreeMap::new();
+            let mut encounter_catalog: Option<EncounterCatalog> = None;
             let mut fluid_tags: Option<FluidTagIndex> = None;
             let mut spawn_rng = SpawnRng::new(u64::from_le_bytes(save.config().seed.to_le_bytes()));
             let mut map_images: BTreeMap<(i32, i32), MapImage> = BTreeMap::new();
@@ -2266,6 +2393,7 @@ fn run(
                                 &mut save,
                                 generator.assets(),
                                 role_catalog,
+                                &interactions,
                                 &role,
                                 transform,
                                 &mut npcs,
@@ -2302,6 +2430,7 @@ fn run(
                                 &mut save,
                                 generator.assets(),
                                 role_catalog,
+                                &interactions,
                                 &role,
                                 npc_transform(position.position),
                                 &mut npcs,
@@ -2374,6 +2503,7 @@ fn run(
                                 &mut save,
                                 generator.assets(),
                                 role_catalog,
+                                &interactions,
                                 &role_key,
                                 npc_transform(position.position),
                                 &mut npcs,
@@ -2480,6 +2610,7 @@ fn run(
                                         &mut save,
                                         generator.assets(),
                                         role_catalog,
+                                        &interactions,
                                         &role_key,
                                         npc_transform(position.position),
                                         &mut npcs,
@@ -2603,6 +2734,78 @@ fn run(
                             .map(|(&id, actor)| (id, actor.clone()))
                             .collect();
                         let _ = reply.send(actors);
+                    }
+                    Command::SpawnEncounter { key, reply } => {
+                        let result = (|| {
+                            if encounter_catalog.is_none() {
+                                encounter_catalog = Some(
+                                    EncounterCatalog::load_root(&options.generator.assets_root)
+                                        .map_err(|error| error.to_string())?,
+                                );
+                            }
+                            let document = encounter_catalog
+                                .as_ref()
+                                .and_then(|catalog| catalog.resolve(&key))
+                                .ok_or_else(|| format!("unknown encounter `{key}`"))?
+                                .clone();
+                            let runtime = document.runtime();
+                            let state = runtime.state().to_string();
+                            encounters.insert(key.clone(), runtime);
+                            Ok(state)
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::TickEncounters { dt, reply } => {
+                        let players = npc_targets
+                            .iter()
+                            .map(|target| target.position)
+                            .collect::<Vec<_>>();
+                        let context = EncounterContext {
+                            players,
+                            ..EncounterContext::default()
+                        };
+                        let mut reports = Vec::new();
+                        for (key, runtime) in &mut encounters {
+                            let report = runtime.tick(dt, &context);
+                            reports.push((key.clone(), report));
+                        }
+                        let _ = reply.send(reports);
+                    }
+                    Command::SetEncounterTarget {
+                        key,
+                        slot,
+                        target,
+                        reply,
+                    } => {
+                        let changed = encounters.get_mut(&key).is_some_and(|runtime| {
+                            runtime.set_target(slot, target);
+                            true
+                        });
+                        let _ = reply.send(changed);
+                    }
+                    Command::SendEncounterBeacon {
+                        key,
+                        message,
+                        reply,
+                    } => {
+                        let changed = encounters.get_mut(&key).is_some_and(|runtime| {
+                            runtime.send_beacon(message);
+                            true
+                        });
+                        let _ = reply.send(changed);
+                    }
+                    Command::ClearEncounterTarget { key, slot, reply } => {
+                        let changed = encounters
+                            .get_mut(&key)
+                            .is_some_and(|runtime| runtime.targets_mut().remove(&slot).is_some());
+                        let _ = reply.send(changed);
+                    }
+                    Command::EncounterStates { reply } => {
+                        let states = encounters
+                            .iter()
+                            .map(|(key, runtime)| (key.clone(), runtime.state().to_string()))
+                            .collect();
+                        let _ = reply.send(states);
                     }
                     Command::UpdateEntityTransform {
                         id,
@@ -2925,7 +3128,12 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let mut npcs = BTreeMap::new();
     if let Some(roles) = &roles {
         for entity in &npc_entities {
-            match NpcActor::from_runtime_entity(generator.assets(), roles, entity) {
+            match NpcActor::from_runtime_entity_with_interactions(
+                generator.assets(),
+                roles,
+                entity,
+                Some(interactions.as_ref()),
+            ) {
                 Ok(Some(actor)) => {
                     npcs.insert(entity.id, actor);
                 }
@@ -3251,6 +3459,7 @@ fn spawn_npc_entity(
     save: &mut WorldSave,
     assets: &hytale_assets::AssetRegistry,
     roles: &RoleCatalog,
+    interactions: &InteractionCatalog,
     role: &str,
     transform: PlayerTransform,
     npcs: &mut BTreeMap<RuntimeEntityId, NpcActor>,
@@ -3260,7 +3469,7 @@ fn spawn_npc_entity(
         .resolve_with_rng(role, &mut rng)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| format!("unknown NPC role `{role}`"))?;
-    let actor = NpcActor::from_assets(
+    let actor = NpcActor::from_assets_with_interactions(
         assets,
         &resolved,
         Vec3::new(
@@ -3269,6 +3478,7 @@ fn spawn_npc_entity(
             transform.position.z,
         ),
         transform.rotation.yaw,
+        Some(interactions),
     )
     .map_err(|error| error.to_string())?;
     let components = actor.runtime_components();

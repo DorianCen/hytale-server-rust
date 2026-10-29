@@ -1,6 +1,6 @@
 # T59 — NPC spawning, combat and encounters
 
-**Status:** in progress (sessions 51–60; core and runtime slices landed)
+**Status:** done (sessions 51–61; T59b runtime follow-ups remain)
 **Package:** `hytale-npc`, `hytale-world` (+ `hytale-server` in T59b)
 **Depends on:** T58, T58b, T58c
 **Agent fit:** low/medium
@@ -112,5 +112,6 @@ cargo fmt --all -- --check
   catalogs (session 59) and `--spawn-npc` CLI coverage (session 60); automatic
   environment enumeration, live beacon/marker controllers, spawn suppression
   and the client-bot scenario remain.
-- T59c: full combat action graph and the `EncounterManager` evaluator
-  (encounters/instances/portals).
+- T59c landed the full combat action graph, `EncounterManager` catalog/
+  evaluator, boss-bar/audio/weather/portal seams and the world-thread encounter
+  commands (session 61).

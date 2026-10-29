@@ -1691,6 +1691,7 @@ async fn run_game_loop(
         report.npc_spawns += spawn_report.spawned;
         let npc_report = thread.tick_npcs()?;
         report.npc_ticks += npc_report.ticked;
+        let _ = thread.tick_encounters()?;
         report.npc_moves += npc_report.moved;
         report.npc_attacks += npc_report.attacks;
         report.npc_deaths += npc_report.deaths;

@@ -32,6 +32,7 @@
 
 pub mod block_set;
 pub mod combat;
+pub mod encounter;
 pub mod expr;
 pub mod flock;
 pub mod fluid_tags;
@@ -49,8 +50,13 @@ pub mod worldgrid;
 
 pub use block_set::{wildcard_matches, BlockSet, BlockSetCatalog, BlockSetError};
 pub use combat::{
-    npc_stat_map, CombatError, CombatProfile, DamageCalculator, DamageType, NpcActor, NpcAttack,
-    NpcTarget, NpcTickReport,
+    npc_stat_map, AttackAction, AttackType, BallisticMode, CombatError, CombatProfile,
+    DamageCalculator, DamageEffects, DamageType, NpcActor, NpcAttack, NpcTarget, NpcTickReport,
+};
+pub use encounter::{
+    BeaconMessage, BossBarState, DeferredEncounterAction, EncounterAction, EncounterCatalog,
+    EncounterContext, EncounterDocument, EncounterError, EncounterRuntime, EncounterTarget,
+    EncounterTickReport, PortalState, StateTransition,
 };
 pub use expr::{evaluate, EvalContext, ExprError, Value as ExprValue};
 pub use flock::{FlockAsset, FlockCatalog, FlockSize, PersistentFlockData};

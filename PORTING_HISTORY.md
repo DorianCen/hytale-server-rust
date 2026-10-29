@@ -1653,3 +1653,57 @@ This file records phase-2 sessions only.
   - Finish T59b: environment enumeration, beacon/marker controllers,
     suppression and the bot scenario.
   - T59c: encounter/instance/portal evaluator and the full combat action graph.
+
+---
+
+## Session 61 — T59c combat action graph and encounters (2026-10-26)
+
+- **Goal:** replace the scripted primary attack with the Java
+  `DamageEntity` action path and add the `EncounterManager` evaluator/world
+  seam.
+- **Landed:**
+  - New `hytale-interactions::combat`: Java `DamageCalculator` (absolute/DPS,
+    random percentage, sequential-modifier fields), `DamageEffects` including
+    directional/force/point knockback, `TargetedDamage`/`AngledDamage` and a
+    root-interaction walker that follows selector/`Replace`/`Chaining` nodes
+    and overlays role `InteractionVars`. `hytale-npc::combat` re-exports the
+    calculator and keeps the existing fixture API.
+  - `CombatProfile` now resolves the role `Attack` root and every
+    `"Type": "Attack"` action (`AttackType`, charge/aim ranges, pause range,
+    ballistic mode, LoS/friendly-fire flags, action-level vars). `NpcActor`
+    consumes aim/charge timers, honors LoS/charge distance, fires through the
+    resolved damage node and reports the source/runtime/`DamageEffects`.
+    World-thread spawns attach the shared interaction catalog so live Rat and
+    other NPC attacks use the real graph.
+  - New `hytale-npc::encounter`: all 67 `Server/EncounterManager` documents
+    load (41 spawnable). The catalog resolves `Variant`/`Abstract` references,
+    `Instruction` macros, `Modify`, `_InterfaceParameters`,
+    `_ForwardedModifiers` and `_ExportStates`; the runtime evaluates
+    instruction trees, state transitions, `Once`, blocking `ActionsBlocking`
+    lists/timeouts, timers, flags, player/target/mob/count/stat/beacon/
+    line-of-sight sensors, and boss-bar/music/audio/weather/target/portal
+    actions. World-owned actions are ordered deferred events.
+  - `WorldThread` owns live encounters and exposes spawn/tick(for dt)/state/
+    target/beacon/clear-target commands; sessions tick encounters with player
+    positions. The `npc_encounter` server scenario runs `Example_Boss` from
+    the player trigger through `Phase_1`, `Phase_2`, `BossDead` and `Complete`.
+  - Real-pack tests cover catalog/variant/macro resolution,
+    `Example_State_Transitions`, `Example_Encounter`, `Example_Boss`, and Rat
+    `Root_NPC_Rat_Attack` → `Bite_Damage` (9 ± 10% Physical + knockback).
+- **Verified:**
+  - `cargo test -p hytale-interactions`.
+  - `cargo test -p hytale-npc`.
+  - `cargo test -p hytale-server --test npc_encounter`.
+  - `./tools/test.sh fast`, workspace clippy and rustfmt.
+- **Deviations:**
+  - The scripted `NpcActor` still drives steering; the builder/blackboard NPC
+    ECS remains T60.
+  - Encounter spawner/particle/sound events are emitted in order but not yet
+    executed by a world producer. Instance/portal transports remain deferred.
+  - Player health/damage is still not modelled, so NPC attacks against players
+    remain observation events; NPC→NPC damage uses the new effects payload.
+- **Follow-ups:**
+  - T59b: automatic environment enumeration, live beacon/marker controllers,
+    spawn suppression and the client-bot scenario.
+  - T60: execute deferred encounter actions (spawners/particles/sounds),
+    instance/portal lifecycle and the builtin NPC/EncounterManager module.

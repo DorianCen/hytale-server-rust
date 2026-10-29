@@ -21,17 +21,21 @@ Deferred to M5/M6:
   density/expected-count accounting, explicit population ticks and
   loaded-section environment segment discovery, real `BlockSet` floor
   resolution, `SpawnFluidTag` resolution, spawn `LightRanges` and beacon/
-  spawn-marker catalogs and `--spawn-npc` CLI coverage. Automatic environment
-  enumeration, live beacon/marker controllers, spawn suppression and the client
-  bot scenario remain T59b; the full builder graph,
-  motion-controller A*, wander/avoidance, blackboard sensors, combat action
-  graph, encounters/instances/portals and the NPC ECS remain T59c/T60.
+  spawn-marker catalogs and `--spawn-npc` CLI coverage. T59c adds the
+  `ActionAttack`/`DamageEntity` combat path, the complete
+  `Server/EncounterManager` catalog/evaluator, boss-bar/audio/weather/portal
+  seams and live world-thread encounter commands. Automatic environment
+  enumeration, live beacon/marker controllers, spawn suppression and the
+  client bot scenario remain T59b; the full builder graph, motion-controller
+  A*, wander/avoidance, blackboard sensors, instance/portal transports and the
+  NPC ECS remain T60.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
   T53 lands the stat/effect/damage models, the Java asset fixture and the
   `EntityGameplay` component seam; T57 lands block-health/runtime-entity/map
   presentation and T59 resolves NPC combat profiles/damage, but player combat,
-  condition evaluation, the full damage-calculator action graph, effect DoT
-  and per-entity stat/effect/damage packets remain T59c/T60.
+  condition evaluation, effect DoT, (non-NPC) player combat and per-entity
+  stat/effect/damage packets remain T60; T59c lands the NPC
+  damage-calculator/`DamageEffects` action graph.
 - Crafting, recipes, item quality, drops, shops, rewards.
 - Projectiles beyond T55's deterministic core (legacy flight, block/entity hit,
   bounce/stick/TTL, new-config seam): density/drag/buoyancy/rolling and
@@ -68,7 +72,9 @@ Deferred to M5/M6:
   deterministic gravity/jump/fly/climb/slide/roll integrator with a mantle
   helper. Per-packet speed/teleport anti-cheat remains T62; fluids, triggers,
   world mount entities and entity collisions remain T52/T56/T58.
-- Instances, encounters, portals, adventure plugins.
+- Instance/portal transports and adventure plugins. T59c lands the encounter
+  evaluator and portal-timer seam; world transport/instance lifecycle remains
+  deferred.
 - Full world map UI/image provider and live map rendering beyond T57's settings,
   `BlockMapMarker` points of interest and T57b's per-chunk palette images
   (T60/later).

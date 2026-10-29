@@ -301,6 +301,8 @@ fn damage_ranges_match_the_java_damage_calculator() {
                 .as_f64()
                 .expect("random modifier") as f32,
             damage_class: None,
+            sequential_modifier_step: 0.0,
+            sequential_modifier_minimum: 0.0,
             source: None,
         };
         let duration = case["duration"].as_f64().expect("duration");

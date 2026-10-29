@@ -14,8 +14,8 @@ T49 (inventory containers/transactions), T50 (interaction graph and block
 interactions), T51 (movement physics and collision authority), T52 (block
 simulation) and its parity follow-ups T52b–T52d are done; M5 gameplay parity
 continues with T53 (done), T54 (done), T55 (done), T56 (done) and T57
-(done), then T58 (done). T59's spawn/combat core is landed; its runtime and
-encounter slices are T59b/T59c.
+(done), then T58 (done). T59's spawn/combat core and the T59c encounter/action-graph
+slice are landed; the remaining runtime follow-ups are T59b.
 
 ## 0. Baseline
 
@@ -832,7 +832,7 @@ block components, spawn/despawn lifecycle.
   column/hash order).
 - Item drops with weighted drop lists stay unresolved; fixed-item simulation
   drops become item entities. Runtime entity spawn presentation landed in T57;
-  projectile spawn/despawn and dynamic transforms remain T59c.
+  projectile spawn/despawn and dynamic transforms remain T60.
 
 ### T57 — UI basics and block health presentation
 
@@ -904,7 +904,7 @@ the builtin NPC module (T59/T60).
 
 ### T59 — NPC spawning, combat and encounters
 
-**Status:** in progress (sessions 51–60; core and runtime slices landed)
+**Status:** done (sessions 51–61; T59b runtime follow-ups remain)
 **Package:** `hytale-npc`, `hytale-world`
 **Goal:** spawn rules, combat, encounters/instances/portals.
 **Acceptance:** scripted encounter/combat scenario matches Java.
@@ -914,8 +914,9 @@ selection, role combat profiles, `DamageCalculator` ranges and a scripted
 `NpcActor` (targeting/chase/melee/damage/death). T59b lands the live NPC
 producer, movement-mode position search, population ticks, block/fluid/light
 constraints and beacon/marker catalogs; live beacon/marker controllers, spawn
-suppression and automatic environment enumeration remain in T59b. The full
-combat action graph and `EncounterManager` evaluator are T59c.
+suppression and automatic environment enumeration remain in T59b. The full combat action graph and `EncounterManager` evaluator are landed by
+T59c (session 61); T59b keeps the automatic environment enumeration,
+live beacon/marker controllers and spawn suppression follow-ups.
 
 ### T59b — NPC runtime, spawn positions and beacons
 
@@ -939,12 +940,25 @@ enumeration, live beacon/marker controllers and spawn suppression remain.
 
 ### T59c — Combat action graph and encounters
 
-**Status:** planned
+**Status:** done (session 61)
 **Package:** `hytale-npc`, `hytale-interactions`, `hytale-server`
 **Goal:** `ActionAttack`/damage interaction path and the
 `EncounterManager` evaluator with encounter/instance/portal seams.
 **Acceptance:** a real encounter document runs its state transitions and
 actions; scripted melee damage matches the Java interaction path.
+
+`hytale-interactions::combat` now owns the `DamageEntity`/`DamageCalculator`/
+`DamageEffects`/knockback data path and walks attack roots through selectors,
+`Replace`/`Chaining` and role interaction vars. `hytale-npc::combat` resolves
+role `ActionAttack` nodes (aiming, charge, pause range, LoS, ballistic mode,
+friendly-fire flags) and uses the resolved damage node for scripted melee.
+`hytale-npc::encounter` loads all 67 `Server/EncounterManager` documents,
+resolves variants/macros/forwarded slots, evaluates state transitions, timers,
+flags, player/mob/target/stat/beacon sensors and the boss-bar/audio/weather/
+portal actions, and emits spawner/particle/sound actions as deferred events.
+`WorldThread` exposes live encounter spawn/tick/target/beacon commands; the
+`npc_encounter` tests run `Example_Boss` from the player trigger through
+`Phase_1`, `Phase_2`, `BossDead` and `Complete`.
 
 ### T60 — Builtin module runtime and selected modules
 

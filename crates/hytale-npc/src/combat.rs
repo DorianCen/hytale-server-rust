@@ -7,9 +7,10 @@
 //! `EntityStatType` store, and drives a small deterministic [`NpcActor`]:
 //! target acquisition, path following, melee attacks, damage and death.
 //!
-//! Java's `MotionController`/blackboard/`ActionAttack` graph is not ported. The
-//! actor is the scripted ECS seam: the server can attach it to runtime entities
-//! and tick it without the full builder graph.
+//! The `ActionAttack` selection/aiming/charge/LoS fields and the
+//! `DamageEntity` damage graph are resolved from the real interaction catalog.
+//! Java's `MotionController`/blackboard instruction graph is still not ported:
+//! the actor is the scripted ECS seam the server attaches to runtime entities.
 
 use std::collections::BTreeMap;
 
@@ -17,6 +18,8 @@ use hytale_assets::AssetRegistry;
 use hytale_entities::components::EntityGameplay;
 use hytale_entities::damage::{Damage, DamageCauses, DamageResult};
 use hytale_entities::stats::{EntityStatMap, EntityStatType};
+use hytale_interactions::catalog::InteractionCatalog;
+use hytale_interactions::combat::{collect_attack_hits, AttackHit};
 use hytale_world::collision::Vec3;
 use hytale_world::runtime::RuntimeEntity;
 use hytale_world::world::World;
@@ -33,102 +36,192 @@ pub const PATH_REPLAN_INTERVAL: f64 = 0.5;
 /// Horizontal tolerance before a target is considered reached.
 pub const TARGET_EPSILON: f64 = 1e-4;
 
-/// Java `DamageCalculator.Type`.
+pub use hytale_interactions::combat::{DamageCalculator, DamageEffects, DamageType};
+
+/// Java `ActionAttack.AttackType`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DamageType {
-    /// `Absolute`.
-    Absolute,
-    /// `DPS` (base damage is per second and scaled by the duration).
-    Dps,
+pub enum AttackType {
+    /// Primary interaction.
+    Primary,
+    /// Secondary interaction.
+    Secondary,
+    /// Ability slot 1.
+    Ability1,
+    /// Ability slot 2.
+    Ability2,
+    /// Ability slot 3.
+    Ability3,
+    /// Ability slot 4.
+    Ability4,
 }
 
-/// One reachable `DamageCalculator` from a role's interaction variables.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DamageCalculator {
-    /// Absolute or DPS.
-    pub damage_type: DamageType,
-    /// Per-cause base damage.
-    pub base_damage: BTreeMap<String, f32>,
-    /// Java `RandomPercentageModifier` (`0.1` = -10%..+10%).
-    pub random_percentage_modifier: f32,
-    /// Optional `Class` (`Melee`, ...).
-    pub damage_class: Option<String>,
-    /// `InteractionVars` map entry this calculator was reached from, when
-    /// known. Used to prefer role-specific attacks over the generic template
-    /// `Melee_Damage` fallback.
-    pub source: Option<String>,
-}
-
-impl DamageCalculator {
-    /// Decode one `DamageCalculator` document.
-    pub fn from_value(value: &Value) -> Option<Self> {
-        let damage_type = match value.get("Type").and_then(Value::as_str) {
-            Some("DPS") => DamageType::Dps,
-            _ => DamageType::Absolute,
-        };
-        let base_damage = value
-            .get("BaseDamage")
-            .and_then(Value::as_object)?
-            .iter()
-            .filter_map(|(cause, amount)| {
-                amount.as_f64().map(|amount| (cause.clone(), amount as f32))
-            })
-            .collect::<BTreeMap<_, _>>();
-        if base_damage.is_empty() {
-            return None;
+impl AttackType {
+    /// Parse the Java enum spelling.
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "Secondary" => Self::Secondary,
+            "Ability1" => Self::Ability1,
+            "Ability2" => Self::Ability2,
+            "Ability3" => Self::Ability3,
+            "Ability4" => Self::Ability4,
+            _ => Self::Primary,
         }
-        Some(Self {
-            damage_type,
-            base_damage,
-            random_percentage_modifier: value
-                .get("RandomPercentageModifier")
+    }
+
+    /// Java enum spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Primary => "Primary",
+            Self::Secondary => "Secondary",
+            Self::Ability1 => "Ability1",
+            Self::Ability2 => "Ability2",
+            Self::Ability3 => "Ability3",
+            Self::Ability4 => "Ability4",
+        }
+    }
+}
+
+/// Java `ActionAttack.BallisticMode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BallisticMode {
+    /// Shorter flight curve.
+    Short,
+    /// Longer flight curve.
+    Long,
+    /// Alternate between short and long.
+    Alternate,
+    /// Random short or long.
+    Random,
+}
+
+impl BallisticMode {
+    /// Parse the Java enum spelling.
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "Long" => Self::Long,
+            "Alternate" => Self::Alternate,
+            "Random" => Self::Random,
+            _ => Self::Short,
+        }
+    }
+}
+
+/// One resolved Java `ActionAttack` node (`"Type": "Attack"`).
+///
+/// A role usually has one attack action in its instruction tree, but bosses use
+/// several (for example intro/transition attacks). The scripted actor picks the
+/// first action with an attack root, which matches the primary melee path the
+/// T59 runtime needs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttackAction {
+    /// Root interaction key. `None` means "use the item/explicit override".
+    pub attack: Option<String>,
+    /// Interaction slot.
+    pub attack_type: AttackType,
+    /// Charge time in seconds.
+    pub charge_for: f32,
+    /// Minimum pause range after the attack.
+    pub attack_pause_range: [f64; 2],
+    /// Range from which the max aiming time is sampled.
+    pub aiming_time_range: [f64; 2],
+    /// Half-angle used for the on-target check (radians).
+    pub melee_cone_angle: f32,
+    /// Ballistic trajectory preference.
+    pub ballistic_mode: BallisticMode,
+    /// Require line of sight before firing.
+    pub check_line_of_sight: bool,
+    /// Avoid friendly entities blocking the line of sight.
+    pub avoid_friendly_fire: bool,
+    /// Allow damage to friendlies.
+    pub damage_friendlies: bool,
+    /// Skip the aiming phase.
+    pub skip_aiming: bool,
+    /// Distance required before a charge attack may fire.
+    pub charge_distance: f64,
+    /// Per-action interaction-var overrides.
+    pub interaction_vars: BTreeMap<String, Value>,
+}
+
+impl AttackAction {
+    /// Decode an `"Type": "Attack"` action. `fallback_root` is the role's
+    /// top-level `Attack` parameter.
+    pub fn from_value(value: &Value, fallback_root: Option<&str>) -> Self {
+        let attack = value
+            .get("Attack")
+            .and_then(Value::as_str)
+            .filter(|attack| !attack.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| fallback_root.map(ToOwned::to_owned));
+        Self {
+            attack,
+            attack_type: value
+                .get("AttackType")
+                .and_then(Value::as_str)
+                .map(AttackType::from_name)
+                .unwrap_or(AttackType::Primary),
+            charge_for: value
+                .get("ChargeFor")
                 .and_then(Value::as_f64)
                 .unwrap_or(0.0) as f32,
-            damage_class: value
-                .get("Class")
+            attack_pause_range: f64_pair(value.get("AttackPauseRange")).unwrap_or([0.0, 0.0]),
+            aiming_time_range: f64_pair(value.get("AimingTimeRange")).unwrap_or([0.0, 0.0]),
+            melee_cone_angle: value
+                .get("MeleeConeAngle")
+                .and_then(Value::as_f64)
+                .unwrap_or(30.0)
+                .to_radians() as f32
+                / 2.0,
+            ballistic_mode: value
+                .get("BallisticMode")
                 .and_then(Value::as_str)
-                .map(ToOwned::to_owned),
-            source: None,
-        })
+                .map(BallisticMode::from_name)
+                .unwrap_or(BallisticMode::Short),
+            check_line_of_sight: value
+                .get("LineOfSight")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            avoid_friendly_fire: value
+                .get("AvoidFriendlyFire")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            damage_friendlies: value
+                .get("DamageFriendlies")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            skip_aiming: value
+                .get("SkipAiming")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            charge_distance: value
+                .get("ChargeDistance")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            interaction_vars: value
+                .get("InteractionVars")
+                .and_then(Value::as_object)
+                .map(|vars| {
+                    vars.iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
     }
 
-    /// Java `DamageCalculator.computeDamageRange`: total minimum/maximum
-    /// damage across every cause for an interaction of `duration_seconds`.
-    pub fn compute_range(&self, duration_seconds: f64) -> [f32; 2] {
-        let scaled: f32 = self
-            .base_damage
-            .values()
-            .map(|damage| match self.damage_type {
-                DamageType::Absolute => *damage,
-                DamageType::Dps => duration_seconds as f32 * *damage,
-            })
-            .sum();
-        [
-            scaled * (1.0 - self.random_percentage_modifier),
-            scaled * (1.0 + self.random_percentage_modifier),
-        ]
+    /// Java `newAimingTime`: sample the max aiming time range.
+    pub fn aiming_time(&self, random_unit: f64) -> f64 {
+        let [low, high] = self.aiming_time_range;
+        if high <= 0.0 {
+            0.0
+        } else {
+            low + (high - low) * random_unit.clamp(0.0, 1.0)
+        }
     }
 
-    /// Java `DamageCalculator.calculateDamage` without the asset-map lookup.
-    /// `random_unit` is in `[0, 1)`; each cause is rolled with the same offset.
-    pub fn roll(&self, duration_seconds: f64, random_unit: f64) -> Vec<(String, f32)> {
-        let random_percentage = -self.random_percentage_modifier
-            + 2.0 * self.random_percentage_modifier * random_unit as f32;
-        self.base_damage
-            .iter()
-            .map(|(cause, base)| {
-                let scaled = match self.damage_type {
-                    DamageType::Absolute => *base,
-                    DamageType::Dps => duration_seconds as f32 * *base,
-                };
-                (cause.clone(), scaled + scaled * random_percentage)
-            })
-            .collect()
-    }
-
-    /// Maximum possible total damage (`compute_range()[1]`).
-    pub fn maximum_damage(&self, duration_seconds: f64) -> f32 {
-        self.compute_range(duration_seconds)[1]
+    /// Java `newAttackPause`: sample the pause range.
+    pub fn attack_pause(&self, random_unit: f64) -> f64 {
+        let [low, high] = self.attack_pause_range;
+        (low + (high - low) * random_unit.clamp(0.0, 1.0)).max(0.0)
     }
 }
 
@@ -155,7 +248,13 @@ pub struct CombatProfile {
     pub hard_leash_distance: f64,
     /// Java `AttackPauseRange`, default `[1.0, 1.0]`.
     pub attack_pause_range: [f64; 2],
-    /// Reachable interaction damage calculators.
+    /// Root interaction named by the role's `Attack` parameter.
+    pub attack_root: Option<String>,
+    /// Resolved `"Type": "Attack"` actions from the role instruction tree.
+    pub attack_actions: Vec<AttackAction>,
+    /// Role-level interaction variables used by the attack graph.
+    pub interaction_vars: BTreeMap<String, Value>,
+    /// Reachable interaction damage calculators (role-template fallback).
     pub attacks: Vec<DamageCalculator>,
 }
 
@@ -175,6 +274,14 @@ impl CombatProfile {
                 .or_else(|| role.parameter(name).and_then(Value::as_f64))
         };
         let attacks = collect_damage_calculators(&role.raw);
+        let attack_root = role
+            .raw
+            .get("Attack")
+            .and_then(Value::as_str)
+            .filter(|attack| !attack.is_empty())
+            .map(ToOwned::to_owned);
+        let attack_actions = collect_attack_actions(&role.raw, attack_root.as_deref());
+        let interaction_vars = collect_interaction_vars(&role.raw);
         Ok(Self {
             max_health,
             view_range: number("ViewRange").unwrap_or(10.0),
@@ -186,8 +293,69 @@ impl CombatProfile {
             leash_distance: number("LeashDistance").unwrap_or(50.0),
             hard_leash_distance: number("HardLeashDistance").unwrap_or(80.0),
             attack_pause_range: f64_pair(role.raw.get("AttackPauseRange")).unwrap_or([1.0, 1.0]),
+            attack_root,
+            attack_actions,
+            interaction_vars,
             attacks,
         })
+    }
+
+    /// The primary `ActionAttack` for scripted/runtime combat.
+    ///
+    /// The first action with an attack root is the primary melee path used by
+    /// ordinary creatures. Roles without an instruction-tree action fall back
+    /// to the top-level `Attack` root.
+    pub fn attack_action(&self) -> Option<AttackAction> {
+        // The role's top-level `Attack` parameter is authoritative for the
+        // primary combat path. Instruction-tree actions can be intro/phase
+        // attacks; for those, use the role root when they don't name one.
+        if let Some(root) = &self.attack_root {
+            if let Some(action) = self
+                .attack_actions
+                .iter()
+                .find(|action| action.attack.as_deref() == Some(root.as_str()))
+            {
+                return Some(action.clone());
+            }
+            if let Some(mut action) = self.attack_actions.first().cloned() {
+                action.attack = Some(root.clone());
+                return Some(action);
+            }
+            return Some(AttackAction {
+                attack: Some(root.clone()),
+                attack_type: AttackType::Primary,
+                charge_for: 0.0,
+                attack_pause_range: self.attack_pause_range,
+                aiming_time_range: [0.0, 0.0],
+                melee_cone_angle: 15.0_f32.to_radians(),
+                ballistic_mode: BallisticMode::Short,
+                check_line_of_sight: false,
+                avoid_friendly_fire: false,
+                damage_friendlies: false,
+                skip_aiming: true,
+                charge_distance: 0.0,
+                interaction_vars: BTreeMap::new(),
+            });
+        }
+        self.attack_actions
+            .iter()
+            .find(|action| action.attack.is_some())
+            .cloned()
+    }
+
+    /// Resolve the attack graph for one action. Role-level vars are overlaid by
+    /// action-level vars, matching Java `ActionAttack.getInteractionVars`.
+    pub fn attack_hits(
+        &self,
+        interactions: &InteractionCatalog,
+        action: &AttackAction,
+    ) -> Vec<AttackHit> {
+        let Some(root) = action.attack.as_deref() else {
+            return Vec::new();
+        };
+        let mut vars = self.interaction_vars.clone();
+        vars.extend(action.interaction_vars.clone());
+        collect_attack_hits(interactions, root, &vars)
     }
 
     /// The highest-damage interaction. Scripted combat uses this as the
@@ -250,8 +418,15 @@ pub struct NpcActor {
     pub path: PathFollower,
     /// Attack cooldown in seconds.
     pub attack_cooldown: f64,
+    /// Aiming countdown before the next attack.
+    pub aiming_remaining: f64,
+    /// Charge countdown before the next attack.
+    pub charge_remaining: f64,
     /// Path replan countdown.
     pub replan_cooldown: f64,
+    /// Optional interaction catalog used to resolve `ActionAttack` roots.
+    #[doc(hidden)]
+    pub interactions: Option<InteractionCatalog>,
     last_target_position: Option<Vec3>,
 }
 
@@ -271,6 +446,15 @@ pub struct NpcAttack {
     pub target: u64,
     /// Rolled damage by cause.
     pub damages: Vec<(String, f32)>,
+    /// Root interaction that produced the damage.
+    pub attack_root: Option<String>,
+    /// `InteractionVars` key that selected the damage branch (for example
+    /// `Bite_Damage`).
+    pub source: Option<String>,
+    /// Interaction runtime used to scale DPS calculators.
+    pub runtime: f64,
+    /// Knockback/sound/particle metadata from `DamageEffects`.
+    pub effects: Option<DamageEffects>,
 }
 
 /// Result of one actor tick.
@@ -297,6 +481,17 @@ impl NpcActor {
         position: Vec3,
         yaw: f32,
     ) -> Result<Self, CombatError> {
+        Self::from_assets_with_interactions(assets, role, position, yaw, None)
+    }
+
+    /// Build an actor with the interaction catalog used by `ActionAttack`.
+    pub fn from_assets_with_interactions(
+        assets: &AssetRegistry,
+        role: &ResolvedRole,
+        position: Vec3,
+        yaw: f32,
+        interactions: Option<&InteractionCatalog>,
+    ) -> Result<Self, CombatError> {
         let profile = CombatProfile::from_role(role)?;
         let (stats, health_index) = npc_stat_map(assets, profile.max_health)?;
         Ok(Self {
@@ -314,9 +509,23 @@ impl NpcActor {
             target: None,
             path: PathFollower::default(),
             attack_cooldown: 0.0,
+            aiming_remaining: 0.0,
+            charge_remaining: 0.0,
             replan_cooldown: 0.0,
+            interactions: interactions.cloned(),
             last_target_position: None,
         })
+    }
+
+    /// Attach/replace the attack interaction catalog.
+    pub fn with_interactions(mut self, interactions: &InteractionCatalog) -> Self {
+        self.interactions = Some(interactions.clone());
+        self
+    }
+
+    /// Attach/replace the attack interaction catalog in place.
+    pub fn set_interactions(&mut self, interactions: &InteractionCatalog) {
+        self.interactions = Some(interactions.clone());
     }
 
     /// Rebuild an actor from a persisted runtime entity. Returns `None` when
@@ -325,6 +534,16 @@ impl NpcActor {
         assets: &AssetRegistry,
         roles: &RoleCatalog,
         entity: &RuntimeEntity,
+    ) -> Result<Option<Self>, CombatError> {
+        Self::from_runtime_entity_with_interactions(assets, roles, entity, None)
+    }
+
+    /// Rebuild an actor and attach the attack interaction catalog.
+    pub fn from_runtime_entity_with_interactions(
+        assets: &AssetRegistry,
+        roles: &RoleCatalog,
+        entity: &RuntimeEntity,
+        interactions: Option<&InteractionCatalog>,
     ) -> Result<Option<Self>, CombatError> {
         let Some(role_key) = entity
             .components
@@ -338,7 +557,7 @@ impl NpcActor {
         let Some(resolved) = roles.resolve_with_rng(role_key, &mut rng)? else {
             return Ok(None);
         };
-        let mut actor = Self::from_assets(
+        let mut actor = Self::from_assets_with_interactions(
             assets,
             &resolved,
             Vec3::new(
@@ -347,6 +566,7 @@ impl NpcActor {
                 entity.transform.position.z,
             ),
             entity.transform.rotation.yaw,
+            interactions,
         )?;
         if let Some(health) = entity
             .components
@@ -455,17 +675,78 @@ impl NpcActor {
         let target_distance = distance(self.position, target.position);
         if target_distance <= self.profile.attack_distance {
             self.path.clear_path();
-            if self.attack_cooldown <= 0.0 {
+            if self.attack_cooldown > 0.0 {
+                return report;
+            }
+            let Some(action) = self.profile.attack_action() else {
                 if let Some(attack) = self.profile.primary_attack() {
                     report.attack = Some(NpcAttack {
                         target: target.id,
                         damages: attack.roll(1.0, random_unit),
+                        attack_root: None,
+                        source: attack.source.clone(),
+                        runtime: 1.0,
+                        effects: None,
                     });
                     self.attack_cooldown = self.profile.attack_pause();
                 }
+                return report;
+            };
+            if action.check_line_of_sight
+                && !self.has_line_of_sight(world, target.position, is_solid)
+            {
+                self.aiming_remaining = 0.0;
+                self.charge_remaining = 0.0;
+                return report;
+            }
+            if action.charge_distance > 0.0 && target_distance > action.charge_distance {
+                self.charge_remaining = 0.0;
+                return report;
+            }
+
+            // Java `ActionAttack`: aim before launching. The scripted actor
+            // consumes the sampled aiming time across ticks.
+            if !action.skip_aiming {
+                if self.aiming_remaining > 0.0 {
+                    self.aiming_remaining = (self.aiming_remaining - dt).max(0.0);
+                    if self.aiming_remaining > 0.0 {
+                        return report;
+                    }
+                } else {
+                    self.aiming_remaining = action.aiming_time(random_unit);
+                    if self.aiming_remaining > 0.0 {
+                        return report;
+                    }
+                }
+            }
+            if action.charge_for > 0.0 {
+                if self.charge_remaining <= 0.0 {
+                    self.charge_remaining = f64::from(action.charge_for);
+                    return report;
+                }
+                self.charge_remaining = (self.charge_remaining - dt).max(0.0);
+                if self.charge_remaining > 0.0 {
+                    return report;
+                }
+            }
+
+            if let Some(attack) = self.resolve_attack(&action, target, random_unit) {
+                report.attack = Some(attack);
+                let pause = if action.attack_pause_range == [0.0, 0.0] {
+                    self.profile.attack_pause()
+                } else {
+                    action.attack_pause(random_unit)
+                };
+                self.attack_cooldown = pause;
+                self.aiming_remaining = 0.0;
+                self.charge_remaining = 0.0;
             }
             return report;
         }
+
+        // Leaving attack range cancels the in-progress aim/charge.
+        self.aiming_remaining = 0.0;
+        self.charge_remaining = 0.0;
 
         self.replan_cooldown -= dt;
         let target_moved = self
@@ -515,6 +796,112 @@ impl NpcActor {
         report.moved = distance_squared(before, self.position) > 0.0;
         report.moved_distance = distance(before, self.position);
         report
+    }
+
+    /// Resolve the damage for one attack action. The interaction graph is used
+    /// when a catalog is attached; otherwise the T59 profile fallback fires.
+    fn resolve_attack(
+        &self,
+        action: &AttackAction,
+        target: NpcTarget,
+        random_unit: f64,
+    ) -> Option<NpcAttack> {
+        let root = action
+            .attack
+            .clone()
+            .or_else(|| self.profile.attack_root.clone());
+        if let Some(interactions) = &self.interactions {
+            let mut hits = self.profile.attack_hits(interactions, action);
+            // Prefer role-specific vars over the generic template fallback,
+            // then the strongest reachable attack. This mirrors the T59
+            // primary-attack rule while still using the real damage node.
+            hits.sort_by(|left, right| {
+                let left_specific = left.source.as_deref() != Some("Melee_Damage");
+                let right_specific = right.source.as_deref() != Some("Melee_Damage");
+                right_specific.cmp(&left_specific).then_with(|| {
+                    let left_max = left
+                        .calculator()
+                        .map_or(0.0, |calculator| calculator.maximum_damage(left.runtime));
+                    let right_max = right
+                        .calculator()
+                        .map_or(0.0, |calculator| calculator.maximum_damage(right.runtime));
+                    right_max
+                        .partial_cmp(&left_max)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+            });
+            for hit in hits {
+                let (calculator, effects) = hit.select(0.0, None);
+                let Some(calculator) = calculator.cloned() else {
+                    continue;
+                };
+                let effects = effects.cloned();
+                let damage = self.attack_damage(
+                    target.id,
+                    root.clone(),
+                    hit,
+                    &calculator,
+                    effects.as_ref(),
+                    random_unit,
+                );
+                return Some(damage);
+            }
+        }
+
+        let calculator = self.profile.primary_attack()?;
+        Some(NpcAttack {
+            target: target.id,
+            damages: calculator.roll(1.0, random_unit),
+            attack_root: root,
+            source: calculator.source.clone(),
+            runtime: 1.0,
+            effects: None,
+        })
+    }
+
+    fn attack_damage(
+        &self,
+        target: u64,
+        root: Option<String>,
+        hit: AttackHit,
+        calculator: &DamageCalculator,
+        effects: Option<&DamageEffects>,
+        random_unit: f64,
+    ) -> NpcAttack {
+        NpcAttack {
+            target,
+            damages: calculator.roll(hit.runtime.max(f64::EPSILON), random_unit),
+            attack_root: root.or_else(|| Some(hit.interaction.clone())),
+            source: hit.source,
+            runtime: hit.runtime,
+            effects: effects.cloned(),
+        }
+    }
+
+    /// Whether the straight eye→target segment is clear. Java uses the
+    /// position cache's line-of-sight test; this is the same block-solid
+    /// approximation the T59 pathfinder uses.
+    fn has_line_of_sight<F>(&self, world: &World, target: Vec3, is_solid: F) -> bool
+    where
+        F: Fn(i32) -> bool + Copy,
+    {
+        let start = Vec3::new(self.position.x, self.position.y + 1.6, self.position.z);
+        let end = Vec3::new(target.x, target.y + 1.0, target.z);
+        let offset = end.minus(start);
+        let distance = offset.length_squared().sqrt();
+        if distance <= TARGET_EPSILON {
+            return true;
+        }
+        let steps = (distance / 0.25).ceil().max(1.0) as usize;
+        for step in 1..steps {
+            let factor = step as f64 / steps as f64;
+            let point = start.plus(offset.scale(factor));
+            let block = block_position(point);
+            if is_solid(world.get_block(block.x, block.y, block.z)) {
+                return false;
+            }
+        }
+        true
     }
 
     fn replan_path<F>(&mut self, world: &World, is_solid: F, target: Vec3)
@@ -602,6 +989,44 @@ pub fn npc_stat_map(
     }
     let health_index = health_index.ok_or(CombatError::MissingHealthStat)?;
     Ok((EntityStatMap::new(stats), health_index))
+}
+
+fn collect_attack_actions(root: &Value, fallback_root: Option<&str>) -> Vec<AttackAction> {
+    let mut actions = Vec::new();
+    let mut stack = vec![root];
+    let mut visited = 0usize;
+    while let Some(value) = stack.pop() {
+        visited += 1;
+        if visited > 50_000 {
+            break;
+        }
+        match value {
+            Value::Array(values) => stack.extend(values),
+            Value::Object(object) => {
+                if object.get("Type").and_then(Value::as_str) == Some("Attack") {
+                    let action = AttackAction::from_value(value, fallback_root);
+                    if !actions.contains(&action) {
+                        actions.push(action);
+                    }
+                }
+                stack.extend(object.values());
+            }
+            _ => {}
+        }
+    }
+    actions
+}
+
+fn collect_interaction_vars(root: &Value) -> BTreeMap<String, Value> {
+    let mut vars = BTreeMap::new();
+    for key in ["InteractionVars", "_InteractionVars"] {
+        if let Some(entries) = root.get(key).and_then(Value::as_object) {
+            for (name, value) in entries {
+                vars.insert(name.clone(), value.clone());
+            }
+        }
+    }
+    vars
 }
 
 fn collect_damage_calculators(root: &Value) -> Vec<DamageCalculator> {
@@ -845,7 +1270,10 @@ mod tests {
             target: None,
             path: PathFollower::default(),
             attack_cooldown: 0.0,
+            aiming_remaining: 0.0,
+            charge_remaining: 0.0,
             replan_cooldown: 0.0,
+            interactions: None,
             last_target_position: None,
         };
         let targets = [NpcTarget {
