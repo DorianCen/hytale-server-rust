@@ -40,7 +40,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T58b](T58b-npc-builder-expressions.md) | NPC builder expressions and resolved archetypes | T58 | medium | done (session 50) |
 | [T58c](T58c-npc-world-grid-group.md) | NPC world grid and group steering | T58, T58b | medium | done (session 50) |
 | [T59](T59-npc-spawning-combat.md) | NPC spawning, combat and encounters | T58 | low/medium | done (sessions 51–61; T59b runtime follow-ups) |
-| [T59b](T59b-npc-runtime-spawning.md) | NPC runtime, spawn positions and beacons | T59 | low/medium | in progress (sessions 52–60) |
+| [T59b](T59b-npc-runtime-spawning.md) | NPC runtime, spawn positions and beacons | T59 | low/medium | done (sessions 52–62) |
 | [T59c](T59c-npc-combat-encounters.md) | Combat action graph and encounters | T59, T59b | low/medium | done (session 61) |
 | T60 | Builtin module runtime and selected modules | T58, T59 | low/medium | planned |
 | T61 | Editor/builder/machinima/voice/cosmetics scope | T60 | low | planned |
@@ -78,9 +78,10 @@ environment segment counting for population targets; a fifth resolves the real
 `SpawnBlockSet` catalog to allowed floors; a sixth resolves `SpawnFluidTag`
 through the fluid tag index, a seventh evaluates config `LightRanges` and an
 eighth loads the beacon/spawn-marker catalogs with weighted selection and
-ISO-8601 cooldowns; a ninth adds `--spawn-npc` to `world-boot`/`serve`.
-Automatic environment enumeration, live beacon/marker controllers, spawn
-suppression and the client-bot scenario remain in T59b.
+ISO-8601 cooldowns; a ninth adds `--spawn-npc` to `world-boot`/`serve`; and
+the final slice adds automatic environment enumeration, spawn suppression,
+live marker/beacon controllers with persisted cooldowns, `--auto-population`
+and the client-bot spawn/chase/despawn scenario.
 
 ## Rules
 

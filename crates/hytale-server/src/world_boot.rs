@@ -43,6 +43,8 @@ pub struct WorldBootOptions {
     pub set_block: Option<(i32, i32, i32, i32)>,
     /// Optional NPC role to spawn at the player/world spawn.
     pub spawn_npc: Option<String>,
+    /// Discover loaded environments and populate their configured NPC density.
+    pub auto_population: bool,
 }
 
 /// What the saved-world boot produced.
@@ -138,6 +140,11 @@ pub fn run(options: &WorldBootOptions) -> Result<WorldBootReport, WorldBootError
         }
         None => None,
     };
+
+    if options.auto_population {
+        thread.set_npc_auto_population(true)?;
+        thread.tick_npc_spawns()?;
+    }
 
     let saved_chunks = thread.shutdown()?;
 

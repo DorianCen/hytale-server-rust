@@ -13,8 +13,8 @@
 //!   `WorldNPCSpawnStat`; weighted selection mirrors
 //!   `RandomExtra.randomWeightedElement`.
 //!
-//! Position search, beacon/marker controllers and the ECS spawn producer remain
-//! T59b.
+//! Position search, beacon/marker controllers and the ECS spawn producer land
+//! in T59b.
 
 use std::collections::BTreeMap;
 use std::path::Path;

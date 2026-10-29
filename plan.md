@@ -913,14 +913,14 @@ The first slice lands the 98 world spawn documents, Java time/moon/flock
 selection, role combat profiles, `DamageCalculator` ranges and a scripted
 `NpcActor` (targeting/chase/melee/damage/death). T59b lands the live NPC
 producer, movement-mode position search, population ticks, block/fluid/light
-constraints and beacon/marker catalogs; live beacon/marker controllers, spawn
-suppression and automatic environment enumeration remain in T59b. The full combat action graph and `EncounterManager` evaluator are landed by
-T59c (session 61); T59b keeps the automatic environment enumeration,
-live beacon/marker controllers and spawn suppression follow-ups.
+constraints, beacon/marker catalogs, automatic environment enumeration,
+spawn suppression, live beacon/marker controllers with persisted cooldowns and
+the client-bot scenario. The full combat action graph and `EncounterManager`
+evaluator are landed by T59c (session 61).
 
 ### T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–60; runtime, position and population slices landed)
+**Status:** done (sessions 52–62)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Goal:** attach actors to runtime entities, find Java-compatible spawn
 positions, tick/persist and broadcast NPCs.
@@ -935,8 +935,10 @@ density/expected-count controller and explicit automatic population ticks
 (`set_npc_spawn_targets`/`tick_npc_spawns`) plus loaded-section environment
 segment discovery, real `BlockSet` floor resolution, `SpawnFluidTag`
 resolution, spawn `LightRanges` and beacon/spawn-marker catalogs with weighted
-selection/cooldowns, plus `--spawn-npc` CLI coverage. Automatic environment
-enumeration, live beacon/marker controllers and spawn suppression remain.
+selection/cooldowns, plus `--spawn-npc` CLI coverage. The final slice adds
+automatic environment enumeration, spawn suppression over NPC groups, live
+marker/beacon controllers with persisted cooldowns, `--auto-population` and the
+client-bot spawn/chase/despawn scenario.
 
 ### T59c — Combat action graph and encounters
 

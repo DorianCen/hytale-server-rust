@@ -14,10 +14,11 @@ the world spawn rules, role combat profiles, damage ranges and a scripted NPC
 actor; **T59b** adds the live WorldThread NPC runtime, persistence, session
 ticking, movement-mode spawn-position/environment selection, automatic
 population ticks, block/fluid/light constraints and beacon/spawn-marker
-catalogs plus `world-boot`/`serve --spawn-npc`, and **T59c** adds the real
-combat action graph, the `EncounterManager` catalog/evaluator and live
-world-thread encounter commands. T59b's automatic environment enumeration,
-live beacon/marker controllers and spawn suppression remain.
+catalogs plus `world-boot`/`serve --spawn-npc`; the final T59b slice adds
+automatic environment enumeration, spawn suppression, live marker/beacon
+controllers with persisted cooldowns, `--auto-population` and the client-bot
+scenario. **T59c** adds the real combat action graph, the `EncounterManager`
+catalog/evaluator and live world-thread encounter commands.
 
 ## Current state
 
@@ -187,7 +188,7 @@ Landed and green:
   forces and blackboard sensors move with the builtin NPC module (T59/T60).
   T58c adds `WorldGrid` real-world walk/fly planning and the Java
   `GroupSteeringAccumulator`; T58 is done. Spawning/combat/ECS start T59.
-- T59 (in progress, sessions 51–59; T59b carries the runtime slices): `hytale-npc::spawn` loads all 98
+- T59 (done, sessions 51–62; T59b carries the runtime slices): `hytale-npc::spawn` loads all 98
   `Server/NPC/Spawn/World` documents (271 role entries), applies the Java
   scaled-day/moon gates, moon-phase weight modifiers, flock-minimum missing
   count and weighted selection. `WorldClock` gained the matching
@@ -209,7 +210,7 @@ Landed and green:
   deferred events. `WorldThread` exposes encounter spawn/tick/target/beacon
   commands and `Example_Boss` runs from trigger to `Complete` in the
   `npc_encounter` scenario.
-- T59b (in progress, sessions 52–60; T59c now landed): `WorldThread` owns a live NPC actor map with
+- T59b (done, sessions 52–62): `WorldThread` owns a live NPC actor map with
   `spawn_npc`/`despawn_npc`/`damage_npc`/`set_npc_targets`/`tick_npcs`, rebuilds
   actors and health from `entities.json` on boot, writes health before save and
   turns movement/death into runtime entity events. Sessions publish registered
@@ -222,9 +223,10 @@ Landed and green:
   `SpawnBlockSet` catalog to allowed floors, the sixth resolves `SpawnFluidTag`
   through the fluid tag index, the seventh evaluates `LightRanges`, the eighth
   loads beacon/spawn-marker catalogs and the ninth adds
-  `world-boot`/`serve --spawn-npc`. Automatic environment enumeration, live
-  beacon/marker controllers, spawn suppression and the client-bot scenario
-  remain T59b/T60.
+  `world-boot`/`serve --spawn-npc`. The final slice adds automatic environment
+  enumeration (`--auto-population`), `Npc.Environment` persistence, NPC-group
+  spawn suppression, live marker/beacon controllers with `spawn-controllers.json`
+  cooldown persistence and the client-bot spawn/chase/despawn scenario.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -260,10 +262,11 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    selection, density accounting, explicit population ticks, loaded-section
    segment discovery, real `BlockSet` floor resolution, fluid-tag resolution,
    light ranges, beacon/marker catalogs and `--spawn-npc` CLI coverage) are
-   landed, and T59c's combat action graph plus encounter evaluator/world
-   commands are landed (session 61). T59b's automatic environment enumeration,
-   live beacon/marker controllers/suppression and the client-bot scenario
-   remain next. T59/T60 presentation work waits for T57b.
+   landed; the final T59b slice adds automatic environment enumeration, spawn
+   suppression, live marker/beacon controllers and the client-bot scenario
+   (session 62), and T59c's combat action graph plus encounter evaluator/world
+   commands are landed (session 61). T59 is complete. T59/T60 presentation
+   work waits for T57b.
 
 ## Try it
 
@@ -274,10 +277,11 @@ cargo run -p hytale-server -- --validate-assets
 cargo run -p hytale-server -- universe --root target/universe create Alpha --seed 1
 cargo run -p hytale-server -- universe --root target/universe list
 cargo run -p hytale-server -- serve --universe target/universe --bind 127.0.0.1:5520 \
-  --trace target/trace/v1.jsonl --spawn-npc Rat
+  --trace target/trace/v1.jsonl --spawn-npc Rat --auto-population
 cargo run -p hytale-server -- headless --save target/headless-world --chunk 4,-5
 cargo run -p hytale-server -- world-boot --save target/headless-world \
-  --view-radius 1 --chunks-per-tick 4 --set-block 129,250,-159,4 --spawn-npc Rat
+  --view-radius 1 --chunks-per-tick 4 --set-block 129,250,-159,4 --spawn-npc Rat \
+  --auto-population
 tools/java-dumper/run-save-check.sh target/headless-world 4 -5 129 250 -159 Debug_Test_Block
 
 # authenticated join (the server prints the generated PKCS#8 key):

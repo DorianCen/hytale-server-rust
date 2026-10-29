@@ -240,7 +240,9 @@ fn spawn_commands_handle_unknown_roles_and_find_positions() {
         }])
         .expect("set population target");
     let first = thread.tick_npc_spawns().expect("population tick");
-    assert_eq!(first.spawned, 2, "expected population is two NPCs");
+    // The environment spawn above already counts toward the target; the
+    // controller tops the population up to its expected count.
+    assert_eq!(first.spawned, 1, "one more NPC reaches the expected count");
     assert_eq!(first.population, 2);
     let second = thread.tick_npc_spawns().expect("saturated tick");
     assert_eq!(second.spawned, 0);

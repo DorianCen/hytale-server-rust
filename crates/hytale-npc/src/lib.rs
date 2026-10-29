@@ -45,6 +45,7 @@ pub mod role;
 pub mod spawn;
 pub mod spawn_position;
 pub mod spawn_special;
+pub mod spawn_suppression;
 pub mod steering;
 pub mod worldgrid;
 
@@ -77,8 +78,13 @@ pub use spawn_position::{
     SpawnMovementMode, SpawnPosition, SpawnPositionSearch, SpawnSearchOptions,
 };
 pub use spawn_special::{
-    parse_iso_duration, BeaconCatalog, BeaconSpawn, MarkerNpcConfig, SpawnMarker,
-    SpawnMarkerCatalog, SpawnSpecialError,
+    parse_iso_duration, BeaconCatalog, BeaconController, BeaconSpawn, BeaconSpawnRequest,
+    MarkerNpcConfig, MarkerSpawnRequest, SpawnMarker, SpawnMarkerCatalog, SpawnMarkerController,
+    SpawnSpecialError,
+};
+pub use spawn_suppression::{
+    NpcGroup, NpcGroupCatalog, SpawnSuppression, SpawnSuppressionCatalog, SpawnSuppressionError,
+    SpawnSuppressionIndex, SpawnSuppressionZone, SpawnSuppressor,
 };
 pub use steering::{Steering, SteeringForceEvade, SteeringForcePursue, SteeringForceRotate};
 pub use worldgrid::WorldGrid;

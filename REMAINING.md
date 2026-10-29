@@ -21,14 +21,15 @@ Deferred to M5/M6:
   density/expected-count accounting, explicit population ticks and
   loaded-section environment segment discovery, real `BlockSet` floor
   resolution, `SpawnFluidTag` resolution, spawn `LightRanges` and beacon/
-  spawn-marker catalogs and `--spawn-npc` CLI coverage. T59c adds the
+  spawn-marker catalogs and `--spawn-npc` CLI coverage; the final T59b slice
+  adds automatic environment enumeration (`--auto-population`), NPC-group
+  spawn suppression, live marker/beacon controllers with persisted cooldowns
+  and the client-bot spawn/chase/despawn scenario. T59c adds the
   `ActionAttack`/`DamageEntity` combat path, the complete
   `Server/EncounterManager` catalog/evaluator, boss-bar/audio/weather/portal
-  seams and live world-thread encounter commands. Automatic environment
-  enumeration, live beacon/marker controllers, spawn suppression and the
-  client bot scenario remain T59b; the full builder graph, motion-controller
-  A*, wander/avoidance, blackboard sensors, instance/portal transports and the
-  NPC ECS remain T60.
+  seams and live world-thread encounter commands. The full builder graph,
+  motion-controller A*, wander/avoidance, blackboard sensors, instance/portal
+  transports and the NPC ECS remain T60.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
   T53 lands the stat/effect/damage models, the Java asset fixture and the
   `EntityGameplay` component seam; T57 lands block-health/runtime-entity/map

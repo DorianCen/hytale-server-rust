@@ -1,6 +1,6 @@
 # T59b — NPC runtime, spawn positions and beacons
 
-**Status:** in progress (sessions 52–60; runtime, position, population and CLI slices landed)
+**Status:** done (sessions 52–62)
 **Package:** `hytale-npc`, `hytale-world`, `hytale-server`
 **Depends on:** T59
 **Agent fit:** low/medium
@@ -168,26 +168,73 @@ cargo fmt --all -- --check
   accepting sessions.
 - `WorldBootReport` carries `spawned_npc` and the world-boot gate asserts the
   persisted `entities.json` entry.
-- The server CLI is now usable for manual NPC/runtime inspection; the client
-  bot scenario remains open.
+
+### Automatic environment enumeration (session 62)
+
+- `World::environment_section_centers` returns the loaded 32³ section centers
+  for an environment; the old segment count now derives from it.
+- `WorldThread::{set_npc_auto_population,tick_npc_spawns}` discovers every
+  loaded environment with a positive `Environment.SpawnDensity` and at least
+  one eligible `Server/NPC/Spawn/World` config, then feeds the existing
+  density controller. Auto targets use the loaded section extent for their
+  search radius.
+- Environment and population spawns persist `Npc.Environment`; each population
+  tick recomputes the controller's live count from those tags, so deaths and
+  save/reopen do not cause duplicate growth.
+- `world-boot --auto-population` and `serve --auto-population` enable the
+  discovery path.
+
+### Spawn suppression (session 62)
+
+- New `hytale-npc::spawn_suppression` loads all 114 `Server/NPC/Groups`
+  documents and all 5 `Server/NPC/Spawn/Suppression` configs. Group membership
+  follows Java's include-group → exclude-group → include-role → exclude-role
+  order with role globs and recursive groups.
+- `SpawnSuppressionIndex` resolves active suppressor positions to role and
+  marker zones. `SpawnSearchOptions.suppressed_zones` rejects candidates inside
+  a role-suppressing zone for `spawn_npc_near`, environment selection and
+  automatic population.
+- `WorldThread` exposes add/remove/list suppressor commands and persists the
+  active suppressor map in `spawn-controllers.json` across save/reopen.
+
+### Live marker/beacon controllers (session 62)
+
+- `SpawnMarkerController` selects weighted marker roles, applies realtime or
+  game-time respawn cooldowns, respects `ManualTrigger`/`DeactivationDistance`
+  and serialises its cooldown/last role state.
+- `BeaconController` applies the initial spawn delay, time/moon eligibility,
+  concurrency and max-NPC limits, weighted roles and realtime/game-time spawn
+  cooldowns.
+- `WorldThread` owns live marker/beacon maps with add/remove/trigger/tick/state
+  commands. It spawns real NPC runtime entities, honours marker suppression and
+  role suppression, persists controller cooldowns in `spawn-controllers.json`
+  and restores them on boot. Sessions tick both controllers with the game loop.
+- New real-pack tests cover the Bat marker, Edible_Rat beacon, cooldown and
+  state round trips, and world-thread persistence after save/reopen.
+
+### Client-bot scenario (session 62)
+
+- New ignored `client-bot` scenario joins a live `serve_session_connection`,
+  observes the Rat spawn, chased transform updates and despawn, and asserts the
+  server session recorded an NPC attack (`npc_attacks >= 1`). The world thread
+  is shared as an `Arc` so the bot test can kill the NPC during observation.
 
 ## Deviations
 
-- Spawn suppression is not evaluated by the position search.
-- Beacon/marker catalogs are landed, but no world entities/timers consume them
-  yet; live controllers and persistent cooldown state are open.
-- Population targets name their environment and density; segment counts can be
-  discovered from loaded sections, but automatically enumerating every loaded
-  environment is still open.
 - NPC damage targets only runtime NPC actors; player health is not modelled yet,
-  so player targets produce attack events without damage (T59c).
-- The session loop only ticks actors when a session is live; a headless world
-  can call `tick_npcs` directly.
+  so player targets produce attack events without damage (T59c/T60).
+- Marker/beacon controllers are server-side state machines over runtime NPCs,
+  not full Java `SpawnMarkerEntity`/`LegacySpawnBeaconEntity` components.
+- Suppression is a 3D sphere approximation of Java's chunk-span/XZ + exact-Y
+  suppression spans; role/group membership and marker suppression semantics are
+  ported.
+- The session loop only ticks actors/controllers when a session is live; a
+  headless world can call the tick commands directly.
 
 ## Follow-ups
 
-- Finish T59b: automatic environment enumeration, live beacon/marker
-  controllers and cooldown state, spawn suppression and the client-bot
-  scenario.
-- T59c landed the encounter/instance/portal evaluator, world-thread encounter
-  commands and the full combat action graph (session 61).
+- T60: player health/combat, marker/beacon entity presentation and full builtin
+  module lifecycle.
+- T60: execute deferred encounter spawner/particle/sound actions and
+  instance/portal transports.
+- T62: keep-alive/idle/packet anti-abuse work for long-lived observers.

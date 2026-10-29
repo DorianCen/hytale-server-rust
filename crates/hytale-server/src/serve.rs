@@ -48,6 +48,8 @@ pub struct ServeOptions {
     pub close_timeout: Duration,
     /// Optional NPC role spawned at the world spawn on startup.
     pub spawn_npc: Option<String>,
+    /// Discover loaded environments and maintain their configured NPC density.
+    pub auto_population: bool,
     /// Optional JSONL packet trace written for every accepted session.
     pub trace_path: Option<PathBuf>,
     /// Optional test/CLI hook that receives the actual bound address.
@@ -74,6 +76,7 @@ impl ServeOptions {
             shutdown_timeout: Duration::from_secs(10),
             close_timeout: Duration::from_secs(5),
             spawn_npc: None,
+            auto_population: false,
             trace_path: None,
             bound_tx: None,
         }
@@ -232,6 +235,9 @@ where
     runtime.start_world(&world_name)?;
     let thread = runtime.world_thread(&world_name)?;
     let thread_uuid = descriptor.uuid;
+    if options.auto_population {
+        thread.set_npc_auto_population(true)?;
+    }
     if let Some(role) = &options.spawn_npc {
         let transform = thread
             .player_transform()?

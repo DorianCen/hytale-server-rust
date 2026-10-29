@@ -11,8 +11,8 @@
 //! * dive — fluid at feet and head without a floor;
 //! * fly — air at feet and head.
 //!
-//! Block-set and fluid-tag stores are not ported yet; callers can still pass
-//! an explicit allowed-floor block set or require the feet block to be fluid.
+//! Block-set, fluid-tag, light and suppression filters are supplied by the
+//! caller; the search itself only validates positions.
 
 use std::collections::BTreeSet;
 
@@ -68,6 +68,8 @@ pub struct SpawnSearchOptions {
     pub light_ranges: LightRanges,
     /// World clock sunlight factor (`0..1`).
     pub sunlight_factor: f64,
+    /// Pre-resolved spawn-suppression zones for the selected role.
+    pub suppressed_zones: Vec<crate::spawn_suppression::SpawnSuppressionZone>,
 }
 
 impl Default for SpawnSearchOptions {
@@ -81,6 +83,7 @@ impl Default for SpawnSearchOptions {
             allowed_fluids: None,
             light_ranges: LightRanges::default(),
             sunlight_factor: 1.0,
+            suppressed_zones: Vec::new(),
         }
     }
 }
@@ -203,6 +206,15 @@ where
                 return false;
             }
         }
+        if options.suppressed_zones.iter().any(|zone| {
+            zone.contains(Vec3::new(
+                f64::from(x) + 0.5,
+                f64::from(y),
+                f64::from(z) + 0.5,
+            ))
+        }) {
+            return false;
+        }
         if !options.light_ranges.is_empty() {
             let Some(sample) = self.world.light_sample(x, y, z) else {
                 return false;
@@ -296,6 +308,30 @@ mod tests {
         assert!(search
             .find(Vec3::new(15.5, 1.0, 15.5), &with_block_set)
             .is_none());
+
+        // A suppression zone covering the only flat floor rejects it; the
+        // same zone off to one side leaves the floor usable.
+        let suppressed = SpawnSearchOptions {
+            radius: 1,
+            vertical_range: 1,
+            mode: SpawnMovementMode::Walk,
+            suppressed_zones: vec![crate::spawn_suppression::SpawnSuppressionZone {
+                center: Vec3::new(15.5, 1.0, 15.5),
+                radius: 4.0,
+            }],
+            ..SpawnSearchOptions::default()
+        };
+        assert!(search
+            .find(Vec3::new(15.5, 1.0, 15.5), &suppressed)
+            .is_none());
+        let away = SpawnSearchOptions {
+            suppressed_zones: vec![crate::spawn_suppression::SpawnSuppressionZone {
+                center: Vec3::new(15.5, 20.0, 15.5),
+                radius: 2.0,
+            }],
+            ..suppressed
+        };
+        assert!(search.find(Vec3::new(15.5, 1.0, 15.5), &away).is_some());
         std::fs::remove_dir_all(dir).ok();
     }
 

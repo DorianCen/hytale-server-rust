@@ -1,6 +1,6 @@
 # T59 — NPC spawning, combat and encounters
 
-**Status:** done (sessions 51–61; T59b runtime follow-ups remain)
+**Status:** done (sessions 51–62)
 **Package:** `hytale-npc`, `hytale-world` (+ `hytale-server` in T59b)
 **Depends on:** T58, T58b, T58c
 **Agent fit:** low/medium
@@ -92,19 +92,21 @@ cargo fmt --all -- --check
   health and broadcasts spawn/despawn/transform. Later T59b slices add
   movement-mode spawn-position search, environment/density population ticks,
   block-set/fluid-tag/light constraints and beacon/spawn-marker catalogs.
-  Spawn suppression, live beacon/marker controllers and automatic environment
-  enumeration remain T59b; the full encounter producer is T59c.
+  T59b later adds automatic environment enumeration, spawn suppression and
+  live marker/beacon controllers; the full encounter producer is T59c.
 - `NpcActor` uses the `PathFollower` block-centre path without Java
-  `MotionController` smoothing; it chases the nearest in-range target and uses
-  the highest-damage specific attack. Full `ActionAttack` selector/aiming,
-  conditions, knockback and per-cause damage events are T59c.
-- Encounters, instances and portals are T59c; no encounter asset is parsed yet.
+  `MotionController` smoothing. T59c adds `ActionAttack` selector/aiming/charge/
+  LoS parsing and the `DamageEntity`/`DamageEffects` hit path; the full builder
+  graph and blackboard ECS remain T60.
+- T59c adds the complete `Server/EncounterManager` catalog/evaluator and live
+  world-thread encounter commands; instance/portal transports remain T60.
 - Player health/damage is not modelled here, so live NPC→player combat waits
   for the player gameplay attach in T59b/T59c.
 
 ## Follow-ups
 
-- T59b: runtime producer in `WorldThread` (landed session 52) and
+- T59b: runtime producer in `WorldThread` (landed session 52; final
+  environment/suppression/controller/bot slice in session 62) and
   spawn-position/environment selection plus the density controller (session 53)
   explicit population ticks (session 54), loaded-section segment discovery
   (session 55), real `BlockSet` floor resolution (session 56), fluid-tag

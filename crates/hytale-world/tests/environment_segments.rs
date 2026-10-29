@@ -23,6 +23,16 @@ fn environment_segment_count_follows_allocated_sections() {
     assert_eq!(world.environment_segment_count(7), 2);
     assert_eq!(world.environment_segment_count(8), 1);
     assert_eq!(world.environment_segment_count(9), 0);
+    let centers = world.environment_section_centers(7);
+    assert_eq!(centers.len(), 2);
+    assert_eq!(
+        centers[0],
+        hytale_world::collision::Vec3::new(16.0, 16.0, 16.0)
+    );
+    assert_eq!(
+        centers[1],
+        hytale_world::collision::Vec3::new(16.0, 48.0, 16.0)
+    );
     assert_eq!(world.get_environment(1, 1, 1), 7);
     std::fs::remove_dir_all(dir).ok();
 }

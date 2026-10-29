@@ -1707,3 +1707,54 @@ This file records phase-2 sessions only.
     spawn suppression and the client-bot scenario.
   - T60: execute deferred encounter actions (spawners/particles/sounds),
     instance/portal lifecycle and the builtin NPC/EncounterManager module.
+
+---
+
+## Session 62 — T59b automatic population, suppression and live controllers (2026-10-29)
+
+- **Goal:** finish the remaining T59b runtime slices: automatic environment
+  enumeration, spawn suppression, live marker/beacon controllers with
+  persistent cooldowns and the client-bot scenario.
+- **Landed:**
+  - `World::environment_section_centers` returns loaded 32³ section centers;
+    `environment_segment_count` derives from it.
+    `WorldThread::set_npc_auto_population` discovers loaded environments with a
+    positive `Environment.SpawnDensity` and an eligible `Spawn/World` config,
+    creates population targets and feeds the existing density controller.
+    `--auto-population` exposes the same path in `world-boot` and `serve`.
+  - Environment/population spawns persist `Npc.Environment`; each population
+    tick recomputes controller population from those live tags, so deaths and
+    save/reopen do not grow NPC counts without bound.
+  - New `hytale-npc::spawn_suppression` loads all 114 `Server/NPC/Groups`
+    documents and five `Server/NPC/Spawn/Suppression` configs. Membership
+    follows Java's include/exclude group/role order with globs and recursion;
+    role zones integrate with `SpawnSearchOptions.suppressed_zones`, and
+    `WorldThread` exposes add/remove/list suppressor commands.
+  - New `SpawnMarkerController`/`BeaconController` select weighted roles,
+    enforce manual/deactivation, concurrency, max-NPC, time/moon and
+    realtime/game-time cooldowns. `WorldThread` owns live controller maps with
+    add/remove/trigger/tick/state commands, spawns real NPC entities, honours
+    marker/role suppression and persists controllers plus suppressors in
+    `spawn-controllers.json` across save/reopen. Sessions tick markers/beacons.
+  - New `client-bot` ignored scenario observes the Rat spawn, chase transform
+    updates, despawn and the session's recorded NPC attack.
+  - Real-pack tests cover the group/suppression catalogs, Bat/Edible_Rat
+    controllers, automatic population/suppression and controller persistence;
+    `environment_segments` gates the section-center output.
+- **Verified:**
+  - `cargo test -p hytale-npc` (including `npc_spawn_suppression`).
+  - `cargo test -p hytale-world` (including `environment_segments`).
+  - `cargo test -p hytale-server` (including `npc_spawn_control`).
+  - `cargo test -p client-bot --test npc_scenario -- --ignored`.
+  - `./tools/test.sh fast`, `./tools/test.sh assets`, clippy and rustfmt.
+- **Deviations:**
+  - Suppression is a 3D sphere approximation of Java's chunk-span XZ + exact-Y
+    spans; group membership/role/marker suppression semantics are ported.
+  - Marker/beacon controllers are server-side state machines over runtime NPCs,
+    not full `SpawnMarkerEntity`/`LegacySpawnBeaconEntity` ECS components.
+  - Player health is still not modelled, so NPC attacks on players are session
+    events without damage (T60).
+- **Follow-ups:**
+  - T60: player health/combat, controller/entity presentation, deferred
+    encounter actions and the full builtin NPC/EncounterManager module.
+  - T62: long-lived observer keep-alive/anti-abuse work.

@@ -396,11 +396,34 @@ impl World {
     /// Java tracks environment segments through `ChunkSpawnData`; this is the
     /// runtime-world approximation used by the spawn controller.
     pub fn environment_segment_count(&self, environment_id: i32) -> usize {
-        self.chunks
-            .values()
-            .flat_map(|chunk| chunk.sections().flatten())
-            .filter(|section| section.environment.contains(environment_id))
-            .count()
+        self.environment_section_centers(environment_id).len()
+    }
+
+    /// Centers of loaded 32³ sections that contain `environment_id`, in chunk
+    /// then section order.
+    ///
+    /// The automatic population layer uses these as spawn hints instead of
+    /// requiring every caller to name an environment center.
+    pub fn environment_section_centers(&self, environment_id: i32) -> Vec<crate::collision::Vec3> {
+        let mut centers = Vec::new();
+        let mut chunks: Vec<_> = self.chunks.values().collect();
+        chunks.sort_by_key(|chunk| chunk.index());
+        for chunk in chunks {
+            for (section_index, section) in chunk.sections().enumerate() {
+                let Some(section) = section else {
+                    continue;
+                };
+                if !section.environment.contains(environment_id) {
+                    continue;
+                }
+                centers.push(crate::collision::Vec3::new(
+                    f64::from(chunk.x() * 32 + 16),
+                    f64::from(section_index as i32 * 32 + 16),
+                    f64::from(chunk.z() * 32 + 16),
+                ));
+            }
+        }
+        centers
     }
 
     /// Global packed-light sample at a block (`None` when the section is absent).

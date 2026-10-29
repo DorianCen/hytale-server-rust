@@ -30,6 +30,10 @@ use hytale_npc::light::LightRanges;
 use hytale_npc::role::RoleCatalog;
 use hytale_npc::spawn::{WorldSpawnCatalog, WorldSpawnController};
 use hytale_npc::spawn_position::{SpawnMovementMode, SpawnPositionSearch, SpawnSearchOptions};
+use hytale_npc::spawn_special::{
+    BeaconCatalog, BeaconController, SpawnMarkerCatalog, SpawnMarkerController,
+};
+use hytale_npc::spawn_suppression::{SpawnSuppressionIndex, SpawnSuppressionZone};
 use hytale_protocol::generated::common::{
     BlockDamageCmd, BlockMaterial, BlockPosition, FlyMode, InventorySection, MapImage,
     MovementSettings,
@@ -258,6 +262,21 @@ pub struct NpcSpawnReport {
     pub failed: usize,
     /// Total tracked live NPCs across targets.
     pub population: i32,
+    /// Loaded environments auto-enumerated for this tick.
+    pub auto_environments: usize,
+}
+
+/// Result of one live spawn-marker/beacon tick.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpawnSpecialReport {
+    /// NPCs spawned by markers.
+    pub marker_spawns: usize,
+    /// NPCs spawned by beacons.
+    pub beacon_spawns: usize,
+    /// Markers suppressed by a spawn-suppressor zone.
+    pub suppressed_markers: usize,
+    /// Marker/beacon candidate roles suppressed by a role zone.
+    pub suppressed_roles: usize,
 }
 
 /// Result of one NPC runtime tick.
@@ -273,6 +292,18 @@ pub struct NpcRuntimeReport {
     pub deaths: usize,
     /// Live actors after the tick.
     pub alive: usize,
+}
+
+#[derive(Debug, Clone)]
+struct LiveSpawnMarker {
+    marker_key: String,
+    controller: SpawnMarkerController,
+}
+
+#[derive(Debug, Clone)]
+struct LiveBeacon {
+    beacon_key: String,
+    controller: BeaconController,
 }
 
 /// Result of one demand-load tick.
@@ -388,6 +419,13 @@ enum Command {
         z: i32,
         block_id: i32,
         reply: SyncSender<Result<(i32, i32), String>>,
+    },
+    SetBlockEnvironment {
+        x: i32,
+        y: i32,
+        z: i32,
+        environment: String,
+        reply: SyncSender<Result<bool, String>>,
     },
     PlaceBlock {
         x: i32,
@@ -552,6 +590,60 @@ enum Command {
     SetNpcSpawnTargets {
         targets: Vec<NpcSpawnTarget>,
         reply: SyncSender<()>,
+    },
+    SetNpcAutoPopulation {
+        enabled: bool,
+        reply: SyncSender<()>,
+    },
+    AddSpawnMarker {
+        id: String,
+        marker: String,
+        position: Vec3,
+        reply: SyncSender<Result<(), String>>,
+    },
+    RemoveSpawnMarker {
+        id: String,
+        reply: SyncSender<bool>,
+    },
+    TriggerSpawnMarker {
+        id: String,
+        reply: SyncSender<Result<Option<RuntimeEntity>, String>>,
+    },
+    TickSpawnMarkers {
+        game_dt: f64,
+        real_dt: f64,
+        reply: SyncSender<Result<SpawnSpecialReport, String>>,
+    },
+    AddBeacon {
+        id: String,
+        beacon: String,
+        position: Vec3,
+        reply: SyncSender<Result<(), String>>,
+    },
+    RemoveBeacon {
+        id: String,
+        reply: SyncSender<bool>,
+    },
+    TickBeacons {
+        game_dt: f64,
+        real_dt: f64,
+        reply: SyncSender<Result<SpawnSpecialReport, String>>,
+    },
+    SpawnSpecialStates {
+        reply: SyncSender<Vec<(String, String, serde_json::Value)>>,
+    },
+    AddSpawnSuppressor {
+        id: u64,
+        suppression: String,
+        position: Vec3,
+        reply: SyncSender<Result<(), String>>,
+    },
+    RemoveSpawnSuppressor {
+        id: u64,
+        reply: SyncSender<bool>,
+    },
+    SpawnSuppressors {
+        reply: SyncSender<Vec<(u64, String, Vec3)>>,
     },
     TickNpcSpawns {
         reply: SyncSender<Result<NpcSpawnReport, String>>,
@@ -898,6 +990,30 @@ impl WorldThread {
                 y,
                 z,
                 block_id,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Set the environment id/key at one loaded block.
+    pub fn set_block_environment(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        environment: impl Into<String>,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetBlockEnvironment {
+                x,
+                y,
+                z,
+                environment: environment.into(),
                 reply,
             })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
@@ -1437,6 +1553,193 @@ impl WorldThread {
             .recv()
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         Ok(())
+    }
+
+    /// Enable/discover automatic environment population targets.
+    pub fn set_npc_auto_population(&self, enabled: bool) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetNpcAutoPopulation { enabled, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Add or replace a live spawn marker.
+    pub fn add_spawn_marker(
+        &self,
+        id: impl Into<String>,
+        marker: impl Into<String>,
+        position: Vec3,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::AddSpawnMarker {
+                id: id.into(),
+                marker: marker.into(),
+                position,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Remove a live spawn marker.
+    pub fn remove_spawn_marker(&self, id: impl Into<String>) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::RemoveSpawnMarker {
+                id: id.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Trigger a live spawn marker immediately (cooldown/suppression apply).
+    pub fn trigger_spawn_marker(
+        &self,
+        id: impl Into<String>,
+    ) -> Result<Option<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TriggerSpawnMarker {
+                id: id.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Tick all live spawn markers. `game_dt` drives game-time cooldowns;
+    /// `real_dt` drives realtime cooldowns.
+    pub fn tick_spawn_markers(
+        &self,
+        game_dt: f64,
+        real_dt: f64,
+    ) -> Result<SpawnSpecialReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TickSpawnMarkers {
+                game_dt,
+                real_dt,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Add or replace a live beacon controller.
+    pub fn add_beacon(
+        &self,
+        id: impl Into<String>,
+        beacon: impl Into<String>,
+        position: Vec3,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::AddBeacon {
+                id: id.into(),
+                beacon: beacon.into(),
+                position,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Remove a live beacon controller.
+    pub fn remove_beacon(&self, id: impl Into<String>) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::RemoveBeacon {
+                id: id.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Tick live beacons with real/game elapsed seconds.
+    pub fn tick_beacons(
+        &self,
+        game_dt: f64,
+        real_dt: f64,
+    ) -> Result<SpawnSpecialReport, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TickBeacons {
+                game_dt,
+                real_dt,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Live marker/beacon controller state for persistence tests.
+    pub fn spawn_special_states(
+        &self,
+    ) -> Result<Vec<(String, String, serde_json::Value)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnSpecialStates { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Register/replace an active spawn suppressor.
+    pub fn add_spawn_suppressor(
+        &self,
+        id: u64,
+        suppression: impl Into<String>,
+        position: Vec3,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::AddSpawnSuppressor {
+                id,
+                suppression: suppression.into(),
+                position,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Remove an active spawn suppressor.
+    pub fn remove_spawn_suppressor(&self, id: u64) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::RemoveSpawnSuppressor { id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Active suppressors as `(id, suppression, position)`.
+    pub fn spawn_suppressors(&self) -> Result<Vec<(u64, String, Vec3)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnSuppressors { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
     }
 
     /// Spawn toward the configured environment populations.
@@ -2021,6 +2324,28 @@ fn run(
             let mut encounter_catalog: Option<EncounterCatalog> = None;
             let mut fluid_tags: Option<FluidTagIndex> = None;
             let mut spawn_rng = SpawnRng::new(u64::from_le_bytes(save.config().seed.to_le_bytes()));
+            let persisted_spawn_state = load_spawn_controller_state(&save);
+            let (mut spawn_markers, mut beacons, mut persisted_suppressors) =
+                restore_spawn_controllers(&persisted_spawn_state);
+            let mut spawn_marker_catalog: Option<SpawnMarkerCatalog> = None;
+            let mut beacon_catalog: Option<BeaconCatalog> = None;
+            let mut spawn_suppression = if persisted_suppressors.is_empty() {
+                None
+            } else {
+                match SpawnSuppressionIndex::load_root(&options.generator.assets_root) {
+                    Ok(mut index) => {
+                        for (id, suppression, position) in persisted_suppressors.drain(..) {
+                            index.insert(id, suppression, position);
+                        }
+                        Some(index)
+                    }
+                    Err(error) => {
+                        eprintln!("could not restore spawn suppression: {error}");
+                        None
+                    }
+                }
+            };
+            let mut npc_auto_population = false;
             let mut map_images: BTreeMap<(i32, i32), MapImage> = BTreeMap::new();
             let budget = options.chunks_per_tick.max(1);
             let mut last_clock = Instant::now();
@@ -2127,6 +2452,27 @@ fn run(
                     } => {
                         let result = set_block(&mut save, x, y, z, block_id);
                         map_images.remove(&(x >> 5, z >> 5));
+                        let _ = reply.send(result);
+                    }
+                    Command::SetBlockEnvironment {
+                        x,
+                        y,
+                        z,
+                        environment,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let environment_id = generator
+                                .assets()
+                                .environments
+                                .id_of(&environment)
+                                .ok_or_else(|| format!("unknown environment `{environment}`"))?;
+                            let column = save
+                                .world_mut()
+                                .chunk_mut(x >> 5, z >> 5)
+                                .ok_or_else(|| "the target chunk is not loaded".to_string())?;
+                            Ok(column.set_environment(x & 31, y, z & 31, environment_id))
+                        })();
                         let _ = reply.send(result);
                     }
                     Command::PlaceBlock {
@@ -2414,12 +2760,17 @@ fn run(
                             let role_catalog =
                                 load_npc_roles(&mut roles, &options.generator.assets_pack)?;
                             let is_solid = npc_solid_rule(generator.assets());
+                            let suppressed_zones = spawn_suppression
+                                .as_ref()
+                                .map(|index| index.zones_for_role(&role))
+                                .unwrap_or_default();
                             let position = SpawnPositionSearch::new(save.world(), is_solid).find(
                                 center,
                                 &SpawnSearchOptions {
                                     radius,
                                     vertical_range: 16,
                                     mode,
+                                    suppressed_zones,
                                     ..SpawnSearchOptions::default()
                                 },
                             );
@@ -2483,6 +2834,10 @@ fn run(
                                 None => None,
                             };
                             let is_solid = npc_solid_rule(generator.assets());
+                            let suppressed_zones = spawn_suppression
+                                .as_ref()
+                                .map(|index| index.zones_for_role(&role_key))
+                                .unwrap_or_default();
                             let position = SpawnPositionSearch::new(save.world(), is_solid).find(
                                 center,
                                 &SpawnSearchOptions {
@@ -2494,6 +2849,7 @@ fn run(
                                     allowed_fluids,
                                     light_ranges,
                                     sunlight_factor: f64::from(clock.sunlight_factor()),
+                                    suppressed_zones,
                                 },
                             );
                             let Some(position) = position else {
@@ -2508,6 +2864,7 @@ fn run(
                                 npc_transform(position.position),
                                 &mut npcs,
                             )?;
+                            tag_npc_environment(&mut save, entity.id, &environment);
                             entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
                             Ok(Some(entity))
                         })();
@@ -2533,6 +2890,320 @@ fn run(
                         npc_spawn_controllers.clear();
                         let _ = reply.send(());
                     }
+                    Command::SetNpcAutoPopulation { enabled, reply } => {
+                        npc_auto_population = enabled;
+                        let _ = reply.send(());
+                    }
+                    Command::AddSpawnMarker {
+                        id,
+                        marker,
+                        position,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let catalog = load_spawn_marker_catalog(
+                                &mut spawn_marker_catalog,
+                                &options.generator.assets_pack,
+                            )?;
+                            let config = catalog
+                                .get(&marker)
+                                .ok_or_else(|| format!("unknown spawn marker `{marker}`"))?;
+                            let controller = spawn_markers
+                                .get(&id)
+                                .map(|live| live.controller.clone())
+                                .unwrap_or_else(|| {
+                                    SpawnMarkerController::new(config.key.clone(), position, 0.0)
+                                });
+                            let mut controller = controller;
+                            controller.key = config.key.clone();
+                            controller.position = position;
+                            spawn_markers.insert(
+                                id,
+                                LiveSpawnMarker {
+                                    marker_key: config.key.clone(),
+                                    controller,
+                                },
+                            );
+                            Ok(())
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::RemoveSpawnMarker { id, reply } => {
+                        let _ = reply.send(spawn_markers.remove(&id).is_some());
+                    }
+                    Command::TriggerSpawnMarker { id, reply } => {
+                        let result = (|| {
+                            let Some(live) = spawn_markers.get_mut(&id) else {
+                                return Ok(None);
+                            };
+                            let catalog = load_spawn_marker_catalog(
+                                &mut spawn_marker_catalog,
+                                &options.generator.assets_pack,
+                            )?;
+                            let marker =
+                                catalog.get(&live.marker_key).cloned().ok_or_else(|| {
+                                    format!("unknown spawn marker `{}`", live.marker_key)
+                                })?;
+                            if spawn_suppression.as_ref().is_some_and(|index| {
+                                index.suppresses_marker(live.controller.position)
+                            }) {
+                                return Ok(None);
+                            }
+                            let Some(request) = live.controller.trigger(&marker, &mut spawn_rng)
+                            else {
+                                return Ok(None);
+                            };
+                            let zones = spawn_suppression
+                                .as_ref()
+                                .map(|index| index.zones_for_role(&request.role))
+                                .unwrap_or_default();
+                            let roles = load_npc_roles(&mut roles, &options.generator.assets_pack)?;
+                            let entity = spawn_npc_role_near(
+                                &mut save,
+                                generator.assets(),
+                                roles,
+                                &interactions,
+                                &request.role,
+                                live.controller.position,
+                                8,
+                                SpawnMovementMode::Walk,
+                                zones,
+                                &mut npcs,
+                                &mut entity_events,
+                            )?;
+                            if entity.is_none() {
+                                live.controller.cooldown_remaining = 0.0;
+                            }
+                            Ok(entity)
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::TickSpawnMarkers {
+                        game_dt,
+                        real_dt,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let catalog = load_spawn_marker_catalog(
+                                &mut spawn_marker_catalog,
+                                &options.generator.assets_pack,
+                            )?;
+                            let roles = load_npc_roles(&mut roles, &options.generator.assets_pack)?;
+                            let players = npc_targets
+                                .iter()
+                                .map(|target| target.position)
+                                .collect::<Vec<_>>();
+                            let mut report = SpawnSpecialReport::default();
+                            for live in spawn_markers.values_mut() {
+                                let Some(marker) = catalog.get(&live.marker_key).cloned() else {
+                                    continue;
+                                };
+                                let suppressed = spawn_suppression.as_ref().is_some_and(|index| {
+                                    index.suppresses_marker(live.controller.position)
+                                });
+                                if suppressed {
+                                    report.suppressed_markers += 1;
+                                    continue;
+                                }
+                                let Some(request) = live.controller.tick(
+                                    &marker,
+                                    &players,
+                                    suppressed,
+                                    game_dt,
+                                    real_dt,
+                                    &mut spawn_rng,
+                                ) else {
+                                    continue;
+                                };
+                                let zones = spawn_suppression
+                                    .as_ref()
+                                    .map(|index| index.zones_for_role(&request.role))
+                                    .unwrap_or_default();
+                                match spawn_npc_role_near(
+                                    &mut save,
+                                    generator.assets(),
+                                    roles,
+                                    &interactions,
+                                    &request.role,
+                                    live.controller.position,
+                                    8,
+                                    SpawnMovementMode::Walk,
+                                    zones,
+                                    &mut npcs,
+                                    &mut entity_events,
+                                )? {
+                                    Some(_) => report.marker_spawns += 1,
+                                    None => live.controller.cooldown_remaining = 0.0,
+                                }
+                            }
+                            Ok(report)
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::AddBeacon {
+                        id,
+                        beacon,
+                        position,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let catalog = load_beacon_catalog(
+                                &mut beacon_catalog,
+                                &options.generator.assets_pack,
+                            )?;
+                            let config = catalog
+                                .get(&beacon)
+                                .ok_or_else(|| format!("unknown beacon `{beacon}`"))?;
+                            let controller = beacons
+                                .get(&id)
+                                .map(|live| live.controller.clone())
+                                .unwrap_or_else(|| {
+                                    BeaconController::new(
+                                        config.key.clone(),
+                                        position,
+                                        config,
+                                        &mut spawn_rng,
+                                    )
+                                });
+                            let mut controller = controller;
+                            controller.key = config.key.clone();
+                            controller.position = position;
+                            beacons.insert(
+                                id,
+                                LiveBeacon {
+                                    beacon_key: config.key.clone(),
+                                    controller,
+                                },
+                            );
+                            Ok(())
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::RemoveBeacon { id, reply } => {
+                        let _ = reply.send(beacons.remove(&id).is_some());
+                    }
+                    Command::TickBeacons {
+                        game_dt,
+                        real_dt,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let catalog = load_beacon_catalog(
+                                &mut beacon_catalog,
+                                &options.generator.assets_pack,
+                            )?;
+                            let roles = load_npc_roles(&mut roles, &options.generator.assets_pack)?;
+                            let mut report = SpawnSpecialReport::default();
+                            for live in beacons.values_mut() {
+                                let Some(config) = catalog.get(&live.beacon_key).cloned() else {
+                                    continue;
+                                };
+                                let Some(request) = live.controller.tick(
+                                    &config,
+                                    &clock,
+                                    game_dt,
+                                    real_dt,
+                                    &mut spawn_rng,
+                                ) else {
+                                    continue;
+                                };
+                                let mut failed = 0usize;
+                                for role in &request.roles {
+                                    let zones = spawn_suppression
+                                        .as_ref()
+                                        .map(|index| index.zones_for_role(role))
+                                        .unwrap_or_default();
+                                    if spawn_suppression.as_ref().is_some_and(|index| {
+                                        !zones.is_empty()
+                                            && index.suppresses_role(role, request.position)
+                                    }) {
+                                        report.suppressed_roles += 1;
+                                        failed += 1;
+                                        continue;
+                                    }
+                                    match spawn_npc_role_near(
+                                        &mut save,
+                                        generator.assets(),
+                                        roles,
+                                        &interactions,
+                                        role,
+                                        request.position,
+                                        config.spawn_radius.max(4.0) as i32,
+                                        SpawnMovementMode::Walk,
+                                        zones,
+                                        &mut npcs,
+                                        &mut entity_events,
+                                    )? {
+                                        Some(_) => report.beacon_spawns += 1,
+                                        None => failed += 1,
+                                    }
+                                }
+                                live.controller.record_despawn(failed);
+                            }
+                            Ok(report)
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::SpawnSpecialStates { reply } => {
+                        let mut states = Vec::new();
+                        for (id, live) in &spawn_markers {
+                            states.push((
+                                format!("marker:{id}"),
+                                live.marker_key.clone(),
+                                live.controller.to_json(),
+                            ));
+                        }
+                        for (id, live) in &beacons {
+                            states.push((
+                                format!("beacon:{id}"),
+                                live.beacon_key.clone(),
+                                live.controller.to_json(),
+                            ));
+                        }
+                        let _ = reply.send(states);
+                    }
+                    Command::AddSpawnSuppressor {
+                        id,
+                        suppression,
+                        position,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let index = ensure_spawn_suppression_mut(
+                                &mut spawn_suppression,
+                                &options.generator.assets_root,
+                                &mut persisted_suppressors,
+                            )?;
+                            if index.configs.get(&suppression).is_none() {
+                                return Err(format!("unknown spawn suppression `{suppression}`"));
+                            }
+                            index.insert(id, suppression, position);
+                            Ok(())
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::RemoveSpawnSuppressor { id, reply } => {
+                        let changed = spawn_suppression
+                            .as_mut()
+                            .and_then(|index| index.remove(id))
+                            .is_some();
+                        let _ = reply.send(changed);
+                    }
+                    Command::SpawnSuppressors { reply } => {
+                        let mut entries = Vec::new();
+                        if let Some(index) = &spawn_suppression {
+                            for (suppression, suppressor) in index.iter() {
+                                entries.push((
+                                    suppressor.id,
+                                    suppression.clone(),
+                                    suppressor.position,
+                                ));
+                            }
+                        } else {
+                            entries.extend(persisted_suppressors.iter().cloned());
+                        }
+                        let _ = reply.send(entries);
+                    }
                     Command::TickNpcSpawns { reply } => {
                         let result = (|| {
                             let role_catalog =
@@ -2541,11 +3212,31 @@ fn run(
                                 load_spawn_catalog(&mut spawns, &options.generator.assets_root)?;
                             let is_solid = npc_solid_rule(generator.assets());
                             let mut report = NpcSpawnReport::default();
-                            for target in &npc_spawn_targets {
+                            let mut targets = npc_spawn_targets.clone();
+                            if npc_auto_population {
+                                let auto_targets = discover_auto_spawn_targets(
+                                    save.world(),
+                                    generator.assets(),
+                                    catalog,
+                                    &clock,
+                                );
+                                report.auto_environments = auto_targets.len();
+                                for target in auto_targets {
+                                    if !targets
+                                        .iter()
+                                        .any(|existing| existing.environment == target.environment)
+                                    {
+                                        targets.push(target);
+                                    }
+                                }
+                            }
+                            for target in &targets {
                                 let controller = npc_spawn_controllers
                                     .entry(target.environment.clone())
                                     .or_insert_with(|| WorldSpawnController::new(target.density));
                                 controller.set_density(target.density);
+                                controller.actual =
+                                    npc_environment_count(&save, &npcs, &target.environment);
                                 let segments = if target.segments == 0 {
                                     generator
                                         .assets()
@@ -2588,6 +3279,10 @@ fn run(
                                         .resolve(generator.assets(), name),
                                         None => None,
                                     };
+                                    let suppressed_zones = spawn_suppression
+                                        .as_ref()
+                                        .map(|index| index.zones_for_role(&role_key))
+                                        .unwrap_or_default();
                                     let Some(position) =
                                         SpawnPositionSearch::new(save.world(), is_solid).find(
                                             target.center,
@@ -2600,6 +3295,7 @@ fn run(
                                                 allowed_fluids,
                                                 light_ranges,
                                                 sunlight_factor: f64::from(clock.sunlight_factor()),
+                                                suppressed_zones,
                                             },
                                         )
                                     else {
@@ -2616,6 +3312,11 @@ fn run(
                                         &mut npcs,
                                     ) {
                                         Ok(entity) => {
+                                            tag_npc_environment(
+                                                &mut save,
+                                                entity.id,
+                                                &target.environment,
+                                            );
                                             entity_events
                                                 .push(RuntimeEntityEvent::Spawned(entity.id));
                                             controller.record_spawn();
@@ -2871,9 +3572,19 @@ fn run(
                         advance_clock(&mut clock, &mut last_clock);
                         store_clock(&clock, &mut save);
                         sync_npc_entities(&mut save, &npcs);
-                        let result = save
-                            .save_all(&ChunkCodec::new(generator.assets()))
-                            .map_err(|error| error.to_string());
+                        let result = (|| {
+                            let saved = save
+                                .save_all(&ChunkCodec::new(generator.assets()))
+                                .map_err(|error| error.to_string())?;
+                            save_spawn_controller_state(
+                                &save,
+                                &spawn_markers,
+                                &beacons,
+                                spawn_suppression.as_ref(),
+                                &persisted_suppressors,
+                            )?;
+                            Ok(saved)
+                        })();
                         let _ = reply.send(result);
                     }
                     Command::ConfigAssetPackets { reply } => {
@@ -2944,9 +3655,19 @@ fn run(
                         advance_clock(&mut clock, &mut last_clock);
                         store_clock(&clock, &mut save);
                         sync_npc_entities(&mut save, &npcs);
-                        let result = save
-                            .save_all(&ChunkCodec::new(generator.assets()))
-                            .map_err(|error| error.to_string());
+                        let result = (|| {
+                            let saved = save
+                                .save_all(&ChunkCodec::new(generator.assets()))
+                                .map_err(|error| error.to_string())?;
+                            save_spawn_controller_state(
+                                &save,
+                                &spawn_markers,
+                                &beacons,
+                                spawn_suppression.as_ref(),
+                                &persisted_suppressors,
+                            )?;
+                            Ok(saved)
+                        })();
                         generator.shutdown();
                         let _ = reply.send(result);
                         break;
@@ -3453,6 +4174,291 @@ fn npc_transform(position: Vec3) -> PlayerTransform {
             roll: 0.0,
         },
     )
+}
+
+const SPAWN_CONTROLLER_STATE_FILE: &str = "spawn-controllers.json";
+
+fn load_spawn_controller_state(save: &WorldSave) -> serde_json::Value {
+    let path = save.save_dir().join(SPAWN_CONTROLLER_STATE_FILE);
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+fn state_position(value: &serde_json::Value) -> Vec3 {
+    value
+        .get("Position")
+        .and_then(serde_json::Value::as_array)
+        .filter(|position| position.len() == 3)
+        .map(|position| {
+            Vec3::new(
+                position[0].as_f64().unwrap_or(0.0),
+                position[1].as_f64().unwrap_or(0.0),
+                position[2].as_f64().unwrap_or(0.0),
+            )
+        })
+        .unwrap_or_default()
+}
+
+type PersistedSpawnControllers = (
+    BTreeMap<String, LiveSpawnMarker>,
+    BTreeMap<String, LiveBeacon>,
+    Vec<(u64, String, Vec3)>,
+);
+
+fn restore_spawn_controllers(value: &serde_json::Value) -> PersistedSpawnControllers {
+    let mut markers = BTreeMap::new();
+    if let Some(entries) = value.get("Markers").and_then(serde_json::Value::as_object) {
+        for (id, entry) in entries {
+            let key = entry
+                .get("Key")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(id)
+                .to_string();
+            let position = state_position(entry);
+            let mut controller = SpawnMarkerController::new(key.clone(), position, 0.0);
+            controller.apply_json(entry);
+            markers.insert(
+                id.clone(),
+                LiveSpawnMarker {
+                    marker_key: key,
+                    controller,
+                },
+            );
+        }
+    }
+    let mut beacons = BTreeMap::new();
+    if let Some(entries) = value.get("Beacons").and_then(serde_json::Value::as_object) {
+        for (id, entry) in entries {
+            let key = entry
+                .get("Key")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(id)
+                .to_string();
+            beacons.insert(
+                id.clone(),
+                LiveBeacon {
+                    beacon_key: key.clone(),
+                    controller: BeaconController::from_state(key, state_position(entry), entry),
+                },
+            );
+        }
+    }
+    let mut suppressors = Vec::new();
+    if let Some(entries) = value
+        .get("Suppressors")
+        .and_then(serde_json::Value::as_array)
+    {
+        for entry in entries {
+            let Some(id) = entry.get("Id").and_then(serde_json::Value::as_u64) else {
+                continue;
+            };
+            let Some(suppression) = entry.get("Suppression").and_then(serde_json::Value::as_str)
+            else {
+                continue;
+            };
+            suppressors.push((id, suppression.to_string(), state_position(entry)));
+        }
+    }
+    (markers, beacons, suppressors)
+}
+
+fn save_spawn_controller_state(
+    save: &WorldSave,
+    markers: &BTreeMap<String, LiveSpawnMarker>,
+    beacons: &BTreeMap<String, LiveBeacon>,
+    suppression: Option<&SpawnSuppressionIndex>,
+    persisted_suppressors: &[(u64, String, Vec3)],
+) -> Result<(), String> {
+    let markers = markers
+        .iter()
+        .map(|(id, live)| (id.clone(), live.controller.to_json()))
+        .collect::<serde_json::Map<_, _>>();
+    let beacons = beacons
+        .iter()
+        .map(|(id, live)| (id.clone(), live.controller.to_json()))
+        .collect::<serde_json::Map<_, _>>();
+    let mut suppressors = Vec::new();
+    if let Some(index) = suppression {
+        for (key, suppressor) in index.iter() {
+            suppressors.push(serde_json::json!({
+                "Id": suppressor.id,
+                "Suppression": key,
+                "Position": [suppressor.position.x, suppressor.position.y, suppressor.position.z],
+            }));
+        }
+    } else {
+        for (id, key, position) in persisted_suppressors {
+            suppressors.push(serde_json::json!({
+                "Id": id,
+                "Suppression": key,
+                "Position": [position.x, position.y, position.z],
+            }));
+        }
+    }
+    let document = serde_json::json!({
+        "Markers": markers,
+        "Beacons": beacons,
+        "Suppressors": suppressors,
+    });
+    let path = save.save_dir().join(SPAWN_CONTROLLER_STATE_FILE);
+    let text = serde_json::to_string_pretty(&document).map_err(|error| error.to_string())?;
+    std::fs::write(path, text + "\n").map_err(|error| error.to_string())
+}
+
+fn ensure_spawn_suppression_mut<'a>(
+    state: &'a mut Option<SpawnSuppressionIndex>,
+    assets_root: &std::path::Path,
+    persisted: &mut Vec<(u64, String, Vec3)>,
+) -> Result<&'a mut SpawnSuppressionIndex, String> {
+    if state.is_none() {
+        let mut index =
+            SpawnSuppressionIndex::load_root(assets_root).map_err(|error| error.to_string())?;
+        for (id, suppression, position) in persisted.drain(..) {
+            index.insert(id, suppression, position);
+        }
+        *state = Some(index);
+    }
+    Ok(state.as_mut().expect("spawn suppression just loaded"))
+}
+
+fn load_spawn_marker_catalog<'a>(
+    catalog: &'a mut Option<SpawnMarkerCatalog>,
+    pack_path: &std::path::Path,
+) -> Result<&'a SpawnMarkerCatalog, String> {
+    if catalog.is_none() {
+        let pack = AssetPack::open(pack_path).map_err(|error| error.to_string())?;
+        *catalog = Some(SpawnMarkerCatalog::load(&pack).map_err(|error| error.to_string())?);
+    }
+    Ok(catalog.as_ref().expect("marker catalog just loaded"))
+}
+
+fn load_beacon_catalog<'a>(
+    catalog: &'a mut Option<BeaconCatalog>,
+    pack_path: &std::path::Path,
+) -> Result<&'a BeaconCatalog, String> {
+    if catalog.is_none() {
+        let pack = AssetPack::open(pack_path).map_err(|error| error.to_string())?;
+        *catalog = Some(BeaconCatalog::load(&pack).map_err(|error| error.to_string())?);
+    }
+    Ok(catalog.as_ref().expect("beacon catalog just loaded"))
+}
+
+fn discover_auto_spawn_targets(
+    world: &hytale_world::world::World,
+    assets: &hytale_assets::AssetRegistry,
+    catalog: &WorldSpawnCatalog,
+    clock: &WorldClock,
+) -> Vec<NpcSpawnTarget> {
+    let mut environments: Vec<_> = assets.environments.iter().collect();
+    environments.sort_by(|left, right| left.key.cmp(&right.key));
+    let mut targets = Vec::new();
+    for record in environments {
+        let Some(environment_id) = record.id else {
+            continue;
+        };
+        let density = record
+            .value
+            .get("SpawnDensity")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0);
+        if density <= 0.0
+            || !catalog
+                .for_environment(&record.key)
+                .any(|spawn| spawn.is_eligible(clock))
+        {
+            continue;
+        }
+        let centers = world.environment_section_centers(environment_id);
+        let Some(center) = centers.first().copied() else {
+            continue;
+        };
+        let max_distance = centers
+            .iter()
+            .map(|position| {
+                let dx = position.x - center.x;
+                let dz = position.z - center.z;
+                (dx * dx + dz * dz).sqrt()
+            })
+            .fold(0.0_f64, f64::max);
+        let radius = (max_distance.ceil() as i32 + 16).clamp(16, 128);
+        targets.push(NpcSpawnTarget {
+            environment: record.key.clone(),
+            center,
+            radius,
+            mode: SpawnMovementMode::Walk,
+            density,
+            segments: centers.len(),
+        });
+    }
+    targets
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_npc_role_near(
+    save: &mut WorldSave,
+    assets: &hytale_assets::AssetRegistry,
+    roles: &RoleCatalog,
+    interactions: &InteractionCatalog,
+    role: &str,
+    center: Vec3,
+    radius: i32,
+    mode: SpawnMovementMode,
+    suppressed_zones: Vec<SpawnSuppressionZone>,
+    npcs: &mut BTreeMap<RuntimeEntityId, NpcActor>,
+    entity_events: &mut Vec<RuntimeEntityEvent>,
+) -> Result<Option<RuntimeEntity>, String> {
+    let is_solid = npc_solid_rule(assets);
+    let position = SpawnPositionSearch::new(save.world(), is_solid).find(
+        center,
+        &SpawnSearchOptions {
+            radius,
+            vertical_range: 16,
+            mode,
+            suppressed_zones,
+            ..SpawnSearchOptions::default()
+        },
+    );
+    let Some(position) = position else {
+        return Ok(None);
+    };
+    let entity = spawn_npc_entity(
+        save,
+        assets,
+        roles,
+        interactions,
+        role,
+        npc_transform(position.position),
+        npcs,
+    )?;
+    entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
+    Ok(Some(entity))
+}
+
+fn tag_npc_environment(save: &mut WorldSave, id: RuntimeEntityId, environment: &str) {
+    if let Some(entity) = save.world_mut().entities_mut().get_mut(id) {
+        if let Some(npc) = entity.components.get_mut("Npc") {
+            npc["Environment"] = serde_json::Value::String(environment.to_string());
+        }
+    }
+}
+
+fn npc_environment_count(
+    save: &WorldSave,
+    npcs: &BTreeMap<RuntimeEntityId, NpcActor>,
+    environment: &str,
+) -> i32 {
+    npcs.keys()
+        .filter(|id| {
+            save.world()
+                .entity(**id)
+                .and_then(|entity| entity.components.get("Npc"))
+                .and_then(|npc| npc.get("Environment"))
+                .and_then(serde_json::Value::as_str)
+                == Some(environment)
+        })
+        .count() as i32
 }
 
 fn spawn_npc_entity(

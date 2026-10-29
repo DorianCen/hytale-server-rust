@@ -138,6 +138,7 @@ fn headless_boot_saves_a_reloadable_region_blob() {
             block_id,
         )),
         spawn_npc: None,
+        auto_population: false,
     })
     .expect("boot the complete save");
     assert!(boot.config_created);

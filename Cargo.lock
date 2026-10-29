@@ -361,6 +361,7 @@ dependencies = [
  "hytale-net",
  "hytale-protocol",
  "hytale-server",
+ "hytale-world",
  "serde_json",
  "sha2",
  "thiserror",

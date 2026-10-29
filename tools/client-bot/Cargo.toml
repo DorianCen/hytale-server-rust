@@ -20,3 +20,4 @@ tokio = { workspace = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 hytale-server = { path = "../../crates/hytale-server" }
+hytale-world = { path = "../../crates/hytale-world" }

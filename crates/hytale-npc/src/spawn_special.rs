@@ -2,14 +2,15 @@
 //!
 //! `Server/NPC/Spawn/Beacons` and `Server/NPC/Spawn/Markers` are separate
 //! asset stores from the world env spawns. This slice loads both catalogs,
-//! resolves their weighted NPC/configuration entries and parses the ISO-8601
-//! duration fields used for respawn timers. Live beacon/marker controllers and
-//! their persistent state are a later T59b slice.
+//! resolves their weighted NPC/configuration entries, parses the ISO-8601
+//! duration fields used for respawn timers and provides the live marker/beacon
+//! controllers used by the world thread.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use hytale_assets::AssetPack;
+use hytale_world::collision::Vec3;
 use hytale_world::world_clock::WorldClock;
 use serde_json::Value;
 use thiserror::Error;
@@ -470,6 +471,316 @@ fn light_range_map(raw: &Value) -> BTreeMap<String, [f64; 2]> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// One role selected by a live spawn marker.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkerSpawnRequest {
+    /// Marker asset key.
+    pub marker: String,
+    /// Selected role id.
+    pub role: String,
+    /// Respawn cooldown applied after this spawn.
+    pub cooldown_seconds: Option<f64>,
+    /// Last config key (role) selected.
+    pub config: String,
+}
+
+/// Live state for one spawn-marker entity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpawnMarkerController {
+    /// Marker asset key.
+    pub key: String,
+    /// Marker entity position.
+    pub position: Vec3,
+    /// Remaining cooldown in the marker's clock mode.
+    pub cooldown_remaining: f64,
+    /// Whether the remaining cooldown is game time (otherwise real time).
+    pub cooldown_game_time: bool,
+    /// Last selected NPC role, for diagnostics/persistence.
+    pub last_role: Option<String>,
+}
+
+impl SpawnMarkerController {
+    /// Create a controller at `position`. `initial_cooldown` restores persisted
+    /// state.
+    pub fn new(key: impl Into<String>, position: Vec3, initial_cooldown: f64) -> Self {
+        Self {
+            key: key.into(),
+            position,
+            cooldown_remaining: initial_cooldown.max(0.0),
+            cooldown_game_time: false,
+            last_role: None,
+        }
+    }
+
+    /// Advance the cooldown. `game_dt` and `real_dt` are the elapsed game/real
+    /// seconds for this tick.
+    pub fn tick_cooldown(&mut self, game_dt: f64, real_dt: f64) {
+        if self.cooldown_remaining <= 0.0 {
+            return;
+        }
+        let dt = if self.cooldown_game_time {
+            game_dt
+        } else {
+            real_dt
+        };
+        self.cooldown_remaining = (self.cooldown_remaining - dt.max(0.0)).max(0.0);
+    }
+
+    /// Try an automatic marker trigger. Non-manual markers fire when a player is
+    /// inside `DeactivationDistance` (or always when no distance is set).
+    pub fn tick<R: FlockRng>(
+        &mut self,
+        marker: &SpawnMarker,
+        players: &[Vec3],
+        suppressed: bool,
+        game_dt: f64,
+        real_dt: f64,
+        rng: &mut R,
+    ) -> Option<MarkerSpawnRequest> {
+        self.tick_cooldown(game_dt, real_dt);
+        if suppressed || marker.manual_trigger || self.cooldown_remaining > 0.0 {
+            return None;
+        }
+        if marker.deactivation_distance > 0.0
+            && !players.iter().any(|player| {
+                distance_squared(*player, self.position)
+                    <= marker.deactivation_distance * marker.deactivation_distance
+            })
+        {
+            return None;
+        }
+        self.trigger(marker, rng)
+    }
+
+    /// Explicit/manual trigger. The caller still owns role spawning and should
+    /// respect `suppressed` separately.
+    pub fn trigger<R: FlockRng>(
+        &mut self,
+        marker: &SpawnMarker,
+        rng: &mut R,
+    ) -> Option<MarkerSpawnRequest> {
+        if self.cooldown_remaining > 0.0 || marker.npcs.is_empty() {
+            return None;
+        }
+        let config = marker.pick_config(rng)?;
+        let cooldown = marker.cooldown_seconds(config);
+        self.cooldown_remaining = cooldown.unwrap_or(0.0).max(0.0);
+        self.cooldown_game_time = !marker.realtime_respawn;
+        self.last_role = Some(config.name.clone());
+        Some(MarkerSpawnRequest {
+            marker: marker.key.clone(),
+            role: config.name.clone(),
+            cooldown_seconds: cooldown,
+            config: config.name.clone(),
+        })
+    }
+
+    /// Persisted controller state.
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({
+            "Key": self.key,
+            "Position": [self.position.x, self.position.y, self.position.z],
+            "Cooldown": self.cooldown_remaining,
+            "CooldownGameTime": self.cooldown_game_time,
+            "LastRole": self.last_role,
+        })
+    }
+
+    /// Restore state written by [`Self::to_json`].
+    pub fn apply_json(&mut self, value: &Value) {
+        if let Some(position) = value.get("Position").and_then(Value::as_array) {
+            if position.len() == 3 {
+                self.position = Vec3::new(
+                    position[0].as_f64().unwrap_or(self.position.x),
+                    position[1].as_f64().unwrap_or(self.position.y),
+                    position[2].as_f64().unwrap_or(self.position.z),
+                );
+            }
+        }
+        self.cooldown_remaining = value
+            .get("Cooldown")
+            .and_then(Value::as_f64)
+            .unwrap_or(self.cooldown_remaining)
+            .max(0.0);
+        self.cooldown_game_time = value
+            .get("CooldownGameTime")
+            .and_then(Value::as_bool)
+            .unwrap_or(self.cooldown_game_time);
+        self.last_role = value
+            .get("LastRole")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+    }
+}
+
+/// One batch of roles selected by a live beacon.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BeaconSpawnRequest {
+    /// Beacon asset key.
+    pub beacon: String,
+    /// Spawn center.
+    pub position: Vec3,
+    /// Roles to spawn this tick.
+    pub roles: Vec<String>,
+    /// Respawn cooldown applied after this batch.
+    pub cooldown_seconds: Option<f64>,
+}
+
+/// Live state for one beacon spawner.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BeaconController {
+    /// Beacon asset key.
+    pub key: String,
+    /// Beacon world position.
+    pub position: Vec3,
+    /// Remaining initial/spawn cooldown.
+    pub cooldown_remaining: f64,
+    /// Whether the cooldown uses game time.
+    pub cooldown_game_time: bool,
+    /// NPCs currently tracked as spawned by this beacon.
+    pub spawned: i32,
+}
+
+impl BeaconController {
+    /// Create a controller with the Java initial spawn delay.
+    pub fn new<R: FlockRng>(
+        key: impl Into<String>,
+        position: Vec3,
+        beacon: &BeaconSpawn,
+        rng: &mut R,
+    ) -> Self {
+        let initial = beacon
+            .initial_spawn_delay_seconds
+            .map(|range| sample_range(range, rng))
+            .unwrap_or(0.0);
+        Self {
+            key: key.into(),
+            position,
+            cooldown_remaining: initial.max(0.0),
+            cooldown_game_time: beacon.spawn_after_real_seconds.is_none(),
+            spawned: 0,
+        }
+    }
+
+    /// Restore a controller from persisted state.
+    pub fn from_state(key: impl Into<String>, position: Vec3, value: &Value) -> Self {
+        Self {
+            key: key.into(),
+            position,
+            cooldown_remaining: value
+                .get("Cooldown")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                .max(0.0),
+            cooldown_game_time: value
+                .get("CooldownGameTime")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            spawned: value
+                .get("Spawned")
+                .and_then(Value::as_i64)
+                .unwrap_or(0)
+                .max(0) as i32,
+        }
+    }
+
+    /// Advance cooldowns and emit a requested batch when eligible.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tick<R: FlockRng>(
+        &mut self,
+        beacon: &BeaconSpawn,
+        clock: &WorldClock,
+        game_dt: f64,
+        real_dt: f64,
+        rng: &mut R,
+    ) -> Option<BeaconSpawnRequest> {
+        if self.cooldown_remaining > 0.0 {
+            let dt = if self.cooldown_game_time {
+                game_dt
+            } else {
+                real_dt
+            };
+            self.cooldown_remaining = (self.cooldown_remaining - dt.max(0.0)).max(0.0);
+        }
+        if self.cooldown_remaining > 0.0
+            || !beacon.is_eligible(clock)
+            || (beacon.max_spawned_npcs > 0 && self.spawned >= beacon.max_spawned_npcs)
+        {
+            return None;
+        }
+        let [min, max] = beacon.concurrent_spawns_range;
+        let desired = if max <= min {
+            min.max(0) as usize
+        } else {
+            (min + ((max - min) as f64 * rng.next_f64()).floor() as i32).max(0) as usize
+        };
+        let capacity = if beacon.max_spawned_npcs > 0 {
+            (beacon.max_spawned_npcs - self.spawned).max(0) as usize
+        } else {
+            desired
+        };
+        let count = desired.min(capacity);
+        if count == 0 {
+            return None;
+        }
+        let mut roles = Vec::new();
+        for _ in 0..count {
+            if let Some(role) = beacon.pick_role(rng) {
+                roles.push(role.id.clone());
+            }
+        }
+        if roles.is_empty() {
+            return None;
+        }
+        let cooldown = beacon
+            .spawn_after_game_seconds
+            .or(beacon.spawn_after_real_seconds)
+            .map(|range| sample_range(range, rng));
+        self.cooldown_game_time = beacon.spawn_after_game_seconds.is_some();
+        self.cooldown_remaining = cooldown.unwrap_or(0.0).max(0.0);
+        self.spawned += roles.len() as i32;
+        Some(BeaconSpawnRequest {
+            beacon: beacon.key.clone(),
+            position: self.position,
+            roles,
+            cooldown_seconds: cooldown,
+        })
+    }
+
+    /// Record a spawned NPC count.
+    pub fn record_spawn(&mut self, count: usize) {
+        self.spawned += count as i32;
+    }
+
+    /// Record a despawned NPC.
+    pub fn record_despawn(&mut self, count: usize) {
+        self.spawned = (self.spawned - count as i32).max(0);
+    }
+
+    /// Persisted controller state.
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({
+            "Key": self.key,
+            "Position": [self.position.x, self.position.y, self.position.z],
+            "Cooldown": self.cooldown_remaining,
+            "CooldownGameTime": self.cooldown_game_time,
+            "Spawned": self.spawned,
+        })
+    }
+}
+
+fn sample_range<R: FlockRng>(range: [f64; 2], rng: &mut R) -> f64 {
+    let [low, high] = range;
+    low + (high - low) * rng.next_f64().clamp(0.0, 1.0)
+}
+
+fn distance_squared(left: Vec3, right: Vec3) -> f64 {
+    let dx = right.x - left.x;
+    let dy = right.y - left.y;
+    let dz = right.z - left.z;
+    dx * dx + dy * dy + dz * dz
 }
 
 /// Beacon/marker loading errors.

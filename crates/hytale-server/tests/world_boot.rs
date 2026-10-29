@@ -53,6 +53,7 @@ fn creates_then_reopens_a_config_and_player() {
         player_uuid: None,
         set_block: None,
         spawn_npc: Some("Rat".to_string()),
+        auto_population: false,
     };
 
     let first = run_world_boot(&options).expect("first boot");

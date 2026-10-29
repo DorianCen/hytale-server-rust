@@ -1689,6 +1689,8 @@ async fn run_game_loop(
         thread.set_npc_targets(players.npc_targets())?;
         let spawn_report = thread.tick_npc_spawns()?;
         report.npc_spawns += spawn_report.spawned;
+        let _ = thread.tick_spawn_markers(1.0 / 20.0, 1.0 / 20.0)?;
+        let _ = thread.tick_beacons(1.0 / 20.0, 1.0 / 20.0)?;
         let npc_report = thread.tick_npcs()?;
         report.npc_ticks += npc_report.ticked;
         let _ = thread.tick_encounters()?;
