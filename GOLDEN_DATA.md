@@ -354,9 +354,9 @@ their committed item payloads and counts stay stable.
 | Slide entry/exit, safety-roll window, mantle and mount/dismount | `crates/hytale-entities/src/movement.rs` tests |
 | Item `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` name resolution | `crates/hytale-assets/tests/block_item_packets.rs` (real-pack `Item.bin` gate) |
 
-Full condition evaluation, damage calculators, effect damage-over-time, client
-stat/effect/damage packets and the `UpdateEntityStatTypes`/
-`UpdateEntityEffects` config burst remain T59c work.
+T59c lands the NPC `DamageCalculator`/`DamageEntity` action graph. Effect
+damage-over-time, client stat/effect/damage packets and the
+`UpdateEntityStatTypes`/`UpdateEntityEffects` config burst remain T60 work.
 
 ### 3.11 Prefab entities and block components (real-pack gate)
 
@@ -431,8 +431,18 @@ motion-controller A* expansion.
 | Waypoint advancement/rejection and flock role filtering | `crates/hytale-npc` unit tests |
 | 98 world spawn documents / 271 role entries and Java time/moon gates | `crates/hytale-npc/tests/npc_spawn_combat.rs` |
 | Rat/Bear/Goblin combat profiles and real-asset actor death | same |
+| Rat attack root → selector → `Bite_Damage`, 9 ± 10% Physical and knockback | `crates/hytale-npc/tests/npc_encounter.rs` |
+| All 67 `Server/EncounterManager` documents / 41 spawnable, variants/macros/forwards | same |
+| `Example_State_Transitions`, `Example_Encounter` and `Example_Boss` action/state order | same |
+| Live world-thread encounter trigger → `Complete` | `crates/hytale-server/tests/npc_encounter.rs` |
+| 114 NPC groups / 5 suppression configs and role/marker zone filtering | `crates/hytale-npc/tests/npc_spawn_suppression.rs` |
+| Bat marker + Edible_Rat beacon selection/cooldown/state round trip | same |
+| Automatic environment population, suppression and controller cooldown persistence | `crates/hytale-server/tests/npc_spawn_control.rs` |
+| Bot observes NPC spawn, chase and despawn; session records an attack | `tools/client-bot/tests/npc_scenario.rs` |
 
-The block-grid A* is a semantic gate for the Java direction/cost/limit
+T59b/T59c use the real encounter/root-interaction documents as their semantic
+gate; there is no new Java dumper fixture for these layers. The block-grid A*
+is a semantic gate for the Java direction/cost/limit
 contract, not a byte-for-byte port of the fractional half-block
 `MotionController` search.
 
