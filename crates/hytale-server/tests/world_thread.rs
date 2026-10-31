@@ -527,9 +527,20 @@ fn player_snapshot_round_trips_a_session_transform() {
     thread
         .save_player_state(uuid, transform, inventory.clone())
         .expect("save player state");
+    thread.save_player_health(uuid, 37.5).expect("save health");
+    let mut crafting = hytale_world::crafting::CraftingKnowledge::default();
+    crafting.learn("Armor_Bronze_Chest");
+    crafting.memories_level = 2;
+    crafting.bench_tiers.insert("Armor_Bench".to_string(), 3);
+    crafting.augment_tags.insert("goblin_lab_power".to_string());
+    thread
+        .save_player_crafting(uuid, &crafting)
+        .expect("save crafting knowledge");
     let saved = thread.player_snapshot(uuid).expect("saved snapshot");
     assert_eq!(saved.transform, transform);
     assert_eq!(saved.inventory, inventory);
+    assert_eq!(saved.health, Some(37.5));
+    assert_eq!(saved.crafting, crafting);
     thread.shutdown().expect("shutdown");
 
     let (thread, _start) = WorldThread::spawn(options()).expect("respawn the world thread");
@@ -541,6 +552,15 @@ fn player_snapshot_round_trips_a_session_transform() {
     assert_eq!(
         reloaded.inventory, inventory,
         "the session inventory must survive a world restart"
+    );
+    assert_eq!(
+        reloaded.health,
+        Some(37.5),
+        "the session health must survive a world restart"
+    );
+    assert_eq!(
+        reloaded.crafting, crafting,
+        "crafting knowledge must survive a world restart"
     );
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();
@@ -711,6 +731,19 @@ fn block_containers_open_with_their_block_capacity() {
         .expect("block lookup")
         .expect("chest block");
     thread.set_block(4, 200, 4, chest).expect("place chest");
+    let assets = thread.asset_registry().expect("asset registry");
+    let bench = assets
+        .block_types
+        .get("Bench_Alchemy")
+        .expect("Bench_Alchemy block type");
+    assert!(
+        bench
+            .value
+            .json
+            .get("Bench")
+            .is_some_and(serde_json::Value::is_object),
+        "the merged block type exposes its bench document"
+    );
 
     let open = thread
         .open_block_container(4, 200, 4)
@@ -720,6 +753,42 @@ fn block_containers_open_with_their_block_capacity() {
     assert_eq!(open.capacity, 36);
     assert_eq!(open.section.capacity, 36);
     assert!(open.section.items.is_none() || open.section.items.as_ref().unwrap().is_empty());
+
+    let mut container = thread
+        .block_container(4, 200, 4)
+        .expect("container")
+        .expect("chest container");
+    container
+        .set_slot(
+            0,
+            Some(
+                hytale_inventory::ItemStack::from_fields(
+                    "Rock_Stone",
+                    5,
+                    0.0,
+                    0.0,
+                    None,
+                    None,
+                    false,
+                )
+                .expect("stack"),
+            ),
+        )
+        .expect("set slot");
+    thread
+        .set_block_container(4, 200, 4, container)
+        .expect("replace container");
+    let moved = thread
+        .block_container(4, 200, 4)
+        .expect("container")
+        .expect("chest container");
+    assert_eq!(
+        moved
+            .get_slot(0)
+            .expect("slot")
+            .map(|stack| (stack.item_id.as_str(), stack.quantity)),
+        Some(("Rock_Stone", 5))
+    );
 
     thread.set_block(4, 200, 4, 0).expect("remove chest");
     assert!(thread

@@ -8,7 +8,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hytale_net::{ServerEndpointBuilder, TlsIdentity, TraceRecorder, TransportError};
@@ -21,7 +21,62 @@ use tokio::time::{timeout, Instant};
 use crate::generation::GeneratorOptions;
 use crate::players::PlayerRegistry;
 use crate::session::{serve_connection_with_registry, SessionError, SessionOptions, SessionReport};
-use crate::universe_runtime::{UniverseRuntime, UniverseRuntimeError};
+use crate::universe_runtime::{
+    PortalArrival, PortalTransferReport, UniverseRuntime, UniverseRuntimeError,
+};
+
+/// Session-facing portal router. It owns the universe runtime lock so a live
+/// session can create/select an instance world and move its player while the
+/// listener keeps accepting connections.
+#[derive(Debug, Clone)]
+pub struct PortalRouter {
+    runtime: Arc<Mutex<UniverseRuntime>>,
+}
+
+impl PortalRouter {
+    /// Build a router over a shared universe runtime.
+    pub fn new(runtime: Arc<Mutex<UniverseRuntime>>) -> Self {
+        Self { runtime }
+    }
+
+    /// Create/select the target instance world for a portal.
+    pub fn open_portal_instance(
+        &self,
+        portal_key: &str,
+        fallback: hytale_world::player_data::PlayerTransform,
+    ) -> Result<(PortalArrival, Arc<crate::world_thread::WorldThread>), UniverseRuntimeError> {
+        self.runtime
+            .lock()
+            .expect("universe runtime poisoned")
+            .open_portal_instance(portal_key, fallback)
+    }
+
+    /// Persist/move the live player document into the target world.
+    #[allow(clippy::too_many_arguments)]
+    pub fn transfer_live_player(
+        &self,
+        source: &crate::world_thread::WorldThread,
+        target: &crate::world_thread::WorldThread,
+        player_uuid: hytale_world::world_config::WorldUuid,
+        transform: hytale_world::player_data::PlayerTransform,
+        inventory: hytale_inventory::PlayerInventory,
+        health: Option<f32>,
+        arrival: &PortalArrival,
+    ) -> Result<PortalTransferReport, UniverseRuntimeError> {
+        self.runtime
+            .lock()
+            .expect("universe runtime poisoned")
+            .transfer_live_player(
+                source,
+                target,
+                player_uuid,
+                transform,
+                inventory,
+                health,
+                arrival,
+            )
+    }
+}
 
 /// Options for the persistent listener.
 #[derive(Debug)]
@@ -50,6 +105,8 @@ pub struct ServeOptions {
     pub spawn_npc: Option<String>,
     /// Discover loaded environments and maintain their configured NPC density.
     pub auto_population: bool,
+    /// Enabled builtin modules.
+    pub builtin: hytale_builtin::BuiltinRuntime,
     /// Optional JSONL packet trace written for every accepted session.
     pub trace_path: Option<PathBuf>,
     /// Optional test/CLI hook that receives the actual bound address.
@@ -77,6 +134,7 @@ impl ServeOptions {
             close_timeout: Duration::from_secs(5),
             spawn_npc: None,
             auto_population: false,
+            builtin: hytale_builtin::BuiltinRuntime::compiled(),
             trace_path: None,
             bound_tx: None,
         }
@@ -122,6 +180,8 @@ pub struct SessionSummary {
     pub npc_attacks: usize,
     /// NPC actors that died.
     pub npc_deaths: usize,
+    /// Target world after a live portal handoff.
+    pub portal_world: Option<String>,
 }
 
 impl From<&SessionReport> for SessionSummary {
@@ -145,6 +205,7 @@ impl From<&SessionReport> for SessionSummary {
             npc_moves: report.game_loop.npc_moves,
             npc_attacks: report.game_loop.npc_attacks,
             npc_deaths: report.game_loop.npc_deaths,
+            portal_world: report.game_loop.portal_world.clone(),
         }
     }
 }
@@ -216,7 +277,8 @@ where
     F: std::future::Future<Output = ()>,
 {
     let mut runtime = UniverseRuntime::open(&options.universe_root, options.generator.clone())?
-        .with_view(options.view_radius, options.chunks_per_tick);
+        .with_view(options.view_radius, options.chunks_per_tick)
+        .with_builtin(options.builtin);
 
     let world_name = match options.world.clone() {
         Some(world) => world,
@@ -250,6 +312,8 @@ where
     }
 
     let mut session_options = options.session.clone();
+    let runtime = Arc::new(Mutex::new(runtime));
+    session_options.portal_router = Some(Arc::new(PortalRouter::new(Arc::clone(&runtime))));
     if let Some(path) = &options.trace_path {
         let recorder =
             TraceRecorder::create(path, "hytale-server").map_err(|source| ServeError::Trace {
@@ -346,7 +410,10 @@ where
     }
     drop(thread);
 
-    let saved_chunks = runtime.shutdown()?;
+    let saved_chunks = runtime
+        .lock()
+        .expect("universe runtime poisoned")
+        .shutdown()?;
     if let Some(trace) = &session_options.trace {
         let _ = trace.flush();
     }
@@ -371,8 +438,14 @@ fn collect_session(
 ) {
     match result {
         Ok(Ok(report)) => summaries.push(SessionSummary::from(&report)),
-        Ok(Err(error)) => errors.push(error.to_string()),
-        Err(error) if !error.is_cancelled() => errors.push(format!("session task: {error}")),
+        Ok(Err(error)) => {
+            eprintln!("session error: {error}");
+            errors.push(error.to_string());
+        }
+        Err(error) if !error.is_cancelled() => {
+            eprintln!("session task: {error}");
+            errors.push(format!("session task: {error}"));
+        }
         Err(_) => {}
     }
 }

@@ -398,6 +398,11 @@ impl EntityStatMap {
         self.values.get(&index)
     }
 
+    /// Every stat value in index order.
+    pub fn iter(&self) -> impl Iterator<Item = (i32, &EntityStatValue)> {
+        self.values.iter().map(|(index, value)| (*index, value))
+    }
+
     /// One mutable stat value.
     pub fn get_mut(&mut self, index: i32) -> Option<&mut EntityStatValue> {
         self.values.get_mut(&index)

@@ -150,6 +150,30 @@ fn item_block_types_and_nested_states_are_extracted() {
 }
 
 #[test]
+fn music_containers_resolve_real_playlists_and_tracks() {
+    let root = repository_root();
+    let zip = root.join("Assets/Assets.zip");
+    if !zip.is_file() {
+        eprintln!("skipping music-container test: {} is absent", zip.display());
+        return;
+    }
+    let pack = AssetPack::open(&zip).expect("open Assets.zip");
+    let registry = AssetRegistry::load_phase2(&pack).expect("load the phase-2 registry");
+    assert!(
+        registry
+            .music_container_id("MC_Fallback_Overground")
+            .is_some(),
+        "the fallback overground playlist is indexed"
+    );
+    assert!(
+        registry
+            .music_container_id("Track_Z1D_The_Deepworks")
+            .is_some(),
+        "nested track documents are indexed"
+    );
+}
+
+#[test]
 fn ids_and_keys_match_the_java_p0_goldens() {
     let root = repository_root();
     let zip = root.join("Assets/Assets.zip");

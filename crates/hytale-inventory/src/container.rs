@@ -358,6 +358,26 @@ impl SimpleItemContainer {
         })
     }
 
+    /// Move a quantity between two slots of this same container.
+    pub fn move_within(
+        &mut self,
+        from_slot: u16,
+        quantity: i32,
+        to_slot: u16,
+        rules: &dyn ItemRules,
+    ) -> Result<MoveOutcome, InventoryError> {
+        if from_slot == to_slot {
+            return Ok(MoveOutcome::default());
+        }
+        let mut destination = self.clone();
+        let outcome = self.move_to_slot(from_slot, quantity, &mut destination, to_slot, rules)?;
+        if outcome.changed() {
+            let target = destination.get_slot(to_slot)?.cloned();
+            self.set_slot(to_slot, target)?;
+        }
+        Ok(outcome)
+    }
+
     /// Move every stack into another container in slot order.
     pub fn move_all_to(
         &mut self,

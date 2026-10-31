@@ -11,6 +11,8 @@
 pub mod chunk;
 pub mod collision;
 pub mod containers;
+pub mod crafting;
+pub mod instance;
 pub mod player_data;
 pub mod prefab;
 pub mod registry;

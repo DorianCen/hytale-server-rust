@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bevy_ecs = { workspace = true }
 hytale-assets = { path = "../hytale-assets" }
 hytale-entities = { path = "../hytale-entities" }
 hytale-interactions = { path = "../hytale-interactions" }

@@ -319,7 +319,7 @@ finite/fire tickers, disabled tickers, support-distance chains, filler/self-face
 support, light/fluid gates, weighted placement, scheduled growth and Java
 `BlockHealthSection` persistence. T56 adds fixed-item drop entities and the
 prefab runtime entities/block components. Sound playback and damage packets
-stay T60; builtin module lifecycle stays T60.
+remain follow-ups; the builtin module lifecycle landed with T60.
 
 ### 3.10 Entity gameplay (Java fixture)
 
@@ -355,8 +355,8 @@ their committed item payloads and counts stay stable.
 | Item `Utility.EntityStatsToClear`/`DisplayEntityStatsHUD` name resolution | `crates/hytale-assets/tests/block_item_packets.rs` (real-pack `Item.bin` gate) |
 
 T59c lands the NPC `DamageCalculator`/`DamageEntity` action graph. Effect
-damage-over-time, client stat/effect/damage packets and the
-`UpdateEntityStatTypes`/`UpdateEntityEffects` config burst remain T60 work.
+damage-over-time and per-entity/client stat/effect/damage packet delivery
+remain post-T60 work.
 
 ### 3.11 Prefab entities and block components (real-pack gate)
 
@@ -490,6 +490,15 @@ stores without packet generators still get keys/counts. Regenerate with
 `tools/java-dumper/run-assets.sh`; `--priority`/`--stores`/`--closure` select a
 subset. `BlockSet` currently records `packetError` because its generator needs
 an un-booted server module.
+
+### Builtin module manifests (T60)
+
+`testdata/golden/builtin/manifests.json` is the selected module manifest set
+copied from the reference server. It is data-only (no asset pack or Java run
+needed at test time): `crates/hytale-builtin/tests/parity.rs` compares every
+compiled manifest and has one named test per module. Keep the entries sorted by
+`Group:Name`; regenerate by copying the eight source manifests after a reference
+update. See [`testdata/golden/builtin/README.md`](testdata/golden/builtin/README.md).
 
 1. Write the Java dumper first. Make it deterministic.
 2. Generate the fixture, inspect it, commit it with a short README/schema note.

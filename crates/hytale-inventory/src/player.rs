@@ -321,6 +321,80 @@ impl PlayerInventory {
         true
     }
 
+    /// Total quantity of one item id across every inventory section.
+    pub fn count_item(&self, item_id: &str) -> i32 {
+        self.sections()
+            .map(|section| {
+                self.container(section)
+                    .iter()
+                    .filter(|(_, stack)| stack.item_id == item_id)
+                    .map(|(_, stack)| stack.quantity)
+                    .sum::<i32>()
+            })
+            .sum()
+    }
+
+    /// Remove up to `quantity` of one item across every section in Java's
+    /// hotbar/utility/armor/storage/tools/backpack order. Returns the removed
+    /// quantity.
+    pub fn remove_item(&mut self, item_id: &str, quantity: i32) -> i32 {
+        let mut remaining = quantity.max(0);
+        for section in [
+            Section::Hotbar,
+            Section::Utility,
+            Section::Armor,
+            Section::Storage,
+            Section::Tools,
+            Section::Backpack,
+        ] {
+            if remaining <= 0 {
+                break;
+            }
+            let container = self.container_mut(section);
+            let slots: Vec<u16> = container
+                .iter()
+                .filter(|(_, stack)| stack.item_id == item_id)
+                .map(|(slot, _)| slot)
+                .collect();
+            for slot in slots {
+                if remaining <= 0 {
+                    break;
+                }
+                let available = container
+                    .get_slot(slot)
+                    .ok()
+                    .flatten()
+                    .map_or(0, |stack| stack.quantity);
+                let take = available.min(remaining);
+                if take <= 0 {
+                    continue;
+                }
+                let Ok(Some(mut stack)) = container.remove_from_slot(slot, take) else {
+                    continue;
+                };
+                remaining -= take;
+                if stack.quantity > take {
+                    stack.quantity -= take;
+                    let _ = container.set_slot(slot, Some(stack));
+                }
+            }
+        }
+        quantity.max(0) - remaining
+    }
+
+    /// The six player sections in deterministic order.
+    pub fn sections(&self) -> impl Iterator<Item = Section> {
+        [
+            Section::Hotbar,
+            Section::Utility,
+            Section::Armor,
+            Section::Storage,
+            Section::Tools,
+            Section::Backpack,
+        ]
+        .into_iter()
+    }
+
     /// The active hotbar item (Java right hand).
     pub fn right_hand(&self) -> Option<&ItemStack> {
         self.hotbar.active_item()

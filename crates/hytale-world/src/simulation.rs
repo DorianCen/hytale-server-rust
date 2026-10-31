@@ -1383,8 +1383,64 @@ struct FallingBlock {
     z: i32,
 }
 
-/// One deterministic block-simulation pass.
-#[derive(Debug, Clone)]
+/// Which block-simulation stages run on each tick.
+///
+/// The server derives this from the builtin module set. A `false` stage is
+/// skipped before any work is queued, so disabling a module removes its tick
+/// cost rather than merely suppressing its output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SimulationStages {
+    /// Scheduled block ticks (`builtin/BlockTick`).
+    pub scheduled_ticks: bool,
+    /// Random block ticks (`builtin/RandomTick`).
+    pub random_ticks: bool,
+    /// Falling-block movement (`builtin/FallingBlocks`).
+    pub falling_blocks: bool,
+    /// Support/filler physics (`builtin/BlockPhysics`).
+    pub block_physics: bool,
+    /// Fluid tickers (`builtin/Fluid`).
+    pub fluid: bool,
+}
+
+impl SimulationStages {
+    /// Every stage enabled (the pre-T60 behavior).
+    pub const fn all() -> Self {
+        Self {
+            scheduled_ticks: true,
+            random_ticks: true,
+            falling_blocks: true,
+            block_physics: true,
+            fluid: true,
+        }
+    }
+
+    /// Every stage disabled.
+    pub const fn none() -> Self {
+        Self {
+            scheduled_ticks: false,
+            random_ticks: false,
+            falling_blocks: false,
+            block_physics: false,
+            fluid: false,
+        }
+    }
+
+    /// Whether any stage is enabled.
+    pub fn any(self) -> bool {
+        self.scheduled_ticks
+            || self.random_ticks
+            || self.falling_blocks
+            || self.block_physics
+            || self.fluid
+    }
+}
+
+impl Default for SimulationStages {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 pub struct BlockSimulation {
     tables: SimulationTables,
     random: FastRandom,
@@ -1393,6 +1449,7 @@ pub struct BlockSimulation {
     sunlight_factor: f32,
     suppressed_random: BTreeSet<(i32, i32, i32)>,
     suppressed_scheduled: BTreeSet<(i32, i32, i32)>,
+    stages: SimulationStages,
 }
 
 impl BlockSimulation {
@@ -1406,7 +1463,18 @@ impl BlockSimulation {
             sunlight_factor: 1.0,
             suppressed_random: BTreeSet::new(),
             suppressed_scheduled: BTreeSet::new(),
+            stages: SimulationStages::all(),
         }
+    }
+
+    /// Replace the enabled simulation stages.
+    pub fn set_stages(&mut self, stages: SimulationStages) {
+        self.stages = stages;
+    }
+
+    /// Enabled simulation stages.
+    pub fn stages(&self) -> SimulationStages {
+        self.stages
     }
 
     /// Update the world clock's sunlight factor for `SpreadTo` light gates.
@@ -1504,12 +1572,20 @@ impl BlockSimulation {
     /// Run one fixed simulation tick over every loaded chunk.
     pub fn tick(&mut self, world: &mut World, dt: f32) -> SimulationReport {
         let tick = world.advance_tick();
-        let changed = world.take_changed_blocks();
-        for &(x, y, z) in &changed {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    for dx in -1..=1 {
-                        self.schedule(world, x + dx, y + dy, z + dz, 0);
+        let needs_changed =
+            self.stages.scheduled_ticks || self.stages.block_physics || self.stages.fluid;
+        let changed = if needs_changed {
+            world.take_changed_blocks()
+        } else {
+            Vec::new()
+        };
+        if self.stages.scheduled_ticks {
+            for &(x, y, z) in &changed {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        for dx in -1..=1 {
+                            self.schedule(world, x + dx, y + dy, z + dz, 0);
+                        }
                     }
                 }
             }
@@ -1519,63 +1595,71 @@ impl BlockSimulation {
         // A full solid cube cannot hold fluid (`FluidTicker.isFullySolid`).
         // Partial blocks keep their waterlogged fluid. `FireFluidTicker`
         // overrides `canOccupySolidBlocks`, so fire is not cleared here.
-        for (x, y, z) in changed {
-            let fluid_id = world.get_fluid_id(x, y, z);
-            if fluid_id != 0
-                && self
-                    .tables
-                    .fluid(fluid_id)
-                    .is_none_or(|fluid| fluid.kind != FluidTickerKind::Fire)
-                && self.is_fully_solid(world.get_block(x, y, z))
-                && world.set_fluid(x, y, z, 0, 0).unwrap_or(false)
-            {
-                report.fluid_changes.push(FluidChange {
-                    x,
-                    y,
-                    z,
-                    fluid_id: 0,
-                    level: 0,
-                });
-            }
-        }
-        let mut due = Vec::new();
-        let chunks = world.loaded_chunk_coordinates();
-        for (chunk_x, chunk_z) in chunks {
-            let Some(column) = world.chunk_mut(chunk_x, chunk_z) else {
-                continue;
-            };
-            for section_index in 0..10 {
-                let section_y = section_index * 32;
-                let Some(section) = column.section_mut(section_y) else {
-                    continue;
-                };
-                let indices = section.block.begin_tick(tick);
-                if !indices.is_empty() {
-                    due.push((chunk_x, chunk_z, section_y, indices));
+        if self.stages.fluid {
+            for (x, y, z) in changed {
+                let fluid_id = world.get_fluid_id(x, y, z);
+                if fluid_id != 0
+                    && self
+                        .tables
+                        .fluid(fluid_id)
+                        .is_none_or(|fluid| fluid.kind != FluidTickerKind::Fire)
+                    && self.is_fully_solid(world.get_block(x, y, z))
+                    && world.set_fluid(x, y, z, 0, 0).unwrap_or(false)
+                {
+                    report.fluid_changes.push(FluidChange {
+                        x,
+                        y,
+                        z,
+                        fluid_id: 0,
+                        level: 0,
+                    });
                 }
             }
         }
-
-        for (chunk_x, chunk_z, section_y, indices) in due {
-            for index in indices {
-                let x = (chunk_x << 5) + (index & 31) as i32;
-                let y = section_y + ((index >> 10) & 31) as i32;
-                let z = (chunk_z << 5) + ((index >> 5) & 31) as i32;
-                let strategy = if self.suppressed_scheduled.contains(&(x, y, z)) {
-                    BlockTickStrategy::Ignored
-                } else {
-                    self.tick_block(world, x, y, z, &mut report)
+        if self.stages.scheduled_ticks {
+            let mut due = Vec::new();
+            let chunks = world.loaded_chunk_coordinates();
+            for (chunk_x, chunk_z) in chunks {
+                let Some(column) = world.chunk_mut(chunk_x, chunk_z) else {
+                    continue;
                 };
-                if let Some(column) = world.chunk_mut(chunk_x, chunk_z) {
-                    if let Some(section) = column.section_mut(section_y) {
-                        section.block.finish_tick(index, strategy);
+                for section_index in 0..10 {
+                    let section_y = section_index * 32;
+                    let Some(section) = column.section_mut(section_y) else {
+                        continue;
+                    };
+                    let indices = section.block.begin_tick(tick);
+                    if !indices.is_empty() {
+                        due.push((chunk_x, chunk_z, section_y, indices));
+                    }
+                }
+            }
+
+            for (chunk_x, chunk_z, section_y, indices) in due {
+                for index in indices {
+                    let x = (chunk_x << 5) + (index & 31) as i32;
+                    let y = section_y + ((index >> 10) & 31) as i32;
+                    let z = (chunk_z << 5) + ((index >> 5) & 31) as i32;
+                    let strategy = if self.suppressed_scheduled.contains(&(x, y, z)) {
+                        BlockTickStrategy::Ignored
+                    } else {
+                        self.tick_block(world, x, y, z, &mut report)
+                    };
+                    if let Some(column) = world.chunk_mut(chunk_x, chunk_z) {
+                        if let Some(section) = column.section_mut(section_y) {
+                            section.block.finish_tick(index, strategy);
+                        }
                     }
                 }
             }
         }
 
-        self.random_ticks(world, &mut report);
-        self.tick_falling(world, &mut report);
+        if self.stages.random_ticks {
+            self.random_ticks(world, &mut report);
+        }
+        if self.stages.falling_blocks {
+            self.tick_falling(world, &mut report);
+        }
         world.tick_block_health(dt);
         report.health_deltas = world
             .take_block_health_deltas()
@@ -1595,6 +1679,9 @@ impl BlockSimulation {
     ) -> BlockTickStrategy {
         let fluid_id = world.get_fluid_id(x, y, z);
         if fluid_id != 0 {
+            if !self.stages.fluid {
+                return BlockTickStrategy::Ignored;
+            }
             report.fluid_ticks += 1;
             return self.tick_fluid(world, x, y, z, fluid_id, report);
         }
@@ -1612,7 +1699,7 @@ impl BlockSimulation {
             // the multi-cell support test.
             return BlockTickStrategy::Sleep;
         }
-        if !block.support.is_empty() {
+        if !block.support.is_empty() && self.stages.block_physics {
             let rotation = world.get_rotation(x, y, z);
             match self.test_block_physics(world, x, y, z, block_id, rotation, filler, &block) {
                 SupportResult::Waiting => return BlockTickStrategy::WaitForAdjacentChunkLoad,
@@ -3428,6 +3515,44 @@ mod tests {
             ],
             Vec::new(),
         )
+    }
+
+    #[test]
+    fn disabled_stages_skip_scheduled_and_support_work() {
+        let mut world = world_with_cube();
+        world.set_block(0, 0, 0, 2).unwrap();
+        world.set_block(0, 1, 0, 1).unwrap();
+        let mut simulation = BlockSimulation::new(
+            tables(plant(SupportDropType::Break), SupportDropType::Break),
+            1,
+        );
+        simulation.set_stages(SimulationStages::none());
+        world.set_block(0, 0, 0, 0).unwrap();
+        let report = simulation.tick(&mut world, 0.05);
+        assert_eq!(report.block_ticks, 0, "{report:?}");
+        assert_eq!(report.support_changes, 0, "{report:?}");
+        assert_eq!(world.get_block(0, 1, 0), 1, "no stage runs");
+        assert!(!simulation.stages().any());
+    }
+
+    #[test]
+    fn disabled_falling_stage_keeps_the_block_in_place() {
+        let mut world = world_with_cube();
+        world.set_block(0, 0, 0, 1).unwrap();
+        world.set_block(0, 1, 0, 2).unwrap();
+        let mut simulation = BlockSimulation::new(
+            tables(plant(SupportDropType::Fall), SupportDropType::Fall),
+            1,
+        );
+        simulation.tick(&mut world, 0.05);
+        simulation.set_stages(SimulationStages {
+            falling_blocks: false,
+            ..SimulationStages::all()
+        });
+        world.set_block(0, 0, 0, 0).unwrap();
+        let report = simulation.tick(&mut world, 0.05);
+        assert_eq!(report.falling_moves, 0, "{report:?}");
+        assert_eq!(world.get_block(0, 1, 0), 2, "the block did not fall");
     }
 
     #[test]

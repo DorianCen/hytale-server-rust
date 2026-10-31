@@ -746,8 +746,8 @@ remain Java-readable.
 
 - The core `BlockSection` tick queue, support check, random-tick procedures,
   default fluid ticker, falling-block movement and transient block health are
-  native. The builtin `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks`/
-  `Fluid` module lifecycle remains T60.
+  native. T60 maps them onto the builtin `BlockTick`/`RandomTick`/`BlockPhysics`/
+  `FallingBlocks`/`Fluid` module switches.
 - T52b closes the fluid gaps: partial-hitbox face coverage, waterlogging,
   finite/fire tickers, disabled-ticker config and collision conversion.
 - T52c closes support/random-tick gaps: `MaxSupportDistance` chains,
@@ -765,7 +765,8 @@ remain Java-readable.
 
 - T52b (fluid ticker parity), T52c (support/random-tick parity) and T52d
   (block-health storage) are done; T57 consumes the pending health deltas.
-- Sound-event playback and builtin module lifecycle stay with T60.
+- Sound-event playback remains deferred; the builtin module lifecycle landed
+  with T60.
 
 ### T53 — Entity stats, effects and combat basics
 
@@ -832,7 +833,7 @@ block components, spawn/despawn lifecycle.
   column/hash order).
 - Item drops with weighted drop lists stay unresolved; fixed-item simulation
   drops become item entities. Runtime entity spawn presentation landed in T57;
-  projectile spawn/despawn and dynamic transforms remain T60.
+  projectile spawn/despawn and dynamic transforms remain follow-ups.
 
 ### T57 — UI basics and block health presentation
 
@@ -876,7 +877,8 @@ existing v1/T56/T57 gates stay green.
 **Landed (session 49):** chunk world-map images with join/view-change load and
 unload, plus persisted block-container inventories and the
 `SetPage(Bench)`/`OpenWindow(Container)`/`CloseWindow` window round trip.
-Bench-specific crafting windows stay with the builtin Crafting module (T60);
+Bench-specific crafting windows stay with the builtin Crafting module
+(follow-up);
 container item transactions and map refresh on block edits are follow-ups.
 
 **Follow-ups:** full UI framework, editor/builder tools, machinima and
@@ -899,8 +901,8 @@ catalogs, Java `SearchDirections`/steering/view-cone ports, a block-grid A*,
 expression subset and reference/parameter resolution, so all 1,147 roles
 resolve to usable archetype fields. T58c adds real-world walk/fly planning and
 the Java group-steering accumulator. The full builder graph, half-step
-motion-controller A*, wander/avoidance forces and blackboard sensors move with
-the builtin NPC module (T59/T60).
+motion-controller A*, wander/avoidance forces and blackboard sensors remain
+post-T60 follow-ups.
 
 ### T59 — NPC spawning, combat and encounters
 
@@ -964,11 +966,57 @@ portal actions, and emits spawner/particle/sound actions as deferred events.
 
 ### T60 — Builtin module runtime and selected modules
 
-**Package:** `hytale-builtin` feature crates
+**Status:** done (session 63)
+**Package:** `hytale-builtin` feature crate, `hytale-world`, `hytale-server`
 **Goal:** module manifest/lifecycle and the selected `builtin/` modules needed
 by M5/M6 (not all 62 at once).
 **Acceptance:** each enabled module has a parity test; disabled modules add no
 runtime cost.
+
+`hytale-builtin` now owns the Java-compatible `PluginManifest`/identifier
+surface, a `BuiltinModule` lifecycle (`setup`/`start`/`shutdown`, dependency
+order, fail-closed disabled dependencies) over `hytale-core::ModuleRegistry`,
+and the selected modules `BlockTick`, `RandomTick`, `FallingBlocks`,
+`BlockPhysics`, `Fluid`, `Weather`, `NPC` and `EncounterManager`. Every module
+is a Cargo feature, so a disabled module contributes no descriptor or runtime
+switch. `BuiltinRuntime` gates `hytale_world::simulation::SimulationStages`,
+NPC spawn/tick, encounter tick and weather queries; the CLI exposes
+`--list-modules`, `--module` and `--disable-module`. The eight reference
+manifests are gated by `testdata/golden/builtin/manifests.json` and one named
+parity test per module. Crafting windows, the full builder/ECS graph and
+instance/portal transports remain follow-ups.
+
+### T60b — T60 gameplay follow-ups
+
+**Status:** done (session 64)
+**Package:** `hytale-entities`, `hytale-inventory`, `hytale-npc`,
+`hytale-world`, `hytale-server`
+**Goal:** close the first gameplay follow-up slice from T60.
+**Acceptance:** player damage/stat replication, container transactions, bench
+windows/recipes, encounter spawn/presentation actions, portal/instance plans
+and the NPC builder/ECS seam have tests.
+
+Player gameplay now owns a real stat map per session, applies NPC melee through
+the damage core, broadcasts `EntityStatsUpdate` deltas, applies/ticks real
+`EntityEffects` with DoT, replicates `EntityEffectsUpdate` add/remove packets
+and persists health with automatic respawn after death.
+`MoveItemStack` routes player/window slots; benches open the Java bench window
+with real `BlockType.Bench` data; `RecipeCatalog` loads item/salvage recipes,
+resolves item/resource-type inputs and sends
+`UpdateRecipes`/`UpdateKnownRecipes`; atomic `CraftRecipeAction` transactions
+queue bench timers and grant outputs on completion (cancellation refunds). Encounter `Spawn` actions create runtime NPCs,
+particle/sound actions become world packets, and target-bound actions
+(invulnerability/role/release/entity-effect) update the live NPC. Player and
+runtime-entity stat maps are keyed by stat index and NPC spawn/update packets
+carry their `EntityStatsUpdate` snapshot. `PortalCatalog`/`InstanceCatalog`
+resolve transport plans; `UniverseRuntime` creates/selects the target instance
+world, moves the saved player document to the plan spawn and performs the live
+session handoff (`ClearChunks`/`JoinWorld`, registry/view/chunk-stream switch).
+`hytale-npc` adds the role instruction graph, blackboard, Walk/Fly/Dive motion
+controllers and a `bevy_ecs` actor/blackboard/motion schedule used by the world
+thread. Portal return points restore the source transform and strip ephemeral
+items, and instance entry counts enforce `AllowedEntryCount`; rarer builder
+actions/conditions and deeper instance lifecycle policy remain follow-ups.
 
 ### T61 — Editor, builder tools, machinima, voice, cosmetics; HytaleGenerator
 

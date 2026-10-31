@@ -45,6 +45,8 @@ pub struct WorldBootOptions {
     pub spawn_npc: Option<String>,
     /// Discover loaded environments and populate their configured NPC density.
     pub auto_population: bool,
+    /// Enabled builtin modules.
+    pub builtin: hytale_builtin::BuiltinRuntime,
 }
 
 /// What the saved-world boot produced.
@@ -104,6 +106,7 @@ pub fn run(options: &WorldBootOptions) -> Result<WorldBootReport, WorldBootError
         player_uuid: options.player_uuid.clone(),
         view_radius: options.view_radius,
         chunks_per_tick: options.chunks_per_tick.max(1),
+        builtin: options.builtin,
     })?;
 
     let mut loaded_chunks = 0;

@@ -1758,3 +1758,202 @@ This file records phase-2 sessions only.
   - T60: player health/combat, controller/entity presentation, deferred
     encounter actions and the full builtin NPC/EncounterManager module.
   - T62: long-lived observer keep-alive/anti-abuse work.
+
+---
+
+## Session 63 — T60 builtin module runtime (2026-10-30)
+
+- **Goal:** land the Rust-native builtin module manifest/lifecycle seam and the
+  selected `builtin/` modules needed by M5/M6, with one parity test per enabled
+  module and zero runtime presence for disabled modules.
+- **Landed:**
+  - New `hytale-builtin` crate: Java-compatible `PluginManifest` (Group/Name/
+    Version/Description/Authors/Website/Main/ServerVersion/Dependencies/
+    OptionalDependencies/LoadBefore/DisabledByDefault/IncludesAssetPack/
+    SubPlugins), `PluginIdentifier` and `AuthorInfo`.
+  - `BuiltinModule` trait (`setup`/`start`/`shutdown`, `is_started`) and
+    `BuiltinHost`. The host resolves the selected set through
+    `hytale_core::ModuleRegistry`, starts dependencies first, rejects cycles,
+    fails closed when an enabled module depends on a disabled one, rolls back
+    the running set on hook failure and shuts down in reverse order. States
+    mirror Java `PluginState`.
+  - Selected feature-gated modules: `BlockTick`, `RandomTick`,
+    `FallingBlocks`, `BlockPhysics`, `Fluid`, `Weather`, `NPC` and
+    `EncounterManager`. `BuiltinRuntime` carries the enabled switches and is
+    serde-serializable.
+  - `hytale-world::simulation::SimulationStages` gates scheduled, random,
+    falling, physics and fluid work before chunk walking/queueing;
+    `BlockSimulation::tick` skips disabled stages and `tick_block` skips fluid/
+    support work.
+  - `hytale-server` wiring: `WorldThreadOptions.builtin` maps the switches onto
+    simulation stages, NPC spawn/tick, encounter tick and weather queries.
+    `WorldBootOptions`, `ServeOptions` and `UniverseRuntime::with_builtin`
+    propagate them. The CLI adds `--list-modules`, `--module <Group:Name>` and
+    `--disable-module <Group:Name>` and starts/shuts the host around every
+    command.
+  - `testdata/golden/builtin/manifests.json` records the eight reference
+    manifests. `crates/hytale-builtin/tests/parity.rs` has one named manifest
+    parity test per module, dependency-order/cycle/selection tests and a
+    `--no-default-features` empty-set assertion.
+  - `crates/hytale-server/tests/builtin_runtime.rs` boots with
+    `BuiltinRuntime::none()` and asserts no simulation work, NPC spawn refusal,
+    empty NPC/encounter ticks and no weather result.
+- **Verified:**
+  - `cargo test -p hytale-builtin` and
+    `cargo test -p hytale-builtin --no-default-features`.
+  - `cargo test -p hytale-world --lib simulation`.
+  - `cargo test -p hytale-server --test builtin_runtime`.
+  - `./tools/test.sh fast`, `./tools/test.sh slow` (810 passed), workspace
+    clippy and rustfmt.
+  - `hytale-server --list-modules` prints the eight manifests;
+    `--disable-module Hytale:BlockTick` fails closed with the `Fluid`
+    dependency error.
+- **Deviations:**
+  - Selected modules are lifecycle/runtime adapters over the T52/T54/T58/T59
+    native systems rather than ports of the Java plugin registry objects.
+  - Core-only manifest dependencies are retained for parity but treated as
+    server-provided during ordering.
+  - Runtime module selection is stricter than Java: a disabled required
+    dependency is a startup error instead of silently disabling dependents.
+- **Follow-ups:**
+  - `builtin/Crafting` bench windows, container transactions and weighted drop
+    lists.
+  - Full builder graph, half-step motion-controller A*, blackboard sensors,
+    NPC ECS, deferred encounter actions and instance/portal transports.
+  - Player health/combat and per-entity stat/effect/damage packets.
+  - Feature-matrix CI for each individual builtin feature.
+
+---
+
+## Session 64 — T60b gameplay follow-ups (2026-10-30)
+
+- **Goal:** close the T60 gameplay follow-ups: player health/stat replication,
+  container transactions and bench crafting, encounter action execution,
+  portal/instance plans and the NPC builder/ECS seam.
+- **Landed:**
+  - `hytale-server::player_gameplay::PlayerGameplay` owns a real per-session
+    `EntityGameplay`; `WorldThread` creates/removes it, applies NPC melee to
+    high-bit player target ids, queues `EntityStatUpdate` deltas and exposes
+    health. Sessions broadcast the deltas, send the initial `EntityStatsUpdate`
+    and persist `EntityStats.Stats.Health` through `PlayerData`. T60b also
+    applies real `EntityEffects`, ticks duration/stat modifiers and
+    `DamageCalculator` DoT, replicates `EntityEffectsUpdate` add/remove packets
+    and auto-respawns after death.
+  - `PlayerData::health`/`set_health` preserve other stats/modifiers and the
+    `EntityStats` component; `PlayerSnapshot.health` and
+    `WorldThread::save_player_health` round-trip it.
+  - Inventory: `MoveItemStack` routes player-section and positive window ids,
+    with same-container `move_within`, `UpdateWindow` and inventory resync;
+    `WorldThread` exposes live container get/replace commands.
+  - Bench blocks open `SetPage(Bench)` plus `OpenWindow` with the real
+    `BlockType.Bench` document and mapped `WindowType`.
+  - `hytale-world::crafting::RecipeCatalog` loads item-embedded and standalone
+    `Server/Item/Recipes` documents plus the item `ResourceTypes` index. The
+    join burst sends `UpdateRecipes`/`UpdateKnownRecipes`; `CraftRecipeAction`
+    atomically consumes item/resource inputs, queues a bench timer and grants
+    outputs on completion; cancellation refunds inputs.
+  - Encounter `Spawn` actions execute in `TickEncounters` and create live
+    runtime NPCs; particle/sound actions become `SpawnParticleSystem`/
+    `PlaySoundEvent3D` packets per session.
+  - `EntityStatsUpdate` replication now keys the stat map by stat index
+    (matching Java `EntityStatMap.createInitUpdate`) with the entity id on the
+    enclosing `EntityUpdate`; runtime NPC spawn/update packets also carry the
+    per-entity stat snapshot.
+  - Encounter target-bound actions (`SetTargetNPCInvulnerable`,
+    `ChangeTargetRole`, `ReleaseTarget`, `ApplyEntityEffect`) resolve their
+    target slot to the live NPC so invulnerability, role/appearance, targeting
+    and real effects change at runtime; `NpcActor` carries the invulnerability
+    gate. `SetEncounterWeather`/`ClearEncounterWeather` force and clear the
+    shared world weather, and `SetEncounterBossBar`/`ClearEncounterBossBar`
+    become target-bound `UpdateBossBar` packets; `SetEncounterAudioState`
+    resolves the real audio-state asset/value to a `SetAudioState` packet, and
+    `TriggerSpawners` forces matching/nearby spawn markers to spawn,
+    `StartEncounterMusic`/`StopEncounterMusic` resolve the real `MusicContainer`
+    index to `UpdateForcedMusic`, and player targets receive encounter effects.
+    `AdjustPortalTimer` drives the per-encounter portal timer exposed by
+    `WorldThread::encounter_portal_remaining`. `SpawnInteraction` creates a
+    server-only host entity with a TTL. Portal transfers record a return point; returning restores the
+    source transform and strips the portal's ephemeral items.
+  - `hytale-world::instance` loads all 7 `Server/PortalTypes` documents and the
+    instance save catalog, and exposes `PortalTransportPlan` through
+    `WorldThread::portal_plan`. `UniverseRuntime::open_portal_instance`
+    creates/selects and starts the target instance world;
+    `transfer_player_document` copies the complete player document to the plan
+    spawn and removes the source copy. `PortalRouter`/`switch_session_world`
+    perform the live handoff: source view removal, target view registration,
+    registry world/transform/view switch, `ClearChunks` + `JoinWorld` and the
+    target chunk snapshot on the existing chunk stream. `portal_return_point`
+    records the source world/transform and ephemeral items;
+    `return_from_instance` restores the transform, strips ephemeral items and
+    moves the document back. Instance entry counts are tracked,
+    `AllowedEntryCount` is enforced, and `close_instance_if_empty` honors the
+    portal's `CloseWhenEmpty` policy before tearing down an empty instance.
+  - `hytale-npc::builder` parses the role `Instructions` graph, evaluates the
+    common sensors with `Once` state, preserves unmatched nodes, attaches the
+    graph to `NpcActor` and reports matched actions on each tick. The new
+    `blackboard` applies state/flag/timer/beacon/path/target/invulnerability
+    actions and `motion::MotionController` resolves Walk/Fly/Dive controller
+    limits, with ECS execution of horizontal waypoint motion and direct 3D
+    fly/dive motion. `SetStat`, `SetHealthRegen` and `ApplyEntityEffect`
+    actions update the actor's stats/regeneration/effects.
+  - `hytale-npc::ecs::NpcEcs` stores actor/blackboard/motion components in
+    `bevy_ecs`; `WorldThread` runs `tick_actor` per NPC and syncs the resulting
+    transform/blackboard/motion state. Builder `PlaySound`/`SpawnParticles`
+    actions become per-session `PlaySoundEvent3D`/`SpawnParticleSystem` packets,
+    `DropItem` spawns runtime item entities, `PickUpItem` consumes them,
+    `PlaceBlock` writes world blocks,
+    `Spawn`/`TriggerSpawnBeacon`/`TriggerSpawners` create or force NPCs, and
+    `EntityHitInteraction`/`BlockHitInteraction` execute their real interaction
+    graphs and apply block actions. `Inventory`/`Mount` update the actor's
+    equipment/mount state.
+- **Verified:**
+  - `cargo test -p hytale-world`, `cargo test -p hytale-npc`,
+    `cargo test -p hytale-inventory`.
+  - Targeted server tests: health persistence (`world_thread`), block-container
+    transactions (`world_thread`), player damage/stat deltas (`npc_runtime`),
+    real encounter spawn execution (`npc_encounter`), `player_effects`
+    (Burn DoT/effect packets/death/respawn), and
+    `a_real_interaction_root_applies_block_actions` (real interaction-graph
+    execution).
+  - `cargo test -p hytale-server --test portal_transfer` proves the
+    `Goblin_Breach` instance is created/selected and the player document arrives
+    at the plan spawn.
+  - `cargo test -p client-bot --test portal_session -- --ignored` proves a
+    connected client's live session reports `Portals_Portals_Goblins` and the
+    player document arrives in the target world.
+  - `./tools/test.sh fast` (1512 passed), `./tools/test.sh slow` (818 passed,
+    2 skipped), workspace clippy and rustfmt.
+- **Deviations:**
+  - Resource-type recipes and bench timers/queues are now supported;
+    `known_for`/`for_bench` filter recipes and `CraftingKnowledge` gates
+    knowledge/memories/bench tier/augment tags, learns on craft and persists in
+    the player's `Crafting` component. The bench window payload carries
+    `benchId`, `categories`, `tierLevel`, `augmentTags` and tier-filtered
+    `recipeIds`.
+  - Portal catalog/plan and live handoff are landed; return points,
+    `AllowedEntryCount` and the `CloseWhenEmpty` gate are implemented, with
+    deeper instance removal/adventure policy remaining follow-up.
+  - The builder/blackboard/motion-controller state is ECS-scheduled. Supported
+    sensors include State/Any/Not/And/Or/Timer/Flag/Player/Target/Mob/Damage/
+    Self/Stat/ChargeState/Block/Beacon/Path/InWater/InAir/Time/Weather/IsBusy/
+    Alarm/Count/HasInteracted/CanInteract/IsBackingAway/InflictedDamage/
+    FlockLeader/Animation/GameFlag/Leash/Light/Switch/DroppedItem/BlockChange/
+    CanPlaceBlock/Kill/Nav/Eval/ReadPosition/BlockType/EntityEvent/
+    InteractionContext/FlockCombatDamage/SearchRay/AdjustPosition/
+    ChargeEntityCollisions/ChargeBlockCollisions/Random, with
+    Beacon/ResetPath and target/invulnerability actions.
+    `ResetBlockSensors`/`ResetSearchRays`/`SignalTaggedVolumes`/
+    `ToggleStateEvaluator`/`OpenBarterShop`/`CompleteTask`/`StartObjective` now
+    update blackboard state; every action/sensor type observed in the base
+    roles is now handled, with only unrecognized future types preserved inert.
+    Nested instruction/sensor `Reference` components (with `Modify` overrides)
+    are resolved before parsing, so referenced detection/combat graphs
+    contribute concrete sensors/actions. Fly/Dive movement
+    applies acceleration, vertical caps and `MaxTurnSpeed`-clamped yaw, with
+    ground-relative altitude bands (`Min/MaxHeightOverGround`,
+    `DesiredAltitudeWeight`) and water-surface dive-depth bands
+    (`Min/MaxDiveDepth`).
+- **Follow-ups:**
+  - Crafting UI presentation beyond the bench payload contract.
+  - Player death-screen/configured-spawn policy and effect conditions.
+  - Full motion-controller action set and deeper instance removal/adventure policy.

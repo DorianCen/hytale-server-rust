@@ -92,9 +92,19 @@ impl EntityGameplay {
 
     /// Tick effects and regeneration, then refresh the death state.
     pub fn tick(&mut self, dt: f32) -> GameplayTick {
+        self.tick_with_regeneration(dt, true)
+    }
+
+    /// Tick effects and optionally natural regeneration, then refresh the death
+    /// state. NPC builder `SetHealthRegen` actions use this to suspend regen.
+    pub fn tick_with_regeneration(&mut self, dt: f32, regenerate: bool) -> GameplayTick {
         let expired = self.effects.tick(dt);
         self.effects.apply_stat_modifiers(&mut self.stats);
-        let regenerated = self.stats.tick_regeneration(dt);
+        let regenerated = if regenerate {
+            self.stats.tick_regeneration(dt)
+        } else {
+            Vec::new()
+        };
         if self
             .stats
             .get(self.health_index)

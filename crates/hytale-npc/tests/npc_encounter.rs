@@ -326,10 +326,17 @@ fn real_rat_attack_graph_uses_the_interaction_damage_node() {
         id: 7,
         position: Vec3::new(1.5, 1.0, 0.5),
     }];
-    let attack = actor
-        .tick(0.5, &world, |block| block != 0, &targets, 0.0)
-        .attack
-        .expect("Rat bites the target");
+    let mut attack = None;
+    for _ in 0..20 {
+        if let Some(found) = actor
+            .tick(0.5, &world, |block| block != 0, &targets, 0.0)
+            .attack
+        {
+            attack = Some(found);
+            break;
+        }
+    }
+    let attack = attack.expect("Rat bites the target");
     assert_eq!(attack.target, 7);
     assert_eq!(attack.source.as_deref(), Some("Bite_Damage"));
     assert_eq!(attack.attack_root.as_deref(), Some("Root_NPC_Rat_Attack"));

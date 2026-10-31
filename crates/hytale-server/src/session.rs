@@ -30,18 +30,19 @@ use hytale_interactions::{
     execute_root, state_from_block_key, BlockInteractions, ExecutionContext, InteractionCatalog,
     WorldAction,
 };
-use hytale_inventory::{PlayerInventory, Section};
+use hytale_inventory::{ItemStack, PlayerInventory, Section};
 use hytale_net::{
     ChunkStreamError, ChunkStreamWriter, FrameReader, FrameStreamError, FrameWriter, PeerIdentity,
     TraceRecorder, TraceSession, TransportError,
 };
-use hytale_protocol::generated::assets::UpdateTranslations;
+use hytale_protocol::generated::assets::{UpdateRecipes, UpdateTranslations};
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    DisconnectType, FormattedMessage, GameMode, InstantData, MapChunk, MapMarker,
+    BenchType, DisconnectType, FormattedMessage, GameMode, InstantData, MapChunk, MapMarker,
     MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings, MovementStates,
     PlayerSkin, PongType, Position as ProtocolPosition, Transform as ProtocolTransform, UpdateType,
+    WindowAction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -49,8 +50,13 @@ use hytale_protocol::generated::connection::{
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::Page;
-use hytale_protocol::generated::interface_::{AddToServerPlayerList, ServerInfo, SetPage};
-use hytale_protocol::generated::inventory::{DropItemStack, SetActiveSlot, UpdatePlayerInventory};
+use hytale_protocol::generated::interface_::UpdateKnownRecipes;
+use hytale_protocol::generated::interface_::{
+    AddToServerPlayerList, ServerInfo, SetPage, UpdateBossBar,
+};
+use hytale_protocol::generated::inventory::{
+    DropItemStack, MoveItemStack, SetActiveSlot, UpdatePlayerInventory,
+};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
     SetGameMode, UpdateMovementSettings,
@@ -61,17 +67,20 @@ use hytale_protocol::generated::setup::{
     ServerTags, SetTimeDilation, SetUpdateRate, SetupFinalize, UpdateFeatures, ViewRadius,
     WorldLoadFinished, WorldLoadProgress, WorldSettings,
 };
-use hytale_protocol::generated::window::{CloseWindow, OpenWindow, SendWindowAction, WindowType};
+use hytale_protocol::generated::window::{
+    CloseWindow, OpenWindow, SendWindowAction, UpdateWindow, WindowType,
+};
 use hytale_protocol::generated::wire::{Packet, Wire};
-use hytale_protocol::generated::world::ClearChunks;
+use hytale_protocol::generated::world::{ClearChunks, PlaySoundEvent3D, SpawnParticleSystem};
 use hytale_protocol::generated::world::{
-    ServerSetBlock, ServerSetFluid, UpdateTime, UpdateTimeSettings, UpdateWeather,
-    WorldGameplayConfig,
+    ServerSetBlock, ServerSetFluid, SetAudioState, UpdateForcedMusic, UpdateTime,
+    UpdateTimeSettings, UpdateWeather, WorldGameplayConfig,
 };
 use hytale_protocol::generated::worldmap::{UpdateWorldMap, UpdateWorldMapSettings};
 use hytale_protocol::io::Uuid;
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 use hytale_world::collision::Vec3;
+use hytale_world::crafting::{CraftingKnowledge, RecipeCatalog};
 use hytale_world::player_data::{PlayerAppearance, PlayerTransform};
 use hytale_world::world_config::WorldUuid;
 use thiserror::Error;
@@ -79,9 +88,12 @@ use thiserror::Error;
 use crate::chunk_streamer::{
     send_updates, send_view_registered, ChunkSessionError, ChunkStreamReport,
 };
+use crate::inventory_rules::AssetItemRules;
+use crate::player_gameplay::PlayerGameplay;
 use crate::players::{self, PlayerJoinRequest, PlayerMessage, PlayerRegistry};
 use crate::world_thread::{
-    BlockDamagePacket, RuntimeEntityEvent, ViewId, WorldThread, WorldThreadError, WorldTimeState,
+    BlockDamagePacket, NpcPresentationKind, RuntimeEntityEvent, ViewId, WorldThread,
+    WorldThreadError, WorldTimeState,
 };
 
 /// Java `CommonAssetModule.MAX_FRAME`: maximum bytes in one `AssetPart`.
@@ -151,6 +163,10 @@ pub struct SessionOptions {
     pub block_break_damage: f32,
     /// Optional packet trace recorder shared by every connection.
     pub trace: Option<Arc<TraceRecorder>>,
+    /// Optional live portal router (listener-provided).
+    pub portal_router: Option<Arc<crate::serve::PortalRouter>>,
+    /// Test/gameplay hook: transfer this portal immediately after the join.
+    pub portal_on_join: Option<String>,
 }
 
 impl Default for SessionOptions {
@@ -167,6 +183,8 @@ impl Default for SessionOptions {
             auth: AuthMode::Insecure,
             block_break_damage: 1.0,
             trace: None,
+            portal_router: None,
+            portal_on_join: None,
         }
     }
 }
@@ -203,6 +221,8 @@ pub struct GameReport {
     pub player_list: bool,
     /// The joining player's self `EntityUpdates` spawn was written.
     pub self_spawn: bool,
+    /// Initial `EntityStatsUpdate` for the joining player was written.
+    pub player_stats: bool,
     /// `WorldGameplayConfig` was written.
     pub gameplay_config: bool,
     /// `UpdateTimeSettings`/`UpdateTime` were written.
@@ -213,6 +233,8 @@ pub struct GameReport {
     pub game_mode: bool,
     /// The player's `UpdatePlayerInventory` was written.
     pub inventory: bool,
+    /// `UpdateRecipes`/`UpdateKnownRecipes` were written.
+    pub recipes: bool,
     /// The initial hotbar/utility/tools `SetActiveSlot` packets were written.
     pub active_slots: bool,
     /// `UpdateMovementSettings` was written.
@@ -266,6 +288,22 @@ pub struct GameLoopReport {
     pub npc_attacks: usize,
     /// NPC actors that died.
     pub npc_deaths: usize,
+    /// Damage instances applied to this player.
+    pub player_damages: usize,
+    /// Times this player's health reached zero.
+    pub player_deaths: usize,
+    /// `EntityStatsUpdate` packets broadcast for this player.
+    pub player_stat_updates: usize,
+    /// `EntityEffectsUpdate` packets broadcast for this player.
+    pub player_effect_updates: usize,
+    /// Automatic player respawns after death.
+    pub player_respawns: usize,
+    /// Encounter particle/sound actions written to this client.
+    pub encounter_actions: usize,
+    /// Recipe actions accepted by the crafting window.
+    pub crafted_items: usize,
+    /// Target world name after a live portal handoff.
+    pub portal_world: Option<String>,
     /// Movement caused a view change.
     pub view_changes: usize,
     /// Chunks streamed during the loop.
@@ -329,6 +367,8 @@ pub struct SessionReport {
     pub game_loop: GameLoopReport,
     /// Chunks sent after setup.
     pub stream: ChunkStreamReport,
+    /// Target world name after a live portal handoff, when one occurred.
+    pub portal_world: Option<String>,
 }
 
 /// Errors from the session.
@@ -352,6 +392,9 @@ pub enum SessionError {
     /// The world thread failed.
     #[error(transparent)]
     World(#[from] WorldThreadError),
+    /// A live portal transfer failed.
+    #[error(transparent)]
+    Portal(#[from] crate::universe_runtime::UniverseRuntimeError),
     /// A queued player/entity/block message failed to write.
     #[error(transparent)]
     PlayerMessage(#[from] players::PlayerMessageError),
@@ -410,6 +453,8 @@ struct EnterGame {
     gameplay_config: WorldGameplayConfig,
     movement_settings: MovementSettings,
     inventory: PlayerInventory,
+    recipes: Arc<RecipeCatalog>,
+    crafting: CraftingKnowledge,
     trace: Option<Arc<TraceSession>>,
 }
 
@@ -420,21 +465,32 @@ struct LiveGame<'a> {
     world_time: WorldTimeState,
     weather: Option<i32>,
     network_id: i32,
+    player_uuid: WorldUuid,
     players: Arc<PlayerRegistry>,
     broadcasts: mpsc::Receiver<PlayerMessage>,
     view: ViewId,
     transform: &'a mut PlayerTransform,
     inventory: &'a mut PlayerInventory,
     interactions: Arc<InteractionCatalog>,
+    recipes: Arc<RecipeCatalog>,
+    crafting: &'a mut CraftingKnowledge,
     revealed_markers: &'a mut BTreeSet<String>,
     map_chunks: &'a mut BTreeSet<(i32, i32)>,
 }
 
-/// The one block-container window this session owns (`OpenWindow.id`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The one block-container or bench window this session owns (`OpenWindow.id`).
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct OpenContainerWindow {
     id: i32,
     position: (i32, i32, i32),
+    kind: OpenWindowKind,
+    bench_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenWindowKind {
+    Container,
+    Bench,
 }
 
 /// Run authentication + setup on an accepted connection, transition to `Game`,
@@ -444,6 +500,15 @@ struct OpenContainerWindow {
 /// and the existing loopback tests. A listener that serves multiple sessions
 /// must share one [`PlayerRegistry`] and call
 /// [`serve_connection_with_registry`].
+/// One session's setup/game-loop/stream outputs plus the target world when a
+/// live portal handoff occurred.
+type SessionGameResult = (
+    GameReport,
+    GameLoopReport,
+    ChunkStreamReport,
+    Option<Arc<WorldThread>>,
+);
+
 pub async fn serve_connection(
     connection: &quinn::Connection,
     thread: &WorldThread,
@@ -507,7 +572,9 @@ pub async fn serve_connection_with_registry(
     let mut player_transform = player_state.transform;
     let appearance = player_state.appearance;
     let mut inventory = player_state.inventory;
+    let recipes = thread.recipe_catalog()?;
     let mut revealed_markers = player_state.revealed_markers;
+    let mut crafting = player_state.crafting;
     let player_chunk = (
         block_to_chunk(player_transform.position.x),
         block_to_chunk(player_transform.position.z),
@@ -525,7 +592,7 @@ pub async fn serve_connection_with_registry(
         .world_uuid
         .parse()
         .map_err(|_| SessionError::InvalidUuid(start.world_uuid.clone()))?;
-    let view_id = thread.add_view(player_chunk.0, player_chunk.1, radius)?;
+    let mut view_id = thread.add_view(player_chunk.0, player_chunk.1, radius)?;
     let interactions = thread.interaction_catalog()?;
 
     let (message_tx, message_rx) = players::channel();
@@ -543,160 +610,182 @@ pub async fn serve_connection_with_registry(
     // Everything after registration runs under the teardown path below, so a
     // failed setup/game loop still persists the player and releases the chunk
     // view instead of leaking a registry entry or loaded chunks.
-    let game_result: Result<(GameReport, GameLoopReport, ChunkStreamReport), SessionError> =
-        async {
-            send_player_list(
-                &mut writer,
-                &join.player_list,
-                &config_assets.tags,
-                options.chunk_compression_level,
-            )
-            .await?;
-            let (mut game, mut chunks) = enter_game(
-                connection,
-                &mut reader,
-                &mut writer,
-                EnterGame {
-                    world_uuid,
-                    radius,
-                    network_id: join.network_id,
-                    player_transform,
-                    appearance,
-                    skin,
-                    world_time,
-                    weather,
-                    gameplay_config,
-                    movement_settings,
-                    inventory: inventory.clone(),
-                    trace,
-                },
-                options,
-            )
-            .await?;
-            game.player_list = true;
-
-            let mut stream = send_view_registered(
-                thread,
-                &mut chunks,
-                player_chunk.0,
-                player_chunk.1,
+    let game_result: Result<SessionGameResult, SessionError> = async {
+        send_player_list(
+            &mut writer,
+            &join.player_list,
+            &config_assets.tags,
+            options.chunk_compression_level,
+        )
+        .await?;
+        let player_stats_init =
+            thread.ensure_player_gameplay(join.network_id, player_state.health)?;
+        let (mut game, mut chunks) = enter_game(
+            connection,
+            &mut reader,
+            &mut writer,
+            EnterGame {
+                world_uuid,
                 radius,
+                network_id: join.network_id,
+                player_transform,
+                appearance,
+                skin,
+                world_time,
+                weather,
+                gameplay_config,
+                movement_settings,
+                inventory: inventory.clone(),
+                recipes: Arc::clone(&recipes),
+                crafting: crafting.clone(),
+                trace,
+            },
+            options,
+        )
+        .await?;
+        game.player_list = true;
+        if !player_stats_init.is_empty() {
+            let packet = PlayerGameplay::entity_updates(join.network_id, player_stats_init);
+            writer
+                .write_packet(&packet, options.chunk_compression_level)
+                .await?;
+            game.player_stats = true;
+        }
+
+        let mut stream = send_view_registered(
+            thread,
+            &mut chunks,
+            player_chunk.0,
+            player_chunk.1,
+            radius,
+            options.chunk_compression_level,
+        )
+        .await?;
+
+        // Runtime entities are streamed after the chunk snapshot, like
+        // Java's entity adds that follow chunk tracking.
+        let mut runtime_entities = 0;
+        for entity in thread.entities()? {
+            if chunk_view_contains(player_chunk, radius, entity.transform.position) {
+                writer
+                    .write_packet(
+                        &players::runtime_entity_updates(&entity),
+                        options.chunk_compression_level,
+                    )
+                    .await?;
+                runtime_entities += 1;
+            }
+        }
+        game.runtime_entities = runtime_entities;
+        writer
+            .write_packet(
+                &world_map_settings_packet(),
                 options.chunk_compression_level,
             )
             .await?;
-
-            // Runtime entities are streamed after the chunk snapshot, like
-            // Java's entity adds that follow chunk tracking.
-            let mut runtime_entities = 0;
-            for entity in thread.entities()? {
-                if chunk_view_contains(player_chunk, radius, entity.transform.position) {
-                    writer
-                        .write_packet(
-                            &players::runtime_entity_updates(&entity),
-                            options.chunk_compression_level,
-                        )
-                        .await?;
-                    runtime_entities += 1;
-                }
-            }
-            game.runtime_entities = runtime_entities;
+        let (visible_markers, new_markers) =
+            map_markers_for_player(thread, &revealed_markers, player_transform.position)?;
+        if !visible_markers.is_empty() {
             writer
                 .write_packet(
-                    &world_map_settings_packet(),
+                    &UpdateWorldMap {
+                        chunks: None,
+                        added_markers: Some(visible_markers),
+                        removed_markers: None,
+                    },
                     options.chunk_compression_level,
                 )
                 .await?;
-            let (visible_markers, new_markers) =
-                map_markers_for_player(thread, &revealed_markers, player_transform.position)?;
-            if !visible_markers.is_empty() {
-                writer
-                    .write_packet(
-                        &UpdateWorldMap {
-                            chunks: None,
-                            added_markers: Some(visible_markers),
-                            removed_markers: None,
-                        },
-                        options.chunk_compression_level,
-                    )
-                    .await?;
-            }
-            revealed_markers.extend(new_markers);
-            if !join.player_markers.is_empty() {
-                writer
-                    .write_packet(
-                        &UpdateWorldMap {
-                            chunks: None,
-                            added_markers: Some(join.player_markers.clone()),
-                            removed_markers: None,
-                        },
-                        options.chunk_compression_level,
-                    )
-                    .await?;
-            }
-            let mut map_chunks = BTreeSet::new();
-            let (map_added, map_removed) = send_world_map_images(
-                thread,
-                &mut writer,
-                player_chunk,
-                radius,
-                &mut map_chunks,
-                options.chunk_compression_level,
-            )
-            .await?;
-            game.map_chunks = map_added;
-            game.map_chunks_unloaded = map_removed;
-            game.world_map = true;
-            // Entities already present in the snapshot do not need their
-            // queued spawn events replayed.
-            let _ = thread.runtime_entity_events()?;
-
-            let game_loop = run_game_loop(
-                connection,
-                thread,
-                &mut reader,
-                &mut writer,
-                &mut chunks,
-                LiveGame {
-                    center: player_chunk,
-                    radius,
-                    ready_for_gameplay: game.client_ready_for_gameplay,
-                    world_time,
-                    weather,
-                    network_id: join.network_id,
-                    players: Arc::clone(&players),
-                    broadcasts: message_rx,
-                    view: view_id,
-                    transform: &mut player_transform,
-                    inventory: &mut inventory,
-                    interactions,
-                    revealed_markers: &mut revealed_markers,
-                    map_chunks: &mut map_chunks,
-                },
-                options,
-            )
-            .await?;
-            game.client_ready_for_gameplay |= game_loop.ready_for_gameplay;
-            chunks.finish()?;
-            stream.chunks += game_loop.chunks;
-            stream.packets += game_loop.packets;
-            stream.frames += game_loop.frames;
-            stream.payload_bytes += game_loop.payload_bytes;
-            stream.unloaded += game_loop.unloaded;
-            Ok((game, game_loop, stream))
         }
-        .await;
+        revealed_markers.extend(new_markers);
+        if !join.player_markers.is_empty() {
+            writer
+                .write_packet(
+                    &UpdateWorldMap {
+                        chunks: None,
+                        added_markers: Some(join.player_markers.clone()),
+                        removed_markers: None,
+                    },
+                    options.chunk_compression_level,
+                )
+                .await?;
+        }
+        let mut map_chunks = BTreeSet::new();
+        let (map_added, map_removed) = send_world_map_images(
+            thread,
+            &mut writer,
+            player_chunk,
+            radius,
+            &mut map_chunks,
+            options.chunk_compression_level,
+        )
+        .await?;
+        game.map_chunks = map_added;
+        game.map_chunks_unloaded = map_removed;
+        game.world_map = true;
+        // Entities already present in the snapshot do not need their
+        // queued spawn events replayed.
+        let _ = thread.runtime_entity_events()?;
 
-    let save_result = thread.save_player_state(player_uuid, player_transform, inventory);
+        let (game_loop, portal_thread, active_view) = run_game_loop(
+            connection,
+            thread,
+            &mut reader,
+            &mut writer,
+            &mut chunks,
+            LiveGame {
+                center: player_chunk,
+                radius,
+                ready_for_gameplay: game.client_ready_for_gameplay,
+                world_time,
+                weather,
+                network_id: join.network_id,
+                player_uuid,
+                players: Arc::clone(&players),
+                broadcasts: message_rx,
+                view: view_id,
+                transform: &mut player_transform,
+                inventory: &mut inventory,
+                interactions,
+                recipes: Arc::clone(&recipes),
+                crafting: &mut crafting,
+                revealed_markers: &mut revealed_markers,
+                map_chunks: &mut map_chunks,
+            },
+            options,
+        )
+        .await?;
+        game.client_ready_for_gameplay |= game_loop.ready_for_gameplay;
+        chunks.finish()?;
+        stream.chunks += game_loop.chunks;
+        stream.packets += game_loop.packets;
+        stream.frames += game_loop.frames;
+        stream.payload_bytes += game_loop.payload_bytes;
+        stream.unloaded += game_loop.unloaded;
+        view_id = active_view;
+        Ok((game, game_loop, stream, portal_thread))
+    }
+    .await;
+
+    let (game, game_loop, mut stream, portal_thread) = game_result?;
+    let active_thread = portal_thread.as_deref().unwrap_or(thread);
+    let save_result = active_thread.save_player_state(player_uuid, player_transform, inventory);
     let save_markers_result =
-        thread.save_player_revealed_markers(player_uuid, revealed_markers.clone());
-    let view_report = thread.remove_view(view_id);
+        active_thread.save_player_revealed_markers(player_uuid, revealed_markers.clone());
+    let save_health_result = match active_thread.player_health(join.network_id) {
+        Ok(Some(health)) => active_thread.save_player_health(player_uuid, health),
+        _ => Ok(()),
+    };
+    let _ = active_thread.remove_player_gameplay(join.network_id);
+    let view_report = active_thread.remove_view(view_id);
     // Unregister after the save so a reconnect can never observe the old entity
     // removal after the new player has already loaded its saved state.
     drop(player_session);
 
-    let (game, game_loop, mut stream) = game_result?;
+    let portal_world = game_loop.portal_world.clone();
     save_result?;
     save_markers_result?;
+    save_health_result?;
     stream.unloaded += view_report?.unloaded;
 
     Ok(SessionReport {
@@ -708,6 +797,7 @@ pub async fn serve_connection_with_registry(
         game,
         game_loop,
         stream,
+        portal_world,
     })
 }
 
@@ -1131,6 +1221,8 @@ async fn enter_game(
         gameplay_config,
         movement_settings,
         inventory,
+        recipes,
+        crafting,
         trace,
     } = start;
     let mut chunks = ChunkStreamWriter::open(connection).await?;
@@ -1269,6 +1361,30 @@ async fn enter_game(
             .await?;
     }
     game.active_slots = true;
+
+    if !recipes.is_empty() {
+        let recipe_map = recipes.all();
+        let known_map = recipes.known_for(&crafting.learned, crafting.memories_level);
+        writer
+            .write_packet(
+                &UpdateRecipes {
+                    r#type: UpdateType::Init,
+                    recipes: Some(recipe_map.clone()),
+                    removed_recipes: None,
+                },
+                options.chunk_compression_level,
+            )
+            .await?;
+        writer
+            .write_packet(
+                &UpdateKnownRecipes {
+                    known: Some(known_map),
+                },
+                options.chunk_compression_level,
+            )
+            .await?;
+        game.recipes = true;
+    }
 
     writer
         .write_packet(&gameplay_config, options.chunk_compression_level)
@@ -1535,6 +1651,391 @@ async fn send_world_map_images(
     Ok((added_count, removed_count))
 }
 
+/// Map an encounter target id (runtime NPC id or high-bit player id) to the
+/// client-facing entity network id.
+fn encounter_network_id(id: u64) -> i32 {
+    if id & players::PLAYER_NPC_TARGET_OFFSET != 0 {
+        (id & !players::PLAYER_NPC_TARGET_OFFSET) as i32
+    } else {
+        players::runtime_network_id(id)
+    }
+}
+
+fn encounter_boss_bar_packet(
+    action: &hytale_npc::encounter::EncounterAction,
+    last_entity: &mut Option<i32>,
+) -> Option<UpdateBossBar> {
+    match action {
+        hytale_npc::encounter::EncounterAction::BossBar {
+            name,
+            hard_mode,
+            entity,
+            ..
+        } => {
+            let entity_network_id = entity.map(encounter_network_id).unwrap_or(0);
+            *last_entity = Some(entity_network_id);
+            Some(UpdateBossBar {
+                entity_network_id,
+                name: Some(FormattedMessage {
+                    raw_text: Some(name.clone()),
+                    ..FormattedMessage::default()
+                }),
+                hide: false,
+                hard_mode: *hard_mode,
+            })
+        }
+        hytale_npc::encounter::EncounterAction::ClearBossBar => Some(UpdateBossBar {
+            entity_network_id: last_entity.take().unwrap_or(0),
+            name: None,
+            hide: true,
+            hard_mode: false,
+        }),
+        _ => None,
+    }
+}
+
+fn encounter_audio_packet(
+    action: &hytale_npc::encounter::EncounterAction,
+    assets: &hytale_assets::AssetRegistry,
+) -> Option<SetAudioState> {
+    let hytale_npc::encounter::EncounterAction::AudioState {
+        audio_state, value, ..
+    } = action
+    else {
+        return None;
+    };
+    let audio_state_index = assets.audio_states.id_of(audio_state)?;
+    let record = assets.audio_states.get(audio_state)?;
+    let value_index = record
+        .value
+        .get("Values")?
+        .as_array()?
+        .iter()
+        .position(|candidate| candidate.as_str() == Some(value.as_str()))?
+        as i32;
+    Some(SetAudioState {
+        audio_state_index,
+        value_index,
+        transition_override: None,
+    })
+}
+
+fn encounter_particle_packet(
+    action: &hytale_npc::encounter::EncounterAction,
+    position: ProtocolPosition,
+) -> Option<SpawnParticleSystem> {
+    let hytale_npc::encounter::EncounterAction::Particles {
+        particle_system, ..
+    } = action
+    else {
+        return None;
+    };
+    Some(SpawnParticleSystem {
+        particle_system_id: Some(particle_system.clone()),
+        position: Some(position),
+        rotation: None,
+        scale: 1.0,
+        color: None,
+        max_duration: 0.0,
+    })
+}
+
+fn encounter_sound_packet(
+    action: &hytale_npc::encounter::EncounterAction,
+    sound_event_index: i32,
+    position: ProtocolPosition,
+) -> Option<PlaySoundEvent3D> {
+    let hytale_npc::encounter::EncounterAction::PlaySound { .. } = action else {
+        return None;
+    };
+    Some(PlaySoundEvent3D {
+        sound_event_index,
+        category: hytale_protocol::generated::common::SoundCategory::SFX,
+        position: Some(position),
+        volume_modifier: 1.0,
+        pitch_modifier: 1.0,
+    })
+}
+
+struct CraftPlan {
+    outputs: Vec<ItemStack>,
+    consumed: Vec<(String, i32)>,
+}
+
+fn plan_recipe(
+    inventory: &mut PlayerInventory,
+    recipe: &hytale_protocol::generated::common::CraftingRecipe,
+    quantity: i32,
+    rules: &dyn hytale_inventory::ItemRules,
+    resource_types: &hytale_world::crafting::ResourceTypeIndex,
+) -> Option<CraftPlan> {
+    if quantity <= 0 {
+        return None;
+    }
+    let mut required: Vec<(String, Vec<String>, i32)> = Vec::new();
+    for input in recipe.inputs.iter().flatten() {
+        let amount = input.quantity.saturating_mul(quantity);
+        if amount <= 0 {
+            continue;
+        }
+        if let Some(item_id) = &input.item_id {
+            required.push((item_id.clone(), vec![item_id.clone()], amount));
+            continue;
+        }
+        let Some(resource_type) = &input.resource_type_id else {
+            return None;
+        };
+        let candidates = resource_types
+            .items(resource_type)?
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return None;
+        }
+        required.push((resource_type.clone(), candidates, amount));
+    }
+    if required.is_empty() {
+        return None;
+    }
+    for (_, candidates, amount) in &required {
+        let available: i32 = candidates
+            .iter()
+            .map(|item_id| inventory.count_item(item_id))
+            .sum();
+        if available < *amount {
+            return None;
+        }
+    }
+    let outputs: Vec<_> = recipe
+        .outputs
+        .clone()
+        .or_else(|| recipe.primary_output.clone().map(|output| vec![output]))
+        .unwrap_or_default();
+    if outputs.is_empty() {
+        return None;
+    }
+
+    let mut consumed = Vec::new();
+    for (_, candidates, amount) in required {
+        let mut remaining = amount;
+        for item_id in candidates {
+            if remaining <= 0 {
+                break;
+            }
+            let removed = inventory.remove_item(&item_id, remaining);
+            if removed > 0 {
+                consumed.push((item_id, removed));
+                remaining -= removed;
+            }
+        }
+        if remaining > 0 {
+            // The availability check above should make this unreachable; fail
+            // closed without producing a partial craft.
+            return None;
+        }
+    }
+    let mut stacks = Vec::new();
+    for output in outputs {
+        let Some(item_id) = output.item_id else {
+            continue;
+        };
+        let amount = output.quantity.saturating_mul(quantity);
+        if amount <= 0 {
+            continue;
+        }
+        if let Ok(stack) = ItemStack::new(&item_id, amount, rules) {
+            stacks.push(stack);
+        }
+    }
+    Some(CraftPlan {
+        outputs: stacks,
+        consumed,
+    })
+}
+
+#[cfg(test)]
+fn apply_recipe(
+    inventory: &mut PlayerInventory,
+    recipe: &hytale_protocol::generated::common::CraftingRecipe,
+    quantity: i32,
+    rules: &dyn hytale_inventory::ItemRules,
+    resource_types: &hytale_world::crafting::ResourceTypeIndex,
+) -> Option<Vec<ItemStack>> {
+    plan_recipe(inventory, recipe, quantity, rules, resource_types).map(|plan| plan.outputs)
+}
+
+#[derive(Debug)]
+struct CraftJob {
+    recipe_id: String,
+    quantity: i32,
+    remaining: f32,
+    outputs: Vec<ItemStack>,
+    consumed: Vec<(String, i32)>,
+}
+
+/// One session's bench crafting queue. Inputs are consumed when the job is
+/// enqueued; outputs are granted when the recipe timer reaches zero.
+#[derive(Debug, Default)]
+struct CraftQueue {
+    jobs: Vec<CraftJob>,
+}
+
+impl CraftQueue {
+    fn is_empty(&self) -> bool {
+        self.jobs.is_empty()
+    }
+
+    fn push(&mut self, job: CraftJob) {
+        self.jobs.push(job);
+    }
+
+    fn cancel_last(&mut self) -> Option<CraftJob> {
+        self.jobs.pop()
+    }
+
+    fn tick(&mut self, dt: f32) -> Vec<CraftJob> {
+        let mut finished = Vec::new();
+        let mut index = 0;
+        while index < self.jobs.len() {
+            self.jobs[index].remaining -= dt.max(0.0);
+            if self.jobs[index].remaining > 0.0 {
+                index += 1;
+            } else {
+                finished.push(self.jobs.remove(index));
+            }
+        }
+        finished
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn begin_craft(
+    thread: &WorldThread,
+    inventory: &mut PlayerInventory,
+    open: Option<&OpenContainerWindow>,
+    recipes: &RecipeCatalog,
+    knowledge: &mut CraftingKnowledge,
+    recipe_id: &str,
+    quantity: i32,
+) -> Result<Option<CraftJob>, SessionError> {
+    if quantity <= 0 {
+        return Ok(None);
+    }
+    let Some(recipe) = recipes.get(recipe_id) else {
+        return Ok(None);
+    };
+    if knowledge.can_craft(recipe).is_err() {
+        return Ok(None);
+    }
+    if let Some(requirements) = recipe.bench_requirement.as_ref() {
+        if !requirements.is_empty() {
+            let Some(window) = open else {
+                return Ok(None);
+            };
+            let Some(bench_id) = window.bench_id.as_deref() else {
+                return Ok(None);
+            };
+            if !requirements
+                .iter()
+                .any(|requirement| requirement.id == bench_id)
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let assets = thread.asset_registry()?;
+    let rules = AssetItemRules::new(&assets);
+    let Some(plan) = plan_recipe(
+        inventory,
+        recipe,
+        quantity,
+        &rules,
+        recipes.resource_types(),
+    ) else {
+        return Ok(None);
+    };
+    knowledge.learn(recipe_id);
+    Ok(Some(CraftJob {
+        recipe_id: recipe_id.to_string(),
+        quantity,
+        remaining: recipe.time_seconds.max(0.0) * quantity as f32,
+        outputs: plan.outputs,
+        consumed: plan.consumed,
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn tick_crafts(
+    queue: &mut CraftQueue,
+    dt: f32,
+    thread: &WorldThread,
+    writer: &mut FrameWriter,
+    players: &PlayerRegistry,
+    inventory: &mut PlayerInventory,
+    network_id: i32,
+    position: hytale_world::player_data::Position,
+    compression_level: i32,
+) -> Result<usize, SessionError> {
+    let assets = thread.asset_registry()?;
+    let rules = AssetItemRules::new(&assets);
+    let mut completed = 0;
+    let mut changed = false;
+    for job in queue.tick(dt) {
+        for stack in job.outputs {
+            if let Some(remainder) = inventory.pickup(stack, &rules) {
+                let _ = thread.spawn_item_stack_entity(
+                    remainder,
+                    position.x,
+                    position.y + 0.5,
+                    position.z,
+                );
+            }
+        }
+        completed += job.quantity as usize;
+        let _ = &job.recipe_id;
+        changed = true;
+    }
+    if changed {
+        send_inventory(writer, inventory, compression_level).await?;
+        broadcast_held_items(players, network_id, inventory);
+    }
+    Ok(completed)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn cancel_crafts(
+    queue: &mut CraftQueue,
+    thread: &WorldThread,
+    writer: &mut FrameWriter,
+    players: &PlayerRegistry,
+    inventory: &mut PlayerInventory,
+    network_id: i32,
+    position: hytale_world::player_data::Position,
+    compression_level: i32,
+) -> Result<bool, SessionError> {
+    let Some(job) = queue.cancel_last() else {
+        return Ok(false);
+    };
+    let assets = thread.asset_registry()?;
+    let rules = AssetItemRules::new(&assets);
+    for (item_id, quantity) in job.consumed {
+        if let Ok(stack) = ItemStack::new(&item_id, quantity, &rules) {
+            if let Some(remainder) = inventory.pickup(stack, &rules) {
+                let _ = thread.spawn_item_stack_entity(
+                    remainder,
+                    position.x,
+                    position.y + 0.5,
+                    position.z,
+                );
+            }
+        }
+    }
+    send_inventory(writer, inventory, compression_level).await?;
+    broadcast_held_items(players, network_id, inventory);
+    Ok(true)
+}
+
 async fn open_container_window(
     thread: &WorldThread,
     writer: &mut FrameWriter,
@@ -1584,6 +2085,119 @@ async fn open_container_window(
     Ok(Some(OpenContainerWindow {
         id: window_id,
         position: (x, y, z),
+        kind: OpenWindowKind::Container,
+        bench_id: None,
+    }))
+}
+
+fn bench_window_type(bench: &serde_json::Value) -> WindowType {
+    match bench
+        .get("Type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Crafting")
+    {
+        "Processing" => WindowType::Processing,
+        "DiagramCrafting" => WindowType::DiagramCrafting,
+        "StructuralCrafting" => WindowType::StructuralCrafting,
+        "AbilityBench" => WindowType::AbilityBench,
+        _ => WindowType::BasicCrafting,
+    }
+}
+
+/// Map a window type to the recipe `BenchType` it filters.
+fn bench_type_for_window(window: WindowType) -> BenchType {
+    match window {
+        WindowType::Processing => BenchType::Processing,
+        WindowType::DiagramCrafting => BenchType::DiagramCrafting,
+        WindowType::StructuralCrafting => BenchType::StructuralCrafting,
+        _ => BenchType::Crafting,
+    }
+}
+
+/// Build the bench window payload: bench document, tier/category contract and
+/// the recipe ids reachable with the player's knowledge.
+fn bench_window_data(
+    block_item_id: &str,
+    bench: &serde_json::Value,
+    window_type: WindowType,
+    recipes: &RecipeCatalog,
+    knowledge: &CraftingKnowledge,
+) -> serde_json::Value {
+    let bench_id = bench
+        .get("Id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    serde_json::json!({
+        "blockItemId": block_item_id,
+        "bench": bench,
+        "benchId": bench_id,
+        "tierLevel": knowledge.bench_tier(bench_id),
+        "categories": bench.get("Categories").cloned().unwrap_or(serde_json::Value::Null),
+        "augmentTags": knowledge.augment_tags.iter().cloned().collect::<Vec<_>>(),
+        "recipeIds": recipes
+            .for_bench_with_tier(bench_type_for_window(window_type), knowledge)
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn open_bench_window(
+    thread: &WorldThread,
+    writer: &mut FrameWriter,
+    players: &PlayerRegistry,
+    recipes: &RecipeCatalog,
+    knowledge: &CraftingKnowledge,
+    (x, y, z): (i32, i32, i32),
+    (block_item_id, bench): (String, serde_json::Value),
+    window_id: i32,
+    compression_level: i32,
+) -> Result<Option<OpenContainerWindow>, SessionError> {
+    if let Ok(Some((before, after))) = thread.set_block_state(x, y, z, "OpenWindow") {
+        if before != after {
+            players.broadcast_block(ServerSetBlock {
+                x,
+                y,
+                z,
+                block_id: after,
+                filler: 0,
+                rotation: 0,
+            });
+        }
+    }
+    let window_type = bench_window_type(&bench);
+    let bench_id = bench
+        .get("Id")
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned);
+    let window_data = bench_window_data(&block_item_id, &bench, window_type, recipes, knowledge);
+    writer
+        .write_packet(
+            &SetPage {
+                page: Page::Bench,
+                can_close_through_interaction: true,
+            },
+            compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &OpenWindow {
+                id: window_id,
+                window_type,
+                window_data: Some(window_data.to_string()),
+                inventory: None,
+                extra_resources: None,
+            },
+            compression_level,
+        )
+        .await?;
+    Ok(Some(OpenContainerWindow {
+        id: window_id,
+        position: (x, y, z),
+        kind: OpenWindowKind::Bench,
+        bench_id,
     }))
 }
 
@@ -1595,16 +2209,18 @@ async fn close_container_window(
     compression_level: i32,
 ) -> Result<(), SessionError> {
     let (x, y, z) = open.position;
-    if let Ok(Some((before, after))) = thread.set_block_state(x, y, z, "CloseWindow") {
-        if before != after {
-            players.broadcast_block(ServerSetBlock {
-                x,
-                y,
-                z,
-                block_id: after,
-                filler: 0,
-                rotation: 0,
-            });
+    if open.kind == OpenWindowKind::Container {
+        if let Ok(Some((before, after))) = thread.set_block_state(x, y, z, "CloseWindow") {
+            if before != after {
+                players.broadcast_block(ServerSetBlock {
+                    x,
+                    y,
+                    z,
+                    block_id: after,
+                    filler: 0,
+                    rotation: 0,
+                });
+            }
         }
     }
     writer
@@ -1622,6 +2238,221 @@ async fn close_container_window(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SlotSource {
+    Player(Section),
+    Window,
+}
+
+fn slot_source(id: i32, open: Option<&OpenContainerWindow>) -> Option<SlotSource> {
+    if id >= 0 {
+        return open
+            .filter(|window| window.id == id)
+            .map(|_| SlotSource::Window);
+    }
+    Section::from_section_id(id).map(SlotSource::Player)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn move_item_stack(
+    thread: &WorldThread,
+    writer: &mut FrameWriter,
+    players: &PlayerRegistry,
+    inventory: &mut PlayerInventory,
+    open: Option<&OpenContainerWindow>,
+    network_id: i32,
+    packet: MoveItemStack,
+    compression_level: i32,
+) -> Result<bool, SessionError> {
+    let Some(from_source) = slot_source(packet.from_section_id, open) else {
+        return Ok(false);
+    };
+    let Some(to_source) = slot_source(packet.to_section_id, open) else {
+        return Ok(false);
+    };
+    let Ok(from_slot) = u16::try_from(packet.from_slot_id) else {
+        return Ok(false);
+    };
+    let Ok(to_slot) = u16::try_from(packet.to_slot_id) else {
+        return Ok(false);
+    };
+    if packet.quantity <= 0 {
+        return Ok(false);
+    }
+
+    let window_position = open.map(|window| window.position);
+    let mut window_container = match (from_source, to_source, window_position) {
+        (SlotSource::Window, _, Some((x, y, z))) | (_, SlotSource::Window, Some((x, y, z))) => {
+            let Some(container) = thread.block_container(x, y, z)? else {
+                return Ok(false);
+            };
+            Some(container)
+        }
+        _ => None,
+    };
+
+    let mut from = match from_source {
+        SlotSource::Player(section) => inventory.container(section).clone(),
+        SlotSource::Window => window_container.clone().expect("loaded for window source"),
+    };
+    let mut to = match to_source {
+        SlotSource::Player(section) => inventory.container(section).clone(),
+        SlotSource::Window => window_container.clone().expect("loaded for window target"),
+    };
+    let assets = thread.asset_registry()?;
+    let rules = AssetItemRules::new(&assets);
+    let outcome = if from_source == to_source {
+        match from.move_within(from_slot, packet.quantity, to_slot, &rules) {
+            Ok(outcome) => outcome,
+            Err(_) => return Ok(false),
+        }
+    } else {
+        match from.move_to_slot(from_slot, packet.quantity, &mut to, to_slot, &rules) {
+            Ok(outcome) => outcome,
+            Err(_) => return Ok(false),
+        }
+    };
+    if !outcome.changed() {
+        return Ok(false);
+    }
+
+    let mut player_changed = false;
+    let mut window_changed = false;
+    if from_source == to_source {
+        match from_source {
+            SlotSource::Player(section) => {
+                *inventory.container_mut(section) = from;
+                player_changed = true;
+            }
+            SlotSource::Window => {
+                window_container = Some(from);
+                window_changed = true;
+            }
+        }
+    } else {
+        match from_source {
+            SlotSource::Player(section) => {
+                *inventory.container_mut(section) = from;
+                player_changed = true;
+            }
+            SlotSource::Window => {
+                window_container = Some(from);
+                window_changed = true;
+            }
+        }
+        match to_source {
+            SlotSource::Player(section) => {
+                *inventory.container_mut(section) = to;
+                player_changed = true;
+            }
+            SlotSource::Window => {
+                window_container = Some(to);
+                window_changed = true;
+            }
+        }
+    }
+
+    if player_changed {
+        send_inventory(writer, inventory, compression_level).await?;
+        broadcast_held_items(players, network_id, inventory);
+    }
+    if window_changed {
+        if let (Some(window), Some(container), Some((x, y, z))) =
+            (open.cloned(), window_container, window_position)
+        {
+            thread.set_block_container(x, y, z, container.clone())?;
+            writer
+                .write_packet(
+                    &UpdateWindow {
+                        id: window.id,
+                        window_data: None,
+                        inventory: Some(container.to_packet()),
+                        extra_resources: None,
+                    },
+                    compression_level,
+                )
+                .await?;
+        }
+    }
+    Ok(true)
+}
+
+/// Result of switching one live session to another world.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionWorldSwitch {
+    /// Source view id.
+    pub old_view: u64,
+    /// Target view id.
+    pub new_view: u64,
+    /// Target world UUID.
+    pub world_uuid: WorldUuid,
+    /// Chunk stream counters for the new world snapshot.
+    pub chunks: ChunkStreamReport,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn switch_session_world(
+    source: &WorldThread,
+    target: &WorldThread,
+    writer: &mut FrameWriter,
+    chunks: &mut ChunkStreamWriter,
+    players: &PlayerRegistry,
+    network_id: i32,
+    source_view: ViewId,
+    target_transform: PlayerTransform,
+    radius: u32,
+    compression_level: i32,
+) -> Result<SessionWorldSwitch, SessionError> {
+    let target_start = target.start_report();
+    let world_uuid: WorldUuid = target_start
+        .world_uuid
+        .parse()
+        .map_err(|_| SessionError::InvalidUuid(target_start.world_uuid.clone()))?;
+    let packet_uuid: Uuid = target_start
+        .world_uuid
+        .parse()
+        .map_err(|_| SessionError::InvalidUuid(target_start.world_uuid.clone()))?;
+    let center = (
+        block_to_chunk(target_transform.position.x),
+        block_to_chunk(target_transform.position.z),
+    );
+
+    source.remove_view(source_view)?;
+    let new_view = target.add_view(center.0, center.1, radius)?;
+    players.switch_world(network_id, packet_uuid, target_transform, center, radius);
+
+    chunks
+        .write_packet(&ClearChunks {}, compression_level)
+        .await?;
+    writer
+        .write_packet(
+            &JoinWorld {
+                clear_world: true,
+                fade_in_out: true,
+                world_uuid: packet_uuid,
+                min_section_y: Some(0),
+                max_section_y: Some(9),
+            },
+            compression_level,
+        )
+        .await?;
+    let chunks_report = send_view_registered(
+        target,
+        chunks,
+        center.0,
+        center.1,
+        radius,
+        compression_level,
+    )
+    .await?;
+    Ok(SessionWorldSwitch {
+        old_view: source_view.raw(),
+        new_view: new_view.raw(),
+        world_uuid,
+        chunks: chunks_report,
+    })
+}
+
 async fn run_game_loop(
     connection: &quinn::Connection,
     thread: &WorldThread,
@@ -1630,7 +2461,7 @@ async fn run_game_loop(
     chunks: &mut ChunkStreamWriter,
     live: LiveGame<'_>,
     options: &SessionOptions,
-) -> Result<GameLoopReport, SessionError> {
+) -> Result<(GameLoopReport, Option<Arc<WorldThread>>, ViewId), SessionError> {
     let LiveGame {
         mut center,
         mut radius,
@@ -1638,12 +2469,15 @@ async fn run_game_loop(
         mut world_time,
         mut weather,
         network_id,
+        player_uuid,
         players,
         broadcasts,
-        view,
+        mut view,
         transform,
         inventory,
         interactions,
+        recipes,
+        crafting,
         revealed_markers,
         map_chunks,
     } = live;
@@ -1664,8 +2498,59 @@ async fn run_game_loop(
     let mut pending_movement = false;
     let mut last_movement: Option<std::time::Instant> = None;
     let mut open_window: Option<OpenContainerWindow> = None;
+    let mut craft_jobs = CraftQueue::default();
     let mut next_window_id = 1i32;
+    let mut boss_bar_entity: Option<i32> = None;
     let mut last_map_view = (center, radius);
+    let mut active_thread = thread;
+    #[allow(unused_assignments)]
+    let mut owned_target: Option<Arc<WorldThread>> = None;
+
+    if let (Some(portal), Some(router)) = (&options.portal_on_join, &options.portal_router) {
+        // Let the joining client finish its initial ClearChunks/JoinWorld and
+        // chunk snapshot before the live world switch.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let (arrival, target) = router.open_portal_instance(portal, *transform)?;
+        let health = active_thread.player_health(network_id)?;
+        router.transfer_live_player(
+            active_thread,
+            &target,
+            player_uuid,
+            *transform,
+            inventory.clone(),
+            health,
+            &arrival,
+        )?;
+        let _ = active_thread.remove_player_gameplay(network_id);
+        let _ = target.ensure_player_gameplay(network_id, health);
+        let switched = switch_session_world(
+            active_thread,
+            &target,
+            writer,
+            chunks,
+            &players,
+            network_id,
+            view,
+            arrival.plan.spawn,
+            radius,
+            options.chunk_compression_level,
+        )
+        .await?;
+        report.portal_world = Some(arrival.world_name);
+        *transform = arrival.plan.spawn;
+        view = ViewId::from_raw(switched.new_view);
+        center = (
+            block_to_chunk(transform.position.x),
+            block_to_chunk(transform.position.z),
+        );
+        registry_center = center;
+        last_map_view = (center, radius);
+        send_client_teleport(writer, *transform, options).await?;
+        teleport_sent = true;
+        report.teleport_sent = true;
+        owned_target = Some(target);
+        active_thread = owned_target.as_deref().expect("target installed");
+    }
 
     if ready_for_gameplay {
         report.ready_for_gameplay = true;
@@ -1686,22 +2571,201 @@ async fn run_game_loop(
             report.player_messages += 1;
         }
 
-        thread.set_npc_targets(players.npc_targets())?;
-        let spawn_report = thread.tick_npc_spawns()?;
+        active_thread.set_npc_targets(players.npc_targets())?;
+        let spawn_report = active_thread.tick_npc_spawns()?;
         report.npc_spawns += spawn_report.spawned;
-        let _ = thread.tick_spawn_markers(1.0 / 20.0, 1.0 / 20.0)?;
-        let _ = thread.tick_beacons(1.0 / 20.0, 1.0 / 20.0)?;
-        let npc_report = thread.tick_npcs()?;
+        let _ = active_thread.tick_spawn_markers(1.0 / 20.0, 1.0 / 20.0)?;
+        let _ = active_thread.tick_beacons(1.0 / 20.0, 1.0 / 20.0)?;
+        let npc_report = active_thread.tick_npcs()?;
         report.npc_ticks += npc_report.ticked;
-        let _ = thread.tick_encounters()?;
+        report.player_damages += npc_report.player_damages;
+        report.player_deaths += npc_report.player_deaths;
+        let crafted = if craft_jobs.is_empty() {
+            0
+        } else {
+            tick_crafts(
+                &mut craft_jobs,
+                0.05,
+                active_thread,
+                writer,
+                &players,
+                inventory,
+                network_id,
+                transform.position,
+                options.chunk_compression_level,
+            )
+            .await?
+        };
+        report.crafted_items += crafted;
+        let stat_updates = active_thread.take_player_stat_updates(network_id)?;
+        let effect_updates = active_thread.tick_player_gameplay(network_id, 0.05)?;
+        if npc_report.player_deaths > 0 {
+            let _ = active_thread.respawn_player(network_id);
+            report.player_respawns += 1;
+        }
+        let respawn_effects = active_thread.take_player_effect_updates(network_id)?;
+        let all_effects = if respawn_effects.is_empty() {
+            effect_updates
+        } else {
+            let mut all = effect_updates;
+            all.extend(respawn_effects);
+            all
+        };
+        if !all_effects.is_empty() {
+            let packet = PlayerGameplay::effect_entity_updates(network_id, all_effects);
+            players.broadcast_entity_updates(network_id, packet);
+            report.player_effect_updates += 1;
+        }
+        if !stat_updates.is_empty() {
+            let packet = PlayerGameplay::entity_updates(network_id, stat_updates);
+            players.broadcast_entity_updates(network_id, packet);
+            report.player_stat_updates += 1;
+        }
+        let encounter_reports = active_thread.tick_encounters()?;
+        if !encounter_reports.is_empty() {
+            let assets = active_thread.asset_registry()?;
+            let position = ProtocolPosition {
+                x: transform.position.x,
+                y: transform.position.y,
+                z: transform.position.z,
+            };
+            for (_, encounter) in &encounter_reports {
+                for action in &encounter.actions {
+                    if let Some(packet) = encounter_particle_packet(action, position.clone()) {
+                        writer
+                            .write_packet(&packet, options.chunk_compression_level)
+                            .await?;
+                        report.encounter_actions += 1;
+                        continue;
+                    }
+                    if let hytale_npc::encounter::EncounterAction::PlaySound { sound_event_id } =
+                        action
+                    {
+                        if let Some(index) = assets.sound_event_index(sound_event_id) {
+                            if let Some(packet) =
+                                encounter_sound_packet(action, index, position.clone())
+                            {
+                                writer
+                                    .write_packet(&packet, options.chunk_compression_level)
+                                    .await?;
+                                report.encounter_actions += 1;
+                            }
+                        }
+                    }
+                    match action {
+                        hytale_npc::encounter::EncounterAction::Weather { weather, .. } => {
+                            active_thread.force_weather(Some(weather))?;
+                            report.encounter_actions += 1;
+                        }
+                        hytale_npc::encounter::EncounterAction::ClearWeather => {
+                            active_thread.force_weather(None)?;
+                            report.encounter_actions += 1;
+                        }
+                        hytale_npc::encounter::EncounterAction::BossBar { .. }
+                        | hytale_npc::encounter::EncounterAction::ClearBossBar => {
+                            if let Some(packet) =
+                                encounter_boss_bar_packet(action, &mut boss_bar_entity)
+                            {
+                                writer
+                                    .write_packet(&packet, options.chunk_compression_level)
+                                    .await?;
+                                report.encounter_actions += 1;
+                            }
+                        }
+                        hytale_npc::encounter::EncounterAction::AudioState { .. } => {
+                            if let Some(packet) = encounter_audio_packet(action, &assets) {
+                                writer
+                                    .write_packet(&packet, options.chunk_compression_level)
+                                    .await?;
+                                report.encounter_actions += 1;
+                            }
+                        }
+                        hytale_npc::encounter::EncounterAction::StartMusic { music_container } => {
+                            if let Some(container_index) =
+                                assets.music_container_id(music_container)
+                            {
+                                let packet = UpdateForcedMusic { container_index };
+                                writer
+                                    .write_packet(&packet, options.chunk_compression_level)
+                                    .await?;
+                                report.encounter_actions += 1;
+                            }
+                        }
+                        hytale_npc::encounter::EncounterAction::StopMusic => {
+                            let packet = UpdateForcedMusic { container_index: 0 };
+                            writer
+                                .write_packet(&packet, options.chunk_compression_level)
+                                .await?;
+                            report.encounter_actions += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         report.npc_moves += npc_report.moved;
         report.npc_attacks += npc_report.attacks;
         report.npc_deaths += npc_report.deaths;
 
-        for event in thread.runtime_entity_events()? {
+        let presentation = active_thread.take_npc_presentation_events()?;
+        if !presentation.is_empty() {
+            let assets = active_thread.asset_registry()?;
+            for event in presentation {
+                let position = ProtocolPosition {
+                    x: event.position.x,
+                    y: event.position.y,
+                    z: event.position.z,
+                };
+                match event.kind {
+                    NpcPresentationKind::Particles => {
+                        let packet = SpawnParticleSystem {
+                            particle_system_id: Some(event.key),
+                            position: Some(position),
+                            rotation: None,
+                            scale: 1.0,
+                            color: None,
+                            max_duration: 0.0,
+                        };
+                        writer
+                            .write_packet(&packet, options.chunk_compression_level)
+                            .await?;
+                        report.encounter_actions += 1;
+                    }
+                    NpcPresentationKind::Sound => {
+                        if let Some(index) = assets.sound_event_index(&event.key) {
+                            let packet = PlaySoundEvent3D {
+                                sound_event_index: index,
+                                category: hytale_protocol::generated::common::SoundCategory::SFX,
+                                position: Some(position),
+                                volume_modifier: 1.0,
+                                pitch_modifier: 1.0,
+                            };
+                            writer
+                                .write_packet(&packet, options.chunk_compression_level)
+                                .await?;
+                            report.encounter_actions += 1;
+                        }
+                    }
+                }
+            }
+        }
+        for event in active_thread.take_block_change_events()? {
+            if event.before != event.after {
+                players.broadcast_block(ServerSetBlock {
+                    x: event.x,
+                    y: event.y,
+                    z: event.z,
+                    block_id: event.after,
+                    filler: 0,
+                    rotation: 0,
+                });
+            }
+        }
+
+        for event in active_thread.runtime_entity_events()? {
             match event {
                 RuntimeEntityEvent::Spawned(id) | RuntimeEntityEvent::Updated(id) => {
-                    if let Some(entity) = thread.entity(id)? {
+                    if let Some(entity) = active_thread.entity(id)? {
                         players.broadcast_runtime_entity(&entity);
                         report.runtime_entity_updates += 1;
                     }
@@ -1794,7 +2858,7 @@ async fn run_game_loop(
                                     let states =
                                         movement.movement_states.clone().unwrap_or_default();
                                     let state = movement_state(&states);
-                                    let resolution = thread.resolve_movement(
+                                    let resolution = active_thread.resolve_movement(
                                         from,
                                         target,
                                         state.crouching,
@@ -1831,7 +2895,7 @@ async fn run_game_loop(
                                         registry_center = next;
                                     }
                                     if next != center && report.teleport_acked {
-                                        thread.update_view(view, next.0, next.1, radius)?;
+                                        active_thread.update_view(view, next.0, next.1, radius)?;
                                         center = next;
                                         report.view_changes += 1;
                                     }
@@ -1877,10 +2941,11 @@ async fn run_game_loop(
                             BlockInteractionOutcome::Use {
                                 state_changes,
                                 open_container,
+                                open_bench,
                             } => {
                                 report.block_uses += 1;
                                 report.block_state_changes += state_changes;
-                                if let Some(position) = open_container {
+                                if open_container.is_some() || open_bench.is_some() {
                                     if let Some(previous) = open_window.take() {
                                         close_container_window(
                                             thread,
@@ -1891,11 +2956,31 @@ async fn run_game_loop(
                                         )
                                         .await?;
                                     }
+                                }
+                                if let Some(position) = open_container {
                                     if let Some(opened) = open_container_window(
                                         thread,
                                         writer,
                                         &players,
                                         position,
+                                        next_window_id,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?
+                                    {
+                                        next_window_id = next_window_id.saturating_add(1).max(1);
+                                        open_window = Some(opened);
+                                        report.windows_opened += 1;
+                                    }
+                                } else if let Some(bench) = open_bench {
+                                    if let Some(opened) = open_bench_window(
+                                        thread,
+                                        writer,
+                                        &players,
+                                        &recipes,
+                                        crafting,
+                                        bench.position,
+                                        (bench.block_item_id, bench.bench),
                                         next_window_id,
                                         options.chunk_compression_level,
                                     )
@@ -1938,7 +3023,7 @@ async fn run_game_loop(
                             inventory.drop_from_slot(section, slot, packet.quantity)
                         {
                             let position = transform.position;
-                            let _ = thread.spawn_item_stack_entity(
+                            let _ = active_thread.spawn_item_stack_entity(
                                 stack,
                                 position.x,
                                 position.y + 0.5,
@@ -1950,9 +3035,26 @@ async fn run_game_loop(
                             broadcast_held_items(&players, network_id, inventory);
                         }
                     }
+                    MoveItemStack::ID => {
+                        let packet: MoveItemStack = frame.decode()?;
+                        if move_item_stack(
+                            thread,
+                            writer,
+                            &players,
+                            inventory,
+                            open_window.as_ref(),
+                            network_id,
+                            packet,
+                            options.chunk_compression_level,
+                        )
+                        .await?
+                        {
+                            report.inventory_updates += 1;
+                        }
+                    }
                     CloseWindow::ID => {
                         let packet: CloseWindow = frame.decode()?;
-                        if let Some(open) = open_window {
+                        if let Some(open) = open_window.take() {
                             if open.id == packet.id {
                                 close_container_window(
                                     thread,
@@ -1968,10 +3070,58 @@ async fn run_game_loop(
                         }
                     }
                     SendWindowAction::ID => {
-                        // T57b exposes the window/page contract only; recipe
-                        // and container transaction actions remain gameplay
-                        // work (T59/T60). Decoding keeps the packet framed.
-                        let _action: SendWindowAction = frame.decode()?;
+                        let action: SendWindowAction = frame.decode()?;
+                        if open_window
+                            .as_ref()
+                            .is_some_and(|window| window.id == action.id)
+                        {
+                            #[allow(clippy::collapsible_match)]
+                            match action.action {
+                                WindowAction::CraftRecipeAction(craft) => {
+                                    if let (Some(recipe_id), true) =
+                                        (craft.recipe_id.as_deref(), craft.quantity > 0)
+                                    {
+                                        if let Some(job) = begin_craft(
+                                            thread,
+                                            inventory,
+                                            open_window.as_ref(),
+                                            &recipes,
+                                            crafting,
+                                            recipe_id,
+                                            craft.quantity,
+                                        )? {
+                                            craft_jobs.push(job);
+                                            thread.save_player_crafting(player_uuid, crafting)?;
+                                            send_inventory(
+                                                writer,
+                                                inventory,
+                                                options.chunk_compression_level,
+                                            )
+                                            .await?;
+                                            broadcast_held_items(&players, network_id, inventory);
+                                            report.inventory_updates += 1;
+                                        }
+                                    }
+                                }
+                                WindowAction::CancelCraftingAction(_) => {
+                                    if cancel_crafts(
+                                        &mut craft_jobs,
+                                        thread,
+                                        writer,
+                                        &players,
+                                        inventory,
+                                        network_id,
+                                        transform.position,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?
+                                    {
+                                        report.inventory_updates += 1;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     ViewRadius::ID => {
                         let packet: ViewRadius = frame.decode()?;
@@ -1979,7 +3129,7 @@ async fn run_game_loop(
                             let next = ((packet.value as f32) / 32.0).ceil() as u32;
                             if next != radius {
                                 radius = next;
-                                thread.update_view(view, center.0, center.1, radius)?;
+                                active_thread.update_view(view, center.0, center.1, radius)?;
                                 players.update_view(network_id, registry_center, radius);
                             }
                         }
@@ -2028,8 +3178,8 @@ async fn run_game_loop(
         }
 
         if ticker.elapsed() >= interval {
-            thread.tick()?;
-            let simulation = thread.simulate(0.05)?;
+            active_thread.tick()?;
+            let simulation = active_thread.simulate(0.05)?;
             report.simulation_ticks += 1;
             for change in simulation.block_changes {
                 report.simulation_block_changes += 1;
@@ -2052,7 +3202,9 @@ async fn run_game_loop(
                     fluid_level: change.level,
                 });
             }
-            for packet in thread.block_damage_packets_for_deltas(&simulation.health_deltas)? {
+            for packet in
+                active_thread.block_damage_packets_for_deltas(&simulation.health_deltas)?
+            {
                 match packet {
                     BlockDamagePacket::Single(packet) => {
                         players.broadcast_block_damage(packet);
@@ -2118,7 +3270,7 @@ async fn run_game_loop(
                 report.map_chunks_unloaded += removed;
                 last_map_view = (center, radius);
             }
-            let current_weather = thread.weather_at(
+            let current_weather = active_thread.weather_at(
                 transform.position.x.floor() as i32,
                 transform.position.y.floor() as i32,
                 transform.position.z.floor() as i32,
@@ -2138,7 +3290,7 @@ async fn run_game_loop(
                 }
                 weather = current_weather;
             }
-            world_time = thread.world_time()?;
+            world_time = active_thread.world_time()?;
             if world_time.time_paused != last_time_paused {
                 writer
                     .write_packet(
@@ -2174,7 +3326,7 @@ async fn run_game_loop(
 
     if let Some(open) = open_window.take() {
         let _ = close_container_window(
-            thread,
+            active_thread,
             writer,
             &players,
             open,
@@ -2184,7 +3336,7 @@ async fn run_game_loop(
         report.windows_closed += 1;
     }
 
-    Ok(report)
+    Ok((report, owned_target, view))
 }
 
 /// Apply a left/right mouse interaction as a block break/place.
@@ -2257,7 +3409,13 @@ fn parse_block_edit(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
+struct BenchOpen {
+    position: (i32, i32, i32),
+    block_item_id: String,
+    bench: serde_json::Value,
+}
+
 enum BlockInteractionOutcome {
     Edit {
         consumed: bool,
@@ -2265,6 +3423,7 @@ enum BlockInteractionOutcome {
     Use {
         state_changes: usize,
         open_container: Option<(i32, i32, i32)>,
+        open_bench: Option<BenchOpen>,
     },
     Rejected,
 }
@@ -2384,12 +3543,18 @@ fn try_block_use(
         return Some(BlockInteractionOutcome::Use {
             state_changes: 0,
             open_container: None,
+            open_bench: block_json.get("Bench").cloned().map(|bench| BenchOpen {
+                position: (x, y, z),
+                block_item_id: block_key.clone(),
+                bench,
+            }),
         });
     }
     if block.container {
         return Some(BlockInteractionOutcome::Use {
             state_changes: 0,
             open_container: Some((x, y, z)),
+            open_bench: None,
         });
     }
 
@@ -2474,6 +3639,7 @@ fn try_block_use(
     handled.then_some(BlockInteractionOutcome::Use {
         state_changes,
         open_container,
+        open_bench: None,
     })
 }
 
@@ -2646,6 +3812,366 @@ mod tests {
     use hytale_world::player_data::{
         PlayerModelReference, PlayerSkinData, Position, Rotation, EMPTY_ITEM_ID,
     };
+
+    #[test]
+    fn bench_types_map_to_java_window_types() {
+        assert_eq!(
+            bench_window_type(&serde_json::json!({"Type": "Crafting"})),
+            WindowType::BasicCrafting
+        );
+        assert_eq!(
+            bench_window_type(&serde_json::json!({"Type": "Processing"})),
+            WindowType::Processing
+        );
+        assert_eq!(
+            bench_window_type(&serde_json::json!({"Type": "DiagramCrafting"})),
+            WindowType::DiagramCrafting
+        );
+        assert_eq!(
+            bench_window_type(&serde_json::json!({})),
+            WindowType::BasicCrafting
+        );
+    }
+
+    #[test]
+    fn window_types_map_to_recipe_bench_types() {
+        assert_eq!(
+            bench_type_for_window(WindowType::Processing),
+            BenchType::Processing
+        );
+        assert_eq!(
+            bench_type_for_window(WindowType::DiagramCrafting),
+            BenchType::DiagramCrafting
+        );
+        assert_eq!(
+            bench_type_for_window(WindowType::StructuralCrafting),
+            BenchType::StructuralCrafting
+        );
+        assert_eq!(
+            bench_type_for_window(WindowType::BasicCrafting),
+            BenchType::Crafting
+        );
+    }
+
+    #[test]
+    fn bench_window_data_applies_tier_and_category_contract() {
+        let root =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Assets/extracted");
+        if !root.join("Server/Item/Items").is_dir() {
+            eprintln!("the extracted asset tree is not available — the test is skipped");
+            return;
+        }
+        let recipes = RecipeCatalog::load_root(&root).expect("recipes");
+        let bench = serde_json::json!({
+            "Id": "Armor_Bench",
+            "Type": "Crafting",
+            "Categories": ["Armor_Chest"]
+        });
+        let base = bench_window_data(
+            "Bench_Armor",
+            &bench,
+            WindowType::BasicCrafting,
+            &recipes,
+            &CraftingKnowledge::default(),
+        );
+        assert_eq!(base["benchId"], "Armor_Bench");
+        assert_eq!(base["tierLevel"], 0);
+        assert_eq!(base["categories"][0], "Armor_Chest");
+        let base_ids = base["recipeIds"].as_array().expect("recipe ids");
+        assert!(!base_ids.iter().any(|id| id == "Armor_Adamantite_Chest"));
+
+        let mut knowledge = CraftingKnowledge::default();
+        knowledge.bench_tiers.insert("Armor_Bench".to_string(), 3);
+        let upgraded = bench_window_data(
+            "Bench_Armor",
+            &bench,
+            WindowType::BasicCrafting,
+            &recipes,
+            &knowledge,
+        );
+        assert_eq!(upgraded["tierLevel"], 3);
+        assert!(upgraded["recipeIds"]
+            .as_array()
+            .expect("recipe ids")
+            .iter()
+            .any(|id| id == "Armor_Adamantite_Chest"));
+    }
+
+    #[test]
+    fn encounter_particles_and_sounds_build_world_packets() {
+        let position = ProtocolPosition {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        };
+        let particles = hytale_npc::encounter::EncounterAction::Particles {
+            particle_system: "Impact_Sword_Basic".to_string(),
+            position_source: "Target".to_string(),
+        };
+        let packet = encounter_particle_packet(&particles, position.clone()).unwrap();
+        assert_eq!(
+            packet.particle_system_id.as_deref(),
+            Some("Impact_Sword_Basic")
+        );
+        assert_eq!(packet.position.unwrap().y, 2.0);
+
+        let sound = hytale_npc::encounter::EncounterAction::PlaySound {
+            sound_event_id: "SFX_Unarmed_Impact".to_string(),
+        };
+        let packet = encounter_sound_packet(&sound, 42, position).unwrap();
+        assert_eq!(packet.sound_event_index, 42);
+        assert_eq!(
+            packet.category,
+            hytale_protocol::generated::common::SoundCategory::SFX
+        );
+        assert!(encounter_particle_packet(&sound, ProtocolPosition::default()).is_none());
+    }
+
+    #[test]
+    fn encounter_boss_bar_packets_track_the_bound_entity() {
+        let action = hytale_npc::encounter::EncounterAction::BossBar {
+            name: "Test_Boss".to_string(),
+            hard_mode: true,
+            target_slot: Some("Boss".to_string()),
+            entity: Some(42),
+        };
+        let mut last = None;
+        let packet = encounter_boss_bar_packet(&action, &mut last).expect("boss bar packet");
+        assert_eq!(packet.entity_network_id, players::runtime_network_id(42));
+        assert!(packet.hard_mode);
+        assert!(!packet.hide);
+        assert_eq!(
+            packet.name.and_then(|name| name.raw_text).as_deref(),
+            Some("Test_Boss")
+        );
+        assert_eq!(last, Some(players::runtime_network_id(42)));
+
+        let packet = encounter_boss_bar_packet(
+            &hytale_npc::encounter::EncounterAction::ClearBossBar,
+            &mut last,
+        )
+        .expect("clear packet");
+        assert!(packet.hide);
+        assert_eq!(packet.entity_network_id, players::runtime_network_id(42));
+        assert_eq!(last, None);
+    }
+
+    #[test]
+    fn apply_recipe_consumes_inputs_and_returns_outputs() {
+        struct Rules;
+        impl hytale_inventory::ItemRules for Rules {
+            fn item_exists(&self, item_id: &str) -> bool {
+                !item_id.is_empty()
+            }
+            fn max_stack(&self, _item_id: &str) -> i32 {
+                100
+            }
+            fn max_durability(&self, _item_id: &str) -> f64 {
+                0.0
+            }
+        }
+        let mut inventory = PlayerInventory::new();
+        inventory
+            .storage
+            .set_slot(
+                0,
+                Some(
+                    hytale_inventory::ItemStack::from_fields(
+                        "Ingredient_Bar_Bronze",
+                        6,
+                        0.0,
+                        0.0,
+                        None,
+                        None,
+                        false,
+                    )
+                    .expect("stack"),
+                ),
+            )
+            .unwrap();
+        let recipe = hytale_protocol::generated::common::CraftingRecipe {
+            id: Some("Armor_Bronze_Chest".to_string()),
+            inputs: Some(vec![hytale_protocol::generated::common::MaterialQuantity {
+                item_id: Some("Ingredient_Bar_Bronze".to_string()),
+                quantity: 6,
+                ..Default::default()
+            }]),
+            primary_output: Some(hytale_protocol::generated::common::MaterialQuantity {
+                item_id: Some("Armor_Bronze_Chest".to_string()),
+                quantity: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let resource_types = hytale_world::crafting::ResourceTypeIndex::default();
+        let stacks =
+            apply_recipe(&mut inventory, &recipe, 1, &Rules, &resource_types).expect("craft");
+        assert_eq!(inventory.count_item("Ingredient_Bar_Bronze"), 0);
+        assert_eq!(stacks.len(), 1);
+        assert_eq!(stacks[0].item_id, "Armor_Bronze_Chest");
+        assert!(
+            apply_recipe(&mut inventory, &recipe, 1, &Rules, &resource_types).is_none(),
+            "a second craft fails without inputs"
+        );
+    }
+
+    #[test]
+    fn craft_queue_waits_for_the_bench_timer_and_cancels() {
+        let job = CraftJob {
+            recipe_id: "Test".to_string(),
+            quantity: 1,
+            remaining: 0.2,
+            outputs: Vec::new(),
+            consumed: Vec::new(),
+        };
+        let mut queue = CraftQueue::default();
+        queue.push(job);
+        assert!(queue.tick(0.1).is_empty());
+        let finished = queue.tick(0.11);
+        assert_eq!(finished.len(), 1);
+        assert_eq!(finished[0].recipe_id, "Test");
+
+        let mut queue = CraftQueue::default();
+        queue.push(CraftJob {
+            recipe_id: "Cancel".to_string(),
+            quantity: 1,
+            remaining: 5.0,
+            outputs: Vec::new(),
+            consumed: vec![("Rock_Stone".to_string(), 2)],
+        });
+        assert_eq!(queue.cancel_last().unwrap().consumed[0].1, 2);
+        assert!(queue.cancel_last().is_none());
+    }
+
+    #[test]
+    fn asset_backed_resource_recipe_plans_from_the_real_catalog() {
+        let root =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Assets/extracted");
+        if !root.join("Server/Item/Items").is_dir() {
+            eprintln!("the extracted asset tree is not available — the test is skipped");
+            return;
+        }
+        struct Rules;
+        impl hytale_inventory::ItemRules for Rules {
+            fn item_exists(&self, item_id: &str) -> bool {
+                !item_id.is_empty()
+            }
+            fn max_stack(&self, _item_id: &str) -> i32 {
+                100
+            }
+            fn max_durability(&self, _item_id: &str) -> f64 {
+                0.0
+            }
+        }
+        let catalog = RecipeCatalog::load_root(&root).expect("recipes");
+        let recipe = catalog.get("Bench_Furnace").expect("Bench_Furnace recipe");
+        assert!(recipe
+            .inputs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|input| input.resource_type_id.as_deref() == Some("Rock")));
+        let mut inventory = PlayerInventory::new();
+        for (slot, (item_id, quantity)) in [("Rock_Stone", 6), ("Wood_Amber_Trunk", 6)]
+            .into_iter()
+            .enumerate()
+        {
+            inventory
+                .storage
+                .set_slot(
+                    u16::try_from(slot).unwrap(),
+                    Some(
+                        hytale_inventory::ItemStack::from_fields(
+                            item_id, quantity, 0.0, 0.0, None, None, false,
+                        )
+                        .expect("stack"),
+                    ),
+                )
+                .unwrap();
+        }
+        let plan = plan_recipe(&mut inventory, recipe, 1, &Rules, catalog.resource_types())
+            .expect("resource recipe plan");
+        assert!(plan
+            .outputs
+            .iter()
+            .any(|stack| stack.item_id == "Bench_Furnace"));
+        assert_eq!(inventory.count_item("Rock_Stone"), 0);
+        assert_eq!(inventory.count_item("Wood_Amber_Trunk"), 0);
+        assert!(recipe.time_seconds > 0.0);
+    }
+
+    #[test]
+    fn resource_type_recipe_consumes_matching_items() {
+        struct Rules;
+        impl hytale_inventory::ItemRules for Rules {
+            fn item_exists(&self, item_id: &str) -> bool {
+                !item_id.is_empty()
+            }
+            fn max_stack(&self, _item_id: &str) -> i32 {
+                100
+            }
+            fn max_durability(&self, _item_id: &str) -> f64 {
+                0.0
+            }
+        }
+        let mut inventory = PlayerInventory::new();
+        inventory
+            .storage
+            .set_slot(
+                0,
+                Some(
+                    hytale_inventory::ItemStack::from_fields(
+                        "Rock_Stone",
+                        6,
+                        0.0,
+                        0.0,
+                        None,
+                        None,
+                        false,
+                    )
+                    .expect("stack"),
+                ),
+            )
+            .unwrap();
+        let recipe = hytale_protocol::generated::common::CraftingRecipe {
+            id: Some("Test_Resource".to_string()),
+            inputs: Some(vec![hytale_protocol::generated::common::MaterialQuantity {
+                resource_type_id: Some("Rock".to_string()),
+                quantity: 6,
+                ..Default::default()
+            }]),
+            primary_output: Some(hytale_protocol::generated::common::MaterialQuantity {
+                item_id: Some("Rock_Stone_Brick".to_string()),
+                quantity: 2,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut index = hytale_world::crafting::ResourceTypeIndex::default();
+        index.insert("Rock", "Rock_Stone");
+        let stacks =
+            apply_recipe(&mut inventory, &recipe, 1, &Rules, &index).expect("resource craft");
+        assert_eq!(inventory.count_item("Rock_Stone"), 0);
+        assert_eq!(stacks[0].item_id, "Rock_Stone_Brick");
+        assert_eq!(stacks[0].quantity, 2);
+    }
+
+    #[test]
+    fn window_section_ids_are_positive_and_player_sections_negative() {
+        let window = OpenContainerWindow {
+            id: 4,
+            position: (1, 2, 3),
+            kind: OpenWindowKind::Container,
+            bench_id: None,
+        };
+        assert_eq!(slot_source(4, Some(&window)), Some(SlotSource::Window));
+        assert_eq!(slot_source(5, Some(&window)), None);
+        assert_eq!(
+            slot_source(-1, Some(&window)),
+            Some(SlotSource::Player(Section::Hotbar))
+        );
+        assert_eq!(slot_source(0, None), None);
+    }
 
     fn transform() -> PlayerTransform {
         PlayerTransform::new(

@@ -139,6 +139,7 @@ fn headless_boot_saves_a_reloadable_region_blob() {
         )),
         spawn_npc: None,
         auto_population: false,
+        builtin: hytale_server::BuiltinRuntime::compiled(),
     })
     .expect("boot the complete save");
     assert!(boot.config_created);

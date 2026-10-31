@@ -328,6 +328,17 @@ impl RoleCatalog {
             );
         }
 
+        if let Some(instructions) = document.get_mut("Instructions") {
+            resolve_instruction_references(
+                self,
+                instructions,
+                &vars,
+                &mut rng,
+                &mut unresolved_expressions,
+                0,
+            )?;
+        }
+
         Ok(Some(ResolvedRole {
             key: role.key.clone(),
             role_type: role.role_type.clone(),
@@ -337,6 +348,89 @@ impl RoleCatalog {
             unresolved_expressions,
         }))
     }
+}
+
+/// Resolve nested instruction/sensor `Reference` components before parsing.
+fn resolve_instruction_references(
+    catalog: &RoleCatalog,
+    value: &mut Value,
+    vars: &BTreeMap<String, ExprValue>,
+    rng: &mut Option<&mut dyn FnMut(f64, f64) -> f64>,
+    unresolved: &mut Vec<String>,
+    depth: usize,
+) -> Result<(), RoleError> {
+    if depth > 32 {
+        return Ok(());
+    }
+    match value {
+        Value::Object(object) => {
+            if let Some(reference) = object.get("Reference").and_then(Value::as_str) {
+                if let Some(component) = catalog.get(reference) {
+                    let modify = object.get("Modify").cloned().unwrap_or(Value::Null);
+                    let mut local_vars = vars.clone();
+                    if let Some(parameters) =
+                        component.raw.get("Parameters").and_then(Value::as_object)
+                    {
+                        for (name, entry) in parameters {
+                            let mut value = entry.get("Value").cloned().unwrap_or(Value::Null);
+                            if let Some(overridden) = modify.get(name) {
+                                value = overridden.clone();
+                            }
+                            resolve_expressions(&mut value, &local_vars, rng, unresolved, false)?;
+                            if let Some(expr) = ExprValue::from_json(&value) {
+                                local_vars.insert(name.clone(), expr);
+                            }
+                        }
+                    }
+                    if let Some(modify_object) = modify.as_object() {
+                        for (name, value) in modify_object {
+                            if local_vars.contains_key(name) {
+                                continue;
+                            }
+                            let mut value = value.clone();
+                            resolve_expressions(&mut value, &local_vars, rng, unresolved, false)?;
+                            if let Some(expr) = ExprValue::from_json(&value) {
+                                local_vars.insert(name.clone(), expr);
+                            }
+                        }
+                    }
+                    let mut resolved = component
+                        .raw
+                        .get("Content")
+                        .cloned()
+                        .unwrap_or_else(|| component.raw.clone());
+                    if let (Value::Object(target), Some(modify_object)) =
+                        (&mut resolved, modify.as_object())
+                    {
+                        for (name, value) in modify_object {
+                            target.insert(name.clone(), value.clone());
+                        }
+                    }
+                    resolve_expressions(&mut resolved, &local_vars, rng, unresolved, false)?;
+                    resolve_instruction_references(
+                        catalog,
+                        &mut resolved,
+                        &local_vars,
+                        rng,
+                        unresolved,
+                        depth + 1,
+                    )?;
+                    *value = resolved;
+                    return Ok(());
+                }
+            }
+            for child in object.values_mut() {
+                resolve_instruction_references(catalog, child, vars, rng, unresolved, depth + 1)?;
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                resolve_instruction_references(catalog, child, vars, rng, unresolved, depth + 1)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// A role after reference-template merge and `Compute` expression evaluation.

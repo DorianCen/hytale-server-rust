@@ -27,17 +27,25 @@ Deferred to M5/M6:
   and the client-bot spawn/chase/despawn scenario. T59c adds the
   `ActionAttack`/`DamageEntity` combat path, the complete
   `Server/EncounterManager` catalog/evaluator, boss-bar/audio/weather/portal
-  seams and live world-thread encounter commands. The full builder graph,
-  motion-controller A*, wander/avoidance, blackboard sensors, instance/portal
-  transports and the NPC ECS remain T60.
+  seams and live world-thread encounter commands. T60b adds the role
+  instruction graph, blackboard, Walk/Fly/Dive motion controllers, a
+  `bevy_ecs` actor/blackboard/motion schedule and target-bound encounter
+  actions (invulnerability/role/release/effect). Some rarer builder
+  actions/conditions and deeper instance lifecycle policy remain follow-ups. T60 lands
+  the builtin module runtime for the selected block/weather/NPC modules.
 - Player combat, damage, stats, status effects, stamina beyond T53's core:
   T53 lands the stat/effect/damage models, the Java asset fixture and the
   `EntityGameplay` component seam; T57 lands block-health/runtime-entity/map
-  presentation and T59 resolves NPC combat profiles/damage, but player combat,
-  condition evaluation, effect DoT, (non-NPC) player combat and per-entity
-  stat/effect/damage packets remain T60; T59c lands the NPC
-  damage-calculator/`DamageEffects` action graph.
-- Crafting, recipes, item quality, drops, shops, rewards.
+  presentation and T59 resolves NPC combat profiles/damage. T60b adds
+  per-session player health, NPC→player damage, stat-index-keyed
+  `EntityStatsUpdate` replication (including per-entity NPC snapshots),
+  real effect/DoT ticking with `EntityEffectsUpdate`, health persistence and
+  automatic respawn. Condition evaluation, death-screen/configured-spawn
+  policy and the remaining effect/condition packets remain follow-ups; T59c
+  lands the NPC damage-calculator/`DamageEffects` action graph.
+- Crafting beyond T60b's item/salvage recipe catalog, resource-type inputs,
+  bench windows, atomic transactions and bench timer queue: knowledge/memories
+  gating, bench upgrades/categories and item quality/shops/rewards.
 - Projectiles beyond T55's deterministic core (legacy flight, block/entity hit,
   bounce/stick/TTL, new-config seam): density/drag/buoyancy/rolling and
   `GroundFollow` physics, predicted/pierce/DirectionalHitBox projectiles,
@@ -51,15 +59,16 @@ Deferred to M5/M6:
   entities (hotbar/utility/armor/storage/tools/backpack, active slots,
   held-item consumption and save/reconnect are landed; fixed-item simulation
   drops spawn runtime item entities, block-container inventories persist and the
-  minimal `OpenWindow`/`CloseWindow` round trip is landed by T57b, but
-  `MoveItemStack` routing, bench crafting windows and weighted drop lists remain
-  T59/T60).
+  minimal `OpenWindow`/`CloseWindow` round trip is landed by T57b; T60b adds
+  player↔window `MoveItemStack` routing and bench windows. Weighted drop lists
+  and the remaining transaction/UI edge cases remain follow-ups).
 - Interaction graph beyond the T50 block `Use`/door/state core: item and entity
-  roots, selectors, effects/sounds, cooldowns, client-chain sync and
-  bench/crafting windows (T59/T60); container windows are landed by T57b.
-- Block physics/ticking/fluids beyond T52/T52b/T52c: builtin
-  `BlockTick`/`RandomTick`/`BlockPhysics`/`FallingBlocks`/`Fluid` module
-  lifecycle (T60), weather-driven fire (T54) and sound playback (T60). T57
+  roots, selectors, effects/sounds, cooldowns and client-chain sync remain
+  follow-ups; container and bench windows are landed by T57b/T60b.
+- Block physics/ticking/fluids beyond T52/T52b/T52c: sound playback remains
+  deferred. T60 lands the builtin `BlockTick`/`RandomTick`/`BlockPhysics`/
+  `FallingBlocks`/`Fluid` module lifecycle and switches; weather-driven fire
+  remains deferred. T57
   landed the block-health load/delta packets and fragility clearing; T57b adds
   partial-hit breaking and the window/map-image presentation. T52b/d
   cover partial-hitbox fluid coverage, waterlogging, finite/fire tickers,
@@ -74,18 +83,25 @@ Deferred to M5/M6:
   helper. Per-packet speed/teleport anti-cheat remains T62; fluids, triggers,
   world mount entities and entity collisions remain T52/T56/T58.
 - Instance/portal transports and adventure plugins. T59c lands the encounter
-  evaluator and portal-timer seam; world transport/instance lifecycle remains
-  deferred.
+  evaluator and portal-timer seam; T60b lands the portal-type/instance catalog,
+  target-world creation/selection, saved-player transfer and the live session
+  handoff. Portal return points restore the source transform and strip
+  ephemeral items, entry counts enforce `AllowedEntryCount`, and
+  `close_instance_if_empty` honors `CloseWhenEmpty`; deeper instance
+  removal/lifecycle policy and adventure plugins remain deferred.
 - Full world map UI/image provider and live map rendering beyond T57's settings,
   `BlockMapMarker` points of interest and T57b's per-chunk palette images
-  (T60/later).
+  (later).
 - Weather presentation beyond T54's state/forecast/transition core: particles/
-  screen effects/audio and the editor preview lock (T59/T60); the
+  screen effects/audio and the editor preview lock (later); the
   `UpdateWeathers` config packet is landed by T57b.
 
 Deferred to M6:
 
-- `builtin/` plugins (62 manifests, ~249k lines).
+- The remaining `builtin/` plugins (54 of 62) beyond T60's selected
+  `BlockTick`/`RandomTick`/`FallingBlocks`/`BlockPhysics`/`Fluid`/`Weather`/
+  `NPC`/`EncounterManager` set. `builtin/Crafting` bench windows and the
+  remaining adventure plugins stay deferred.
 - `builtin/HytaleGenerator` (density/assignment worldgen, 783 files) — separate
   engine, not part of the classic `WorldGenerator` port.
 - Editor, AssetEditor, BuilderTools, machinima, voice, cosmetics.

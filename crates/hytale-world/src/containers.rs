@@ -6,9 +6,9 @@
 //! Java-readable and this state is not embedded in the region files (the same
 //! T56 deviation as runtime entities and block components).
 //!
-//! T57b only needs the presentation seam: opening a container sends its
-//! `InventorySection`, and the items survive save/reopen. Full
-//! `MoveItemStack`/window transaction routing is later gameplay work.
+//! T57b lands the presentation seam: opening a container sends its
+//! `InventorySection`, and the items survive save/reopen. T60b adds live
+//! `MoveItemStack` transactions through the world-thread container accessors.
 
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;

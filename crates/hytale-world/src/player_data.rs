@@ -47,6 +47,8 @@ pub const ARMOR_INVENTORY_COMPONENT: &str = "ArmorInventory";
 pub const HOTBAR_INVENTORY_COMPONENT: &str = "HotbarInventory";
 /// Component id of Java `InventoryComponent.Utility`.
 pub const UTILITY_INVENTORY_COMPONENT: &str = "UtilityInventory";
+/// Component id of Java `EntityStatMap` (`EntityStats`).
+pub const ENTITY_STATS_COMPONENT: &str = "EntityStats";
 /// Legacy `Inventory` component (`Inventory.CODEC`, version 4).
 pub const LEGACY_INVENTORY_COMPONENT: &str = "Inventory";
 
@@ -392,6 +394,62 @@ impl PlayerData {
         inventory.write_components(&mut self.components);
     }
 
+    /// Saved `EntityStats.Stats.Health.Value`, when the component exists.
+    pub fn health(&self) -> Option<f32> {
+        self.components
+            .get(ENTITY_STATS_COMPONENT)?
+            .get("Stats")?
+            .get("Health")?
+            .get("Value")?
+            .as_f64()
+            .map(|value| value as f32)
+    }
+
+    /// Update the saved health value while preserving other stats, modifiers
+    /// and unknown `EntityStats` fields.
+    pub fn set_health(&mut self, health: f32) {
+        let component = self
+            .components
+            .entry(ENTITY_STATS_COMPONENT.to_string())
+            .or_insert_with(|| json!({ "Stats": {} }));
+        if !component.is_object() {
+            *component = json!({ "Stats": {} });
+        }
+        let object = component.as_object_mut().expect("component replaced above");
+        let stats = object
+            .entry("Stats".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !stats.is_object() {
+            *stats = Value::Object(Map::new());
+        }
+        let stats = stats.as_object_mut().expect("stats replaced above");
+        let entry = stats
+            .entry("Health".to_string())
+            .or_insert_with(|| json!({ "Id": "Health" }));
+        if !entry.is_object() {
+            *entry = json!({ "Id": "Health" });
+        }
+        entry
+            .as_object_mut()
+            .expect("health replaced above")
+            .insert("Value".to_string(), json!(health));
+    }
+
+    /// Saved crafting knowledge/progression, when present.
+    pub fn crafting(&self) -> Option<crate::crafting::CraftingKnowledge> {
+        self.components
+            .get("Crafting")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+    }
+
+    /// Persist crafting knowledge/progression while preserving all other
+    /// components.
+    pub fn set_crafting(&mut self, crafting: &crate::crafting::CraftingKnowledge) {
+        if let Ok(value) = serde_json::to_value(crafting) {
+            self.components.insert("Crafting".to_string(), value);
+        }
+    }
+
     /// Decode the saved model, skin, armor and active held items.
     ///
     /// Modern per-inventory components (`ArmorInventory`, `HotbarInventory`,
@@ -673,6 +731,26 @@ impl PlayerStorage {
         Ok(Some(data))
     }
 
+    /// Delete one player file (and its backup). Returns whether it existed.
+    pub fn delete(&self, uuid: WorldUuid) -> Result<bool> {
+        let path = self.path_for(uuid);
+        let existed = path.is_file();
+        if existed {
+            fs::remove_file(&path).map_err(|source| PlayerDataError::Io {
+                path: path.clone(),
+                source,
+            })?;
+        }
+        let backup = backup_path(&path);
+        if backup.is_file() {
+            fs::remove_file(&backup).map_err(|source| PlayerDataError::Io {
+                path: backup,
+                source,
+            })?;
+        }
+        Ok(existed)
+    }
+
     /// Save atomically, keeping Java's `.bak` copy of a replaced file.
     pub fn save(&self, uuid: WorldUuid, data: &PlayerData) -> Result<()> {
         fs::create_dir_all(&self.players_dir).map_err(|source| PlayerDataError::Io {
@@ -789,6 +867,52 @@ mod tests {
         assert_eq!(reloaded.transform(), Some(transform()));
         assert_eq!(reloaded.world_gen_id(), Some(42));
         assert_eq!(reloaded.component_count(), 3);
+    }
+
+    #[test]
+    fn health_preserves_other_stats_and_unknown_fields() {
+        let mut data = PlayerData::new(uuid(), transform());
+        data.insert_component(
+            ENTITY_STATS_COMPONENT,
+            json!({
+                "Stats": {
+                    "Health": {"Id": "Health", "Value": 100.0, "Modifiers": {"set": {"Amount": 5.0}}},
+                    "Stamina": {"Id": "Stamina", "Value": 12.0}
+                },
+                "Unknown": true
+            }),
+        );
+        assert_eq!(data.health(), Some(100.0));
+        data.set_health(73.5);
+        assert_eq!(data.health(), Some(73.5));
+        let component = data.component(ENTITY_STATS_COMPONENT).expect("stats");
+        assert_eq!(component["Stats"]["Stamina"]["Value"], 12.0);
+        assert_eq!(
+            component["Stats"]["Health"]["Modifiers"]["set"]["Amount"],
+            5.0
+        );
+        assert_eq!(component["Unknown"], true);
+
+        let text = data.to_json_pretty().unwrap();
+        let reloaded = PlayerData::from_json(&text).unwrap();
+        assert_eq!(reloaded.health(), Some(73.5));
+    }
+
+    #[test]
+    fn crafting_knowledge_round_trips_and_preserves_components() {
+        let mut data = PlayerData::new(uuid(), transform());
+        data.insert_component("Unknown", json!({"x": 1}));
+        let mut crafting = crate::crafting::CraftingKnowledge::default();
+        crafting.learn("Armor_Bronze_Chest");
+        crafting.memories_level = 4;
+        crafting.bench_tiers.insert("Armor_Bench".to_string(), 3);
+        crafting.augment_tags.insert("goblin_lab_power".to_string());
+        data.set_crafting(&crafting);
+        assert_eq!(data.crafting(), Some(crafting.clone()));
+        let text = data.to_json_pretty().unwrap();
+        let reloaded = PlayerData::from_json(&text).unwrap();
+        assert_eq!(reloaded.crafting(), Some(crafting));
+        assert_eq!(reloaded.component("Unknown"), Some(&json!({"x": 1})));
     }
 
     #[test]

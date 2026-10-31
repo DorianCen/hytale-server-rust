@@ -21,7 +21,9 @@ slow-timeout = { period = "180s", terminate-after = 2 }
 [profile.slow]
 fail-fast = false
 test-threads = 2
-slow-timeout = { period = "180s", terminate-after = 2 }
+# NPC controller persistence boots two full worlds; ~6 min on the reference
+# machine, so allow three 180 s periods before terminating.
+slow-timeout = { period = "180s", terminate-after = 3 }
 
 [profile.e2e]
 fail-fast = false

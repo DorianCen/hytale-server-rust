@@ -451,6 +451,8 @@ pub enum EncounterAction {
         hard_mode: bool,
         /// Bound target slot.
         target_slot: Option<String>,
+        /// Resolved target entity id, when the slot is bound.
+        entity: Option<u64>,
     },
     /// `ClearEncounterBossBar`.
     ClearBossBar,
@@ -539,6 +541,8 @@ pub enum EncounterAction {
         position_source: String,
         /// Optional delay.
         delay: Option<[f64; 2]>,
+        /// Host lifetime in seconds.
+        ttl_seconds: f64,
     },
     /// `SpawnParticles`.
     Particles {
@@ -707,6 +711,11 @@ impl EncounterRuntime {
     /// Set a portal timer (world seam).
     pub fn set_portal_timer(&mut self, seconds: Option<f64>) {
         self.portal.remaining_seconds = seconds.map(|seconds| seconds.max(0.0));
+    }
+
+    /// Current portal timer remaining seconds, when the encounter drives one.
+    pub fn portal_remaining_seconds(&self) -> Option<f64> {
+        self.portal.remaining_seconds
     }
 
     /// Add a target slot (world seam/tests).
@@ -994,10 +1003,16 @@ impl EncounterRuntime {
                     target_slot: optional_text(action, "TargetSlot"),
                 };
                 self.boss_bar = Some(state.clone());
+                let entity = state
+                    .target_slot
+                    .as_ref()
+                    .and_then(|slot| self.targets.get(slot))
+                    .map(|target| target.id);
                 report.actions.push(EncounterAction::BossBar {
                     name: state.name,
                     hard_mode: state.hard_mode,
                     target_slot: state.target_slot,
+                    entity,
                 });
             }
             "ClearEncounterBossBar" => {
@@ -1119,6 +1134,11 @@ impl EncounterRuntime {
                     interaction: text(action, "Interaction"),
                     position_source: text(action, "PositionSource"),
                     delay: number_range(action.get("Delay")),
+                    ttl_seconds: action
+                        .get("Ttl")
+                        .or_else(|| action.get("TtlSeconds"))
+                        .and_then(Value::as_f64)
+                        .unwrap_or(10.0),
                 });
             }
             "SpawnParticles" => {

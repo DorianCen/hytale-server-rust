@@ -281,6 +281,13 @@ const SOUND_EVENT: StoreSpec = CHILD_STORES[4];
 const AUDIO_CATEGORY: StoreSpec = CHILD_STORES[5];
 const AUDIO_STATE: StoreSpec = CHILD_STORES[6];
 
+/// `MusicContainer` playlists/tracks (`Server/Audio/MusicContainers`).
+const MUSIC_CONTAINER: StoreSpec = StoreSpec {
+    name: "MusicContainer",
+    path: "Server/Audio/MusicContainers",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -802,6 +809,8 @@ pub struct AssetRegistry {
     pub audio_categories: AssetCollection<Value>,
     /// `AudioState` (dependency of `SoundEvent`).
     pub audio_states: AssetCollection<Value>,
+    /// `MusicContainer` (dependency of encounter forced music).
+    pub music_containers: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -895,6 +904,7 @@ impl AssetRegistry {
             sound_events: AssetCollection::empty(),
             audio_categories: AssetCollection::empty(),
             audio_states: AssetCollection::empty(),
+            music_containers: AssetCollection::empty(),
         })
     }
 
@@ -910,6 +920,12 @@ impl AssetRegistry {
 
         registry.audio_states =
             load_indexed_store(pack, &AUDIO_STATE, audio_state_preloads(), parse_key_asset)?;
+        registry.music_containers = load_indexed_store(
+            pack,
+            &MUSIC_CONTAINER,
+            music_container_preloads(),
+            parse_key_asset,
+        )?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -975,6 +991,11 @@ impl AssetRegistry {
     /// Resolve a `DamageCause` asset name to its deterministic id.
     pub fn damage_cause_id(&self, key: &str) -> Option<i32> {
         self.damage_causes.id_of(key)
+    }
+
+    /// Resolve a `MusicContainer` asset name to its deterministic id.
+    pub fn music_container_id(&self, key: &str) -> Option<i32> {
+        self.music_containers.id_of(key)
     }
 
     /// One legacy `Projectile` document.
@@ -2287,6 +2308,10 @@ fn sound_event_preloads() -> Vec<(&'static str, Value)> {
 }
 
 fn audio_state_preloads() -> Vec<(&'static str, Value)> {
+    vec![("EMPTY", json!({}))]
+}
+
+fn music_container_preloads() -> Vec<(&'static str, Value)> {
     vec![("EMPTY", json!({}))]
 }
 

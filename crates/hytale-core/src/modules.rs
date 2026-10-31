@@ -3,7 +3,8 @@
 //! This is the Rust-native counterpart of the Java builtin module registry: a
 //! feature-gated module registers a manifest only when it is compiled in, and
 //! the registry resolves the enabled set in dependency order. It deliberately
-//! does not discover or classload code; the module lifecycle is T60's scope.
+//! does not discover or classload code; `hytale-builtin` owns the lifecycle
+//! hooks and selected module switches.
 
 use std::collections::{BTreeMap, BTreeSet};
 

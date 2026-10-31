@@ -13,6 +13,7 @@ hytale-assets = { path = "../hytale-assets" }
 hytale-interactions = { path = "../hytale-interactions" }
 hytale-inventory = { path = "../hytale-inventory" }
 hytale-auth = { path = "../hytale-auth" }
+hytale-builtin = { path = "../hytale-builtin" }
 hytale-commands = { path = "../hytale-commands" }
 hytale-core = { path = "../hytale-core" }
 hytale-entities = { path = "../hytale-entities" }

@@ -227,6 +227,11 @@ impl WorldGenerator {
         &self.assets
     }
 
+    /// Shared handle to the phase-2 asset registry.
+    pub fn assets_arc(&self) -> Arc<AssetRegistry> {
+        Arc::clone(&self.assets)
+    }
+
     /// The shared asset context, when `HYTALE_SHARED_ASSETS` is enabled.
     pub fn shared_assets(&self) -> Option<Arc<SharedGeneratorAssets>> {
         self.shared.as_ref().map(Arc::clone)

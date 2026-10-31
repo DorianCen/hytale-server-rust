@@ -18,11 +18,12 @@ use std::sync::{Arc, Mutex};
 
 use hytale_npc::combat::NpcTarget;
 use hytale_protocol::generated::common::{
-    ComponentUpdate, Direction, EntityUpdate, EquipmentUpdate, FormattedMessage, ItemUpdate,
-    ItemWithAllMetadata, MapMarker, MapMarkerComponent, MapMarkerIconSize, Model, ModelTransform,
-    ModelUpdate, NameplateUpdate, PlayerMarkerComponent, PlayerSkin, PlayerSkinUpdate,
-    Position as ProtocolPosition, ServerPlayerListPlayer, Transform as ProtocolTransform,
-    TransformUpdate,
+    ComponentUpdate, Direction, EffectOp, EntityEffectUpdate, EntityEffectsUpdate, EntityStatOp,
+    EntityStatUpdate, EntityStatsUpdate, EntityUpdate, EquipmentUpdate, FormattedMessage,
+    ItemUpdate, ItemWithAllMetadata, MapMarker, MapMarkerComponent, MapMarkerIconSize, Model,
+    ModelTransform, ModelUpdate, NameplateUpdate, PlayerMarkerComponent, PlayerSkin,
+    PlayerSkinUpdate, Position as ProtocolPosition, ServerPlayerListPlayer,
+    Transform as ProtocolTransform, TransformUpdate,
 };
 use hytale_protocol::generated::entities::EntityUpdates;
 use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
@@ -308,6 +309,59 @@ impl PlayerRegistry {
         true
     }
 
+    /// Move one registered player to another world, resetting its view and
+    /// re-evaluating visibility against players in the target world.
+    pub fn switch_world(
+        &self,
+        network_id: i32,
+        world_uuid: Uuid,
+        transform: PlayerTransform,
+        center: (i32, i32),
+        radius: u32,
+    ) -> bool {
+        let mut inner = self.inner.lock().expect("player registry poisoned");
+        let Some(entry) = inner.players.get_mut(&network_id) else {
+            return false;
+        };
+        entry.world_uuid = world_uuid;
+        entry.transform = transform;
+        entry.view_center = center;
+        entry.view_radius = radius;
+        entry.visible.clear();
+        recompute_visibility(&mut inner);
+        true
+    }
+
+    /// One player's current world UUID.
+    pub fn world_uuid(&self, network_id: i32) -> Option<Uuid> {
+        self.inner
+            .lock()
+            .expect("player registry poisoned")
+            .players
+            .get(&network_id)
+            .map(|entry| entry.world_uuid)
+    }
+
+    /// One player's current transform.
+    pub fn transform(&self, network_id: i32) -> Option<PlayerTransform> {
+        self.inner
+            .lock()
+            .expect("player registry poisoned")
+            .players
+            .get(&network_id)
+            .map(|entry| entry.transform)
+    }
+
+    /// One player's current view center/radius.
+    pub fn view(&self, network_id: i32) -> Option<((i32, i32), u32)> {
+        self.inner
+            .lock()
+            .expect("player registry poisoned")
+            .players
+            .get(&network_id)
+            .map(|entry| (entry.view_center, entry.view_radius))
+    }
+
     /// Queue a block edit for every viewer whose square chunk view contains it.
     ///
     /// The editing session is included: the client predicts the edit, and the
@@ -386,6 +440,22 @@ impl PlayerRegistry {
                 .any(|position| in_view(viewer.view_center, viewer.view_radius, *position))
             {
                 queue(viewer, PlayerMessage::BlockDamages(packet.clone()));
+            }
+        }
+    }
+
+    /// Broadcast an arbitrary `EntityUpdates` packet to viewers that can see
+    /// the target player. The target itself is included so its client receives
+    /// the authoritative stat/effect component update.
+    pub fn broadcast_entity_updates(&self, network_id: i32, packet: EntityUpdates) {
+        let inner = self.inner.lock().expect("player registry poisoned");
+        let Some(target) = inner.players.get(&network_id) else {
+            return;
+        };
+        let position = target.transform.position;
+        for viewer in inner.players.values() {
+            if in_view(viewer.view_center, viewer.view_radius, position) {
+                queue(viewer, PlayerMessage::EntityUpdates(packet.clone()));
             }
         }
     }
@@ -511,6 +581,9 @@ fn recompute_visibility(inner: &mut Inner) {
                     continue;
                 }
                 let target = &inner.players[target_id];
+                if viewer.world_uuid != target.world_uuid {
+                    continue;
+                }
                 if in_view(
                     viewer.view_center,
                     viewer.view_radius,
@@ -717,6 +790,13 @@ pub fn runtime_entity_updates(entity: &RuntimeEntity) -> EntityUpdates {
         }
     }
 
+    if let Some(stats) = runtime_entity_stats(entity) {
+        components.push(ComponentUpdate::EntityStatsUpdate(stats));
+    }
+    if let Some(effects) = runtime_entity_effects(entity) {
+        components.push(ComponentUpdate::EntityEffectsUpdate(effects));
+    }
+
     EntityUpdates {
         removed: None,
         updates: Some(vec![EntityUpdate {
@@ -771,6 +851,71 @@ fn runtime_entity_name(entity: &RuntimeEntity) -> Option<String> {
         .and_then(|nameplate| nameplate.get("Text"))
         .and_then(serde_json::Value::as_str)
         .map(ToOwned::to_owned)
+}
+
+/// Build the per-entity stat init component from an NPC's `EntityStats`
+/// document (`{ "<stat index>": { "Value": f32, "Max": f32 } }`).
+fn runtime_entity_stats(entity: &RuntimeEntity) -> Option<EntityStatsUpdate> {
+    let stats = entity.components.get("EntityStats")?.as_object()?;
+    let mut updates = BTreeMap::new();
+    for (index, stat) in stats {
+        let Ok(index) = index.parse::<i32>() else {
+            continue;
+        };
+        let value = stat
+            .get("Value")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0) as f32;
+        updates.insert(
+            index,
+            vec![EntityStatUpdate {
+                op: EntityStatOp::Init,
+                predictable: false,
+                value,
+                modifiers: None,
+                modifier_key: None,
+                modifier: None,
+            }],
+        );
+    }
+    (!updates.is_empty()).then_some(EntityStatsUpdate {
+        entity_stat_updates: updates,
+    })
+}
+
+/// Build the per-entity active-effect init component from an NPC's
+/// `EntityEffects` document.
+fn runtime_entity_effects(entity: &RuntimeEntity) -> Option<EntityEffectsUpdate> {
+    let effects = entity.components.get("EntityEffects")?.as_object()?;
+    let mut updates = Vec::new();
+    for (index, effect) in effects {
+        let Ok(id) = index.parse::<i32>() else {
+            continue;
+        };
+        updates.push(EntityEffectUpdate {
+            r#type: EffectOp::Add,
+            id,
+            remaining_time: effect
+                .get("Remaining")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.0) as f32,
+            infinite: effect
+                .get("Infinite")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            debuff: effect
+                .get("Debuff")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            status_effect_icon: effect
+                .get("Icon")
+                .and_then(serde_json::Value::as_str)
+                .map(ToOwned::to_owned),
+        });
+    }
+    (!updates.is_empty()).then_some(EntityEffectsUpdate {
+        entity_effect_updates: updates,
+    })
 }
 
 fn player_marker(player: &PlayerEntry) -> MapMarker {
@@ -1056,6 +1201,72 @@ mod tests {
 
         drop(first);
         drop(second);
+    }
+
+    #[test]
+    fn npc_spawn_updates_carry_entity_stats_keyed_by_stat_index() {
+        let entity = RuntimeEntity::new(
+            11,
+            RuntimeEntityKind::Npc,
+            None,
+            hytale_world::runtime::transform([2.0, 64.0, 3.0], [0.0, 0.0, 0.0]),
+            serde_json::json!({
+                "Npc": {"Role": "Rat", "Health": 8.0, "MaxHealth": 10.0},
+                "EntityStats": {
+                    "1": {"Value": 8.0, "Max": 10.0}
+                }
+            }),
+        );
+        let updates = runtime_entity_updates(&entity);
+        let update = &updates.updates.as_ref().expect("updates")[0];
+        assert_eq!(update.network_id, runtime_network_id(11));
+        let components = update.updates.as_ref().expect("components");
+        let stats = components
+            .iter()
+            .find_map(|component| match component {
+                ComponentUpdate::EntityStatsUpdate(stats) => Some(stats),
+                _ => None,
+            })
+            .expect("the NPC spawn carries EntityStatsUpdate");
+        assert_eq!(stats.entity_stat_updates[&1][0].value, 8.0);
+        assert_eq!(stats.entity_stat_updates[&1][0].op, EntityStatOp::Init);
+    }
+
+    #[test]
+    fn npc_spawn_updates_carry_active_entity_effects() {
+        let entity = RuntimeEntity::new(
+            12,
+            RuntimeEntityKind::Npc,
+            None,
+            hytale_world::runtime::transform([2.0, 64.0, 3.0], [0.0, 0.0, 0.0]),
+            serde_json::json!({
+                "Npc": {"Role": "Rat", "Health": 8.0, "MaxHealth": 10.0},
+                "EntityEffects": {
+                    "5": {"Remaining": 3.5, "Infinite": false, "Debuff": true, "Icon": "Burn"}
+                }
+            }),
+        );
+        let updates = runtime_entity_updates(&entity);
+        let components = updates.updates.as_ref().expect("updates")[0]
+            .updates
+            .as_ref()
+            .expect("components");
+        let effects = components
+            .iter()
+            .find_map(|component| match component {
+                ComponentUpdate::EntityEffectsUpdate(effects) => Some(effects),
+                _ => None,
+            })
+            .expect("the NPC spawn carries EntityEffectsUpdate");
+        assert_eq!(effects.entity_effect_updates[0].id, 5);
+        assert_eq!(effects.entity_effect_updates[0].r#type, EffectOp::Add);
+        assert!(effects.entity_effect_updates[0].debuff);
+        assert_eq!(
+            effects.entity_effect_updates[0]
+                .status_effect_icon
+                .as_deref(),
+            Some("Burn")
+        );
     }
 
     #[test]

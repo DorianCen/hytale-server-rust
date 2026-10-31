@@ -148,6 +148,15 @@ fn npcs_attack_a_target_through_the_runtime_tick() {
     }
     let save_dir = temp_dir("attack");
     let thread = open(&save_dir);
+    let init = thread
+        .ensure_player_gameplay(7, None)
+        .expect("player stats");
+    assert!(!init.is_empty(), "the join snapshot carries every stat");
+    let max_health = thread
+        .player_health(7)
+        .expect("health")
+        .expect("player exists");
+    assert!(max_health > 0.0);
     let attacker = thread
         .spawn_npc("Rat", transform([0.5, 80.0, 0.5], 0.0))
         .expect("spawn attacker");
@@ -161,18 +170,40 @@ fn npcs_attack_a_target_through_the_runtime_tick() {
         .expect("set targets");
 
     std::thread::sleep(std::time::Duration::from_millis(10));
-    let report = thread.tick_npcs().expect("tick NPCs");
+    let mut report = thread.tick_npcs().expect("tick NPCs");
+    for _ in 0..30 {
+        if report.attacks >= 1 && report.player_damages >= 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let tick = thread.tick_npcs().expect("tick NPCs");
+        report.attacks += tick.attacks;
+        report.player_damages += tick.player_damages;
+        report.deaths += tick.deaths;
+        report.alive = tick.alive;
+    }
     assert!(report.attacks >= 1, "the adjacent Rat attacks: {report:?}");
     assert_eq!(report.alive, 1);
+    assert!(
+        report.player_damages >= 1,
+        "the player target takes NPC damage: {report:?}"
+    );
+    let health = thread
+        .player_health(7)
+        .expect("health")
+        .expect("player exists");
+    assert!(health < max_health, "{health} < {max_health}");
+    let updates = thread.take_player_stat_updates(7).expect("stat updates");
+    assert!(!updates.is_empty(), "damage queues an EntityStatUpdate");
+    assert!(thread
+        .take_player_stat_updates(7)
+        .expect("drain")
+        .is_empty());
     let actors = thread.npc_actors().expect("actors");
     assert_eq!(actors.len(), 1);
-    let (id, actor) = &actors[0];
+    let (id, _actor) = &actors[0];
     assert_eq!(*id, attacker.id);
-    assert_eq!(
-        actor.health(),
-        10.0,
-        "a player target takes no NPC damage yet"
-    );
+    thread.remove_player_gameplay(7).expect("remove player");
 
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();

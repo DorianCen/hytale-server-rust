@@ -54,6 +54,7 @@ fn creates_then_reopens_a_config_and_player() {
         set_block: None,
         spawn_npc: Some("Rat".to_string()),
         auto_population: false,
+        builtin: hytale_server::BuiltinRuntime::compiled(),
     };
 
     let first = run_world_boot(&options).expect("first boot");

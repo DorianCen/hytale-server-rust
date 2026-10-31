@@ -1033,6 +1033,11 @@ impl WorldSave {
         Ok(())
     }
 
+    /// Delete a player holder (used when a portal moves it to another world).
+    pub fn delete_player(&self, uuid: WorldUuid) -> Result<bool> {
+        Ok(self.players.delete(uuid)?)
+    }
+
     /// Write `config.json`.
     pub fn save_config(&self) -> Result<()> {
         self.config.save(&self.config_path)?;

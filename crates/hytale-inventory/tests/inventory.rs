@@ -127,6 +127,59 @@ fn swaps_whole_incompatible_stacks_only() {
 }
 
 #[test]
+fn moves_within_one_container_merge_swap_and_leave_source() {
+    let mut container = SimpleItemContainer::new(2);
+    container
+        .set_slot(0, Some(stack("Rock_Stone", 10)))
+        .unwrap();
+    let outcome = container.move_within(0, 4, 1, &Rules).unwrap();
+    assert_eq!(outcome.moved, 4);
+    assert_eq!(container.get_slot(0).unwrap().unwrap().quantity, 6);
+    assert_eq!(container.get_slot(1).unwrap().unwrap().quantity, 4);
+
+    let mut container = SimpleItemContainer::new(2);
+    container.set_slot(0, Some(stack("Rock_Stone", 5))).unwrap();
+    container
+        .set_slot(1, Some(stack("Potion_Health", 2)))
+        .unwrap();
+    let outcome = container.move_within(0, 5, 1, &Rules).unwrap();
+    assert!(outcome.swapped);
+    assert_eq!(
+        container.get_slot(0).unwrap().unwrap().item_id,
+        "Potion_Health"
+    );
+    assert_eq!(
+        container.get_slot(1).unwrap().unwrap().item_id,
+        "Rock_Stone"
+    );
+}
+
+#[test]
+fn counts_and_removes_items_across_sections() {
+    let mut inventory = PlayerInventory::new();
+    inventory
+        .hotbar
+        .container
+        .set_slot(0, Some(stack("Rock_Stone", 5)))
+        .unwrap();
+    inventory
+        .storage
+        .set_slot(3, Some(stack("Rock_Stone", 7)))
+        .unwrap();
+    inventory
+        .storage
+        .set_slot(4, Some(stack("Plant_Fiber", 2)))
+        .unwrap();
+    assert_eq!(inventory.count_item("Rock_Stone"), 12);
+    assert_eq!(inventory.count_item("Missing"), 0);
+    assert_eq!(inventory.remove_item("Rock_Stone", 8), 8);
+    assert_eq!(inventory.count_item("Rock_Stone"), 4);
+    assert_eq!(inventory.remove_item("Rock_Stone", 10), 4);
+    assert_eq!(inventory.count_item("Rock_Stone"), 0);
+    assert_eq!(inventory.count_item("Plant_Fiber"), 2);
+}
+
+#[test]
 fn drop_removes_a_quantity_and_pickup_fills_existing_then_empty_slots() {
     let mut inventory = PlayerInventory::new();
     inventory

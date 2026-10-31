@@ -15,14 +15,19 @@ use std::time::Instant;
 
 use hytale_assets::{AssetPack, CommonAssetRegistry};
 use hytale_entities::damage::{Damage, DamageCause, DamageCauses, DamageSource};
+use hytale_entities::effects::EntityEffectAsset;
 use hytale_entities::movement::{resolve_target, PlayerShape, TargetResolution};
+use hytale_interactions::executor::{
+    execute_root, ExecutionContext, ExecutionOutcome, WorldAction,
+};
 use hytale_interactions::{InteractionCatalog, InteractionError};
-use hytale_inventory::{ItemStack, PlayerInventory};
+use hytale_inventory::{ItemStack, PlayerInventory, SimpleItemContainer};
 use hytale_npc::block_set::BlockSetCatalog;
-use hytale_npc::combat::{NpcActor, NpcTarget, NpcTickReport};
+use hytale_npc::combat::{NpcActor, NpcTarget};
+use hytale_npc::ecs::NpcEcs;
 use hytale_npc::encounter::{
-    BeaconMessage, EncounterCatalog, EncounterContext, EncounterRuntime, EncounterTarget,
-    EncounterTickReport,
+    BeaconMessage, EncounterAction, EncounterCatalog, EncounterContext, EncounterRuntime,
+    EncounterTarget, EncounterTickReport,
 };
 use hytale_npc::flock::FlockRng;
 use hytale_npc::fluid_tags::FluidTagIndex;
@@ -35,20 +40,23 @@ use hytale_npc::spawn_special::{
 };
 use hytale_npc::spawn_suppression::{SpawnSuppressionIndex, SpawnSuppressionZone};
 use hytale_protocol::generated::common::{
-    BlockDamageCmd, BlockMaterial, BlockPosition, FlyMode, InventorySection, MapImage,
-    MovementSettings,
+    BlockDamageCmd, BlockMaterial, BlockPosition, EntityStatUpdate, FlyMode, InventorySection,
+    MapImage, MovementSettings,
 };
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_protocol::generated::world::{UpdateBlockDamage, UpdateBlockDamages};
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::collision::{BlockCollisionTable, Vec3, WorldCollision};
+use hytale_world::crafting::RecipeCatalog;
 use hytale_world::player_data::{PlayerAppearance, PlayerDataError, PlayerTransform};
 use hytale_world::prefab::{paste_prefab, PrefabPasteReport};
 use hytale_world::runtime::{
     transform, BlockComponent, RuntimeEntity, RuntimeEntityId, RuntimeEntityKind,
 };
-use hytale_world::simulation::{BlockDrop, BlockSimulation, SimulationReport, SimulationTables};
+use hytale_world::simulation::{
+    BlockDrop, BlockSimulation, SimulationReport, SimulationStages, SimulationTables,
+};
 use hytale_world::view::ChunkView;
 use hytale_world::weather::{environment_forecasts, EnvironmentForecast, WeatherState};
 use hytale_world::world::{WorldError, WorldSave};
@@ -59,6 +67,8 @@ use worldgen_hytale::prefab::prefab_rotation::PrefabRotation;
 
 use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
 use crate::map_image;
+use crate::player_gameplay::PlayerGameplay;
+use crate::players::PLAYER_NPC_TARGET_OFFSET;
 
 /// The world clock snapshot sent on join (`WorldTimeState` keeps its previous
 /// name for session compatibility).
@@ -91,6 +101,8 @@ pub struct WorldThreadOptions {
     pub view_radius: u32,
     /// Maximum chunks loaded/generated per `Tick`.
     pub chunks_per_tick: usize,
+    /// Enabled builtin modules.
+    pub builtin: hytale_builtin::BuiltinRuntime,
 }
 
 impl WorldThreadOptions {
@@ -105,6 +117,7 @@ impl WorldThreadOptions {
             player_uuid: None,
             view_radius: 0,
             chunks_per_tick: 1,
+            builtin: hytale_builtin::BuiltinRuntime::compiled(),
         }
     }
 }
@@ -180,6 +193,16 @@ impl ViewId {
     /// The startup/CLI view.
     pub const BASE: Self = Self(0);
 
+    /// Rebuild a view id from a numeric handle (packet/report seam).
+    pub const fn from_raw(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// Numeric view handle (packet/report seam).
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+
     /// The stable numeric id (0 is the base view).
     pub const fn get(self) -> u64 {
         self.0
@@ -195,8 +218,12 @@ pub struct PlayerSnapshot {
     pub appearance: PlayerAppearance,
     /// Saved inventory components.
     pub inventory: PlayerInventory,
+    /// Saved `EntityStats.Stats.Health.Value`.
+    pub health: Option<f32>,
     /// Revealed world-map marker ids.
     pub revealed_markers: BTreeSet<String>,
+    /// Saved crafting knowledge/progression.
+    pub crafting: hytale_world::crafting::CraftingKnowledge,
 }
 
 /// One block-health packet, on the `Chunks` stream.
@@ -290,8 +317,47 @@ pub struct NpcRuntimeReport {
     pub attacks: usize,
     /// Actors that died and were despawned.
     pub deaths: usize,
+    /// Damage instances applied to connected players this tick.
+    pub player_damages: usize,
+    /// Connected players whose health reached zero this tick.
+    pub player_deaths: usize,
     /// Live actors after the tick.
     pub alive: usize,
+}
+
+/// One NPC builder presentation event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NpcPresentationEvent {
+    /// Sound or particle.
+    pub kind: NpcPresentationKind,
+    /// Asset key (`SoundEventId`/`ParticleSystem`).
+    pub key: String,
+    /// World position.
+    pub position: Vec3,
+}
+
+/// NPC builder presentation kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NpcPresentationKind {
+    /// `PlaySound`.
+    Sound,
+    /// `SpawnParticles`.
+    Particles,
+}
+
+/// One world block change produced by an NPC builder action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockChangeEvent {
+    /// Block position.
+    pub x: i32,
+    /// Block position.
+    pub y: i32,
+    /// Block position.
+    pub z: i32,
+    /// Block id before the change.
+    pub before: i32,
+    /// Block id after the change.
+    pub after: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -444,6 +510,18 @@ enum Command {
         item_id: String,
         reply: SyncSender<Result<Option<i32>, String>>,
     },
+    BlockTypeId {
+        key: String,
+        reply: SyncSender<Option<i32>>,
+    },
+    ApplyInteraction {
+        root: String,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_to_place: Option<String>,
+        reply: SyncSender<bool>,
+    },
     BlockTypeJson {
         x: i32,
         y: i32,
@@ -461,6 +539,19 @@ enum Command {
         z: i32,
         reply: SyncSender<Result<Option<BlockContainerOpen>, String>>,
     },
+    BlockContainer {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<SimpleItemContainer>, String>>,
+    },
+    SetBlockContainer {
+        x: i32,
+        y: i32,
+        z: i32,
+        container: Box<SimpleItemContainer>,
+        reply: SyncSender<Result<(), String>>,
+    },
     SetBlockState {
         x: i32,
         y: i32,
@@ -470,6 +561,17 @@ enum Command {
     },
     InteractionCatalog {
         reply: SyncSender<Arc<InteractionCatalog>>,
+    },
+    AssetRegistry {
+        reply: SyncSender<Arc<hytale_assets::AssetRegistry>>,
+    },
+    PortalPlan {
+        key: String,
+        fallback: PlayerTransform,
+        reply: SyncSender<Result<hytale_world::instance::PortalTransportPlan, String>>,
+    },
+    RecipeCatalog {
+        reply: SyncSender<Arc<RecipeCatalog>>,
     },
     MovementSettings {
         reply: SyncSender<Result<MovementSettings, String>>,
@@ -511,6 +613,10 @@ enum Command {
         y: i32,
         z: i32,
         reply: SyncSender<Result<Option<i32>, String>>,
+    },
+    ForceWeather {
+        weather: Option<String>,
+        reply: SyncSender<Result<(), String>>,
     },
     BlockDrops {
         block_id: i32,
@@ -648,6 +754,49 @@ enum Command {
     TickNpcSpawns {
         reply: SyncSender<Result<NpcSpawnReport, String>>,
     },
+    EnsurePlayerGameplay {
+        network_id: i32,
+        saved_health: Option<f32>,
+        reply: SyncSender<Result<Vec<(i32, EntityStatUpdate)>, String>>,
+    },
+    RemovePlayerGameplay {
+        network_id: i32,
+        reply: SyncSender<()>,
+    },
+    TakePlayerStatUpdates {
+        network_id: i32,
+        reply: SyncSender<Vec<(i32, EntityStatUpdate)>>,
+    },
+    ApplyPlayerEffect {
+        network_id: i32,
+        effect_id: String,
+        duration: Option<f32>,
+        reply: SyncSender<Result<(), String>>,
+    },
+    TickPlayerGameplay {
+        network_id: i32,
+        dt: f32,
+        reply:
+            SyncSender<Result<Vec<hytale_protocol::generated::common::EntityEffectUpdate>, String>>,
+    },
+    TakePlayerEffectUpdates {
+        network_id: i32,
+        reply: SyncSender<Vec<hytale_protocol::generated::common::EntityEffectUpdate>>,
+    },
+    DamagePlayer {
+        network_id: i32,
+        amount: f32,
+        cause: String,
+        reply: SyncSender<Result<Option<hytale_entities::damage::DamageResult>, String>>,
+    },
+    RespawnPlayer {
+        network_id: i32,
+        reply: SyncSender<Result<bool, String>>,
+    },
+    PlayerHealth {
+        network_id: i32,
+        reply: SyncSender<Option<f32>>,
+    },
     TickNpcs {
         reply: SyncSender<Result<NpcRuntimeReport, String>>,
     },
@@ -659,6 +808,12 @@ enum Command {
     },
     NpcActors {
         reply: SyncSender<Vec<(RuntimeEntityId, NpcActor)>>,
+    },
+    TakeNpcPresentationEvents {
+        reply: SyncSender<Vec<NpcPresentationEvent>>,
+    },
+    TakeBlockChangeEvents {
+        reply: SyncSender<Vec<BlockChangeEvent>>,
     },
     SpawnEncounter {
         key: String,
@@ -686,6 +841,15 @@ enum Command {
     },
     EncounterStates {
         reply: SyncSender<Vec<(String, String)>>,
+    },
+    EncounterPortalTimer {
+        key: String,
+        reply: SyncSender<Option<f64>>,
+    },
+    SetEncounterPortalTimer {
+        key: String,
+        seconds: Option<f64>,
+        reply: SyncSender<bool>,
     },
     UpdateEntityTransform {
         id: RuntimeEntityId,
@@ -722,6 +886,13 @@ enum Command {
         z: f64,
         reply: SyncSender<Result<RuntimeEntity, String>>,
     },
+    PickupNearestItem {
+        x: f64,
+        y: f64,
+        z: f64,
+        radius: f64,
+        reply: SyncSender<Option<RuntimeEntity>>,
+    },
     BlockComponent {
         x: i32,
         y: i32,
@@ -747,6 +918,19 @@ enum Command {
         uuid: WorldUuid,
         reply: SyncSender<Result<PlayerSnapshot, String>>,
     },
+    PlayerDocument {
+        uuid: WorldUuid,
+        reply: SyncSender<Result<hytale_world::player_data::PlayerData, String>>,
+    },
+    SavePlayerDocument {
+        uuid: WorldUuid,
+        document: Box<hytale_world::player_data::PlayerData>,
+        reply: SyncSender<Result<(), String>>,
+    },
+    DeletePlayerDocument {
+        uuid: WorldUuid,
+        reply: SyncSender<Result<bool, String>>,
+    },
     SavePlayerTransform {
         uuid: WorldUuid,
         transform: PlayerTransform,
@@ -756,6 +940,16 @@ enum Command {
         uuid: WorldUuid,
         transform: PlayerTransform,
         inventory: Box<PlayerInventory>,
+        reply: SyncSender<Result<(), String>>,
+    },
+    SavePlayerHealth {
+        uuid: WorldUuid,
+        health: f32,
+        reply: SyncSender<Result<(), String>>,
+    },
+    SavePlayerCrafting {
+        uuid: WorldUuid,
+        crafting: Box<hytale_world::crafting::CraftingKnowledge>,
         reply: SyncSender<Result<(), String>>,
     },
     SavePlayerRevealedMarkers {
@@ -1079,6 +1273,41 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Resolve a block type key to its runtime id.
+    pub fn block_type_id(&self, key: &str) -> Result<Option<i32>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockTypeId {
+                key: key.to_string(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Execute a root interaction and apply its block actions at a position.
+    pub fn apply_interaction_root(
+        &self,
+        root: &str,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_to_place: Option<&str>,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ApplyInteraction {
+                root: root.to_string(),
+                x,
+                y,
+                z,
+                block_to_place: block_to_place.map(ToOwned::to_owned),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
     /// The block type key and merged JSON at a loaded block position.
     pub fn block_type_json(
         &self,
@@ -1129,6 +1358,47 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// One block's live container (no packet projection), for transactions.
+    pub fn block_container(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<Option<SimpleItemContainer>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockContainer { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Replace one block's container after a transaction.
+    pub fn set_block_container(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        container: SimpleItemContainer,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetBlockContainer {
+                x,
+                y,
+                z,
+                container: Box::new(container),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Change a block to its `State.Definitions.<state>` variant, preserving
     /// rotation/filler. Returns `(before, after)`.
     pub fn set_block_state(
@@ -1159,6 +1429,44 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::InteractionCatalog { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Shared handle to the world's decoded asset registry.
+    pub fn asset_registry(&self) -> Result<Arc<hytale_assets::AssetRegistry>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::AssetRegistry { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Resolve a `Server/PortalTypes` transport plan for one portal key.
+    pub fn portal_plan(
+        &self,
+        key: impl Into<String>,
+        fallback: PlayerTransform,
+    ) -> Result<hytale_world::instance::PortalTransportPlan, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PortalPlan {
+                key: key.into(),
+                fallback,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// The recipe catalog sent on join.
+    pub fn recipe_catalog(&self) -> Result<Arc<RecipeCatalog>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::RecipeCatalog { reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response.recv().map_err(|_| WorldThreadError::ChannelClosed)
     }
@@ -1268,6 +1576,21 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::WeatherAt { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Force the world weather by asset key, or clear the override.
+    pub fn force_weather(&self, weather: Option<&str>) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ForceWeather {
+                weather: weather.map(ToOwned::to_owned),
+                reply,
+            })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -1754,6 +2077,144 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Create a connected player's stat map and return the initial snapshot.
+    pub fn ensure_player_gameplay(
+        &self,
+        network_id: i32,
+        saved_health: Option<f32>,
+    ) -> Result<Vec<(i32, EntityStatUpdate)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::EnsurePlayerGameplay {
+                network_id,
+                saved_health,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Drop a disconnected player's live stat map.
+    pub fn remove_player_gameplay(&self, network_id: i32) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::RemovePlayerGameplay { network_id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Drain pending stat deltas for one player.
+    pub fn take_player_stat_updates(
+        &self,
+        network_id: i32,
+    ) -> Result<Vec<(i32, EntityStatUpdate)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TakePlayerStatUpdates { network_id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Apply one real `Server/Entity/Effects` effect to a connected player.
+    pub fn apply_player_effect(
+        &self,
+        network_id: i32,
+        effect_id: impl Into<String>,
+        duration: Option<f32>,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ApplyPlayerEffect {
+                network_id,
+                effect_id: effect_id.into(),
+                duration,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Tick one player's effects/DoT and return effect replication updates.
+    pub fn tick_player_gameplay(
+        &self,
+        network_id: i32,
+        dt: f32,
+    ) -> Result<Vec<hytale_protocol::generated::common::EntityEffectUpdate>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TickPlayerGameplay {
+                network_id,
+                dt,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Drain pending effect updates for one player.
+    pub fn take_player_effect_updates(
+        &self,
+        network_id: i32,
+    ) -> Result<Vec<hytale_protocol::generated::common::EntityEffectUpdate>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TakePlayerEffectUpdates { network_id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Apply damage to a connected player (test/gameplay seam).
+    pub fn damage_player(
+        &self,
+        network_id: i32,
+        amount: f32,
+        cause: impl Into<String>,
+    ) -> Result<Option<hytale_entities::damage::DamageResult>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::DamagePlayer {
+                network_id,
+                amount,
+                cause: cause.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Respawn one connected player after death.
+    pub fn respawn_player(&self, network_id: i32) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::RespawnPlayer { network_id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Current health of one connected player.
+    pub fn player_health(&self, network_id: i32) -> Result<Option<f32>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlayerHealth { network_id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
     /// Advance every live NPC by the elapsed wall-clock time.
     pub fn tick_npcs(&self) -> Result<NpcRuntimeReport, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
@@ -1793,6 +2254,26 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::NpcActors { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Drain NPC builder presentation events (sounds/particles).
+    pub fn take_npc_presentation_events(
+        &self,
+    ) -> Result<Vec<NpcPresentationEvent>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TakeNpcPresentationEvents { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Drain NPC builder block changes.
+    pub fn take_block_change_events(&self) -> Result<Vec<BlockChangeEvent>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::TakeBlockChangeEvents { reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response.recv().map_err(|_| WorldThreadError::ChannelClosed)
     }
@@ -1887,6 +2368,38 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::EncounterStates { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Current portal timer remaining seconds for one encounter.
+    pub fn encounter_portal_remaining(
+        &self,
+        key: impl Into<String>,
+    ) -> Result<Option<f64>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::EncounterPortalTimer {
+                key: key.into(),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
+    /// Seed/replace one encounter's portal timer.
+    pub fn set_encounter_portal_timer(
+        &self,
+        key: impl Into<String>,
+        seconds: Option<f64>,
+    ) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SetEncounterPortalTimer {
+                key: key.into(),
+                seconds,
+                reply,
+            })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response.recv().map_err(|_| WorldThreadError::ChannelClosed)
     }
@@ -2018,6 +2531,27 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Remove and return the nearest runtime item entity within `radius`.
+    pub fn pickup_nearest_item(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+        radius: f64,
+    ) -> Result<Option<RuntimeEntity>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PickupNearestItem {
+                x,
+                y,
+                z,
+                radius,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response.recv().map_err(|_| WorldThreadError::ChannelClosed)
+    }
+
     /// One block's component document.
     pub fn block_component(
         &self,
@@ -2125,6 +2659,53 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
+    /// Full saved player document (all components), for a portal transfer.
+    pub fn player_document(
+        &self,
+        uuid: WorldUuid,
+    ) -> Result<hytale_world::player_data::PlayerData, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlayerDocument { uuid, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Write a full saved player document into this world.
+    pub fn save_player_document(
+        &self,
+        uuid: WorldUuid,
+        document: hytale_world::player_data::PlayerData,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SavePlayerDocument {
+                uuid,
+                document: Box::new(document),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Remove one player document from this world.
+    pub fn delete_player_document(&self, uuid: WorldUuid) -> Result<bool, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::DeletePlayerDocument { uuid, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
     /// Persist one player's live transform, preserving every other component.
     pub fn save_player_transform(
         &self,
@@ -2188,8 +2769,43 @@ impl WorldThread {
             .map_err(WorldThreadError::Thread)
     }
 
-    /// The loaded player's saved model, skin, armor and active held items.
-    ///
+    /// Persist one player's health stat.
+    pub fn save_player_health(&self, uuid: WorldUuid, health: f32) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SavePlayerHealth {
+                uuid,
+                health,
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Persist one player's crafting knowledge/progression.
+    pub fn save_player_crafting(
+        &self,
+        uuid: WorldUuid,
+        crafting: &hytale_world::crafting::CraftingKnowledge,
+    ) -> Result<(), WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SavePlayerCrafting {
+                uuid,
+                crafting: Box::new(crafting.clone()),
+                reply,
+            })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// The loaded player's saved model, skin, armor and active held items.    ///
     /// Unknown item ids are already dropped against the world's asset
     /// registry; the self-spawn falls back to Java's empty values.
     pub fn player_appearance(&self) -> Result<PlayerAppearance, WorldThreadError> {
@@ -2309,6 +2925,8 @@ fn run(
             mut block_sets,
             damage_causes,
             mut npcs,
+            recipes,
+            mut player_gameplay,
             mut last_npc_tick,
         }) => {
             if ready.send(Ok(start.clone())).is_err() {
@@ -2318,6 +2936,12 @@ fn run(
             let seed = save.config().seed as i32;
             let mut entity_events: Vec<RuntimeEntityEvent> = Vec::new();
             let mut npc_targets: Vec<NpcTarget> = Vec::new();
+            let mut npc_presentation: Vec<NpcPresentationEvent> = Vec::new();
+            let mut npc_beacon_triggers: Vec<String> = Vec::new();
+            let mut npc_spawns: Vec<(String, usize, f64, Vec3)> = Vec::new();
+            let mut npc_spawn_marker_triggers: Vec<String> = Vec::new();
+            let mut interaction_hosts: BTreeMap<u64, Instant> = BTreeMap::new();
+            let mut block_events: Vec<BlockChangeEvent> = Vec::new();
             let mut npc_spawn_targets: Vec<NpcSpawnTarget> = Vec::new();
             let mut npc_spawn_controllers: BTreeMap<String, WorldSpawnController> = BTreeMap::new();
             let mut encounters: BTreeMap<String, EncounterRuntime> = BTreeMap::new();
@@ -2498,6 +3122,35 @@ fn run(
                         let result = block_id_for_item(generator.assets(), &item_id);
                         let _ = reply.send(result);
                     }
+                    Command::BlockTypeId { key, reply } => {
+                        let id = generator
+                            .assets()
+                            .block_types
+                            .get(&key)
+                            .and_then(|record| record.id);
+                        let _ = reply.send(id);
+                    }
+                    Command::ApplyInteraction {
+                        root,
+                        x,
+                        y,
+                        z,
+                        block_to_place,
+                        reply,
+                    } => {
+                        let outcome =
+                            execute_root(&interactions, &root, &ExecutionContext::default());
+                        let before = block_events.len();
+                        apply_interaction_outcome(
+                            &mut save,
+                            &generator,
+                            Vec3::new(f64::from(x), f64::from(y), f64::from(z)),
+                            &outcome,
+                            block_to_place.as_deref(),
+                            &mut block_events,
+                        );
+                        let _ = reply.send(block_events.len() > before);
+                    }
                     Command::BlockTypeJson { x, y, z, reply } => {
                         let result = block_type_json(&save, &generator, x, y, z);
                         let _ = reply.send(result);
@@ -2521,6 +3174,23 @@ fn run(
                         let result = open_block_container(&mut save, &generator, x, y, z);
                         let _ = reply.send(result);
                     }
+                    Command::BlockContainer { x, y, z, reply } => {
+                        let _ = reply.send(Ok(save.world().container(x, y, z).cloned()));
+                    }
+                    Command::SetBlockContainer {
+                        x,
+                        y,
+                        z,
+                        container,
+                        reply,
+                    } => {
+                        if save.world().container(x, y, z).is_none() {
+                            let _ = reply.send(Err("block container is not open".to_string()));
+                            continue;
+                        }
+                        save.world_mut().set_container(x, y, z, *container);
+                        let _ = reply.send(Ok(()));
+                    }
                     Command::SetBlockState {
                         x,
                         y,
@@ -2534,6 +3204,28 @@ fn run(
                     }
                     Command::InteractionCatalog { reply } => {
                         let _ = reply.send(Arc::clone(&interactions));
+                    }
+                    Command::AssetRegistry { reply } => {
+                        let _ = reply.send(generator.assets_arc());
+                    }
+                    Command::PortalPlan {
+                        key,
+                        fallback,
+                        reply,
+                    } => {
+                        let result = hytale_world::instance::PortalCatalog::load_root(
+                            &options.generator.assets_root,
+                        )
+                        .map_err(|error| error.to_string())
+                        .and_then(|catalog| {
+                            catalog
+                                .plan(&key, fallback)
+                                .map_err(|error| error.to_string())
+                        });
+                        let _ = reply.send(result);
+                    }
+                    Command::RecipeCatalog { reply } => {
+                        let _ = reply.send(Arc::clone(&recipes));
                     }
                     Command::MovementSettings { reply } => {
                         let _ = reply.send(Ok(movement_settings.clone()));
@@ -2581,6 +3273,10 @@ fn run(
                         let _ = reply.send(result);
                     }
                     Command::WeatherAt { x, y, z, reply } => {
+                        if !options.builtin.weather {
+                            let _ = reply.send(Ok(None));
+                            continue;
+                        }
                         let hour = clock.current_hour();
                         weather.update(
                             hour,
@@ -2590,6 +3286,26 @@ fn run(
                         );
                         let environment = save.world().get_environment(x, y, z);
                         let _ = reply.send(Ok(weather.effective_weather(environment)));
+                    }
+                    Command::ForceWeather { weather: id, reply } => {
+                        if !options.builtin.weather {
+                            let _ = reply.send(Ok(()));
+                            continue;
+                        }
+                        let result = match id.as_deref() {
+                            Some(id) => match generator.assets().weather_id(id) {
+                                Some(index) => {
+                                    weather.set_forced_weather(Some(index));
+                                    Ok(())
+                                }
+                                None => Err(format!("unknown weather `{id}`")),
+                            },
+                            None => {
+                                weather.set_forced_weather(None);
+                                Ok(())
+                            }
+                        };
+                        let _ = reply.send(result);
                     }
                     Command::SetLocalLight {
                         x,
@@ -2732,6 +3448,10 @@ fn run(
                         transform,
                         reply,
                     } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Err("NPC module is disabled".to_string()));
+                            continue;
+                        }
                         let result = (|| {
                             let role_catalog =
                                 load_npc_roles(&mut roles, &options.generator.assets_pack)?;
@@ -2756,6 +3476,10 @@ fn run(
                         mode,
                         reply,
                     } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Err("NPC module is disabled".to_string()));
+                            continue;
+                        }
                         let result = (|| {
                             let role_catalog =
                                 load_npc_roles(&mut roles, &options.generator.assets_pack)?;
@@ -2798,6 +3522,10 @@ fn run(
                         mode,
                         reply,
                     } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Err("NPC module is disabled".to_string()));
+                            continue;
+                        }
                         let result = (|| {
                             let role_catalog =
                                 load_npc_roles(&mut roles, &options.generator.assets_pack)?;
@@ -2900,6 +3628,10 @@ fn run(
                         position,
                         reply,
                     } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Err("NPC module is disabled".to_string()));
+                            continue;
+                        }
                         let result = (|| {
                             let catalog = load_spawn_marker_catalog(
                                 &mut spawn_marker_catalog,
@@ -2932,6 +3664,10 @@ fn run(
                         let _ = reply.send(spawn_markers.remove(&id).is_some());
                     }
                     Command::TriggerSpawnMarker { id, reply } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Err("NPC module is disabled".to_string()));
+                            continue;
+                        }
                         let result = (|| {
                             let Some(live) = spawn_markers.get_mut(&id) else {
                                 return Ok(None);
@@ -2983,6 +3719,10 @@ fn run(
                         real_dt,
                         reply,
                     } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Ok(SpawnSpecialReport::default()));
+                            continue;
+                        }
                         let result = (|| {
                             let catalog = load_spawn_marker_catalog(
                                 &mut spawn_marker_catalog,
@@ -3046,6 +3786,10 @@ fn run(
                         position,
                         reply,
                     } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Err("NPC module is disabled".to_string()));
+                            continue;
+                        }
                         let result = (|| {
                             let catalog = load_beacon_catalog(
                                 &mut beacon_catalog,
@@ -3087,6 +3831,10 @@ fn run(
                         real_dt,
                         reply,
                     } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Ok(SpawnSpecialReport::default()));
+                            continue;
+                        }
                         let result = (|| {
                             let catalog = load_beacon_catalog(
                                 &mut beacon_catalog,
@@ -3204,7 +3952,99 @@ fn run(
                         }
                         let _ = reply.send(entries);
                     }
+                    Command::EnsurePlayerGameplay {
+                        network_id,
+                        saved_health,
+                        reply,
+                    } => {
+                        let result = PlayerGameplay::from_assets(generator.assets(), saved_health)
+                            .map(|gameplay| {
+                                let init = gameplay.init_updates();
+                                player_gameplay.insert(network_id, gameplay);
+                                init
+                            });
+                        let _ = reply.send(result);
+                    }
+                    Command::RemovePlayerGameplay { network_id, reply } => {
+                        player_gameplay.remove(&network_id);
+                        let _ = reply.send(());
+                    }
+                    Command::TakePlayerStatUpdates { network_id, reply } => {
+                        let updates = player_gameplay
+                            .get_mut(&network_id)
+                            .map(PlayerGameplay::take_updates)
+                            .unwrap_or_default();
+                        let _ = reply.send(updates);
+                    }
+                    Command::PlayerHealth { network_id, reply } => {
+                        let _ = reply
+                            .send(player_gameplay.get(&network_id).map(PlayerGameplay::health));
+                    }
+                    Command::ApplyPlayerEffect {
+                        network_id,
+                        effect_id,
+                        duration,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let effect = player_effect_asset(generator.assets(), &effect_id)
+                                .ok_or_else(|| format!("unknown entity effect `{effect_id}`"))?;
+                            let gameplay = player_gameplay
+                                .get_mut(&network_id)
+                                .ok_or_else(|| "player has no gameplay map".to_string())?;
+                            gameplay.apply_effect(&effect, duration);
+                            Ok(())
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::TickPlayerGameplay {
+                        network_id,
+                        dt,
+                        reply,
+                    } => {
+                        let result = (|| {
+                            let gameplay = player_gameplay
+                                .get_mut(&network_id)
+                                .ok_or_else(|| "player has no gameplay map".to_string())?;
+                            gameplay.tick(dt, &damage_causes);
+                            let updates = gameplay.take_effect_updates();
+                            Ok(updates)
+                        })();
+                        let _ = reply.send(result);
+                    }
+                    Command::TakePlayerEffectUpdates { network_id, reply } => {
+                        let updates = player_gameplay
+                            .get_mut(&network_id)
+                            .map(PlayerGameplay::take_effect_updates)
+                            .unwrap_or_default();
+                        let _ = reply.send(updates);
+                    }
+                    Command::DamagePlayer {
+                        network_id,
+                        amount,
+                        cause,
+                        reply,
+                    } => {
+                        let result = player_gameplay.get_mut(&network_id).map(|gameplay| {
+                            gameplay.apply_damage(
+                                &Damage::new(amount, cause.clone(), DamageSource::Command),
+                                &damage_causes,
+                            )
+                        });
+                        let _ = reply.send(Ok(result));
+                    }
+                    Command::RespawnPlayer { network_id, reply } => {
+                        let result = player_gameplay
+                            .get_mut(&network_id)
+                            .map(PlayerGameplay::respawn)
+                            .ok_or_else(|| "player has no gameplay map".to_string());
+                        let _ = reply.send(result);
+                    }
                     Command::TickNpcSpawns { reply } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Ok(NpcSpawnReport::default()));
+                            continue;
+                        }
                         let result = (|| {
                             let role_catalog =
                                 load_npc_roles(&mut roles, &options.generator.assets_pack)?;
@@ -3335,6 +4175,10 @@ fn run(
                         let _ = reply.send(result);
                     }
                     Command::TickNpcs { reply } => {
+                        if !options.builtin.npc {
+                            let _ = reply.send(Ok(NpcRuntimeReport::default()));
+                            continue;
+                        }
                         let now = Instant::now();
                         let dt = now
                             .saturating_duration_since(last_npc_tick)
@@ -3350,19 +4194,369 @@ fn run(
                         let mut result = NpcRuntimeReport::default();
                         let mut attacks = Vec::new();
                         if dt > 0.0 {
-                            for (&id, actor) in npcs.iter_mut() {
+                            npcs.tick_gameplay(dt as f32);
+                            for id in npcs.ids() {
+                                if let Some(actor) = npcs.get_mut(&id) {
+                                    let position = actor.position;
+                                    let x = position.x.floor() as i32;
+                                    let y = position.y.floor() as i32;
+                                    let z = position.z.floor() as i32;
+                                    let in_water = save.world().get_fluid_id(x, y, z) != 0;
+                                    actor.blackboard.in_water = in_water;
+                                    actor.blackboard.in_air =
+                                        !in_water && !is_solid(save.world().get_block(x, y - 1, z));
+                                    actor.blackboard.time_hour = f64::from(clock.current_hour());
+                                    let environment = save.world().get_environment(x, y, z);
+                                    actor.blackboard.weather = weather
+                                        .effective_weather(environment)
+                                        .and_then(|index| {
+                                            generator.assets().weathers.get_by_id(index)
+                                        })
+                                        .map(|record| record.key.clone());
+                                    actor.blackboard.nearby_count = npc_targets.len();
+                                    if let Some(light) = save.world().light_sample(x, y, z) {
+                                        actor.blackboard.light = i64::from(light.block_light());
+                                        actor.blackboard.sky_light = i64::from(light.sky);
+                                    }
+                                    actor.blackboard.can_place_block = actor
+                                        .blackboard
+                                        .block_to_place
+                                        .as_ref()
+                                        .and_then(|key| {
+                                            generator
+                                                .assets()
+                                                .block_types
+                                                .get(key)
+                                                .map(|record| record.id.is_some())
+                                        })
+                                        .unwrap_or(false)
+                                        && save.world().get_block(x, y, z) == 0;
+                                }
+                                let Some(report) = npcs.tick_actor(
+                                    id,
+                                    dt,
+                                    save.world(),
+                                    is_solid,
+                                    &npc_targets,
+                                    0.5,
+                                ) else {
+                                    continue;
+                                };
                                 result.ticked += 1;
-                                let report: NpcTickReport =
-                                    actor.tick(dt, save.world(), is_solid, &npc_targets, 0.5);
+                                if !report.builder_actions.is_empty() {
+                                    let flat_actions = report
+                                        .builder_actions
+                                        .iter()
+                                        .flat_map(|action| action.flatten())
+                                        .collect::<Vec<_>>();
+                                    if let Some(actor) = npcs.get_mut(&id) {
+                                        let position = actor.position;
+                                        for action in &flat_actions {
+                                            match action.kind() {
+                                                "ApplyEntityEffect" => {
+                                                    let effect_id = action
+                                                        .value
+                                                        .get("Effect")
+                                                        .or_else(|| action.value.get("EffectId"))
+                                                        .and_then(serde_json::Value::as_str);
+                                                    if let Some(effect_id) = effect_id {
+                                                        if let Some(effect) = player_effect_asset(
+                                                            generator.assets(),
+                                                            effect_id,
+                                                        ) {
+                                                            actor.gameplay.apply_effect(&effect);
+                                                        }
+                                                    }
+                                                }
+                                                "PlaySound" => {
+                                                    if let Some(key) = action
+                                                        .value
+                                                        .get("SoundEventId")
+                                                        .or_else(|| action.value.get("Sound"))
+                                                        .and_then(serde_json::Value::as_str)
+                                                    {
+                                                        npc_presentation.push(
+                                                            NpcPresentationEvent {
+                                                                kind: NpcPresentationKind::Sound,
+                                                                key: key.to_string(),
+                                                                position,
+                                                            },
+                                                        );
+                                                    }
+                                                }
+                                                "SpawnParticles" => {
+                                                    if let Some(key) = action
+                                                        .value
+                                                        .get("ParticleSystem")
+                                                        .or_else(|| action.value.get("Particles"))
+                                                        .and_then(serde_json::Value::as_str)
+                                                    {
+                                                        npc_presentation.push(
+                                                            NpcPresentationEvent {
+                                                                kind:
+                                                                    NpcPresentationKind::Particles,
+                                                                key: key.to_string(),
+                                                                position,
+                                                            },
+                                                        );
+                                                    }
+                                                }
+                                                "DropItem" => {
+                                                    let item = action
+                                                        .value
+                                                        .get("Item")
+                                                        .or_else(|| action.value.get("ItemId"))
+                                                        .and_then(|value| {
+                                                            actor.parameter_string(value)
+                                                        });
+                                                    if let Some(item) = item {
+                                                        let quantity = action
+                                                            .value
+                                                            .get("Quantity")
+                                                            .and_then(serde_json::Value::as_u64)
+                                                            .unwrap_or(1)
+                                                            as i32;
+                                                        if let Ok(entity) = spawn_item_entity(
+                                                            &mut save, &generator, &item, quantity,
+                                                            position.x, position.y, position.z,
+                                                        ) {
+                                                            entity_events.push(
+                                                                RuntimeEntityEvent::Spawned(
+                                                                    entity.id,
+                                                                ),
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                                "PickUpItem" => {
+                                                    let radius = action
+                                                        .value
+                                                        .get("Range")
+                                                        .and_then(serde_json::Value::as_f64)
+                                                        .unwrap_or(2.0);
+                                                    if let Some(entity) = pickup_nearest_item(
+                                                        &mut save, position, radius,
+                                                    ) {
+                                                        actor.blackboard.pickup_item =
+                                                            entity.item_id().map(ToOwned::to_owned);
+                                                        actor.blackboard.has_interacted = true;
+                                                        if let Some(item_id) = entity.item_id() {
+                                                            *actor
+                                                                .blackboard
+                                                                .items
+                                                                .entry(item_id.to_string())
+                                                                .or_insert(0) +=
+                                                                entity.item_quantity();
+                                                        }
+                                                        entity_events.push(
+                                                            RuntimeEntityEvent::Despawned {
+                                                                id: entity.id,
+                                                                position: entity.transform.position,
+                                                            },
+                                                        );
+                                                    }
+                                                }
+                                                "PlaceBlock" => {
+                                                    let block_key =
+                                                        actor.blackboard.block_to_place.clone();
+                                                    if let Some(block_key) = block_key {
+                                                        if let Some(block_id) = generator
+                                                            .assets()
+                                                            .block_types
+                                                            .get(&block_key)
+                                                            .and_then(|record| record.id)
+                                                        {
+                                                            let position = actor
+                                                                .blackboard
+                                                                .positions
+                                                                .get("SteppedBlock")
+                                                                .copied()
+                                                                .or(actor
+                                                                    .blackboard
+                                                                    .target_position)
+                                                                .unwrap_or(actor.position);
+                                                            let (bx, by, bz) = (
+                                                                position.x.floor() as i32,
+                                                                position.y.floor() as i32,
+                                                                position.z.floor() as i32,
+                                                            );
+                                                            if let Ok(Some((before, after))) =
+                                                                place_block(
+                                                                    &mut save, bx, by, bz, block_id,
+                                                                )
+                                                            {
+                                                                block_events.push(
+                                                                    BlockChangeEvent {
+                                                                        x: bx,
+                                                                        y: by,
+                                                                        z: bz,
+                                                                        before,
+                                                                        after,
+                                                                    },
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                "TriggerSpawnBeacon" => {
+                                                    if let Some(key) = action
+                                                        .value
+                                                        .get("BeaconSpawn")
+                                                        .or_else(|| action.value.get("Beacon"))
+                                                        .and_then(serde_json::Value::as_str)
+                                                    {
+                                                        npc_beacon_triggers.push(key.to_string());
+                                                    }
+                                                }
+                                                "Spawn" => {
+                                                    if let Some(kind) = action
+                                                        .value
+                                                        .get("Kind")
+                                                        .or_else(|| action.value.get("Role"))
+                                                        .and_then(|value| {
+                                                            actor.parameter_string(value)
+                                                        })
+                                                    {
+                                                        let count = action
+                                                            .value
+                                                            .get("CountRange")
+                                                            .and_then(serde_json::Value::as_array)
+                                                            .and_then(|values| values.get(1))
+                                                            .and_then(serde_json::Value::as_u64)
+                                                            .unwrap_or(1)
+                                                            as usize;
+                                                        let distance = action
+                                                            .value
+                                                            .get("DistanceRange")
+                                                            .and_then(serde_json::Value::as_array)
+                                                            .and_then(|values| values.get(1))
+                                                            .and_then(serde_json::Value::as_f64)
+                                                            .unwrap_or(1.0);
+                                                        npc_spawns.push((
+                                                            kind.to_string(),
+                                                            count.max(1),
+                                                            distance,
+                                                            position,
+                                                        ));
+                                                    }
+                                                }
+                                                "TriggerSpawners" => {
+                                                    if let Some(key) = action
+                                                        .value
+                                                        .get("SpawnMarker")
+                                                        .and_then(serde_json::Value::as_str)
+                                                    {
+                                                        npc_spawn_marker_triggers
+                                                            .push(key.to_string());
+                                                    }
+                                                }
+                                                "EntityHitInteraction" | "BlockHitInteraction" => {
+                                                    if let Some(key) =
+                                                        action.value.get("Interaction").and_then(
+                                                            |value| actor.parameter_string(value),
+                                                        )
+                                                    {
+                                                        let position = actor
+                                                            .blackboard
+                                                            .positions
+                                                            .get("SteppedBlock")
+                                                            .copied()
+                                                            .or(actor.blackboard.target_position)
+                                                            .unwrap_or(actor.position);
+                                                        let outcome = execute_root(
+                                                            &interactions,
+                                                            &key,
+                                                            &ExecutionContext::default(),
+                                                        );
+                                                        let block_to_place =
+                                                            actor.blackboard.block_to_place.clone();
+                                                        apply_interaction_outcome(
+                                                            &mut save,
+                                                            &generator,
+                                                            position,
+                                                            &outcome,
+                                                            block_to_place.as_deref(),
+                                                            &mut block_events,
+                                                        );
+                                                    }
+                                                }
+                                                "SpawnInteraction" => {
+                                                    if let Some(key) =
+                                                        action.value.get("Interaction").and_then(
+                                                            |value| actor.parameter_string(value),
+                                                        )
+                                                    {
+                                                        let position = actor
+                                                            .blackboard
+                                                            .positions
+                                                            .get("SteppedBlock")
+                                                            .copied()
+                                                            .or(actor.blackboard.target_position)
+                                                            .unwrap_or(actor.position);
+                                                        let outcome = execute_root(
+                                                            &interactions,
+                                                            &key,
+                                                            &ExecutionContext::default(),
+                                                        );
+                                                        let block_to_place =
+                                                            actor.blackboard.block_to_place.clone();
+                                                        apply_interaction_outcome(
+                                                            &mut save,
+                                                            &generator,
+                                                            position,
+                                                            &outcome,
+                                                            block_to_place.as_deref(),
+                                                            &mut block_events,
+                                                        );
+                                                        let entity = save.world_mut().spawn_entity(
+                                                            RuntimeEntityKind::Other,
+                                                            None,
+                                                            npc_transform(position),
+                                                            serde_json::json!({
+                                                                "Interaction": {
+                                                                    "Interaction": key
+                                                                }
+                                                            }),
+                                                        );
+                                                        interaction_hosts.insert(
+                                                            entity,
+                                                            Instant::now()
+                                                                + std::time::Duration::from_secs(
+                                                                    10,
+                                                                ),
+                                                        );
+                                                        entity_events.push(
+                                                            RuntimeEntityEvent::Spawned(entity),
+                                                        );
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                }
+                                if npcs.get(&id).is_some_and(|actor| actor.despawn_requested) {
+                                    if let Some(entity) = save.world_mut().despawn_entity(id) {
+                                        entity_events.push(RuntimeEntityEvent::Despawned {
+                                            id,
+                                            position: entity.transform.position,
+                                        });
+                                        result.deaths += 1;
+                                    }
+                                    npcs.remove(&id);
+                                    continue;
+                                }
                                 if report.moved {
                                     result.moved += 1;
-                                    if let Some(entity) =
-                                        save.world_mut().entities_mut().get_mut(id)
-                                    {
-                                        entity.transform.position.x = actor.position.x;
-                                        entity.transform.position.y = actor.position.y;
-                                        entity.transform.position.z = actor.position.z;
-                                        entity.transform.rotation.yaw = actor.yaw;
+                                    if let Some(actor) = npcs.get(&id) {
+                                        if let Some(entity) =
+                                            save.world_mut().entities_mut().get_mut(id)
+                                        {
+                                            entity.transform.position.x = actor.position.x;
+                                            entity.transform.position.y = actor.position.y;
+                                            entity.transform.position.z = actor.position.z;
+                                            entity.transform.rotation.yaw = actor.yaw;
+                                        }
                                     }
                                     entity_events.push(RuntimeEntityEvent::Updated(id));
                                 }
@@ -3372,8 +4566,156 @@ fn run(
                                 }
                             }
                         }
+                        if !npc_spawns.is_empty() {
+                            if let Ok(role_catalog) =
+                                load_npc_roles(&mut roles, &options.generator.assets_pack)
+                            {
+                                for (kind, count, distance, position) in &npc_spawns {
+                                    for _ in 0..*count {
+                                        let radius = (distance.ceil() as i32).clamp(1, 64);
+                                        if let Ok(Some(entity)) = spawn_npc_role_near(
+                                            &mut save,
+                                            generator.assets(),
+                                            role_catalog,
+                                            &interactions,
+                                            kind,
+                                            *position,
+                                            radius,
+                                            SpawnMovementMode::Walk,
+                                            Vec::new(),
+                                            &mut npcs,
+                                            &mut entity_events,
+                                        ) {
+                                            entity_events
+                                                .push(RuntimeEntityEvent::Spawned(entity.id));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !npc_spawn_marker_triggers.is_empty() {
+                            if let Ok(catalog) = load_spawn_marker_catalog(
+                                &mut spawn_marker_catalog,
+                                &options.generator.assets_pack,
+                            ) {
+                                if let Ok(role_catalog) =
+                                    load_npc_roles(&mut roles, &options.generator.assets_pack)
+                                {
+                                    for key in npc_spawn_marker_triggers.iter() {
+                                        for live in spawn_markers.values_mut() {
+                                            if !live.marker_key.eq_ignore_ascii_case(key) {
+                                                continue;
+                                            }
+                                            let Some(marker) =
+                                                catalog.get(&live.marker_key).cloned()
+                                            else {
+                                                continue;
+                                            };
+                                            live.controller.cooldown_remaining = 0.0;
+                                            let Some(request) =
+                                                live.controller.trigger(&marker, &mut spawn_rng)
+                                            else {
+                                                continue;
+                                            };
+                                            let zones = spawn_suppression
+                                                .as_ref()
+                                                .map(|index| index.zones_for_role(&request.role))
+                                                .unwrap_or_default();
+                                            if let Ok(Some(entity)) = spawn_npc_role_near(
+                                                &mut save,
+                                                generator.assets(),
+                                                role_catalog,
+                                                &interactions,
+                                                &request.role,
+                                                live.controller.position,
+                                                8,
+                                                SpawnMovementMode::Walk,
+                                                zones,
+                                                &mut npcs,
+                                                &mut entity_events,
+                                            ) {
+                                                entity_events
+                                                    .push(RuntimeEntityEvent::Spawned(entity.id));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !npc_beacon_triggers.is_empty() {
+                            if let Ok(catalog) = load_beacon_catalog(
+                                &mut beacon_catalog,
+                                &options.generator.assets_pack,
+                            ) {
+                                if let Ok(role_catalog) =
+                                    load_npc_roles(&mut roles, &options.generator.assets_pack)
+                                {
+                                    for key in npc_beacon_triggers.iter() {
+                                        for live in beacons.values_mut() {
+                                            if !live.beacon_key.eq_ignore_ascii_case(key) {
+                                                continue;
+                                            }
+                                            let Some(config) =
+                                                catalog.get(&live.beacon_key).cloned()
+                                            else {
+                                                continue;
+                                            };
+                                            live.controller.cooldown_remaining = 0.0;
+                                            let Some(request) = live.controller.tick(
+                                                &config,
+                                                &clock,
+                                                dt,
+                                                dt,
+                                                &mut spawn_rng,
+                                            ) else {
+                                                continue;
+                                            };
+                                            for role in &request.roles {
+                                                let zones = spawn_suppression
+                                                    .as_ref()
+                                                    .map(|index| index.zones_for_role(role))
+                                                    .unwrap_or_default();
+                                                if let Ok(Some(entity)) = spawn_npc_role_near(
+                                                    &mut save,
+                                                    generator.assets(),
+                                                    role_catalog,
+                                                    &interactions,
+                                                    role,
+                                                    request.position,
+                                                    config.spawn_radius.max(4.0) as i32,
+                                                    SpawnMovementMode::Walk,
+                                                    zones,
+                                                    &mut npcs,
+                                                    &mut entity_events,
+                                                ) {
+                                                    entity_events.push(
+                                                        RuntimeEntityEvent::Spawned(entity.id),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         let mut dead = BTreeSet::new();
                         for (source, attack) in attacks {
+                            if attack.target & PLAYER_NPC_TARGET_OFFSET != 0 {
+                                let network_id = (attack.target & !PLAYER_NPC_TARGET_OFFSET) as i32;
+                                let Some(gameplay) = player_gameplay.get_mut(&network_id) else {
+                                    continue;
+                                };
+                                for (cause, amount) in attack.damages {
+                                    let damage =
+                                        Damage::new(amount, cause, DamageSource::Entity(source));
+                                    let applied = gameplay.apply_damage(&damage, &damage_causes);
+                                    result.player_damages += 1;
+                                    if applied.died {
+                                        result.player_deaths += 1;
+                                    }
+                                }
+                                continue;
+                            }
                             let Some(target) = npcs.get_mut(&attack.target) else {
                                 continue;
                             };
@@ -3426,6 +4768,8 @@ fn run(
                                 });
                             }
                             npcs.remove(&id);
+                        } else if result.is_some() {
+                            entity_events.push(RuntimeEntityEvent::Updated(id));
                         }
                         let _ = reply.send(Ok(result));
                     }
@@ -3436,7 +4780,18 @@ fn run(
                             .collect();
                         let _ = reply.send(actors);
                     }
+                    Command::TakeNpcPresentationEvents { reply } => {
+                        let _ = reply.send(std::mem::take(&mut npc_presentation));
+                    }
+                    Command::TakeBlockChangeEvents { reply } => {
+                        let _ = reply.send(std::mem::take(&mut block_events));
+                    }
                     Command::SpawnEncounter { key, reply } => {
+                        if !options.builtin.encounter_manager {
+                            let _ =
+                                reply.send(Err("EncounterManager module is disabled".to_string()));
+                            continue;
+                        }
                         let result = (|| {
                             if encounter_catalog.is_none() {
                                 encounter_catalog = Some(
@@ -3457,18 +4812,298 @@ fn run(
                         let _ = reply.send(result);
                     }
                     Command::TickEncounters { dt, reply } => {
+                        if !options.builtin.encounter_manager {
+                            let _ = reply.send(Vec::new());
+                            continue;
+                        }
+                        let now = Instant::now();
+                        let expired_hosts: Vec<u64> = interaction_hosts
+                            .iter()
+                            .filter(|(_, expires)| **expires <= now)
+                            .map(|(id, _)| *id)
+                            .collect();
+                        for id in expired_hosts {
+                            interaction_hosts.remove(&id);
+                            if let Some(entity) = save.world_mut().despawn_entity(id) {
+                                entity_events.push(RuntimeEntityEvent::Despawned {
+                                    id,
+                                    position: entity.transform.position,
+                                });
+                            }
+                        }
                         let players = npc_targets
                             .iter()
                             .map(|target| target.position)
                             .collect::<Vec<_>>();
                         let context = EncounterContext {
-                            players,
+                            players: players.clone(),
                             ..EncounterContext::default()
                         };
+                        let target_slots = encounters
+                            .values()
+                            .flat_map(|runtime| {
+                                runtime
+                                    .targets()
+                                    .iter()
+                                    .map(|(slot, target)| (slot.clone(), target.id))
+                            })
+                            .collect::<BTreeMap<String, u64>>();
                         let mut reports = Vec::new();
                         for (key, runtime) in &mut encounters {
                             let report = runtime.tick(dt, &context);
                             reports.push((key.clone(), report));
+                        }
+                        // Execute world-owned spawn actions once. Presentation
+                        // actions (particles/sounds) stay in the report for each
+                        // session to render to its own client.
+                        let center = players
+                            .first()
+                            .copied()
+                            .or_else(|| {
+                                player_transform.as_ref().map(|transform| {
+                                    Vec3::new(
+                                        transform.position.x,
+                                        transform.position.y,
+                                        transform.position.z,
+                                    )
+                                })
+                            })
+                            .unwrap_or_else(|| Vec3::new(0.0, 0.0, 0.0));
+                        let spawn_actions: Vec<(String, String, usize, f64)> = reports
+                            .iter()
+                            .flat_map(|(key, report)| {
+                                report.actions.iter().filter_map(|action| match action {
+                                    EncounterAction::Spawn {
+                                        kind,
+                                        count,
+                                        distance,
+                                    } => Some((
+                                        key.clone(),
+                                        kind.clone(),
+                                        count[1].max(0) as usize,
+                                        distance[1],
+                                    )),
+                                    _ => None,
+                                })
+                            })
+                            .collect();
+                        if !spawn_actions.is_empty() {
+                            if let Ok(role_catalog) =
+                                load_npc_roles(&mut roles, &options.generator.assets_pack)
+                            {
+                                for (_key, kind, count, distance) in spawn_actions {
+                                    for _ in 0..count {
+                                        let radius = (distance.ceil() as i32).clamp(1, 64);
+                                        if let Ok(Some(entity)) = spawn_npc_role_near(
+                                            &mut save,
+                                            generator.assets(),
+                                            role_catalog,
+                                            &interactions,
+                                            &kind,
+                                            center,
+                                            radius,
+                                            SpawnMovementMode::Walk,
+                                            Vec::new(),
+                                            &mut npcs,
+                                            &mut entity_events,
+                                        ) {
+                                            entity_events
+                                                .push(RuntimeEntityEvent::Spawned(entity.id));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // `TriggerSpawners` forces nearby/matching spawn markers
+                        // to run their normal marker role pick.
+                        let trigger_actions: Vec<(f64, usize, Option<String>)> = reports
+                            .iter()
+                            .flat_map(|(_, report)| {
+                                report.actions.iter().filter_map(|action| match action {
+                                    EncounterAction::TriggerSpawners {
+                                        range,
+                                        count,
+                                        spawn_marker,
+                                        ..
+                                    } => Some((*range, (*count).max(1), spawn_marker.clone())),
+                                    _ => None,
+                                })
+                            })
+                            .collect();
+                        if !trigger_actions.is_empty() {
+                            if let Ok(catalog) = load_spawn_marker_catalog(
+                                &mut spawn_marker_catalog,
+                                &options.generator.assets_pack,
+                            )
+                            .cloned()
+                            {
+                                if let Ok(role_catalog) =
+                                    load_npc_roles(&mut roles, &options.generator.assets_pack)
+                                {
+                                    for (range, count, marker_key) in trigger_actions {
+                                        for live in spawn_markers.values_mut() {
+                                            if let Some(key) = &marker_key {
+                                                if !live.marker_key.eq_ignore_ascii_case(key) {
+                                                    continue;
+                                                }
+                                            } else if range > 0.0 {
+                                                let dx = live.controller.position.x - center.x;
+                                                let dz = live.controller.position.z - center.z;
+                                                if dx * dx + dz * dz > range * range {
+                                                    continue;
+                                                }
+                                            }
+                                            let Some(marker) =
+                                                catalog.get(&live.marker_key).cloned()
+                                            else {
+                                                continue;
+                                            };
+                                            for _ in 0..count {
+                                                live.controller.cooldown_remaining = 0.0;
+                                                let Some(request) = live
+                                                    .controller
+                                                    .trigger(&marker, &mut spawn_rng)
+                                                else {
+                                                    break;
+                                                };
+                                                if let Ok(Some(entity)) = spawn_npc_role_near(
+                                                    &mut save,
+                                                    generator.assets(),
+                                                    role_catalog,
+                                                    &interactions,
+                                                    &request.role,
+                                                    live.controller.position,
+                                                    8,
+                                                    SpawnMovementMode::Walk,
+                                                    Vec::new(),
+                                                    &mut npcs,
+                                                    &mut entity_events,
+                                                ) {
+                                                    entity_events.push(
+                                                        RuntimeEntityEvent::Spawned(entity.id),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // `SpawnInteraction` creates a server-only host entity that
+                        // carries the configured root interaction at the encounter
+                        // center. Hosts expire after their TTL; interaction-chain
+                        // execution stays follow-up.
+                        let interaction_actions: Vec<(String, f64)> = reports
+                            .iter()
+                            .flat_map(|(_, report)| {
+                                report.actions.iter().filter_map(|action| match action {
+                                    EncounterAction::SpawnInteraction {
+                                        interaction,
+                                        ttl_seconds,
+                                        ..
+                                    } => Some((interaction.clone(), *ttl_seconds)),
+                                    _ => None,
+                                })
+                            })
+                            .collect();
+                        for (interaction, ttl_seconds) in interaction_actions {
+                            let outcome = execute_root(
+                                &interactions,
+                                &interaction,
+                                &ExecutionContext::default(),
+                            );
+                            apply_interaction_outcome(
+                                &mut save,
+                                &generator,
+                                center,
+                                &outcome,
+                                None,
+                                &mut block_events,
+                            );
+                            let entity = save.world_mut().spawn_entity(
+                                RuntimeEntityKind::Other,
+                                None,
+                                transform([center.x, center.y, center.z], [0.0, 0.0, 0.0]),
+                                serde_json::json!({
+                                    "Interaction": {"Interaction": interaction}
+                                }),
+                            );
+                            interaction_hosts.insert(
+                                entity,
+                                Instant::now()
+                                    + std::time::Duration::from_secs_f64(ttl_seconds.max(0.0)),
+                            );
+                            entity_events.push(RuntimeEntityEvent::Spawned(entity));
+                        }
+                        // Apply target-bound actions from the report to the live
+                        // NPC actors. Target slots were captured before the tick
+                        // so `ReleaseTarget` can still resolve its actor.
+                        for (_key, report) in &reports {
+                            for action in &report.actions {
+                                match action {
+                                    EncounterAction::TargetInvulnerable {
+                                        target_slot,
+                                        invulnerable,
+                                    } => {
+                                        if let Some(actor) = target_slots
+                                            .get(target_slot)
+                                            .and_then(|id| npcs.get_mut(id))
+                                        {
+                                            actor.invulnerable = *invulnerable;
+                                        }
+                                    }
+                                    EncounterAction::ReleaseTarget { target_slot } => {
+                                        if let Some(actor) = target_slots
+                                            .get(target_slot)
+                                            .and_then(|id| npcs.get_mut(id))
+                                        {
+                                            actor.target = None;
+                                        }
+                                    }
+                                    EncounterAction::EntityEffect { effect_id, target } => {
+                                        let id = target_slots.get(target).copied().or_else(|| {
+                                            target_slots
+                                                .get("Target")
+                                                .or_else(|| target_slots.values().next())
+                                                .copied()
+                                        });
+                                        if let Some(id) = id {
+                                            if let Some(effect) =
+                                                player_effect_asset(generator.assets(), effect_id)
+                                            {
+                                                if id & PLAYER_NPC_TARGET_OFFSET != 0 {
+                                                    let network_id =
+                                                        (id & !PLAYER_NPC_TARGET_OFFSET) as i32;
+                                                    if let Some(gameplay) =
+                                                        player_gameplay.get_mut(&network_id)
+                                                    {
+                                                        gameplay.apply_effect(&effect, None);
+                                                    }
+                                                } else if let Some(actor) = npcs.get_mut(&id) {
+                                                    actor.gameplay.apply_effect(&effect);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    EncounterAction::TargetRole {
+                                        target_slot,
+                                        role,
+                                        change_appearance,
+                                        ..
+                                    } => {
+                                        if let Some(actor) = target_slots
+                                            .get(target_slot)
+                                            .and_then(|id| npcs.get_mut(id))
+                                        {
+                                            actor.role = role.clone();
+                                            if *change_appearance {
+                                                actor.appearance = Some(role.clone());
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
                         let _ = reply.send(reports);
                     }
@@ -3507,6 +5142,23 @@ fn run(
                             .map(|(key, runtime)| (key.clone(), runtime.state().to_string()))
                             .collect();
                         let _ = reply.send(states);
+                    }
+                    Command::EncounterPortalTimer { key, reply } => {
+                        let remaining = encounters
+                            .get(&key)
+                            .and_then(EncounterRuntime::portal_remaining_seconds);
+                        let _ = reply.send(remaining);
+                    }
+                    Command::SetEncounterPortalTimer {
+                        key,
+                        seconds,
+                        reply,
+                    } => {
+                        let changed = encounters.get_mut(&key).is_some_and(|runtime| {
+                            runtime.set_portal_timer(seconds);
+                            true
+                        });
+                        let _ = reply.send(changed);
                     }
                     Command::UpdateEntityTransform {
                         id,
@@ -3554,6 +5206,22 @@ fn run(
                             entity_events.push(RuntimeEntityEvent::Spawned(entity.id));
                         }
                         let _ = reply.send(result);
+                    }
+                    Command::PickupNearestItem {
+                        x,
+                        y,
+                        z,
+                        radius,
+                        reply,
+                    } => {
+                        let entity = pickup_nearest_item(&mut save, Vec3::new(x, y, z), radius);
+                        if let Some(entity) = &entity {
+                            entity_events.push(RuntimeEntityEvent::Despawned {
+                                id: entity.id,
+                                position: entity.transform.position,
+                            });
+                        }
+                        let _ = reply.send(entity);
                     }
                     Command::BlockComponent { x, y, z, reply } => {
                         let component = save.world().block_component(x, y, z).cloned();
@@ -3605,6 +5273,27 @@ fn run(
                         let result = player_snapshot(&mut save, &generator, uuid);
                         let _ = reply.send(result);
                     }
+                    Command::PlayerDocument { uuid, reply } => {
+                        let result = save
+                            .load_or_create_player(uuid)
+                            .map(|(player, _)| player)
+                            .map_err(|error| error.to_string());
+                        let _ = reply.send(result);
+                    }
+                    Command::SavePlayerDocument {
+                        uuid,
+                        document,
+                        reply,
+                    } => {
+                        let result = save
+                            .save_player(uuid, &document)
+                            .map_err(|error| error.to_string());
+                        let _ = reply.send(result);
+                    }
+                    Command::DeletePlayerDocument { uuid, reply } => {
+                        let result = save.delete_player(uuid).map_err(|error| error.to_string());
+                        let _ = reply.send(result);
+                    }
                     Command::SavePlayerTransform {
                         uuid,
                         transform,
@@ -3620,6 +5309,22 @@ fn run(
                         reply,
                     } => {
                         let result = save_player_state(&mut save, uuid, transform, &inventory);
+                        let _ = reply.send(result);
+                    }
+                    Command::SavePlayerHealth {
+                        uuid,
+                        health,
+                        reply,
+                    } => {
+                        let result = save_player_health(&mut save, uuid, health);
+                        let _ = reply.send(result);
+                    }
+                    Command::SavePlayerCrafting {
+                        uuid,
+                        crafting,
+                        reply,
+                    } => {
+                        let result = save_player_crafting(&mut save, uuid, &crafting);
                         let _ = reply.send(result);
                     }
                     Command::SavePlayerRevealedMarkers {
@@ -3701,7 +5406,9 @@ struct Started {
     spawns: Option<WorldSpawnCatalog>,
     block_sets: Option<BlockSetCatalog>,
     damage_causes: DamageCauses,
-    npcs: BTreeMap<RuntimeEntityId, NpcActor>,
+    npcs: NpcEcs,
+    recipes: Arc<RecipeCatalog>,
+    player_gameplay: BTreeMap<i32, PlayerGameplay>,
     last_npc_tick: Instant,
 }
 
@@ -3787,6 +5494,13 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         save.config().seed,
     );
     simulation.set_disabled_fluid_tickers(&save.config().disabled_fluid_tickers);
+    simulation.set_stages(SimulationStages {
+        scheduled_ticks: options.builtin.block_tick,
+        random_ticks: options.builtin.random_tick,
+        falling_blocks: options.builtin.falling_blocks,
+        block_physics: options.builtin.block_physics,
+        fluid: options.builtin.fluid,
+    });
     let weather_forecasts = environment_forecasts(generator.assets());
     let forced_weather = save
         .config()
@@ -3846,7 +5560,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
                 .map(|_| DamageCause::from_value(&record.key, &record.value))
         },
     ));
-    let mut npcs = BTreeMap::new();
+    let mut npcs = NpcEcs::new();
     if let Some(roles) = &roles {
         for entity in &npc_entities {
             match NpcActor::from_runtime_entity_with_interactions(
@@ -3903,6 +5617,10 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         block_sets: None,
         damage_causes,
         npcs,
+        recipes: Arc::new(
+            RecipeCatalog::load_root(&options.generator.assets_root).unwrap_or_default(),
+        ),
+        player_gameplay: BTreeMap::new(),
         last_npc_tick: Instant::now(),
     })
 }
@@ -4406,7 +6124,7 @@ fn spawn_npc_role_near(
     radius: i32,
     mode: SpawnMovementMode,
     suppressed_zones: Vec<SpawnSuppressionZone>,
-    npcs: &mut BTreeMap<RuntimeEntityId, NpcActor>,
+    npcs: &mut NpcEcs,
     entity_events: &mut Vec<RuntimeEntityEvent>,
 ) -> Result<Option<RuntimeEntity>, String> {
     let is_solid = npc_solid_rule(assets);
@@ -4444,11 +6162,7 @@ fn tag_npc_environment(save: &mut WorldSave, id: RuntimeEntityId, environment: &
     }
 }
 
-fn npc_environment_count(
-    save: &WorldSave,
-    npcs: &BTreeMap<RuntimeEntityId, NpcActor>,
-    environment: &str,
-) -> i32 {
+fn npc_environment_count(save: &WorldSave, npcs: &NpcEcs, environment: &str) -> i32 {
     npcs.keys()
         .filter(|id| {
             save.world()
@@ -4468,7 +6182,7 @@ fn spawn_npc_entity(
     interactions: &InteractionCatalog,
     role: &str,
     transform: PlayerTransform,
-    npcs: &mut BTreeMap<RuntimeEntityId, NpcActor>,
+    npcs: &mut NpcEcs,
 ) -> Result<RuntimeEntity, String> {
     let mut rng = |low: f64, high: f64| (low + high) * 0.5;
     let resolved = roles
@@ -4557,7 +6271,7 @@ fn load_npc_roles<'a>(
     Ok(roles.as_ref().expect("role catalog was just loaded"))
 }
 
-fn sync_npc_entities(save: &mut WorldSave, npcs: &BTreeMap<RuntimeEntityId, NpcActor>) {
+fn sync_npc_entities(save: &mut WorldSave, npcs: &NpcEcs) {
     for (&id, actor) in npcs {
         if let Some(entity) = save.world_mut().entities_mut().get_mut(id) {
             actor.sync_runtime_entity(entity);
@@ -4593,6 +6307,30 @@ fn spawn_item_entity(
         .entity(id)
         .cloned()
         .ok_or_else(|| "the item entity disappeared during spawn".to_string())
+}
+
+/// Remove and return the nearest item entity within `radius` of `position`.
+fn pickup_nearest_item(save: &mut WorldSave, position: Vec3, radius: f64) -> Option<RuntimeEntity> {
+    let nearest = save
+        .world()
+        .entities()
+        .iter()
+        .filter(|entity| entity.kind == RuntimeEntityKind::Item)
+        .filter_map(|entity| {
+            let pos = entity.transform.position;
+            let dx = pos.x - position.x;
+            let dy = pos.y - position.y;
+            let dz = pos.z - position.z;
+            let distance_squared = dx * dx + dy * dy + dz * dz;
+            (distance_squared <= radius * radius).then_some((distance_squared, entity.id))
+        })
+        .min_by(|left, right| {
+            left.0
+                .partial_cmp(&right.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(_, id)| id)?;
+    save.world_mut().despawn_entity(nearest)
 }
 
 fn spawn_item_stack_entity(
@@ -4662,6 +6400,22 @@ fn spawn_simulation_drops(
     spawned
 }
 
+fn player_effect_asset(
+    assets: &hytale_assets::AssetRegistry,
+    effect_id: &str,
+) -> Option<EntityEffectAsset> {
+    let index = assets.entity_effect_id(effect_id)?;
+    let record = assets.entity_effects.get(effect_id)?;
+    EntityEffectAsset::from_value(effect_id, index, &record.value, |name| {
+        assets
+            .entity_stat_types
+            .iter()
+            .find(|stat| stat.key == name)
+            .and_then(|stat| stat.id)
+    })
+    .ok()
+}
+
 fn player_snapshot(
     save: &mut WorldSave,
     generator: &WorldGenerator,
@@ -4691,7 +6445,9 @@ fn player_snapshot(
         transform,
         appearance,
         inventory,
+        health: player.health(),
         revealed_markers: player.revealed_markers(),
+        crafting: player.crafting().unwrap_or_default(),
     })
 }
 
@@ -4717,6 +6473,28 @@ fn save_player_transform(
         .load_or_create_player(uuid)
         .map_err(|error| error.to_string())?;
     player.set_transform(transform);
+    save.save_player(uuid, &player)
+        .map_err(|error| error.to_string())
+}
+
+fn save_player_health(save: &mut WorldSave, uuid: WorldUuid, health: f32) -> Result<(), String> {
+    let (mut player, _created) = save
+        .load_or_create_player(uuid)
+        .map_err(|error| error.to_string())?;
+    player.set_health(health);
+    save.save_player(uuid, &player)
+        .map_err(|error| error.to_string())
+}
+
+fn save_player_crafting(
+    save: &mut WorldSave,
+    uuid: WorldUuid,
+    crafting: &hytale_world::crafting::CraftingKnowledge,
+) -> Result<(), String> {
+    let (mut player, _created) = save
+        .load_or_create_player(uuid)
+        .map_err(|error| error.to_string())?;
+    player.set_crafting(crafting);
     save.save_player(uuid, &player)
         .map_err(|error| error.to_string())
 }
@@ -4841,6 +6619,60 @@ fn set_block_state(
         save.world_mut().set_container(x, y, z, inventory);
     }
     Ok(Some((before, save.world().get_block(x, y, z))))
+}
+
+/// Apply the block actions produced by an NPC interaction graph.
+fn apply_interaction_outcome(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    position: Vec3,
+    outcome: &ExecutionOutcome,
+    block_to_place: Option<&str>,
+    block_events: &mut Vec<BlockChangeEvent>,
+) {
+    let x = position.x.floor() as i32;
+    let y = position.y.floor() as i32;
+    let z = position.z.floor() as i32;
+    for action in &outcome.actions {
+        let change = match action {
+            WorldAction::ChangeState { changes } => changes.values().next().and_then(|state| {
+                set_block_state(save, generator, x, y, z, state)
+                    .ok()
+                    .flatten()
+            }),
+            WorldAction::ChangeBlock { changes } => changes
+                .values()
+                .next()
+                .and_then(|key| {
+                    generator
+                        .assets()
+                        .block_types
+                        .get(key)
+                        .and_then(|record| record.id)
+                })
+                .and_then(|block_id| place_block(save, x, y, z, block_id).ok().flatten()),
+            WorldAction::BreakBlock => set_block(save, x, y, z, 0).ok(),
+            WorldAction::PlaceBlock => block_to_place
+                .and_then(|key| {
+                    generator
+                        .assets()
+                        .block_types
+                        .get(key)
+                        .and_then(|record| record.id)
+                })
+                .and_then(|block_id| place_block(save, x, y, z, block_id).ok().flatten()),
+            _ => None,
+        };
+        if let Some((before, after)) = change {
+            block_events.push(BlockChangeEvent {
+                x,
+                y,
+                z,
+                before,
+                after,
+            });
+        }
+    }
 }
 
 fn open_block_container(

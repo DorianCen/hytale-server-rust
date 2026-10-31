@@ -18,6 +18,7 @@ members = [
     "crates/hytale-npc",
     "crates/hytale-net",
     "crates/hytale-auth",
+    "crates/hytale-builtin",
     "crates/hytale-commands",
     "crates/hytale-server",
     "tools/protocol-dumper",

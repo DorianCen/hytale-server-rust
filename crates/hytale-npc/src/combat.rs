@@ -416,6 +416,8 @@ pub struct NpcActor {
     pub target: Option<u64>,
     /// Path follower.
     pub path: PathFollower,
+    /// Motion-controller velocity.
+    pub velocity: Vec3,
     /// Attack cooldown in seconds.
     pub attack_cooldown: f64,
     /// Aiming countdown before the next attack.
@@ -427,6 +429,28 @@ pub struct NpcActor {
     /// Optional interaction catalog used to resolve `ActionAttack` roots.
     #[doc(hidden)]
     pub interactions: Option<InteractionCatalog>,
+    /// Parsed role builder instruction graph.
+    pub builder: crate::builder::BuilderGraph,
+    /// Current blackboard state/flags/timers.
+    pub blackboard: crate::blackboard::NpcBlackboard,
+    /// Resolved motion controller.
+    pub motion: crate::motion::MotionController,
+    /// Encounter-driven invulnerability (`SetTargetNPCInvulnerable`).
+    pub invulnerable: bool,
+    /// Natural regeneration gate (`SetHealthRegen`).
+    pub health_regen_enabled: bool,
+    /// Builder `Despawn`/`Remove`/`Die` request.
+    pub despawn_requested: bool,
+    /// Builder `Attack` requested an attack this tick.
+    pub pending_attack: bool,
+    /// Builder `ResetInstructions` requested a `Once` reset.
+    pub reset_instructions_requested: bool,
+    /// Literal role parameters for resolving `Compute` action fields.
+    pub parameters: BTreeMap<String, Value>,
+    /// Equipped item (minimal `Inventory` seam).
+    pub equipped_item: Option<String>,
+    /// Active mount/movement config.
+    pub mount: Option<String>,
     last_target_position: Option<Vec3>,
 }
 
@@ -468,6 +492,8 @@ pub struct NpcTickReport {
     pub attack: Option<NpcAttack>,
     /// Current target id.
     pub target: Option<u64>,
+    /// Actions produced by the role builder graph in the current state.
+    pub builder_actions: Vec<crate::builder::BuilderAction>,
     /// Actor is dead.
     pub died: bool,
 }
@@ -508,11 +534,23 @@ impl NpcActor {
             profile,
             target: None,
             path: PathFollower::default(),
+            velocity: Vec3::new(0.0, 0.0, 0.0),
             attack_cooldown: 0.0,
             aiming_remaining: 0.0,
             charge_remaining: 0.0,
             replan_cooldown: 0.0,
             interactions: interactions.cloned(),
+            builder: crate::builder::BuilderGraph::from_role(role),
+            blackboard: crate::blackboard::NpcBlackboard::from_role(role),
+            motion: crate::motion::MotionController::from_role(role),
+            invulnerable: false,
+            health_regen_enabled: true,
+            despawn_requested: false,
+            pending_attack: false,
+            reset_instructions_requested: false,
+            parameters: role.parameters.clone(),
+            equipped_item: None,
+            mount: None,
             last_target_position: None,
         })
     }
@@ -521,6 +559,15 @@ impl NpcActor {
     pub fn with_interactions(mut self, interactions: &InteractionCatalog) -> Self {
         self.interactions = Some(interactions.clone());
         self
+    }
+
+    /// Evaluate the role builder graph in the supplied state and return the
+    /// matched action documents.
+    pub fn builder_actions(
+        &mut self,
+        context: &crate::builder::BuilderContext,
+    ) -> Vec<crate::builder::BuilderAction> {
+        self.builder.evaluate(context)
     }
 
     /// Attach/replace the attack interaction catalog in place.
@@ -604,6 +651,19 @@ impl NpcActor {
         self.gameplay.health()
     }
 
+    /// Resolve a builder action field that may be a literal string or a
+    /// `{ "Compute": "<parameter>" }` reference.
+    pub fn parameter_string(&self, value: &Value) -> Option<String> {
+        value.as_str().map(ToOwned::to_owned).or_else(|| {
+            value
+                .get("Compute")
+                .and_then(Value::as_str)
+                .and_then(|name| self.parameters.get(name))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+    }
+
     /// Acquire the nearest target inside `ViewRange`.
     pub fn acquire_target(&mut self, targets: &[NpcTarget]) -> Option<u64> {
         let range_squared = self.profile.view_range * self.profile.view_range;
@@ -633,7 +693,7 @@ impl NpcActor {
 
     /// Tick targeting, path movement and attack cooldown.
     #[allow(clippy::too_many_arguments)]
-    pub fn tick<F>(
+    pub fn tick_behavior<F>(
         &mut self,
         dt: f64,
         world: &World,
@@ -653,6 +713,26 @@ impl NpcActor {
             return report;
         }
 
+        self.blackboard.tick(dt);
+        self.blackboard.position = self.position;
+        self.blackboard.random_unit = random_unit;
+        let context = self.blackboard.context(self.target, !targets.is_empty());
+        let actions = self.builder.evaluate(&context);
+        self.blackboard.apply_actions(&actions);
+        self.apply_stat_actions(&actions);
+        self.apply_actor_actions(&actions);
+        self.equipped_item = self
+            .blackboard
+            .equipped
+            .clone()
+            .or_else(|| self.equipped_item.clone());
+        self.mount = self.blackboard.mount.clone().or_else(|| self.mount.clone());
+        if self.reset_instructions_requested {
+            self.builder.reset_once();
+            self.reset_instructions_requested = false;
+        }
+        report.builder_actions = actions;
+
         if self.attack_cooldown > 0.0 {
             self.attack_cooldown = (self.attack_cooldown - dt).max(0.0);
         }
@@ -664,6 +744,7 @@ impl NpcActor {
             self.acquire_target(targets);
         }
         report.target = self.target;
+        self.blackboard.target = self.target;
         let Some(target) = self
             .target
             .and_then(|id| targets.iter().find(|target| target.id == id))
@@ -671,9 +752,11 @@ impl NpcActor {
         else {
             return report;
         };
+        self.blackboard.target_position = Some(target.position);
 
         let target_distance = distance(self.position, target.position);
-        if target_distance <= self.profile.attack_distance {
+        let forced_attack = std::mem::take(&mut self.pending_attack);
+        if target_distance <= self.profile.attack_distance || forced_attack {
             self.path.clear_path();
             if self.attack_cooldown > 0.0 {
                 return report;
@@ -748,42 +831,150 @@ impl NpcActor {
         self.aiming_remaining = 0.0;
         self.charge_remaining = 0.0;
 
-        self.replan_cooldown -= dt;
-        let target_moved = self
-            .last_target_position
-            .is_none_or(|last| distance_squared(last, target.position) > TARGET_EPSILON);
-        if self.path.is_empty() || self.replan_cooldown < 0.0 || target_moved {
-            self.replan_path(world, is_solid, target.position);
-            self.last_target_position = Some(target.position);
-            self.replan_cooldown = PATH_REPLAN_INTERVAL;
-        }
+        report
+    }
 
-        let speed = self.profile.chase_speed();
+    /// Advance the scheduled motion controller toward the blackboard target.
+    pub fn advance_motion<F>(&mut self, dt: f64, world: &World, is_solid: F) -> (bool, f64)
+    where
+        F: Fn(i32) -> bool + Copy,
+    {
+        let Some(target_position) = self.blackboard.target_position else {
+            return (false, 0.0);
+        };
+        if distance(self.position, target_position) <= self.profile.attack_distance {
+            self.path.clear_path();
+            self.replan_cooldown = 0.0;
+            self.velocity = Vec3::new(0.0, 0.0, 0.0);
+            return (false, 0.0);
+        }
+        let speed = self.motion.chase_speed(self.profile.chase_relative_speed);
         if speed <= 0.0 {
-            return report;
+            self.velocity = Vec3::new(0.0, 0.0, 0.0);
+            return (false, 0.0);
         }
-        let step = speed * dt;
         let before = self.position;
-        let goal = self
-            .path
-            .current_waypoint_position()
-            .unwrap_or(target.position);
-        let offset = Vec3::new(
-            goal.x - self.position.x,
-            goal.y - self.position.y,
-            goal.z - self.position.z,
-        );
-        let horizontal = (offset.x * offset.x + offset.z * offset.z).sqrt();
-        if horizontal > TARGET_EPSILON {
-            let scale = (step / horizontal).min(1.0);
-            self.position = Vec3::new(
-                self.position.x + offset.x * scale,
-                self.position.y,
-                self.position.z + offset.z * scale,
+
+        if self.motion.moves_vertically() {
+            let mut goal_y = target_position.y;
+            match self.motion.mode {
+                crate::motion::MotionMode::Fly => {
+                    if let Some(ground) = ground_below(world, self.position, is_solid) {
+                        goal_y = self.motion.clamp_altitude(goal_y, ground);
+                    }
+                }
+                crate::motion::MotionMode::Dive => {
+                    if let Some(surface) = water_surface(world, self.position) {
+                        goal_y = self.motion.clamp_dive_depth(goal_y, surface);
+                    }
+                }
+                crate::motion::MotionMode::Walk => {}
+            }
+            goal_y = self.motion.blend_altitude(goal_y, self.position.y);
+            let offset = Vec3::new(
+                target_position.x - self.position.x,
+                goal_y - self.position.y,
+                target_position.z - self.position.z,
             );
-            self.yaw = offset.x.atan2(offset.z) as f32;
+            let length = offset.length_squared().sqrt();
+            if length > TARGET_EPSILON {
+                let desired = Vec3::new(offset.x / length, offset.y / length, offset.z / length);
+                let vertical_speed = self.motion.vertical_speed(desired.y >= 0.0);
+                let desired_velocity = Vec3::new(
+                    desired.x * speed,
+                    (desired.y * speed).clamp(-vertical_speed, vertical_speed),
+                    desired.z * speed,
+                );
+                let delta = Vec3::new(
+                    desired_velocity.x - self.velocity.x,
+                    desired_velocity.y - self.velocity.y,
+                    desired_velocity.z - self.velocity.z,
+                );
+                let delta_length =
+                    (delta.x * delta.x + delta.y * delta.y + delta.z * delta.z).sqrt();
+                let max_delta = self.motion.acceleration.max(0.0) * dt;
+                let scale = if delta_length > max_delta && delta_length > 0.0 {
+                    max_delta / delta_length
+                } else {
+                    1.0
+                };
+                self.velocity = Vec3::new(
+                    self.velocity.x + delta.x * scale,
+                    self.velocity.y + delta.y * scale,
+                    self.velocity.z + delta.z * scale,
+                );
+                let velocity_length = self.velocity.length_squared().sqrt();
+                let step = (velocity_length * dt).min(length);
+                if step > TARGET_EPSILON {
+                    let scale = step / length;
+                    self.position = Vec3::new(
+                        self.position.x + offset.x * scale,
+                        self.position.y + offset.y * scale,
+                        self.position.z + offset.z * scale,
+                    );
+                }
+                if offset.x.abs() + offset.z.abs() > TARGET_EPSILON {
+                    self.yaw =
+                        self.motion
+                            .turn_towards(self.yaw, offset.x.atan2(offset.z) as f32, dt);
+                }
+            }
+        } else {
+            self.replan_cooldown -= dt;
+            let target_moved = self
+                .last_target_position
+                .is_none_or(|last| distance_squared(last, target_position) > TARGET_EPSILON);
+            if self.path.is_empty() || self.replan_cooldown < 0.0 || target_moved {
+                self.replan_path(world, is_solid, target_position);
+                self.last_target_position = Some(target_position);
+                self.replan_cooldown = PATH_REPLAN_INTERVAL;
+            }
+            let goal = self
+                .path
+                .current_waypoint_position()
+                .unwrap_or(target_position);
+            let offset = Vec3::new(
+                goal.x - self.position.x,
+                goal.y - self.position.y,
+                goal.z - self.position.z,
+            );
+            let horizontal = (offset.x * offset.x + offset.z * offset.z).sqrt();
+            if horizontal > TARGET_EPSILON {
+                let desired = Vec3::new(offset.x / horizontal, 0.0, offset.z / horizontal);
+                let desired_velocity = Vec3::new(desired.x * speed, 0.0, desired.z * speed);
+                let delta = Vec3::new(
+                    desired_velocity.x - self.velocity.x,
+                    0.0,
+                    desired_velocity.z - self.velocity.z,
+                );
+                let delta_length = (delta.x * delta.x + delta.z * delta.z).sqrt();
+                let max_delta = self.motion.acceleration.max(0.0) * dt;
+                let scale = if delta_length > max_delta && delta_length > 0.0 {
+                    max_delta / delta_length
+                } else {
+                    1.0
+                };
+                self.velocity = Vec3::new(
+                    self.velocity.x + delta.x * scale,
+                    self.velocity.y,
+                    self.velocity.z + delta.z * scale,
+                );
+                let velocity_length =
+                    (self.velocity.x * self.velocity.x + self.velocity.z * self.velocity.z).sqrt();
+                let step = (velocity_length * dt).min(horizontal);
+                if step > TARGET_EPSILON {
+                    let scale = step / horizontal;
+                    self.position = Vec3::new(
+                        self.position.x + offset.x * scale,
+                        self.position.y,
+                        self.position.z + offset.z * scale,
+                    );
+                }
+                self.yaw = self
+                    .motion
+                    .turn_towards(self.yaw, offset.x.atan2(offset.z) as f32, dt);
+            }
         }
-        // Advance waypoints whose centre we reached, including the final one.
         for _ in 0..8 {
             let Some(waypoint) = self.path.current_waypoint_position() else {
                 break;
@@ -793,8 +984,29 @@ impl NpcActor {
             }
             self.path.update_current_target(self.position);
         }
-        report.moved = distance_squared(before, self.position) > 0.0;
-        report.moved_distance = distance(before, self.position);
+        let moved = distance_squared(before, self.position) > 0.0;
+        (moved, distance(before, self.position))
+    }
+
+    /// Compatibility wrapper: behavior + motion in one call.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tick<F>(
+        &mut self,
+        dt: f64,
+        world: &World,
+        is_solid: F,
+        targets: &[NpcTarget],
+        random_unit: f64,
+    ) -> NpcTickReport
+    where
+        F: Fn(i32) -> bool + Copy,
+    {
+        let mut report = self.tick_behavior(dt, world, is_solid, targets, random_unit);
+        if report.attack.is_none() {
+            let (moved, moved_distance) = self.advance_motion(dt, world, is_solid);
+            report.moved = moved;
+            report.moved_distance = moved_distance;
+        }
         report
     }
 
@@ -920,6 +1132,15 @@ impl NpcActor {
 
     /// Apply a damage instance through the stat/effect/resistance core.
     pub fn take_damage(&mut self, damage: &Damage, causes: &DamageCauses) -> DamageResult {
+        if self.invulnerable || self.blackboard.invulnerable {
+            return DamageResult {
+                amount: 0.0,
+                remaining_health: self.health(),
+                died: false,
+                cause: damage.cause.clone(),
+                source: damage.source.clone(),
+            };
+        }
         let result = self.gameplay.apply_damage(damage, causes);
         if result.died {
             self.path.clear_path();
@@ -930,10 +1151,109 @@ impl NpcActor {
 
     /// Tick effects and regeneration.
     pub fn tick_gameplay(&mut self, dt: f32) {
-        self.gameplay.tick(dt);
+        self.gameplay
+            .tick_with_regeneration(dt, self.health_regen_enabled);
         if self.is_dead() {
             self.path.clear_path();
             self.target = None;
+        }
+    }
+
+    /// Apply actor-level builder actions (`SetHealthRegen`, appearance/despawn).
+    fn apply_actor_actions(&mut self, actions: &[crate::builder::BuilderAction]) {
+        for action in actions {
+            match action.kind() {
+                "SetHealthRegen" => {
+                    self.health_regen_enabled = action
+                        .value
+                        .get("EnableRegen")
+                        .or_else(|| action.value.get("Enabled"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true);
+                }
+                "Appearance" => {
+                    if let Some(appearance) = action.value.get("Appearance").and_then(Value::as_str)
+                    {
+                        self.appearance = Some(appearance.to_string());
+                    }
+                }
+                "Role" => {
+                    if let Some(role) = action.value.get("Role").and_then(Value::as_str) {
+                        self.role = role.to_string();
+                    }
+                }
+                "Die" => {
+                    self.gameplay.stats.set(self.gameplay.health_index, 0.0);
+                    self.despawn_requested = true;
+                }
+                "Despawn" | "Remove" => self.despawn_requested = true,
+                "Attack" => self.pending_attack = true,
+                "ResetInstructions" => self.reset_instructions_requested = true,
+                "Inventory" => {
+                    if action.value.get("Operation").and_then(Value::as_str) == Some("EquipHotbar")
+                    {
+                        self.equipped_item = self
+                            .blackboard
+                            .equipped
+                            .clone()
+                            .or_else(|| self.blackboard.items.keys().next().cloned());
+                    }
+                }
+                "Mount" => {
+                    self.mount = action
+                        .value
+                        .get("MovementConfig")
+                        .or_else(|| action.value.get("Mount"))
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Apply `SetStat` builder actions to the actor's stat map.
+    fn apply_stat_actions(&mut self, actions: &[crate::builder::BuilderAction]) {
+        for action in actions {
+            if action.kind() != "SetStat" {
+                continue;
+            }
+            let Some(name) = action.value.get("Stat").and_then(Value::as_str) else {
+                continue;
+            };
+            let index = self
+                .gameplay
+                .stats
+                .iter()
+                .find(|(_, stat)| stat.stat_type.id.eq_ignore_ascii_case(name))
+                .map(|(index, _)| index);
+            let Some(index) = index else {
+                continue;
+            };
+            let max = self
+                .gameplay
+                .stats
+                .get(index)
+                .map(|stat| stat.max())
+                .unwrap_or(0.0);
+            let value = match action.value.get("Value") {
+                Some(Value::Object(map)) => map.get("Compute").and_then(Value::as_str).map(|_| max),
+                Some(value) => value.as_f64().map(|value| value as f32),
+                None => None,
+            };
+            let Some(value) = value else {
+                continue;
+            };
+            if action
+                .value
+                .get("Add")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                self.gameplay.stats.add(index, value);
+            } else {
+                self.gameplay.stats.set(index, value);
+            }
         }
     }
 
@@ -957,6 +1277,35 @@ impl NpcActor {
                 "MaxHealth": self.profile.max_health,
             }),
         );
+        let stats = self
+            .gameplay
+            .stats
+            .iter()
+            .map(|(index, stat)| {
+                (
+                    index.to_string(),
+                    serde_json::json!({"Value": stat.get(), "Max": stat.max()}),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>();
+        components.insert("EntityStats".to_string(), Value::Object(stats));
+        let effects = self
+            .gameplay
+            .effects
+            .active()
+            .map(|effect| {
+                (
+                    effect.effect_index.to_string(),
+                    serde_json::json!({
+                        "Remaining": effect.remaining_duration,
+                        "Infinite": effect.infinite,
+                        "Debuff": effect.debuff,
+                        "Icon": effect.status_effect_icon,
+                    }),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>();
+        components.insert("EntityEffects".to_string(), Value::Object(effects));
         Value::Object(components)
     }
 }
@@ -1080,6 +1429,36 @@ fn block_position(position: Vec3) -> BlockPos {
     )
 }
 
+fn ground_below<F>(world: &World, position: Vec3, is_solid: F) -> Option<f64>
+where
+    F: Fn(i32) -> bool,
+{
+    let x = position.x.floor() as i32;
+    let z = position.z.floor() as i32;
+    let start = position.y.floor() as i32;
+    for y in (start.saturating_sub(64)..=start).rev() {
+        if is_solid(world.get_block(x, y, z)) {
+            return Some(f64::from(y) + 1.0);
+        }
+    }
+    None
+}
+
+fn water_surface(world: &World, position: Vec3) -> Option<f64> {
+    let x = position.x.floor() as i32;
+    let z = position.z.floor() as i32;
+    let start = position.y.floor() as i32;
+    let mut surface = None;
+    for y in start..=start.saturating_add(64) {
+        if world.get_fluid_id(x, y, z) != 0 {
+            surface = Some(f64::from(y) + 1.0);
+        } else if surface.is_some() {
+            break;
+        }
+    }
+    surface
+}
+
 fn distance_squared(left: Vec3, right: Vec3) -> f64 {
     let dx = right.x - left.x;
     let dy = right.y - left.y;
@@ -1135,6 +1514,7 @@ pub enum CombatError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hytale_entities::damage::{Damage, DamageCauses, DamageSource};
 
     fn damage(value: Value) -> DamageCalculator {
         DamageCalculator::from_value(&value).expect("damage calculator")
@@ -1205,6 +1585,252 @@ mod tests {
     }
 
     #[test]
+    fn invulnerable_actors_ignore_damage() {
+        let role = ResolvedRole {
+            key: "Rat".to_string(),
+            role_type: crate::role::RoleType::Variant,
+            reference: None,
+            parameters: BTreeMap::new(),
+            raw: serde_json::json!({"MaxHealth": 10}),
+            unresolved_expressions: Vec::new(),
+        };
+        let stats = EntityStatMap::new([EntityStatType {
+            id: "Health".to_string(),
+            index: 1,
+            initial_value: 10.0,
+            min: 0.0,
+            max: 10.0,
+            shared: true,
+            regenerating: Vec::new(),
+            reset_behavior: hytale_entities::stats::StatResetBehavior::MaxValue,
+            ignore_invulnerability: false,
+            hide_from_tooltip: false,
+        }]);
+        let mut actor = NpcActor {
+            role: role.key.clone(),
+            appearance: None,
+            name: None,
+            position: Vec3::new(0.5, 1.0, 0.5),
+            yaw: 0.0,
+            gameplay: EntityGameplay::new(stats, 1),
+            profile: CombatProfile::from_role(&role).unwrap(),
+            target: None,
+            path: PathFollower::default(),
+            velocity: Vec3::new(0.0, 0.0, 0.0),
+            attack_cooldown: 0.0,
+            aiming_remaining: 0.0,
+            charge_remaining: 0.0,
+            replan_cooldown: 0.0,
+            interactions: None,
+            builder: crate::builder::BuilderGraph::from_role(&role),
+            blackboard: crate::blackboard::NpcBlackboard::from_role(&role),
+            motion: crate::motion::MotionController::from_role(&role),
+            invulnerable: true,
+            health_regen_enabled: true,
+            despawn_requested: false,
+            pending_attack: false,
+            reset_instructions_requested: false,
+            parameters: role.parameters.clone(),
+            equipped_item: None,
+            mount: None,
+            last_target_position: None,
+        };
+        let causes = DamageCauses::default();
+        let result = actor.take_damage(
+            &Damage::new(5.0, "Physical", DamageSource::Command),
+            &causes,
+        );
+        assert_eq!(result.amount, 0.0);
+        assert_eq!(actor.health(), 10.0);
+        actor.invulnerable = false;
+        let result = actor.take_damage(
+            &Damage::new(5.0, "Physical", DamageSource::Command),
+            &causes,
+        );
+        assert!(result.amount > 0.0);
+        assert!(actor.health() < 10.0);
+    }
+
+    #[test]
+    fn set_stat_actions_change_the_actor_stat_map() {
+        let role = ResolvedRole {
+            key: "Test".to_string(),
+            role_type: crate::role::RoleType::Variant,
+            reference: None,
+            parameters: [("Loot".to_string(), serde_json::json!("Rock_Stone"))].into(),
+            raw: serde_json::json!({"MaxHealth": 10}),
+            unresolved_expressions: Vec::new(),
+        };
+        let stats = EntityStatMap::new([EntityStatType {
+            id: "Health".to_string(),
+            index: 1,
+            initial_value: 10.0,
+            min: 0.0,
+            max: 10.0,
+            shared: true,
+            regenerating: Vec::new(),
+            reset_behavior: hytale_entities::stats::StatResetBehavior::MaxValue,
+            ignore_invulnerability: false,
+            hide_from_tooltip: false,
+        }]);
+        let mut actor = NpcActor {
+            role: role.key.clone(),
+            appearance: None,
+            name: None,
+            position: Vec3::new(0.5, 1.0, 0.5),
+            yaw: 0.0,
+            gameplay: EntityGameplay::new(stats, 1),
+            profile: CombatProfile::from_role(&role).unwrap(),
+            target: None,
+            path: PathFollower::default(),
+            velocity: Vec3::new(0.0, 0.0, 0.0),
+            attack_cooldown: 0.0,
+            aiming_remaining: 0.0,
+            charge_remaining: 0.0,
+            replan_cooldown: 0.0,
+            interactions: None,
+            builder: crate::builder::BuilderGraph::from_role(&role),
+            blackboard: crate::blackboard::NpcBlackboard::from_role(&role),
+            motion: crate::motion::MotionController::from_role(&role),
+            invulnerable: false,
+            health_regen_enabled: true,
+            despawn_requested: false,
+            pending_attack: false,
+            reset_instructions_requested: false,
+            parameters: role.parameters.clone(),
+            equipped_item: None,
+            mount: None,
+            last_target_position: None,
+        };
+        actor.apply_stat_actions(&[crate::builder::BuilderAction {
+            kind: "SetStat".to_string(),
+            value: serde_json::json!({"Stat": "Health", "Value": 4}),
+        }]);
+        assert_eq!(actor.health(), 4.0);
+        actor.apply_stat_actions(&[crate::builder::BuilderAction {
+            kind: "SetStat".to_string(),
+            value: serde_json::json!({"Stat": "Health", "Add": true, "Value": 3}),
+        }]);
+        assert_eq!(actor.health(), 7.0);
+        actor.apply_stat_actions(&[crate::builder::BuilderAction {
+            kind: "SetStat".to_string(),
+            value: serde_json::json!({"Stat": "Health", "Value": {"Compute": "MaxHealth"}}),
+        }]);
+        assert_eq!(actor.health(), 10.0);
+        actor.apply_actor_actions(&[crate::builder::BuilderAction {
+            kind: "Appearance".to_string(),
+            value: serde_json::json!({"Appearance": "Dog"}),
+        }]);
+        assert_eq!(actor.appearance.as_deref(), Some("Dog"));
+        actor.apply_actor_actions(&[crate::builder::BuilderAction {
+            kind: "Despawn".to_string(),
+            value: serde_json::json!({}),
+        }]);
+        assert!(actor.despawn_requested);
+        actor.apply_actor_actions(&[crate::builder::BuilderAction {
+            kind: "Attack".to_string(),
+            value: serde_json::json!({"Attack": "Test_Attack"}),
+        }]);
+        assert!(actor.pending_attack);
+        assert_eq!(
+            actor
+                .parameter_string(&serde_json::json!({"Compute": "Loot"}))
+                .as_deref(),
+            Some("Rock_Stone")
+        );
+        assert_eq!(
+            actor
+                .parameter_string(&serde_json::json!("Literal"))
+                .as_deref(),
+            Some("Literal")
+        );
+        actor.blackboard.items.insert("Food_Apple".to_string(), 1);
+        actor.apply_actor_actions(&[crate::builder::BuilderAction {
+            kind: "Inventory".to_string(),
+            value: serde_json::json!({"Operation": "EquipHotbar"}),
+        }]);
+        assert_eq!(actor.equipped_item.as_deref(), Some("Food_Apple"));
+        actor.apply_actor_actions(&[crate::builder::BuilderAction {
+            kind: "Mount".to_string(),
+            value: serde_json::json!({"MovementConfig": "Goblin_Launcher_Immobile"}),
+        }]);
+        assert_eq!(actor.mount.as_deref(), Some("Goblin_Launcher_Immobile"));
+    }
+
+    #[test]
+    fn set_health_regen_action_gates_natural_regeneration() {
+        let role = ResolvedRole {
+            key: "Test".to_string(),
+            role_type: crate::role::RoleType::Variant,
+            reference: None,
+            parameters: [("Loot".to_string(), serde_json::json!("Rock_Stone"))].into(),
+            raw: serde_json::json!({"MaxHealth": 10}),
+            unresolved_expressions: Vec::new(),
+        };
+        let stats = EntityStatMap::new([EntityStatType {
+            id: "Health".to_string(),
+            index: 1,
+            initial_value: 10.0,
+            min: 0.0,
+            max: 10.0,
+            shared: true,
+            regenerating: vec![hytale_entities::stats::Regenerating {
+                interval: 1.0,
+                amount: 1.0,
+                clamp_at_zero: false,
+                regen_type: hytale_entities::stats::RegenType::Additive,
+                conditions: Vec::new(),
+            }],
+            reset_behavior: hytale_entities::stats::StatResetBehavior::MaxValue,
+            ignore_invulnerability: false,
+            hide_from_tooltip: false,
+        }]);
+        let mut actor = NpcActor {
+            role: role.key.clone(),
+            appearance: None,
+            name: None,
+            position: Vec3::new(0.5, 1.0, 0.5),
+            yaw: 0.0,
+            gameplay: EntityGameplay::new(stats, 1),
+            profile: CombatProfile::from_role(&role).unwrap(),
+            target: None,
+            path: PathFollower::default(),
+            velocity: Vec3::new(0.0, 0.0, 0.0),
+            attack_cooldown: 0.0,
+            aiming_remaining: 0.0,
+            charge_remaining: 0.0,
+            replan_cooldown: 0.0,
+            interactions: None,
+            builder: crate::builder::BuilderGraph::from_role(&role),
+            blackboard: crate::blackboard::NpcBlackboard::from_role(&role),
+            motion: crate::motion::MotionController::from_role(&role),
+            invulnerable: false,
+            health_regen_enabled: true,
+            despawn_requested: false,
+            pending_attack: false,
+            reset_instructions_requested: false,
+            parameters: role.parameters.clone(),
+            equipped_item: None,
+            mount: None,
+            last_target_position: None,
+        };
+        actor.gameplay.stats.set(1, 4.0);
+        actor.apply_actor_actions(&[crate::builder::BuilderAction {
+            kind: "SetHealthRegen".to_string(),
+            value: serde_json::json!({"EnableRegen": false}),
+        }]);
+        assert!(!actor.health_regen_enabled);
+        actor.tick_gameplay(2.0);
+        assert_eq!(actor.health(), 4.0);
+        actor.apply_actor_actions(&[crate::builder::BuilderAction {
+            kind: "SetHealthRegen".to_string(),
+            value: serde_json::json!({"EnableRegen": true}),
+        }]);
+        actor.tick_gameplay(2.0);
+        assert!(actor.health() > 4.0);
+    }
+
+    #[test]
     fn actor_acquires_pursues_and_attacks_on_a_flat_world() {
         use hytale_world::chunk::column::ChunkColumn;
         use hytale_world::world::WorldStorage;
@@ -1269,11 +1895,23 @@ mod tests {
             profile: CombatProfile::from_role(&role).unwrap(),
             target: None,
             path: PathFollower::default(),
+            velocity: Vec3::new(0.0, 0.0, 0.0),
             attack_cooldown: 0.0,
             aiming_remaining: 0.0,
             charge_remaining: 0.0,
             replan_cooldown: 0.0,
             interactions: None,
+            builder: crate::builder::BuilderGraph::from_role(&role),
+            blackboard: crate::blackboard::NpcBlackboard::from_role(&role),
+            motion: crate::motion::MotionController::from_role(&role),
+            invulnerable: false,
+            health_regen_enabled: true,
+            despawn_requested: false,
+            pending_attack: false,
+            reset_instructions_requested: false,
+            parameters: role.parameters.clone(),
+            equipped_item: None,
+            mount: None,
             last_target_position: None,
         };
         let targets = [NpcTarget {

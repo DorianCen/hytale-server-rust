@@ -12,9 +12,9 @@ use hytale_auth::{AuthKey, AuthService};
 use hytale_server::GeneratorOptions;
 use hytale_server::{
     run_chunk_serve, run_chunk_tool, run_headless, run_player_data_tool, run_serve, run_world_boot,
-    run_world_config_tool, AuthMode, ChunkServeOptions, ChunkToolOptions, HeadlessOptions,
-    PlayerDataToolOptions, ServeOptions, SessionOptions, WorldBootOptions, WorldConfigToolOptions,
-    WorldThreadOptions,
+    run_world_config_tool, AuthMode, BuiltinHost, BuiltinRuntime, ChunkServeOptions,
+    ChunkToolOptions, HeadlessOptions, PlayerDataToolOptions, ServeOptions, SessionOptions,
+    StartOptions, WorldBootOptions, WorldConfigToolOptions, WorldThreadOptions,
 };
 use hytale_world::player_data::{Position, Rotation};
 
@@ -27,6 +27,15 @@ struct Cli {
     /// Asset pack (zip or unpacked directory) used by `--validate-assets`.
     #[arg(long, default_value = "Assets/Assets.zip")]
     pack: PathBuf,
+    /// Print the compiled builtin modules and exit.
+    #[arg(long, global = true)]
+    list_modules: bool,
+    /// Extra builtin module (`Group:Name`) to enable in addition to defaults.
+    #[arg(long = "module", global = true, value_delimiter = ',')]
+    modules: Vec<String>,
+    /// Builtin module (`Group:Name`) to disable. Dependents fail closed.
+    #[arg(long = "disable-module", global = true, value_delimiter = ',')]
+    disable_modules: Vec<String>,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -445,23 +454,79 @@ fn parse_world_provider(value: &str) -> Result<hytale_world::universe::WorldProv
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if cli.list_modules {
+        return run_list_modules_command();
+    }
     if cli.validate_assets {
         return run_validate_assets_command(cli.pack);
     }
-    match cli.command {
+    let mut builtin_host = match start_builtin_host(&cli) {
+        Ok(host) => host,
+        Err(error) => {
+            eprintln!("builtin module startup failed: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let builtin = builtin_host.runtime();
+    let code = match cli.command {
         Some(Command::Headless(args)) => run_headless_command(args),
         Some(Command::LoadChunk(args)) => run_load_chunk_command(args),
         Some(Command::WorldConfig(args)) => run_world_config_command(args),
         Some(Command::PlayerData(args)) => run_player_data_command(args),
-        Some(Command::WorldBoot(args)) => run_world_boot_command(args),
+        Some(Command::WorldBoot(args)) => run_world_boot_command(args, builtin),
         Some(Command::Universe(args)) => run_universe_command(args),
-        Some(Command::ChunkServe(args)) => run_chunk_serve_command(args),
-        Some(Command::Serve(args)) => run_serve_command(args),
+        Some(Command::ChunkServe(args)) => run_chunk_serve_command(args, builtin),
+        Some(Command::Serve(args)) => run_serve_command(args, builtin),
         None => {
             println!("hytale-server {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+    };
+    let stopped = builtin_host.shutdown();
+    for (module, message) in &stopped.failed {
+        eprintln!("builtin module `{module}` failed to shut down: {message}");
     }
+    code
+}
+
+fn run_list_modules_command() -> ExitCode {
+    let host = match BuiltinHost::compiled() {
+        Ok(host) => host,
+        Err(error) => {
+            eprintln!("could not load builtin manifests: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let manifests = host.manifests();
+    println!("builtin modules: {} compiled", manifests.len());
+    for manifest in manifests {
+        let id = manifest.identifier();
+        let mode = if manifest.disabled_by_default {
+            "opt-in"
+        } else {
+            "default"
+        };
+        println!(
+            "  {id} v{} ({mode}, main {})",
+            manifest.version,
+            manifest.main.as_deref().unwrap_or("<none>")
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn start_builtin_host(cli: &Cli) -> Result<BuiltinHost, hytale_server::HostError> {
+    let mut host = BuiltinHost::compiled()?;
+    let report = host.start(&StartOptions {
+        requested: cli.modules.clone(),
+        disabled: cli.disable_modules.clone(),
+    })?;
+    println!(
+        "builtin modules: {} enabled, {} disabled",
+        report.enabled.len(),
+        report.disabled.len()
+    );
+    Ok(host)
 }
 
 fn run_validate_assets_command(pack: PathBuf) -> ExitCode {
@@ -549,7 +614,7 @@ fn run_load_chunk_command(args: LoadChunkArgs) -> ExitCode {
     }
 }
 
-fn run_serve_command(args: ServeArgs) -> ExitCode {
+fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
     let auth = match args.auth_mode.as_str() {
         "insecure" => AuthMode::Insecure,
         "local" => {
@@ -600,6 +665,8 @@ fn run_serve_command(args: ServeArgs) -> ExitCode {
         auth,
         block_break_damage: 1.0,
         trace: None,
+        portal_router: None,
+        portal_on_join: None,
     };
     let options = ServeOptions {
         universe_root: args.universe,
@@ -617,6 +684,7 @@ fn run_serve_command(args: ServeArgs) -> ExitCode {
         session,
         spawn_npc: args.spawn_npc,
         auto_population: args.auto_population,
+        builtin,
         shutdown_timeout: std::time::Duration::from_secs(args.shutdown_timeout),
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
         trace_path: args.trace,
@@ -658,7 +726,7 @@ fn run_serve_command(args: ServeArgs) -> ExitCode {
     }
 }
 
-fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
+fn run_chunk_serve_command(args: ChunkServeArgs, builtin: BuiltinRuntime) -> ExitCode {
     let auth = match args.auth_mode.as_str() {
         "insecure" => AuthMode::Insecure,
         "local" => {
@@ -711,6 +779,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
             player_uuid: args.player_uuid,
             view_radius: args.view_radius,
             chunks_per_tick: args.chunks_per_tick,
+            builtin,
         },
         bind_addr: args.bind,
         center: None,
@@ -729,6 +798,8 @@ fn run_chunk_serve_command(args: ChunkServeArgs) -> ExitCode {
             auth,
             block_break_damage: 1.0,
             trace: None,
+            portal_router: None,
+            portal_on_join: None,
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };
@@ -881,7 +952,7 @@ fn run_universe_command(args: UniverseArgs) -> ExitCode {
     }
 }
 
-fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
+fn run_world_boot_command(args: WorldBootArgs, builtin: BuiltinRuntime) -> ExitCode {
     let options = WorldBootOptions {
         assets_pack: args.assets_pack,
         assets_root: args.assets_root,
@@ -897,6 +968,7 @@ fn run_world_boot_command(args: WorldBootArgs) -> ExitCode {
         set_block: args.set_block,
         spawn_npc: args.spawn_npc,
         auto_population: args.auto_population,
+        builtin,
     };
     match run_world_boot(&options) {
         Ok(report) => {

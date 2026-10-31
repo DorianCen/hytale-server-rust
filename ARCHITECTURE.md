@@ -164,6 +164,8 @@ crates/
   hytale-entities/   ECS wrapper, components, systems, player/entity lifecycle
   hytale-npc/        role/flock catalogs, A* navigation, path following, steering,
                      perception, world-spawn selection and combat profiles/actors
+  hytale-builtin/    Java-compatible manifests, module lifecycle and the
+                     feature-gated selected builtin module switches
   hytale-net/        QUIC transport, streams, sessions, packet state machine
   hytale-auth/       EdDSA JWT keys/claims, certificate binding, local authority;
                      OAuth/session-service adapters planned
@@ -190,6 +192,7 @@ hytale-server
   │                  hytale-inventory ─ hytale-protocol
   │                  hytale-interactions ─ hytale-assets
   ├─ hytale-entities ─ hytale-world + hytale-protocol
+  ├─ hytale-builtin ─ hytale-core
   └─ hytale-core
 
 worldgen-server ── worldgen-hytale ── worldgen-model ── hytale-math
@@ -407,8 +410,8 @@ parses each environment's 24-hour weighted forecast, applies
 boundary using the world seed and forecast seed key. `WorldThread::weather_at`
 exposes the effective index for a position; sessions send `UpdateWeather` with
 the Java join/change transition durations. `WorldClock::current_hour` and
-`moon_phase` complete the time model; presentation-only weather documents stay
-with T60.
+`moon_phase` complete the time model; weather presentation remains a
+T57b/T59 follow-up.
 
 `WorldClock` (`hytale-world::world_clock`) follows Java
 `WorldTimeResource`: game time is an epoch instant, the configured daytime and
@@ -470,7 +473,8 @@ block/fluid changes to viewers. Per-section health/fragility lives in the Java
 `BlockHealthSection` v0 component (legacy `BlockHealthChunk` is migrated on
 read). T57 turns the health deltas into section `UpdateBlockDamage(s)` packets
 and writes the load snapshot after each chunk; replacing a block clears health
-and fragility. Sound playback and the builtin module lifecycle remain T60; T56
+and fragility. Sound playback remains deferred; the builtin module lifecycle
+lands with T60; T56
 lands fixed-item drop entities, prefab entities/block components and their
 persistence.
 
@@ -633,8 +637,10 @@ not part of v1.
   initialization, `ShutdownToken`/`TaskScheduler`, `EventBus<E>` and
   `ModuleRegistry`.
 - Core modules are Rust crates registered in a startup manifest with explicit
-  dependencies, mirroring `PluginManifest` ordering. `ModuleRegistry` resolves
-  the enabled set dependency-first; module lifecycle hooks are deferred to T60.
+  dependencies, mirroring `PluginManifest` ordering. `hytale-builtin` resolves
+  the enabled set dependency-first and owns the `setup`/`start`/`shutdown`
+  lifecycle; the selected builtin modules are Cargo features, so a disabled
+  module contributes no descriptor or runtime switch.
 - Event bus: typed events with deterministic per-subscriber ordering, sync
   callbacks and bounded async channels; full async channels drop with an
   accounting report rather than blocking the publisher.
@@ -668,11 +674,12 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer` entry point / `Options` | `hytale-server` | library + `headless` CLI landed (M3); network/auth/command wiring pending |
 | `CoreServer/.../asset/type/gameplay/**` | `hytale-assets::gameplay` | internal `GameplayConfig` `DefaultAssetMap` (8 assets), Java defaults, tag-resolved `WorldGameplayConfig` landed (M4) |
 | `CoreServer/.../modules/time/**` | `hytale-world::world_clock` + `hytale-server::{world_thread, session}` | segmented day/night progression, pause, range wrap, ISO game-time persistence, per-second `UpdateTime`, current hour and moon phase landed (M4/T54); weather state/forecasts, `WorldThread::weather_at` and session `UpdateWeather` landed (T54 done; full `UpdateWeathers` asset packet is a split follow-up) |
-| `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); block-container persistence and the `OpenWindow`/`CloseWindow` round trip landed (T57b); `MoveItemStack` routing and world item entities deferred |
-| `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes, door state broadcasts and container windows landed (M5); selectors/effects/cooldowns, item/entity roots and bench crafting windows deferred |
+| `CoreServer/.../entity/{entities/Player,UUIDComponent}` + `inventory/{InventoryComponent,ItemStack}` | `hytale-inventory` + `hytale-world::player_data` + `hytale-server::{session,players}` | core holder codec, item stacks/containers, six player inventories, legacy `Inventory` fallback, active slots, held-item consumption, inventory packets and save/reconnect landed (M4/M5); block-container persistence and the `OpenWindow`/`CloseWindow` round trip landed (T57b); T60b adds player↔window `MoveItemStack` transactions, `UpdateWindow` resync, bench windows and item-only crafting transactions |
+| `CoreServer/.../modules/interaction/**` | `hytale-interactions` + `hytale-server::{session,world_thread}` | root/interaction asset loading with parent inheritance, structural/variable graph walking, block `Interactions` metadata, door/state/container/bench outcomes, door state broadcasts, container and bench windows landed (M5/T57b/T60b); selectors/effects/cooldowns, item/entity roots and portal teleport interactions deferred |
+| `Server/Item/Recipes`, `Server/Item/Items/*.Recipe`, `Server/PortalTypes`, `Server/Instances` | `hytale-world::{crafting,instance}` + `hytale-server::{universe_runtime,session}` | T60b loads item-embedded and salvage recipes, all portal types and instance save descriptors; item/resource-type craft transactions, bench timers/queues, portal world transfers, return points/ephemeral-item removal and `AllowedEntryCount` enforcement work; knowledge/memories gating and the full bench-upgrade window contract remain follow-ups |
 | `CoreServer/.../modules/entity/**` | `hytale-entities` + `hytale-world::{collision,player_data}` | saved model reference and inventory components decoded (M4); `movement` AABB sweep, one-block step, bounds, gravity/jump/fly/climb integrator, slide/roll/mantle traversal state, mount seam and the internal `MovementConfig` join packet landed (M5); full `ModelAsset` protocol expansion, ECS lifecycle, fluids/triggers, entity collisions and mount entities deferred |
 | `CoreServer/.../entity/entities/ProjectileComponent`, `modules/projectile/{config,system}`, `modules/physics/{SimplePhysicsProvider,PhysicsMath}` | `hytale-entities::projectile` + `hytale-assets` | legacy `Projectile`/new `ProjectileConfig` stores (86/188), Java launch offset/angle math, gravity/terminal cap, swept block/entity collision, bounce/stick/rest, hit/miss/death timers, TTL and the T53 damage handoff landed (M5, T55 done); density/drag/buoyancy/rolling, predicted/pierce projectiles, explosions and spawn packets deferred |
-| `CoreServer/.../modules/entitystats/**`, `asset/type/entityeffect/**`, `modules/entity/damage/**` | `hytale-entities::{stats,effects,damage,components}` | stat types/values/maps, static modifiers, regeneration/reset, active effects with overlap/expiry/invulnerability, damage causes/resistance/outgoing, health/death core and the `EntityGameplay` component seam landed (M5, T53 done); the `EntityStatType`/`EntityEffect`/`DamageCause` stores and the Java `entity/entity-gameplay.json` fixture gate the data; conditions, calculators, DoT and per-entity/config stat/effect packets deferred to T59 |
+| `CoreServer/.../modules/entitystats/**`, `asset/type/entityeffect/**`, `modules/entity/damage/**` | `hytale-entities::{stats,effects,damage,components}` | stat types/values/maps, static modifiers, regeneration/reset, active effects with overlap/expiry/invulnerability, damage causes/resistance/outgoing, health/death core and the `EntityGameplay` component seam landed (M5, T53 done); the `EntityStatType`/`EntityEffect`/`DamageCause` stores and the Java `entity/entity-gameplay.json` fixture gate the data; T60b adds per-session player `EntityGameplay`, NPC→player damage, `EntityStatsUpdate` replication/persistence (stat-index-keyed maps plus per-entity NPC stat snapshots), real effect application with `EntityEffectsUpdate` replication and DoT, plus automatic respawn; configured death-screen/spawn policy and effect conditions remain follow-ups |
 | `Component/**` | `hytale-entities` wrapper on `bevy_ecs` | planned (M3) |
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, validated block place/break with `ServerSetBlock` broadcasts, and the JSONL packet-trace capture/gate (M3/M4) landed |
@@ -680,8 +687,8 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../command/**` | `hytale-commands` | planned (M4) |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | planned (M4) |
 | `CoreServer/modules/**` | `hytale-world` (core subset), later module crates | planned (M5) |
-| `builtin/**` | `hytale-builtin` feature crates | deferred (M6) |
-| `NPC/**`, `EncounterManager/**` | `hytale-npc`, `hytale-interactions` | role/flock catalogs, reference/parameter resolution with the builder expression subset, `Modify` flattening, Java direction tables, block-grid A*, real-world `WorldGrid` walk/fly planning, `PathFollower`, pursue/evade/rotate steering, group steering, view-cone perception, `Server/NPC/Spawn/World` selection, role combat profiles/damage ranges, `ActionAttack` aiming/charge/pause/LoS parsing, the `DamageEntity` damage-calculator/effects/knockback graph, a scripted `NpcActor`, the live `WorldThread` NPC store/spawn/tick/persistence, movement-mode spawn-position search, density/expected-count accounting, explicit population ticks, loaded-section environment segment counting, real `BlockSet` floor resolution, `SpawnFluidTag` resolution, `LightRanges`, beacon/spawn-marker catalogs, `--spawn-npc` CLI coverage, automatic environment enumeration (`--auto-population`), NPC-group spawn suppression, live marker/beacon controllers with persisted cooldowns, the client-bot spawn/chase/despawn scenario and the complete `EncounterManager` catalog/macro/state-transition/sensor/action evaluator with live world-thread encounter commands (M6, T58/T58b/T58c/T59/T59b/T59c); the full builder graph, half-step motion-controller A*, wander/avoidance, blackboard sensors, instance/portal transports and the NPC ECS remain T60 |
+| `builtin/**` | `hytale-builtin` feature crate | selected modules landed (M6/T60): Java-compatible manifests, dependency-first `setup`/`start`/`shutdown`, `--module`/`--disable-module`, and the `BlockTick`/`RandomTick`/`FallingBlocks`/`BlockPhysics`/`Fluid`/`Weather`/`NPC`/`EncounterManager` switches; T60b adds bench windows, the recipe catalog and encounter action execution; the remaining 54 builtins and resource-type/timer crafting follow-ups remain |
+| `NPC/**`, `EncounterManager/**` | `hytale-npc`, `hytale-interactions` | role/flock catalogs, reference/parameter resolution with the builder expression subset, `Modify` flattening, Java direction tables, block-grid A*, real-world `WorldGrid` walk/fly planning, `PathFollower`, pursue/evade/rotate steering, group steering, view-cone perception, `Server/NPC/Spawn/World` selection, role combat profiles/damage ranges, `ActionAttack` aiming/charge/pause/LoS parsing, the `DamageEntity` damage-calculator/effects/knockback graph, a scripted `NpcActor`, the live `WorldThread` NPC store/spawn/tick/persistence, movement-mode spawn-position search, density/expected-count accounting, explicit population ticks, loaded-section environment segment counting, real `BlockSet` floor resolution, `SpawnFluidTag` resolution, `LightRanges`, beacon/spawn-marker catalogs, `--spawn-npc` CLI coverage, automatic environment enumeration (`--auto-population`), NPC-group spawn suppression, live marker/beacon controllers with persisted cooldowns, the client-bot spawn/chase/despawn scenario and the complete `EncounterManager` catalog/macro/state-transition/sensor/action evaluator with live world-thread encounter commands (M6, T58/T58b/T58c/T59/T59b/T59c/T60); T60b adds the role instruction graph, blackboard, Walk/Fly/Dive motion controllers and a `bevy_ecs` actor/blackboard/motion schedule used by the world thread, plus encounter target actions (invulnerability/role/release/effect) applied to live NPCs; some rarer builder action/condition types remain follow-ups |
 
 Deliberate exclusions are in [`REMAINING.md`](REMAINING.md).
 

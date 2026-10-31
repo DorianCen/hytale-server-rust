@@ -10,8 +10,10 @@ pub mod chunk_serve;
 pub mod chunk_streamer;
 pub mod generation;
 pub mod headless;
+pub mod inventory_rules;
 pub mod map_image;
 pub mod player_data_tool;
+pub mod player_gameplay;
 pub mod players;
 pub mod serve;
 pub mod session;
@@ -34,18 +36,21 @@ pub use chunk_streamer::{
 };
 pub use generation::{GenerationError, GeneratorOptions, WorldGenerator};
 pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, HeadlessReport};
+pub use hytale_builtin::{BuiltinHost, BuiltinRuntime, HostError, StartOptions};
 pub use hytale_world::simulation::{
-    BlockChange, BlockDrop, FluidChange, SimulationReport, SimulationTables,
+    BlockChange, BlockDrop, FluidChange, SimulationReport, SimulationStages, SimulationTables,
 };
+pub use inventory_rules::AssetItemRules;
 pub use player_data_tool::{
     run as run_player_data_tool, PlayerDataToolError, PlayerDataToolOptions, PlayerDataToolReport,
 };
+pub use player_gameplay::{stat_update_packet, PlayerGameplay};
 pub use players::{
     channel as player_channel, PlayerJoin, PlayerJoinRequest, PlayerMessage, PlayerRegistry,
     PlayerSession, PLAYER_NPC_TARGET_OFFSET,
 };
 pub use serve::{
-    run as run_serve, serve as serve_listener, ServeError, ServeOptions, ServeReport,
+    run as run_serve, serve as serve_listener, PortalRouter, ServeError, ServeOptions, ServeReport,
     SessionSummary,
 };
 pub use session::{
@@ -53,7 +58,9 @@ pub use session::{
     serve_connection_with_registry as serve_session_connection_with_registry, AssetStreamReport,
     AuthMode, GameLoopReport, GameReport, SessionError, SessionOptions, SessionReport,
 };
-pub use universe_runtime::{UniverseRuntime, UniverseRuntimeError};
+pub use universe_runtime::{
+    PortalArrival, PortalTransferReport, UniverseRuntime, UniverseRuntimeError,
+};
 pub use world_boot::{run as run_world_boot, WorldBootError, WorldBootOptions, WorldBootReport};
 pub use world_config_tool::{
     run as run_world_config_tool, WorldConfigToolError, WorldConfigToolOptions,

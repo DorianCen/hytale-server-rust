@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 60)
+# Next steps — CoreServer rewrite, phase 2 (session 64)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -18,7 +18,13 @@ catalogs plus `world-boot`/`serve --spawn-npc`; the final T59b slice adds
 automatic environment enumeration, spawn suppression, live marker/beacon
 controllers with persisted cooldowns, `--auto-population` and the client-bot
 scenario. **T59c** adds the real combat action graph, the `EncounterManager`
-catalog/evaluator and live world-thread encounter commands.
+catalog/evaluator and live world-thread encounter commands. **T60** adds the
+`hytale-builtin` module runtime, the eight selected manifests/lifecycle
+switches and the `--list-modules`/`--module`/`--disable-module` CLI. **T60b**
+adds player health/stat replication, container transactions, bench windows and
+recipes, encounter action execution, portal/instance plans and the NPC
+builder/ECS seam. Per-entity stat packets use Java's stat-index map and
+encounter target actions update live NPC state.
 
 ## Current state
 
@@ -122,15 +128,14 @@ Landed and green:
   T59c, and `testdata/golden/server/entity/entity-gameplay.json` gates all 13
   stats, 260 effects and 20 damage causes against Java. T59c lands the NPC
   damage-calculator action graph; client stat/effect packets and effect DoT
-  remain T60.
+  remain post-T60 follow-ups.
 - T54 (done): `Server/Weathers` loads with `Unknown` at id 0;
   environment forecasts are parsed from the real 24-hour tables;
   `hytale_world::weather` selects deterministic weather per hour, honors
   `ForcedWeather`, and exposes the effective index through `WorldThread`.
   `WorldClock` now has current-hour and moon-phase helpers. Sessions send
   `UpdateWeather` on join and when the effective weather changes. Full
-  `UpdateWeathers` asset-document parity and presentation remain T60
-  follow-ups.
+  `UpdateWeathers` asset-document parity and presentation remain follow-ups.
 - T55 (done): `hytale-entities::projectile` launches from the real legacy
   `Projectile` assets (86) with Java angle/offset math, gravity, terminal-speed
   cap, swept block/entity AABB collision, bounce/stick/rest, hit/miss/death
@@ -139,7 +144,7 @@ Landed and green:
   the slide/roll/mantle traversal state and a `MountState` rider seam. The
   Java entity fixture now gates both projectile stores; `--validate-assets`
   reports 27 stores. Packets, explosions, prediction and new-physics
-  density/drag remain T60.
+  density/drag remain post-T60 follow-ups.
 - T56 (done): prefab parsing now keeps block `components` and entity
   `Components`; `hytale-world::runtime` owns stable-id runtime entities and
   block components with versioned atomic JSON sidecars, and
@@ -170,10 +175,10 @@ Landed and green:
   images for the loaded view with `UpdateWorldMap.chunks` load/unload diffs,
   and persisted block-container inventories with the
   `SetPage(Bench)`/`OpenWindow(Container)`/`CloseWindow` round trip. Still
-  open: bench crafting windows (T60 builtin), container item transactions,
-  map refresh on block edits and particle/weather presentation.
-  Producers stay with T58/T59/T60; T57b should land before M5 is declared fully
-  closed.
+  open: bench crafting windows (Crafting follow-up), container item
+  transactions, map refresh on block edits and particle/weather presentation.
+  Producers landed with T58/T59/T60; T57b should land before M5 is declared
+  fully closed.
 - T58 (done, session 50): the new `hytale-npc` crate loads the real
   `Server/NPC/Roles` documents (1,147 unique keys) and all 8 `Server/NPC/Flocks`
   definitions, selects range/weighted flock sizes with injected RNG, filters
@@ -185,7 +190,7 @@ Landed and green:
   subset, reference-chain/parameter merging and `ResolvedRole`; all 1,147 roles
   resolve, and the expression oracle matches Java `Expression`/`StdScope`. The
   full builder graph, half-step motion-controller A*, wander/avoidance/group
-  forces and blackboard sensors move with the builtin NPC module (T59/T60).
+  forces and blackboard sensors remain post-T60 follow-ups.
   T58c adds `WorldGrid` real-world walk/fly planning and the Java
   `GroupSteeringAccumulator`; T58 is done. Spawning/combat/ECS start T59.
 - T59 (done, sessions 51–62; T59b carries the runtime slices): `hytale-npc::spawn` loads all 98
@@ -227,6 +232,32 @@ Landed and green:
   enumeration (`--auto-population`), `Npc.Environment` persistence, NPC-group
   spawn suppression, live marker/beacon controllers with `spawn-controllers.json`
   cooldown persistence and the client-bot spawn/chase/despawn scenario.
+- T60 (done): new `hytale-builtin` crate with the Java `PluginManifest` surface,
+  dependency-ordered `BuiltinModule` lifecycle (setup/start/shutdown, disabled
+  dependencies fail closed) and the selected `BlockTick`, `RandomTick`,
+  `FallingBlocks`, `BlockPhysics`, `Fluid`, `Weather`, `NPC` and
+  `EncounterManager` features. `BuiltinRuntime` maps the enabled set onto
+  `SimulationStages`, NPC spawn/tick, encounter tick and weather queries;
+  `--list-modules`, `--module` and `--disable-module` are wired through
+  `serve`, `chunk-serve` and `world-boot`. The eight reference manifests are
+  gated by `testdata/golden/builtin/manifests.json` and one named parity test
+  per module.
+- T60b (done): per-session `PlayerGameplay` stat/effect maps apply NPC melee
+  through the damage core, queue `EntityStatsUpdate`/`EntityEffectsUpdate`
+  deltas, tick real effect DoT, persist health and respawn on death;
+  `MoveItemStack` routes player/window slots and `UpdateWindow`; bench blocks
+  open the Java bench window with real `BlockType.Bench` data;
+  `RecipeCatalog` loads item/salvage recipes and the join burst sends
+  `UpdateRecipes`/`UpdateKnownRecipes`; item/resource-type `CraftRecipeAction`
+  inputs are atomic, bench timers/queues grant outputs on completion and
+  cancellation refunds inputs.
+  Encounter `Spawn` actions create runtime NPCs and particle/sound actions
+  become world packets. `PortalCatalog`/`InstanceCatalog` resolve transport
+  plans. `hytale-npc` adds the role instruction graph, blackboard, motion
+  controller and a `bevy_ecs` actor/blackboard/motion schedule used by the
+  world thread; Walk/Fly/Dive controllers execute their speed/vertical limits. `UniverseRuntime::open_portal_instance` creates/selects the
+  target instance world, `transfer_player_document` moves the saved player, and
+  `switch_session_world` performs the live registry/view/chunk-stream handoff.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure and local-EdDSA authenticated join; common/config asset
@@ -265,8 +296,9 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    landed; the final T59b slice adds automatic environment enumeration, spawn
    suppression, live marker/beacon controllers and the client-bot scenario
    (session 62), and T59c's combat action graph plus encounter evaluator/world
-   commands are landed (session 61). T59 is complete. T59/T60 presentation
-   work waits for T57b.
+   commands are landed (session 61). T59 is complete. T60 lands the builtin
+   module runtime and selected block/weather/NPC modules (session 63); T60b
+   lands the first gameplay follow-up slice (session 64).
 
 ## Try it
 
@@ -276,6 +308,8 @@ The phase-1 commands still work:
 cargo run -p hytale-server -- --validate-assets
 cargo run -p hytale-server -- universe --root target/universe create Alpha --seed 1
 cargo run -p hytale-server -- universe --root target/universe list
+cargo run -p hytale-server -- --list-modules
+cargo run -p hytale-server -- --disable-module Hytale:RandomTick world-config --save target/headless-world
 cargo run -p hytale-server -- serve --universe target/universe --bind 127.0.0.1:5520 \
   --trace target/trace/v1.jsonl --spawn-npc Rat --auto-population
 cargo run -p hytale-server -- headless --save target/headless-world --chunk 4,-5

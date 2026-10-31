@@ -42,7 +42,8 @@ context. The main agent owns sequencing and shared-file edits.
 | [T59](T59-npc-spawning-combat.md) | NPC spawning, combat and encounters | T58 | low/medium | done (sessions 51–61; T59b runtime follow-ups) |
 | [T59b](T59b-npc-runtime-spawning.md) | NPC runtime, spawn positions and beacons | T59 | low/medium | done (sessions 52–62) |
 | [T59c](T59c-npc-combat-encounters.md) | Combat action graph and encounters | T59, T59b | low/medium | done (session 61) |
-| T60 | Builtin module runtime and selected modules | T58, T59 | low/medium | planned |
+| [T60](T60-builtin-module-runtime.md) | Builtin module runtime and selected modules | T58, T59 | low/medium | done (session 63) |
+| [T60b](T60b-followup-gameplay.md) | Player combat/stats, containers, crafting, encounters, portal/ECS | T60 | low | done (session 64) |
 | T61 | Editor/builder/machinima/voice/cosmetics scope | T60 | low | planned |
 | T62 | Security, fuzzing and rate limits | T48 | medium | planned |
 | T63 | Performance, memory and soak | T48 | medium | planned |
@@ -81,7 +82,15 @@ eighth loads the beacon/spawn-marker catalogs with weighted selection and
 ISO-8601 cooldowns; a ninth adds `--spawn-npc` to `world-boot`/`serve`; and
 the final slice adds automatic environment enumeration, spawn suppression,
 live marker/beacon controllers with persisted cooldowns, `--auto-population`
-and the client-bot spawn/chase/despawn scenario.
+and the client-bot spawn/chase/despawn scenario. T60 lands the Rust-native
+builtin module runtime (`hytale-builtin`) with the eight selected manifests,
+feature-gated lifecycle ordering, runtime switches and the
+`--module`/`--disable-module`/`--list-modules` CLI; disabled simulation, NPC,
+encounter and weather modules do no world-thread work. T60b closes the first
+gameplay follow-up slice: player health/stat replication, container
+`MoveItemStack` transactions, bench windows and recipe delivery, encounter
+spawn/particle/sound execution, portal/instance catalog plans and the NPC
+builder/ECS storage seam.
 
 ## Rules
 

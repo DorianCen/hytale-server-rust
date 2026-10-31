@@ -24,20 +24,28 @@
 //!   and ISO-8601 cooldowns.
 //! * [`combat`] — resolved combat profiles, interaction damage ranges and a
 //!   scripted NPC actor (targeting, chase, melee, damage, death).
+//! * [`builder`] — parsed role `Instructions` graph and sensor/action
+//!   evaluation.
+//! * [`ecs`] — `bevy_ecs` actor storage used by the server world thread.
 //!
-//! Motion controllers, the builder graph, blackboard sensors, spawn-position
-//! search and the server ECS producer remain T59b/T60 work.
+//! Motion controllers, the full builder action set, blackboard sensors and
+//! spawn-position search remain follow-ups. T60b adds the parsed role
+//! instruction graph and the `bevy_ecs` actor store used by the server.
 
 #![deny(clippy::all)]
 
+pub mod blackboard;
 pub mod block_set;
+pub mod builder;
 pub mod combat;
+pub mod ecs;
 pub mod encounter;
 pub mod expr;
 pub mod flock;
 pub mod fluid_tags;
 pub mod group;
 pub mod light;
+pub mod motion;
 pub mod navigation;
 pub mod path;
 pub mod perception;
@@ -49,11 +57,14 @@ pub mod spawn_suppression;
 pub mod steering;
 pub mod worldgrid;
 
+pub use blackboard::NpcBlackboard;
 pub use block_set::{wildcard_matches, BlockSet, BlockSetCatalog, BlockSetError};
+pub use builder::{BuilderAction, BuilderContext, BuilderGraph, InstructionNode, Sensor};
 pub use combat::{
     npc_stat_map, AttackAction, AttackType, BallisticMode, CombatError, CombatProfile,
     DamageCalculator, DamageEffects, DamageType, NpcActor, NpcAttack, NpcTarget, NpcTickReport,
 };
+pub use ecs::{NpcActorComponent, NpcEcs, NpcEntityId};
 pub use encounter::{
     BeaconMessage, BossBarState, DeferredEncounterAction, EncounterAction, EncounterCatalog,
     EncounterContext, EncounterDocument, EncounterError, EncounterRuntime, EncounterTarget,
@@ -64,6 +75,7 @@ pub use flock::{FlockAsset, FlockCatalog, FlockSize, PersistentFlockData};
 pub use fluid_tags::FluidTagIndex;
 pub use group::{GroupMember, GroupSteeringAccumulator};
 pub use light::{LightChannel, LightRanges};
+pub use motion::{MotionController, MotionMode};
 pub use navigation::{
     search_directions, AStarConfig, AStarPath, AStarPlanner, BlockPos, SearchDirection,
 };

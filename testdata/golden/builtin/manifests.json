@@ -1,0 +1,121 @@
+[
+  {
+    "Group": "Hytale",
+    "Name": "BlockPhysics",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.builtin.blockphysics.BlockPhysicsPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:BlockTick": "*",
+      "Hytale:FallingBlocks": "*",
+      "Hytale:BlockTypeModule": "*"
+    }
+  },
+  {
+    "Group": "Hytale",
+    "Name": "BlockTick",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.builtin.blocktick.BlockTickPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:LegacyModule": "*"
+    }
+  },
+  {
+    "Group": "Hytale",
+    "Name": "EncounterManager",
+    "Description": "Adds Encounter Managers: data-driven instruction-list controllers.",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.builtin.encountermanager.EncounterManagerPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:NPC": "*",
+      "Hytale:Audio": "*",
+      "Hytale:Weather": "*",
+      "Hytale:WorldEvents": "*",
+      "Hytale:Rewards": "*"
+    }
+  },
+  {
+    "Group": "Hytale",
+    "Name": "FallingBlocks",
+    "Description": "Falling Blocks",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.builtin.fallingblocks.FallingBlocksPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:EntityModule": "*"
+    }
+  },
+  {
+    "Group": "Hytale",
+    "Name": "Fluid",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.builtin.fluid.FluidPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:BlockTick": "*",
+      "Hytale:LegacyModule": "*"
+    }
+  },
+  {
+    "Group": "Hytale",
+    "Name": "NPC",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.server.npc.NPCPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:AssetModule": "*",
+      "Hytale:TagSet": "*",
+      "Hytale:Points": "*",
+      "Hytale:EntityModule": "*",
+      "Hytale:EntityStatsModule": "*",
+      "Hytale:EntityUIModule": "*",
+      "Hytale:DamageModule": "*",
+      "Hytale:Rewards": "*"
+    },
+    "OptionalDependencies": {
+      "Hytale:Objectives": "*",
+      "Hytale:Path": "*",
+      "Hytale:Teleport": "*"
+    },
+    "SubPlugins": [
+      {
+        "Name": "Spawning",
+        "Main": "com.hypixel.hytale.server.spawning.SpawningPlugin"
+      },
+      {
+        "Name": "Flock",
+        "Main": "com.hypixel.hytale.server.flock.FlockPlugin"
+      }
+    ]
+  },
+  {
+    "Group": "Hytale",
+    "Name": "RandomTick",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.builtin.randomtick.RandomTickPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:LegacyModule": "*"
+    }
+  },
+  {
+    "Group": "Hytale",
+    "Name": "Weather",
+    "Version": "1.0.0",
+    "Website": "https://hypixel.com/",
+    "Main": "com.hypixel.hytale.builtin.weather.WeatherPlugin",
+    "ServerVersion": "*",
+    "Dependencies": {
+      "Hytale:EntityModule": "*"
+    }
+  }
+]
