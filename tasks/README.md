@@ -54,7 +54,7 @@ context. The main agent owns sequencing and shared-file edits.
 Task files for T43–T66 are created when their milestone starts; the milestone
 scope is in [`../plan.md`](../plan.md). T65 closed live authentication; its
 real-client asset follow-up is T66 (in progress; session 70 landed the item,
-block and fifteen store encoders, user-run client smoke still pending). T61 records the
+block and sixteen store encoders, user-run client smoke still pending). T61 records the
 editor/builder/machinima/voice/cosmetics scope: only cosmetic appearance
 passthrough is in scope, editor clients are refused in every auth mode, and
 `builtin/HytaleGenerator` stays a separate engine project. T62 lands the

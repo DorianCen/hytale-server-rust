@@ -25,7 +25,8 @@ use hytale_protocol::generated::assets::{
     UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    BlockNeighbor, BlockType, RequiredBlockFaceSupport, UpdateType,
+    BlockNeighbor, BlockType, DestinationAlign, FadeCurve, RequiredBlockFaceSupport, SyncPoint,
+    UpdateType,
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::Reader;
@@ -963,4 +964,72 @@ fn particle_stores_are_materialized() {
         .particle
         .as_ref()
         .is_some_and(|particle| particle.animation_frames.is_some())));
+}
+
+/// T66: the music-transition store is materialized from real assets, including
+/// Java's preloaded `EMPTY` entry and the container-index expansion.
+#[test]
+fn music_transitions_are_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded: UpdateMusicTransitions = UpdateMusicTransitions::decode(&mut Reader::new(
+        &packet(&packets, UpdateMusicTransitions::ID).payload,
+    ))
+    .expect("decode music transitions");
+    assert_eq!(decoded.r#type, UpdateType::Init);
+    assert_eq!(decoded.max_id, 6);
+    assert_eq!(
+        decoded.music_transitions.as_ref().map(BTreeMap::len),
+        Some(registry.music_transitions.len())
+    );
+
+    let transitions = decoded.music_transitions.expect("transition map");
+    assert_eq!(transitions.len(), 6);
+    assert!(transitions
+        .values()
+        .all(|transition| transition.id.is_some()));
+
+    let empty = transitions.get(&0).expect("EMPTY at index 0");
+    assert_eq!(empty.id.as_deref(), Some("EMPTY"));
+    assert_eq!(empty.from_container_indices, None);
+    assert_eq!(empty.to_container_indices, None);
+    assert_eq!(empty.specificity, 0);
+    assert_eq!(empty.align, DestinationAlign::EntryMarker);
+    assert_eq!(empty.fade_in_curve, FadeCurve::EqualPowerSine);
+    assert_eq!(empty.fade_out_curve, FadeCurve::EqualPowerSine);
+
+    let transition = transitions
+        .values()
+        .find(|transition| transition.id.as_deref() == Some("MT_Z1D_Goblin_Boss_Phase2_Interlude"))
+        .expect("the Phase2 interlude transition");
+    let from = registry
+        .music_containers
+        .id_of("Track_Z1D_Goblin_Boss_Phase2")
+        .expect("from container");
+    let to = registry
+        .music_containers
+        .id_of("Track_Z1D_Goblin_Boss_Interlude")
+        .expect("to container");
+    assert_eq!(transition.from_container_indices, Some(vec![from]));
+    assert_eq!(transition.to_container_indices, Some(vec![to]));
+    let exit = transition.exit_at.as_ref().expect("ExitAt");
+    assert_eq!(exit.point, SyncPoint::NextBar);
+    assert_eq!(transition.align, DestinationAlign::EntryMarker);
+    assert_eq!(
+        transition.fade_out_duration.as_ref().map(|d| d.beats),
+        Some(1.0)
+    );
+    assert_eq!(
+        transition.fade_out_delay.as_ref().map(|d| d.beats),
+        Some(1.5)
+    );
+    assert_eq!(
+        transition.fade_in_duration.as_ref().map(|d| d.ms),
+        Some(0.0)
+    );
+    assert_eq!(transition.priority, 40);
+    assert_eq!(transition.specificity, 8);
 }

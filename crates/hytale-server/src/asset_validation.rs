@@ -207,7 +207,7 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateMusicContainers::ID, "MusicContainers"),
         (UpdateAudioStates::ID, "AudioState"),
         (UpdateConnectedBlockRuleSets::ID, "ConnectedBlockRuleSets"),
-        (UpdateMusicTransitions::ID, "MusicTransitions"),
+        (UpdateMusicTransitions::ID, "MusicTransition"),
         (UpdateStingers::ID, "Stingers"),
         (UpdateBeamConfigs::ID, "BeamConfig"),
         (UpdateAbilityKeywords::ID, "AbilityKeyword"),
@@ -263,6 +263,7 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("BlockSet", block_sets),
         store!("ParticleSystem", particle_systems),
         store!("ParticleSpawner", particle_spawners),
+        store!("MusicTransition", music_transitions),
     ]
 }
 

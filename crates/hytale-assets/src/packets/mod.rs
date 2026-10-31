@@ -34,23 +34,24 @@ use hytale_protocol::generated::assets::{
     UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    AbilityKeyword, BeamConfig, BlockSet, BlockTextures, CameraAxis, CameraNode, CameraSettings,
-    CollisionType, Color, ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
-    CombatTextEntityUIComponentAnimationEvent, CurveType, Direction, Edge, EffectDirection,
-    EmitShape, EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior,
-    EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode, Fluid,
-    FluidDrawType, FluidParticle, Hitbox, HitboxCollisionConfig, InitialVelocity,
-    IntersectionHighlight, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
-    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
-    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LoopOption, Model,
-    ModelParticle, ModelVFX, Opacity, OverlapBehavior as ProtocolOverlapBehavior, Particle,
-    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
-    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
-    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
-    PhysicsConfig, PhysicsType, ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangef,
-    RepulsionConfig, ResourceType, ReverbEffect, RotationMode, ShaderType, Size, SoftParticle,
-    SoundCategory, SoundSet, SubCategoryDefinition, SwitchTo, Trail, UVMotion, UVMotionCurveType,
-    UpdateType, ValueType, Vector2i, Weather, WiggleWeights, WorldEnvironment,
+    AbilityKeyword, BarBeatDuration, BeamConfig, BlockSet, BlockTextures, CameraAxis, CameraNode,
+    CameraSettings, CollisionType, Color, ColorAlpha, ColorLight,
+    CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent, CurveType,
+    DestinationAlign, Direction, Edge, EffectDirection, EmitShape, EntityEffect, EntityPart,
+    EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType,
+    EqualizerEffect, FXRenderMode, FadeCurve, Fluid, FluidDrawType, FluidParticle, Hitbox,
+    HitboxCollisionConfig, InitialVelocity, IntersectionHighlight, ItemAnimation, ItemCategory,
+    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
+    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
+    LoopOption, Model, ModelParticle, ModelVFX, MusicSync, MusicTransition, Opacity,
+    OverlapBehavior as ProtocolOverlapBehavior, Particle, ParticleAnimationFrame,
+    ParticleAttractor, ParticleCollision, ParticleCollisionAction, ParticleCollisionBlockType,
+    ParticleRotationInfluence, ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup,
+    ParticleSystem, ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType,
+    ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangef, RepulsionConfig, ResourceType,
+    ReverbEffect, RotationMode, ShaderType, Size, SoftParticle, SoundCategory, SoundSet,
+    SubCategoryDefinition, SwitchTo, SyncPoint, Trail, UVMotion, UVMotionCurveType, UpdateType,
+    ValueType, Vector2i, Weather, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -356,13 +357,7 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "MusicTransitions",
-                    &UpdateMusicTransitions {
-                        music_transitions: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.music_transitions_packet()?,
                 empty_packet(
                     "Stingers",
                     &UpdateStingers {
@@ -548,6 +543,24 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateMusicTransitions` (id 91) from the `MusicTransition` store.
+    pub fn music_transitions_packet(&self) -> Result<AssetPacket> {
+        let mut transitions = BTreeMap::new();
+        for record in self.music_transitions.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "MusicTransition",
+                key: record.key.clone(),
+            })?;
+            transitions.insert(id, music_transition(self, &record.key, &record.value));
+        }
+        let packet = UpdateMusicTransitions {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.music_transitions, "MusicTransition")?,
+            music_transitions: Some(transitions),
+        };
+        AssetPacket::encode("MusicTransition", &packet)
     }
 
     /// `UpdateParticleSystems` (id 49) from the `ParticleSystem` store.
@@ -1794,6 +1807,147 @@ fn text(json: &Value, name: &str) -> Option<String> {
 
 fn boolean(json: &Value, name: &str, fallback: bool) -> bool {
     json.get(name).and_then(Value::as_bool).unwrap_or(fallback)
+}
+
+fn bar_beat_duration(value: Option<&Value>) -> Option<BarBeatDuration> {
+    let object = value?.as_object()?;
+    Some(BarBeatDuration {
+        bars: object.get("Bars").and_then(Value::as_i64).unwrap_or(0) as i32,
+        beats: map_number(object, "Beats") as f32,
+        ms: map_number(object, "Ms") as f32,
+    })
+}
+
+fn music_sync(value: Option<&Value>) -> Option<MusicSync> {
+    let object = value?.as_object()?;
+    Some(MusicSync {
+        point: match object.get("Point").and_then(Value::as_str) {
+            Some("NextBeat") => SyncPoint::NextBeat,
+            Some("NextBar") => SyncPoint::NextBar,
+            Some("ExitMarker") => SyncPoint::ExitMarker,
+            Some("NextMarker") => SyncPoint::NextMarker,
+            _ => SyncPoint::Immediate,
+        },
+        marker_name: object
+            .get("Marker")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        offset: bar_beat_duration(object.get("Offset")),
+        bar_multiple: object
+            .get("BarMultiple")
+            .and_then(Value::as_i64)
+            .unwrap_or(0) as i32,
+    })
+}
+
+fn fade_curve(value: Option<&Value>) -> FadeCurve {
+    match value.and_then(Value::as_str) {
+        Some("Linear") => FadeCurve::Linear,
+        Some("Logarithmic") => FadeCurve::Logarithmic,
+        Some("Exponential") => FadeCurve::Exponential,
+        Some("SCurve") => FadeCurve::SCurve,
+        _ => FadeCurve::EqualPowerSine,
+    }
+}
+
+fn tag_pattern_matches(node: &TagPatternNode, tags: &[String]) -> bool {
+    match node {
+        TagPatternNode::Equals { tag } => tags.iter().any(|candidate| candidate == tag),
+        TagPatternNode::And { operands } => operands
+            .iter()
+            .all(|operand| tag_pattern_matches(operand, tags)),
+        TagPatternNode::Or { operands } => operands
+            .iter()
+            .any(|operand| tag_pattern_matches(operand, tags)),
+        TagPatternNode::Not { pattern } => !tag_pattern_matches(pattern, tags),
+    }
+}
+
+fn music_match_specificity(value: Option<&Value>) -> i32 {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return 0;
+    };
+    if object.get("Container").and_then(Value::as_str).is_some() {
+        2
+    } else if object.contains_key("TagPattern") {
+        1
+    } else {
+        0
+    }
+}
+
+fn music_match_indices(registry: &AssetRegistry, value: Option<&Value>) -> Option<Vec<i32>> {
+    let object = value?.as_object()?;
+    if let Some(container) = object.get("Container").and_then(Value::as_str) {
+        return Some(
+            registry
+                .music_containers
+                .id_of(container)
+                .into_iter()
+                .collect(),
+        );
+    }
+    if let Some(pattern_id) = object.get("TagPattern").and_then(Value::as_str) {
+        let Some(pattern) = registry.tag_patterns.get(pattern_id) else {
+            return Some(Vec::new());
+        };
+        let mut indices = registry
+            .music_containers
+            .iter()
+            .filter_map(|record| {
+                let tags = record.value.get("Tags").and_then(Value::as_array)?;
+                let tags: Vec<String> = tags
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect();
+                if tag_pattern_matches(&pattern.value.pattern, &tags) {
+                    record.id
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        indices.sort_unstable();
+        return Some(indices);
+    }
+    None
+}
+
+fn music_transition(registry: &AssetRegistry, key: &str, json: &Value) -> MusicTransition {
+    let from = music_match_indices(registry, json.get("From"));
+    let to = music_match_indices(registry, json.get("To"));
+    MusicTransition {
+        id: Some(key.to_string()),
+        from_container_indices: from,
+        to_container_indices: to,
+        exit_at: music_sync(json.get("ExitAt")),
+        align: match json.get("Align").and_then(Value::as_str) {
+            Some("NamedMarker") => DestinationAlign::NamedMarker,
+            Some("SamePosition") => DestinationAlign::SamePosition,
+            _ => DestinationAlign::EntryMarker,
+        },
+        align_marker_name: json
+            .get("AlignMarker")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        fade_out_duration: bar_beat_duration(json.get("FadeOutDuration")),
+        fade_out_curve: fade_curve(json.get("FadeOutCurve")),
+        fade_out_delay: bar_beat_duration(json.get("FadeOutDelay")),
+        fade_in_duration: bar_beat_duration(json.get("FadeInDuration")),
+        fade_in_curve: fade_curve(json.get("FadeInCurve")),
+        play_post_exit: json
+            .get("PlayPostExit")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        post_event: json
+            .get("PostEvent")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        priority: json.get("Priority").and_then(Value::as_i64).unwrap_or(0) as i32,
+        specificity: music_match_specificity(json.get("From")) * 3
+            + music_match_specificity(json.get("To")),
+    }
 }
 
 fn ranged_f32(value: Option<&Value>) -> Option<Rangef> {

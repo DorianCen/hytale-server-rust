@@ -378,6 +378,12 @@ const PARTICLE_SPAWNER: StoreSpec = StoreSpec {
     map: MapKind::Default,
 };
 
+const MUSIC_TRANSITION: StoreSpec = StoreSpec {
+    name: "MusicTransition",
+    path: "Server/Audio/MusicTransitions",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -931,6 +937,8 @@ pub struct AssetRegistry {
     pub particle_systems: AssetCollection<Value>,
     /// `ParticleSpawner` (`Server/Particles/**/*.particlespawner`).
     pub particle_spawners: AssetCollection<Value>,
+    /// `MusicTransition` (`Server/Audio/MusicTransitions`).
+    pub music_transitions: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1040,6 +1048,7 @@ impl AssetRegistry {
             block_sets: AssetCollection::empty(),
             particle_systems: AssetCollection::empty(),
             particle_spawners: AssetCollection::empty(),
+            music_transitions: AssetCollection::empty(),
         })
     }
 
@@ -1085,6 +1094,12 @@ impl AssetRegistry {
             load_indexed_store_extension(pack, &PARTICLE_SYSTEM, "particlesystem")?;
         registry.particle_spawners =
             load_indexed_store_extension(pack, &PARTICLE_SPAWNER, "particlespawner")?;
+        registry.music_transitions = load_indexed_store(
+            pack,
+            &MUSIC_TRANSITION,
+            music_transition_preloads(),
+            parse_key_asset,
+        )?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -2546,6 +2561,11 @@ fn audio_state_preloads() -> Vec<(&'static str, Value)> {
 }
 
 fn music_container_preloads() -> Vec<(&'static str, Value)> {
+    vec![("EMPTY", json!({}))]
+}
+
+/// Java `MusicTransition.EMPTY_MUSIC_TRANSITION`.
+fn music_transition_preloads() -> Vec<(&'static str, Value)> {
     vec![("EMPTY", json!({}))]
 }
 
