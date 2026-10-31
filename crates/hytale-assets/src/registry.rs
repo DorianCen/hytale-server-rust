@@ -396,6 +396,12 @@ const AMBIENCE_FX: StoreSpec = StoreSpec {
     map: MapKind::IndexedLookupTable,
 };
 
+const STINGER: StoreSpec = StoreSpec {
+    name: "Stinger",
+    path: "Server/Audio/Stingers",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -955,6 +961,8 @@ pub struct AssetRegistry {
     pub connected_block_rule_sets: AssetCollection<Value>,
     /// `AmbienceFX` (`Server/Audio/AmbienceFX`, `Empty` preloaded at 0).
     pub ambience_fxs: AssetCollection<Value>,
+    /// `Stinger` (`Server/Audio/Stingers`, `EMPTY` preloaded at 0).
+    pub stingers: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1067,6 +1075,7 @@ impl AssetRegistry {
             music_transitions: AssetCollection::empty(),
             connected_block_rule_sets: AssetCollection::empty(),
             ambience_fxs: AssetCollection::empty(),
+            stingers: AssetCollection::empty(),
         })
     }
 
@@ -1082,12 +1091,7 @@ impl AssetRegistry {
 
         registry.audio_states =
             load_indexed_store(pack, &AUDIO_STATE, audio_state_preloads(), parse_key_asset)?;
-        registry.music_containers = load_indexed_store(
-            pack,
-            &MUSIC_CONTAINER,
-            music_container_preloads(),
-            parse_key_asset,
-        )?;
+        registry.music_containers = load_music_containers(pack)?;
         registry.reverb_effects =
             load_indexed_store(pack, &REVERB_EFFECT, Vec::new(), parse_key_asset)?;
         registry.equalizer_effects =
@@ -1126,6 +1130,8 @@ impl AssetRegistry {
         )?;
         registry.ambience_fxs =
             load_indexed_store(pack, &AMBIENCE_FX, ambience_fx_preloads(), parse_key_asset)?;
+        registry.stingers =
+            load_indexed_store(pack, &STINGER, stinger_preloads(), parse_key_asset)?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -1304,6 +1310,133 @@ fn asset_key(path: &str) -> String {
         .strip_suffix(".json")
         .unwrap_or(path)
         .to_string()
+}
+
+/// Load `MusicContainer` files plus the inline child containers Java registers
+/// from `Children`, `Layers[].Container`, `AmbienceFX.MusicContainer` and
+/// `Stinger.MusicContainer`.
+fn load_music_containers(pack: &AssetPack) -> Result<AssetCollection<Value>, AssetError> {
+    let mut preloaded = preloaded_assets_with(music_container_preloads());
+    let mut loaded: HashSet<String> = preloaded
+        .iter()
+        .map(|asset| asset.key.to_ascii_lowercase())
+        .collect();
+    let files = read_store_files(pack, MUSIC_CONTAINER.path)?;
+    let files = apply_preload_replacements(&mut preloaded, files);
+    let mut raw = files;
+    raw.extend(load_contained_music_containers(pack)?);
+    let ordered = assign_phase(
+        raw,
+        &mut loaded,
+        MissingParentPolicy::Error,
+        MUSIC_CONTAINER.name,
+    )?;
+    let mut all = preloaded;
+    all.extend(ordered);
+    let resolved = resolve_assets(all, MUSIC_CONTAINER.name, MergeHook::Shallow)?;
+    let records = resolved
+        .into_iter()
+        .enumerate()
+        .map(|(index, asset)| {
+            let id = i32::try_from(index).map_err(|_| AssetError::InvalidAsset {
+                store: MUSIC_CONTAINER.name.to_string(),
+                key: asset.raw.key.clone(),
+                message: "asset id exceeds i32".to_string(),
+            })?;
+            Ok(AssetRecord {
+                key: asset.raw.key,
+                id: Some(id),
+                parent: asset.raw.parent,
+                source: asset.raw.source,
+                preloaded: asset.raw.preloaded,
+                value: asset.merged,
+            })
+        })
+        .collect::<Result<Vec<_>, AssetError>>()?;
+    AssetCollection::new(MUSIC_CONTAINER.name, records)
+}
+
+fn load_contained_music_containers(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetError> {
+    let mut out = Vec::new();
+    for asset in read_store_files(pack, MUSIC_CONTAINER.path)? {
+        extract_music_container_children(&asset.key, &asset.value, &asset.source, &mut out);
+    }
+    for (path, root) in [(AMBIENCE_FX.path, ""), ("Server/Audio/Stingers", "")] {
+        let _ = root;
+        for asset in read_store_files(pack, path)? {
+            if let Some(value) = asset
+                .value
+                .get("MusicContainer")
+                .filter(|value| value.is_object())
+            {
+                out.push(contained_music_container(
+                    format!("*{}_MusicContainer", asset.key),
+                    &asset.source,
+                    value.clone(),
+                ));
+                extract_music_container_children(
+                    &format!("*{}_MusicContainer", asset.key),
+                    value,
+                    &asset.source,
+                    &mut out,
+                );
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn extract_music_container_children(
+    root: &str,
+    value: &Value,
+    source: &str,
+    out: &mut Vec<RawAsset>,
+) {
+    let Some(object) = value.as_object() else {
+        return;
+    };
+    if let Some(children) = object.get("Children").and_then(Value::as_array) {
+        for (index, child) in children.iter().enumerate() {
+            if !child.is_object() {
+                continue;
+            }
+            let key = format!("*{root}_Children_{index}");
+            out.push(contained_music_container(
+                key.clone(),
+                source,
+                child.clone(),
+            ));
+            extract_music_container_children(&key, child, source, out);
+        }
+    }
+    if let Some(layers) = object.get("Layers").and_then(Value::as_array) {
+        for (index, layer) in layers.iter().enumerate() {
+            let Some(container) = layer.get("Container").filter(|value| value.is_object()) else {
+                continue;
+            };
+            let key = format!("*{root}_Layers_{index}_Container");
+            out.push(contained_music_container(
+                key.clone(),
+                source,
+                container.clone(),
+            ));
+            extract_music_container_children(&key, container, source, out);
+        }
+    }
+}
+
+fn contained_music_container(key: String, source: &str, value: Value) -> RawAsset {
+    RawAsset {
+        key,
+        parent: value
+            .get("Parent")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        container_item: None,
+        source: source.to_string(),
+        preloaded: false,
+        value,
+    }
 }
 
 fn load_indexed_store<T>(
@@ -2627,6 +2760,11 @@ fn music_transition_preloads() -> Vec<(&'static str, Value)> {
 /// Java `AmbienceFX.EMPTY` (`id = "Empty"`, reserved index 0).
 fn ambience_fx_preloads() -> Vec<(&'static str, Value)> {
     vec![("Empty", json!({}))]
+}
+
+/// Java `Stinger.EMPTY_STINGER`.
+fn stinger_preloads() -> Vec<(&'static str, Value)> {
+    vec![("EMPTY", json!({}))]
 }
 
 /// Java `AudioCategory.PRELOAD_ORDER` (reserved indices 0-5).

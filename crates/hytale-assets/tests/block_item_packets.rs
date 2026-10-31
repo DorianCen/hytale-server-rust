@@ -26,7 +26,8 @@ use hytale_protocol::generated::assets::{
 };
 use hytale_protocol::generated::common::{
     BlockNeighbor, BlockType, ConnectedBlockShape, ConnectedBlockUpdateMode, DestinationAlign,
-    FadeCurve, RequiredBlockFaceSupport, SyncPoint, UpdateType,
+    FadeCurve, MusicContainer as ProtocolMusicContainer, RandomMode, RequiredBlockFaceSupport,
+    SyncPoint, UpdateType,
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::Reader;
@@ -1213,4 +1214,175 @@ fn ambience_fx_is_materialized() {
     assert!(ambience.values().any(|value| value.set_states.is_some()));
     assert!(ambience.values().any(|value| value.sound_effect.is_some()));
     assert!(ambience.values().any(|value| value.sounds.is_some()));
+}
+
+/// T66: music containers carry the folder assets plus the inline child
+/// containers Java registers from `Children`/`Layers`, and `Stinger` resolves
+/// its container index into that map.
+#[test]
+fn music_containers_and_stingers_are_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded: UpdateMusicContainers = UpdateMusicContainers::decode(&mut Reader::new(
+        &packet(&packets, UpdateMusicContainers::ID).payload,
+    ))
+    .expect("decode music containers");
+    assert_eq!(decoded.r#type, UpdateType::Init);
+    assert_eq!(decoded.max_id, 674);
+    let containers = decoded.music_containers.expect("container map");
+    assert_eq!(containers.len(), registry.music_containers.len());
+    assert_eq!(containers.len(), 674);
+    assert_eq!(
+        containers.get(&0).and_then(|value| match value {
+            ProtocolMusicContainer::SingleTrackMusicContainer(container) => {
+                container.track.as_deref()
+            }
+            _ => None,
+        }),
+        None
+    );
+
+    let mut singles = 0;
+    let mut segments = 0;
+    let mut randoms = 0;
+    let mut sequences = 0;
+    let mut horizontals = 0;
+    for container in containers.values() {
+        match container {
+            ProtocolMusicContainer::SingleTrackMusicContainer(_) => singles += 1,
+            ProtocolMusicContainer::SegmentMusicContainer(_) => segments += 1,
+            ProtocolMusicContainer::RandomMusicContainer(_) => randoms += 1,
+            ProtocolMusicContainer::SequenceMusicContainer(_) => sequences += 1,
+            ProtocolMusicContainer::HorizontalMusicContainer(_) => horizontals += 1,
+        }
+    }
+    assert!(singles >= 300, "single-track containers: {singles}");
+    assert!(segments >= 27, "segment containers: {segments}");
+    assert!(randoms >= 19, "random containers: {randoms}");
+    assert!(sequences >= 5, "sequence containers: {sequences}");
+    assert!(horizontals >= 3, "horizontal containers: {horizontals}");
+
+    let deepworks = containers
+        .values()
+        .find_map(|container| match container {
+            ProtocolMusicContainer::SegmentMusicContainer(segment)
+                if segment.name_translation_key.as_deref()
+                    == Some("server_no_translation.music.Track_Z1D_The_Deepworks.name") =>
+            {
+                Some(segment)
+            }
+            _ => None,
+        })
+        .expect("Track_Z1D_The_Deepworks segment");
+    assert_eq!(deepworks.layers.as_ref().map(Vec::len), Some(2));
+    assert_eq!(deepworks.stingers.as_ref().map(Vec::len), Some(2));
+    let tempo = deepworks.tempo.as_ref().expect("Deepworks tempo");
+    assert_eq!(tempo.bpm, 120.0);
+    assert_eq!(tempo.beats_per_bar, 4);
+    for layer in deepworks.layers.as_ref().unwrap() {
+        let child = containers
+            .get(&layer.container_index)
+            .expect("layer container index");
+        match child {
+            ProtocolMusicContainer::SingleTrackMusicContainer(single) => {
+                assert!(single.track.is_some());
+            }
+            _ => panic!("Deepworks layers must resolve to single-track children"),
+        }
+    }
+
+    let fallback = containers
+        .values()
+        .find_map(|container| match container {
+            ProtocolMusicContainer::RandomMusicContainer(random)
+                if random.children.as_ref().map(Vec::len) == Some(11) =>
+            {
+                Some(random)
+            }
+            _ => None,
+        })
+        .expect("MC_Fallback_Overground random playlist");
+    assert_eq!(fallback.mode, RandomMode::Random);
+    assert_eq!(fallback.avoid_repeat_count, 4);
+
+    let forgotten = containers
+        .values()
+        .find_map(|container| match container {
+            ProtocolMusicContainer::SequenceMusicContainer(sequence)
+                if sequence.name_translation_key.as_deref()
+                    == Some("server_no_translation.music.Track_Forgotten_Temple.name") =>
+            {
+                Some(sequence)
+            }
+            _ => None,
+        })
+        .expect("Track_Forgotten_Temple sequence");
+    for child in forgotten.children.as_ref().unwrap() {
+        assert!(
+            matches!(
+                containers.get(child),
+                Some(ProtocolMusicContainer::SegmentMusicContainer(_))
+            ),
+            "sequence child {child} must be a segment"
+        );
+    }
+
+    let horizontal = containers
+        .values()
+        .find_map(|container| match container {
+            ProtocolMusicContainer::HorizontalMusicContainer(horizontal)
+                if horizontal.name_translation_key.as_deref()
+                    == Some("server_no_translation.music.Track_The_Void_Stirs.name") =>
+            {
+                Some(horizontal)
+            }
+            _ => None,
+        })
+        .expect("horizontal container");
+    assert!(!horizontal.phase_value_indices.as_ref().unwrap().is_empty());
+
+    let stingers: UpdateStingers = UpdateStingers::decode(&mut Reader::new(
+        &packet(&packets, UpdateStingers::ID).payload,
+    ))
+    .expect("decode stingers");
+    assert_eq!(stingers.max_id, 3);
+    let stingers = stingers.stingers.expect("stinger map");
+    assert_eq!(stingers.len(), 3);
+    assert!(stingers.values().all(|stinger| {
+        stinger.music_container_index >= 0
+            && containers.contains_key(&stinger.music_container_index)
+    }));
+    for stinger in stingers.values().skip(1) {
+        assert_ne!(stinger.music_container_index, 0);
+        match containers
+            .get(&stinger.music_container_index)
+            .expect("stinger container")
+        {
+            ProtocolMusicContainer::SingleTrackMusicContainer(single) => {
+                assert!(single
+                    .track
+                    .as_deref()
+                    .is_some_and(|track| track.contains("Stinger")));
+            }
+            _ => panic!("stinger content must be a single-track container"),
+        }
+    }
+
+    let ambient: UpdateAmbienceFX = UpdateAmbienceFX::decode(&mut Reader::new(
+        &packet(&packets, UpdateAmbienceFX::ID).payload,
+    ))
+    .expect("decode ambience");
+    let ambient = ambient.ambience_fx.expect("ambience map");
+    let creative = ambient
+        .values()
+        .find(|value| value.id.as_deref() == Some("Mus_CreativeHub"))
+        .expect("Mus_CreativeHub");
+    assert_ne!(creative.music_container_index, 0);
+    assert!(
+        containers.contains_key(&creative.music_container_index),
+        "inline AmbienceFX music container must resolve"
+    );
 }

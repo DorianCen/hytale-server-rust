@@ -35,7 +35,8 @@ This is an asset-packet completeness task, not an auth task.
     `FieldcraftCategory`, `ReverbEffect`, `EqualizerEffect`, `BeamConfig`,
     `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
     `ModelVFX`, `EntityUIComponent`, `BlockSet`, `ParticleSystem`,
-    `ParticleSpawner`, `MusicTransition`, `ConnectedBlockRuleSet`, `AmbienceFX`;
+    `ParticleSpawner`, `MusicTransition`, `ConnectedBlockRuleSet`, `AmbienceFX`,
+    `MusicContainer`, `Stinger`;
   - the two particle packets are byte-identical to the Java goldens
     (`ParticleSystem` 791 systems, `ParticleSpawner` 2439 spawners), covering
     particles, animation frames, attractors, collision, UV motion and the
@@ -47,16 +48,19 @@ This is an asset-packet completeness task, not an auth task.
     inherited from `SimplePipe`, templated shape metadata, rotation groups and
     the face-tag/shape/And/Or/Not rule tree;
   - `AmbienceFX` carries the `Empty` preload plus conditions, sounds, ambient
-    beds, sound effects, blocked indices and state writes for all 232 assets.
-    Named `MusicContainer` references resolve to registry indices; inline
-    `MusicContainer` children still wait on the `MusicContainer` encoder and
-    currently fall back to `EMPTY`.
+    beds, sound effects, blocked indices and state writes for all 232 assets;
+    both named and inline `MusicContainer` references resolve to real indices;
+  - `MusicContainer` carries the 275 folder assets plus 399 inline child
+    containers extracted from `Children`, `Layers`, `AmbienceFX` and `Stinger`
+    documents, including random/sequence/horizontal/segment variants;
+  - `Stinger` carries the `EMPTY` preload and both authored stingers with their
+    container indices, categories, exclusion groups, volumes and ducking
+    rules.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
   - `Interaction`, `RootInteraction`, `UnarmedInteraction` (full action graph);
-  - `MusicContainer`, `Stinger`, `Recipes` (polymorphic/asset-specific
-    trees).
+  - `Recipes` (asset-specific crafting trees).
 - `ModelAsset` has no packet generator; verify whether the missing
   `Debug_Model` model is a common-asset issue before changing packets.
 
@@ -108,6 +112,9 @@ This is an asset-packet completeness task, not an auth task.
   inherited shapes, templated output and expanded rotation groups.
 - `ambience_fx_is_materialized` checks the `Empty` preload, condition
   indices/patterns, sounds, ambient beds, blocked indices and state writes.
+- `music_containers_and_stingers_are_materialized` checks the 674-container
+  map, all five variants, inline child/layer resolution, sequence/horizontal
+  children, stinger container indices and inline `AmbienceFX` music.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke

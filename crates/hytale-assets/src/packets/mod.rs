@@ -37,30 +37,33 @@ use hytale_protocol::generated::common::{
     AbilityKeyword, AmbienceFX, AmbienceFXAltitude, AmbienceFXAmbientBed, AmbienceFXBlockSoundSet,
     AmbienceFXConditions, AmbienceFXPhysicalMaterial, AmbienceFXSound, AmbienceFXSoundEffect,
     AmbienceFXSoundPlay3D, AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule,
-    BarBeatDuration, BeamConfig, BlockSet, BlockTextures, BlockTypeConnectedBlockShape, CameraAxis,
-    CameraNode, CameraSettings, CollisionType, Color, ColorAlpha, ColorLight,
-    CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
-    ConnectedBlockFaceTags, ConnectedBlockMatchType, ConnectedBlockPattern, ConnectedBlockRule,
-    ConnectedBlockRuleSetAsset, ConnectedBlockShape, ConnectedBlockUpdateMode, CurveType,
-    DestinationAlign, Direction, Edge, EffectDirection, EmitShape, EntityEffect, EntityPart,
-    EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType,
-    EqualizerEffect, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, Fluid, FluidDrawType,
-    FluidParticle, Hitbox, HitboxCollisionConfig, InitialVelocity, IntersectionHighlight,
+    AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig, BlockSet,
+    BlockTextures, BlockTypeConnectedBlockShape, CameraAxis, CameraNode, CameraSettings,
+    CollisionType, Color, ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
+    CombatTextEntityUIComponentAnimationEvent, ConnectedBlockFaceTags, ConnectedBlockMatchType,
+    ConnectedBlockPattern, ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape,
+    ConnectedBlockUpdateMode, CurveType, DestinationAlign, Direction, Edge, EffectDirection,
+    EmitShape, EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior,
+    EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode,
+    FaceTagConnectedBlockRule, FadeCurve, Fluid, FluidDrawType, FluidParticle, Hitbox,
+    HitboxCollisionConfig, HorizontalMusicContainer, InitialVelocity, IntersectionHighlight,
     ItemAnimation, ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations,
     ItemPullbackConfiguration, ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig,
-    ItemSoundEvent, ItemSoundSet, LoopOption, Model, ModelParticle, ModelVFX, MusicSync,
-    MusicTransition, NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
+    ItemSoundEvent, ItemSoundSet, LayerPlacement, LoopOption, Model, ModelParticle, ModelVFX,
+    MusicContainer, MusicMarker, MusicSync, MusicTransition, MusicTransitionType,
+    NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
     OverlapBehavior as ProtocolOverlapBehavior, Particle, ParticleAnimationFrame,
     ParticleAttractor, ParticleCollision, ParticleCollisionAction, ParticleCollisionBlockType,
     ParticleRotationInfluence, ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup,
     ParticleSystem, ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType,
-    ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangeb, Rangef, RepulsionConfig,
-    ResourceType, ReverbEffect, RoofState, RotationMode, ShaderType, ShapeConnectedBlockRule,
-    ShelterType, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta,
-    StateFade, SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint,
-    TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, Trail, UVMotion,
-    UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, Weather, WiggleWeights,
-    WorldEnvironment,
+    ProjectileConfig, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
+    Rangeb, Rangef, RepulsionConfig, ResourceType, ReverbEffect, RoofState, RotationMode,
+    SegmentMusicContainer, SequenceMusicContainer, ShaderType, ShapeConnectedBlockRule,
+    ShelterType, SingleTrackMusicContainer, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize,
+    StateBinding, StateDelta, StateFade, Stinger, StingerBinding, StingerShortLead,
+    SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint, TagPatternConnectedBlockShape,
+    TemplatedConnectedBlockShape, TempoSettings, Trail, UVMotion, UVMotionCurveType, UpdateType,
+    ValueType, Vector2i, Vector3i, Weather, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -346,23 +349,11 @@ impl AssetRegistry {
                 self.audio_category_packet()?,
                 self.reverb_effects_packet()?,
                 self.equalizer_effects_packet()?,
-                empty_packet(
-                    "MusicContainers",
-                    &UpdateMusicContainers {
-                        music_containers: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.music_containers_packet()?,
                 self.audio_state_packet()?,
                 self.connected_block_rule_sets_packet(&tags)?,
                 self.music_transitions_packet()?,
-                empty_packet(
-                    "Stingers",
-                    &UpdateStingers {
-                        stingers: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.stingers_packet()?,
                 self.beam_configs_packet()?,
                 self.ability_keywords_packet()?,
             ],
@@ -541,6 +532,42 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateStingers` (id 92) from the `Stinger` store.
+    pub fn stingers_packet(&self) -> Result<AssetPacket> {
+        let mut stingers = BTreeMap::new();
+        for record in self.stingers.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "Stinger",
+                key: record.key.clone(),
+            })?;
+            stingers.insert(id, stinger(self, &record.key, &record.value));
+        }
+        let packet = UpdateStingers {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.stingers, "Stinger")?,
+            stingers: Some(stingers),
+        };
+        AssetPacket::encode("Stinger", &packet)
+    }
+
+    /// `UpdateMusicContainers` (id 88) from the `MusicContainer` store.
+    pub fn music_containers_packet(&self) -> Result<AssetPacket> {
+        let mut containers = BTreeMap::new();
+        for record in self.music_containers.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "MusicContainer",
+                key: record.key.clone(),
+            })?;
+            containers.insert(id, music_container(self, &record.key, &record.value));
+        }
+        let packet = UpdateMusicContainers {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.music_containers, "MusicContainer")?,
+            music_containers: Some(containers),
+        };
+        AssetPacket::encode("MusicContainer", &packet)
     }
 
     /// `UpdateAmbienceFX` (id 72) from the `AmbienceFX` store.
@@ -2102,6 +2129,483 @@ fn connected_block_rule_set(
     }
 }
 
+fn audio_ducking_rules(
+    registry: &AssetRegistry,
+    value: Option<&Value>,
+) -> Option<Vec<AudioCategoryDuckingRule>> {
+    let rules = value?.as_array()?;
+    let rules: Vec<AudioCategoryDuckingRule> = rules
+        .iter()
+        .filter_map(|rule| {
+            let rule = rule.as_object()?;
+            Some(AudioCategoryDuckingRule {
+                target_audio_category_index: rule
+                    .get("TargetCategory")
+                    .and_then(Value::as_str)
+                    .and_then(|id| registry.audio_categories.id_of(id))
+                    .unwrap_or(0),
+                ducking_volume_db: map_number(rule, "DuckingVolumeDb") as f32,
+                attack_ms: map_number(rule, "AttackMs") as f32,
+                hold_ms: map_number(rule, "HoldMs") as f32,
+                release_ms: map_number(rule, "ReleaseMs") as f32,
+                curve: fade_curve(rule.get("Curve")),
+                release_curve: fade_curve(rule.get("ReleaseCurve")),
+                priority: rule.get("Priority").and_then(Value::as_i64).unwrap_or(0) as i16,
+            })
+        })
+        .collect();
+    (!rules.is_empty()).then_some(rules)
+}
+
+fn stinger(registry: &AssetRegistry, key: &str, json: &Value) -> Stinger {
+    let music_container_index = match json.get("MusicContainer") {
+        Some(Value::String(id)) => registry.music_containers.id_of(id).unwrap_or(0),
+        Some(Value::Object(_)) => registry
+            .music_containers
+            .id_of(&format!("*{key}_MusicContainer"))
+            .unwrap_or(0),
+        _ => 0,
+    };
+    Stinger {
+        id: Some(key.to_string()),
+        music_container_index,
+        max_instance: json.get("MaxInstance").and_then(Value::as_i64).unwrap_or(1) as i32,
+        priority: json.get("Priority").and_then(Value::as_i64).unwrap_or(0) as i16,
+        exclusion_group: json
+            .get("ExclusionGroup")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        audio_category_index: json
+            .get("AudioCategory")
+            .and_then(Value::as_str)
+            .and_then(|id| registry.audio_categories.id_of(id))
+            .unwrap_or(0),
+        volume: decibels_to_linear(json.get("Volume").and_then(Value::as_f64).unwrap_or(0.0) as f32),
+        ducking_rules: audio_ducking_rules(registry, json.get("DuckingRules")),
+    }
+}
+
+fn tempo_settings(value: Option<&Value>) -> Option<TempoSettings> {
+    let object = value?.as_object()?;
+    Some(TempoSettings {
+        bpm: map_number(object, "Bpm") as f32,
+        beats_per_bar: object
+            .get("BeatsPerBar")
+            .and_then(Value::as_i64)
+            .unwrap_or(0) as i32,
+        beat_value: object.get("BeatValue").and_then(Value::as_i64).unwrap_or(0) as i32,
+    })
+}
+
+fn stinger_bindings(
+    registry: &AssetRegistry,
+    value: Option<&Value>,
+) -> Option<Vec<StingerBinding>> {
+    let bindings = value?.as_array()?;
+    let bindings: Vec<StingerBinding> = bindings
+        .iter()
+        .filter_map(|binding| {
+            let object = binding.as_object()?;
+            Some(StingerBinding {
+                music_event: object
+                    .get("MusicEvent")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                stinger_index: object
+                    .get("Stinger")
+                    .and_then(Value::as_str)
+                    .and_then(|id| registry.stingers.id_of(id))
+                    .unwrap_or(0),
+                play_at: music_sync(object.get("PlayAt")),
+                min_repeat_interval_seconds: map_number(object, "MinRepeatIntervalSeconds") as f32,
+                short_lead: match object.get("ShortLead").and_then(Value::as_str) {
+                    Some("Skip") => StingerShortLead::Skip,
+                    Some("Defer") => StingerShortLead::Defer,
+                    Some("TrimPickup") => StingerShortLead::TrimPickup,
+                    _ => StingerShortLead::DropPickup,
+                },
+            })
+        })
+        .collect();
+    (!bindings.is_empty()).then_some(bindings)
+}
+
+fn music_container_child_indices(
+    registry: &AssetRegistry,
+    key: &str,
+    value: Option<&Value>,
+) -> Option<Vec<i32>> {
+    let children = value?.as_array()?;
+    let indices: Vec<i32> = children
+        .iter()
+        .enumerate()
+        .map(|(index, child)| match child {
+            Value::String(name) => registry.music_containers.id_of(name).unwrap_or(0),
+            Value::Object(_) => registry
+                .music_containers
+                .id_of(&format!("*{key}_Children_{index}"))
+                .unwrap_or(0),
+            _ => 0,
+        })
+        .collect();
+    (!indices.is_empty()).then_some(indices)
+}
+
+fn music_layer_container_index(
+    registry: &AssetRegistry,
+    key: &str,
+    index: usize,
+    value: Option<&Value>,
+) -> i32 {
+    match value {
+        Some(Value::String(name)) => registry.music_containers.id_of(name).unwrap_or(0),
+        Some(Value::Object(_)) => registry
+            .music_containers
+            .id_of(&format!("*{key}_Layers_{index}_Container"))
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn music_container_layers(
+    registry: &AssetRegistry,
+    key: &str,
+    value: Option<&Value>,
+) -> Option<Vec<LayerPlacement>> {
+    let layers = value?.as_array()?;
+    let layers: Vec<LayerPlacement> = layers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, layer)| {
+            let layer = layer.as_object()?;
+            Some(LayerPlacement {
+                container_index: music_layer_container_index(
+                    registry,
+                    key,
+                    index,
+                    layer.get("Container"),
+                ),
+                name: layer
+                    .get("Name")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                clip_start: bar_beat_duration(layer.get("ClipStart")),
+                state_bindings: state_bindings(registry, layer.get("StateBindings")),
+            })
+        })
+        .collect();
+    (!layers.is_empty()).then_some(layers)
+}
+
+fn bar_beat_position(value: Option<&Value>) -> Option<BarBeatPosition> {
+    let object = value?.as_object()?;
+    Some(BarBeatPosition {
+        bar: object.get("Bar").and_then(Value::as_i64).unwrap_or(1) as i32,
+        beat: object.get("Beat").and_then(Value::as_i64).unwrap_or(1) as i32,
+        ms: map_number(object, "Ms") as f32,
+    })
+}
+
+fn music_markers(value: Option<&Value>, tempo: Option<&TempoSettings>) -> Option<Vec<MusicMarker>> {
+    let markers = value?.as_array()?;
+    let mut markers: Vec<MusicMarker> = markers
+        .iter()
+        .filter_map(|marker| {
+            let marker = marker.as_object()?;
+            Some(MusicMarker {
+                name: marker
+                    .get("Name")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                at: bar_beat_position(marker.get("At")),
+            })
+        })
+        .collect();
+    let position_ms = |position: &BarBeatPosition| -> f32 {
+        match tempo {
+            Some(tempo) if tempo.bpm > 0.0 => {
+                let beat_duration = 60000.0 / tempo.bpm
+                    * if tempo.beat_value <= 0 {
+                        1.0
+                    } else {
+                        4.0 / tempo.beat_value as f32
+                    };
+                ((position.bar - 1) * tempo.beats_per_bar + (position.beat - 1)) as f32
+                    * beat_duration
+                    + position.ms
+            }
+            _ => position.ms,
+        }
+    };
+    markers.sort_by(|left, right| {
+        let left = left.at.as_ref().map_or(0.0, position_ms);
+        let right = right.at.as_ref().map_or(0.0, position_ms);
+        left.total_cmp(&right)
+    });
+    (!markers.is_empty()).then_some(markers)
+}
+
+struct MusicContainerBase {
+    volume: f32,
+    loop_count: i32,
+    weight: f32,
+    silence_after: Option<Rangef>,
+    exit_silence: Option<Rangef>,
+    fade_in_duration: f32,
+    fade_out_duration: f32,
+    transition_type: MusicTransitionType,
+    transition_duration: f32,
+    exit_at: Option<MusicSync>,
+    align: Option<DestinationAlign>,
+    align_marker_name: Option<String>,
+    play_to_completion: bool,
+    resume_memory_duration: f32,
+    name_translation_key: Option<String>,
+    audio_category_index: i32,
+    tempo: Option<TempoSettings>,
+    state_bindings: Option<Vec<StateBinding>>,
+    stingers: Option<Vec<StingerBinding>>,
+}
+
+fn music_container_base(registry: &AssetRegistry, json: &Value) -> MusicContainerBase {
+    let tempo = tempo_settings(json.get("Tempo"));
+    MusicContainerBase {
+        volume: decibels_to_linear(json.get("Volume").and_then(Value::as_f64).unwrap_or(0.0) as f32),
+        loop_count: json.get("LoopCount").and_then(Value::as_i64).unwrap_or(1) as i32,
+        weight: json.get("Weight").and_then(Value::as_f64).unwrap_or(1.0) as f32,
+        silence_after: ranged_f32(json.get("SilenceAfter")),
+        exit_silence: ranged_f32(json.get("ExitSilence")),
+        fade_in_duration: number(json, "FadeInDuration") as f32,
+        fade_out_duration: number(json, "FadeOutDuration") as f32,
+        transition_type: match json.get("TransitionType").and_then(Value::as_str) {
+            Some("Crossfade") => MusicTransitionType::Crossfade,
+            Some("Immediate") => MusicTransitionType::Immediate,
+            _ => MusicTransitionType::FadeOutFadeIn,
+        },
+        transition_duration: number(json, "TransitionDuration") as f32,
+        exit_at: music_sync(json.get("ExitAt")),
+        align: json
+            .get("Align")
+            .and_then(Value::as_str)
+            .map(|align| match align {
+                "NamedMarker" => DestinationAlign::NamedMarker,
+                "SamePosition" => DestinationAlign::SamePosition,
+                _ => DestinationAlign::EntryMarker,
+            }),
+        align_marker_name: json
+            .get("AlignMarker")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        play_to_completion: json
+            .get("PlayToCompletion")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        resume_memory_duration: json
+            .get("ResumeMemoryDuration")
+            .and_then(Value::as_f64)
+            .unwrap_or(30.0) as f32,
+        name_translation_key: json
+            .get("NameTranslationKey")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        audio_category_index: json
+            .get("AudioCategory")
+            .and_then(Value::as_str)
+            .and_then(|id| registry.audio_categories.id_of(id))
+            .unwrap_or(0),
+        tempo,
+        state_bindings: state_bindings(registry, json.get("StateBindings")),
+        stingers: stinger_bindings(registry, json.get("Stingers")),
+    }
+}
+
+fn music_container(registry: &AssetRegistry, key: &str, json: &Value) -> MusicContainer {
+    let base = music_container_base(registry, json);
+    match json
+        .get("Type")
+        .and_then(Value::as_str)
+        .unwrap_or("SingleTrack")
+    {
+        "Random" => MusicContainer::RandomMusicContainer(RandomMusicContainer {
+            volume: base.volume,
+            loop_count: base.loop_count,
+            weight: base.weight,
+            silence_after: base.silence_after,
+            exit_silence: base.exit_silence,
+            fade_in_duration: base.fade_in_duration,
+            fade_out_duration: base.fade_out_duration,
+            transition_type: base.transition_type,
+            transition_duration: base.transition_duration,
+            exit_at: base.exit_at,
+            align: base.align,
+            align_marker_name: base.align_marker_name,
+            play_to_completion: base.play_to_completion,
+            resume_memory_duration: base.resume_memory_duration,
+            name_translation_key: base.name_translation_key,
+            audio_category_index: base.audio_category_index,
+            tempo: base.tempo,
+            state_bindings: base.state_bindings,
+            stingers: base.stingers,
+            mode: match json.get("Mode").and_then(Value::as_str) {
+                Some("Random") => RandomMode::Random,
+                _ => RandomMode::Shuffle,
+            },
+            avoid_repeat_count: json
+                .get("AvoidRepeatCount")
+                .and_then(Value::as_i64)
+                .unwrap_or(0) as i32,
+            children: music_container_child_indices(registry, key, json.get("Children")),
+        }),
+        "Sequence" => MusicContainer::SequenceMusicContainer(SequenceMusicContainer {
+            volume: base.volume,
+            loop_count: base.loop_count,
+            weight: base.weight,
+            silence_after: base.silence_after,
+            exit_silence: base.exit_silence,
+            fade_in_duration: base.fade_in_duration,
+            fade_out_duration: base.fade_out_duration,
+            transition_type: base.transition_type,
+            transition_duration: base.transition_duration,
+            exit_at: base.exit_at,
+            align: base.align,
+            align_marker_name: base.align_marker_name,
+            play_to_completion: base.play_to_completion,
+            resume_memory_duration: base.resume_memory_duration,
+            name_translation_key: base.name_translation_key,
+            audio_category_index: base.audio_category_index,
+            tempo: base.tempo.clone(),
+            state_bindings: base.state_bindings.clone(),
+            stingers: base.stingers.clone(),
+            children: music_container_child_indices(registry, key, json.get("Children")),
+        }),
+        "Horizontal" => {
+            let audio_state_id = json.get("AudioState").and_then(Value::as_str);
+            let audio_state = audio_state_id.and_then(|id| registry.audio_states.get(id));
+            let values: Vec<&str> = audio_state
+                .into_iter()
+                .flat_map(|state| {
+                    state
+                        .value
+                        .get("Values")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                })
+                .filter_map(Value::as_str)
+                .collect();
+            let phase_value_indices =
+                json.get("Phases")
+                    .and_then(Value::as_array)
+                    .and_then(|phases| {
+                        if values.is_empty() {
+                            return None;
+                        }
+                        let mut indices = vec![-1; values.len()];
+                        for phase in phases {
+                            let Some(phase) = phase.as_object() else {
+                                continue;
+                            };
+                            let Some(value) = phase.get("Value").and_then(Value::as_str) else {
+                                continue;
+                            };
+                            let Some(index) =
+                                values.iter().position(|candidate| *candidate == value)
+                            else {
+                                continue;
+                            };
+                            indices[index] =
+                                phase.get("Phase").and_then(Value::as_i64).unwrap_or(-1) as i32;
+                        }
+                        Some(indices)
+                    });
+            MusicContainer::HorizontalMusicContainer(HorizontalMusicContainer {
+                volume: base.volume,
+                loop_count: base.loop_count,
+                weight: base.weight,
+                silence_after: base.silence_after,
+                exit_silence: base.exit_silence,
+                fade_in_duration: base.fade_in_duration,
+                fade_out_duration: base.fade_out_duration,
+                transition_type: base.transition_type,
+                transition_duration: base.transition_duration,
+                exit_at: base.exit_at,
+                align: base.align,
+                align_marker_name: base.align_marker_name,
+                play_to_completion: base.play_to_completion,
+                resume_memory_duration: base.resume_memory_duration,
+                name_translation_key: base.name_translation_key,
+                audio_category_index: base.audio_category_index,
+                tempo: base.tempo.clone(),
+                state_bindings: base.state_bindings.clone(),
+                stingers: base.stingers.clone(),
+                default_phase_transition_type: match json
+                    .get("DefaultPhaseTransitionType")
+                    .and_then(Value::as_str)
+                {
+                    Some("FadeOutFadeIn") => MusicTransitionType::FadeOutFadeIn,
+                    Some("Immediate") => MusicTransitionType::Immediate,
+                    _ => MusicTransitionType::Crossfade,
+                },
+                default_phase_transition_duration: number(json, "DefaultPhaseTransitionDuration")
+                    as f32,
+                children: music_container_child_indices(registry, key, json.get("Children")),
+                audio_state_index: audio_state.and_then(|state| state.id).unwrap_or(0),
+                phase_value_indices,
+            })
+        }
+        "Segment" => MusicContainer::SegmentMusicContainer(SegmentMusicContainer {
+            volume: base.volume,
+            loop_count: base.loop_count,
+            weight: base.weight,
+            silence_after: base.silence_after,
+            exit_silence: base.exit_silence,
+            fade_in_duration: base.fade_in_duration,
+            fade_out_duration: base.fade_out_duration,
+            transition_type: base.transition_type,
+            transition_duration: base.transition_duration,
+            exit_at: base.exit_at,
+            align: base.align,
+            align_marker_name: base.align_marker_name,
+            play_to_completion: base.play_to_completion,
+            resume_memory_duration: base.resume_memory_duration,
+            name_translation_key: base.name_translation_key,
+            audio_category_index: base.audio_category_index,
+            tempo: base.tempo.clone(),
+            state_bindings: base.state_bindings.clone(),
+            stingers: base.stingers.clone(),
+            layers: music_container_layers(registry, key, json.get("Layers")),
+            entry_marker: bar_beat_duration(json.get("EntryMarker")),
+            exit_marker: bar_beat_duration(json.get("ExitMarker")),
+            markers: music_markers(json.get("Markers"), base.tempo.as_ref()),
+        }),
+        _ => MusicContainer::SingleTrackMusicContainer(SingleTrackMusicContainer {
+            volume: base.volume,
+            loop_count: base.loop_count,
+            weight: base.weight,
+            silence_after: base.silence_after,
+            exit_silence: base.exit_silence,
+            fade_in_duration: base.fade_in_duration,
+            fade_out_duration: base.fade_out_duration,
+            transition_type: base.transition_type,
+            transition_duration: base.transition_duration,
+            exit_at: base.exit_at,
+            align: base.align,
+            align_marker_name: base.align_marker_name,
+            play_to_completion: base.play_to_completion,
+            resume_memory_duration: base.resume_memory_duration,
+            name_translation_key: base.name_translation_key,
+            audio_category_index: base.audio_category_index,
+            tempo: base.tempo,
+            state_bindings: base.state_bindings,
+            stingers: base.stingers,
+            track: json
+                .get("Track")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+        }),
+    }
+}
+
 fn rangeb(value: Option<&Value>, fallback: Rangeb) -> Rangeb {
     let Some(object) = value.and_then(Value::as_object) else {
         return fallback;
@@ -2456,11 +2960,14 @@ fn ambience_fx(registry: &AssetRegistry, key: &str, json: &Value) -> AmbienceFX 
                 .collect::<Vec<_>>()
         })
         .filter(|states| !states.is_empty());
-    let music_container_index = json
-        .get("MusicContainer")
-        .and_then(Value::as_str)
-        .and_then(|id| registry.music_containers.id_of(id))
-        .unwrap_or(0);
+    let music_container_index = match json.get("MusicContainer") {
+        Some(Value::String(id)) => registry.music_containers.id_of(id).unwrap_or(0),
+        Some(Value::Object(_)) => registry
+            .music_containers
+            .id_of(&format!("*{key}_MusicContainer"))
+            .unwrap_or(0),
+        _ => 0,
+    };
     AmbienceFX {
         id: Some(key.to_string()),
         conditions: ambience_fx_conditions(registry, key, json.get("Conditions")),

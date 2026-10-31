@@ -204,11 +204,11 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateAudioCategories::ID, "AudioCategory"),
         (UpdateReverbEffects::ID, "ReverbEffect"),
         (UpdateEqualizerEffects::ID, "EqualizerEffect"),
-        (UpdateMusicContainers::ID, "MusicContainers"),
+        (UpdateMusicContainers::ID, "MusicContainer"),
         (UpdateAudioStates::ID, "AudioState"),
         (UpdateConnectedBlockRuleSets::ID, "ConnectedBlockRuleSet"),
         (UpdateMusicTransitions::ID, "MusicTransition"),
-        (UpdateStingers::ID, "Stingers"),
+        (UpdateStingers::ID, "Stinger"),
         (UpdateBeamConfigs::ID, "BeamConfig"),
         (UpdateAbilityKeywords::ID, "AbilityKeyword"),
     ]
@@ -266,6 +266,8 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("MusicTransition", music_transitions),
         store!("ConnectedBlockRuleSet", connected_block_rule_sets),
         store!("AmbienceFX", ambience_fxs),
+        store!("MusicContainer", music_containers),
+        store!("Stinger", stingers),
     ]
 }
 
