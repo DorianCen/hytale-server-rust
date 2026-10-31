@@ -265,6 +265,7 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("ParticleSpawner", particle_spawners),
         store!("MusicTransition", music_transitions),
         store!("ConnectedBlockRuleSet", connected_block_rule_sets),
+        store!("AmbienceFX", ambience_fxs),
     ]
 }
 

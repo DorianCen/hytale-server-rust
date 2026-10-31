@@ -390,6 +390,12 @@ const CONNECTED_BLOCK_RULE_SET: StoreSpec = StoreSpec {
     map: MapKind::Default,
 };
 
+const AMBIENCE_FX: StoreSpec = StoreSpec {
+    name: "AmbienceFX",
+    path: "Server/Audio/AmbienceFX",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -947,6 +953,8 @@ pub struct AssetRegistry {
     pub music_transitions: AssetCollection<Value>,
     /// `ConnectedBlockRuleSet` (`Server/Item/ConnectedBlockRuleSets`).
     pub connected_block_rule_sets: AssetCollection<Value>,
+    /// `AmbienceFX` (`Server/Audio/AmbienceFX`, `Empty` preloaded at 0).
+    pub ambience_fxs: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1058,6 +1066,7 @@ impl AssetRegistry {
             particle_spawners: AssetCollection::empty(),
             music_transitions: AssetCollection::empty(),
             connected_block_rule_sets: AssetCollection::empty(),
+            ambience_fxs: AssetCollection::empty(),
         })
     }
 
@@ -1115,6 +1124,8 @@ impl AssetRegistry {
             Vec::new(),
             MergeHook::Custom(merge_connected_block_rule_set),
         )?;
+        registry.ambience_fxs =
+            load_indexed_store(pack, &AMBIENCE_FX, ambience_fx_preloads(), parse_key_asset)?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -2611,6 +2622,11 @@ fn music_container_preloads() -> Vec<(&'static str, Value)> {
 /// Java `MusicTransition.EMPTY_MUSIC_TRANSITION`.
 fn music_transition_preloads() -> Vec<(&'static str, Value)> {
     vec![("EMPTY", json!({}))]
+}
+
+/// Java `AmbienceFX.EMPTY` (`id = "Empty"`, reserved index 0).
+fn ambience_fx_preloads() -> Vec<(&'static str, Value)> {
+    vec![("Empty", json!({}))]
 }
 
 /// Java `AudioCategory.PRELOAD_ORDER` (reserved indices 0-5).

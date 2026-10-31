@@ -34,26 +34,30 @@ use hytale_protocol::generated::assets::{
     UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    AbilityKeyword, AndConnectedBlockRule, BarBeatDuration, BeamConfig, BlockSet, BlockTextures,
-    BlockTypeConnectedBlockShape, CameraAxis, CameraNode, CameraSettings, CollisionType, Color,
-    ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
-    CombatTextEntityUIComponentAnimationEvent, ConnectedBlockFaceTags, ConnectedBlockMatchType,
-    ConnectedBlockPattern, ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape,
-    ConnectedBlockUpdateMode, CurveType, DestinationAlign, Direction, Edge, EffectDirection,
-    EmitShape, EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior,
-    EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode,
-    FaceTagConnectedBlockRule, FadeCurve, Fluid, FluidDrawType, FluidParticle, Hitbox,
-    HitboxCollisionConfig, InitialVelocity, IntersectionHighlight, ItemAnimation, ItemCategory,
-    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
-    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
-    LoopOption, Model, ModelParticle, ModelVFX, MusicSync, MusicTransition, NotConnectedBlockRule,
-    Opacity, OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, Particle,
-    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
-    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
-    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
-    PhysicsConfig, PhysicsType, ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangef,
-    RepulsionConfig, ResourceType, ReverbEffect, RotationMode, ShaderType, ShapeConnectedBlockRule,
-    Size, SoftParticle, SoundCategory, SoundSet, SubCategoryDefinition, SwitchTo, SyncPoint,
+    AbilityKeyword, AmbienceFX, AmbienceFXAltitude, AmbienceFXAmbientBed, AmbienceFXBlockSoundSet,
+    AmbienceFXConditions, AmbienceFXPhysicalMaterial, AmbienceFXSound, AmbienceFXSoundEffect,
+    AmbienceFXSoundPlay3D, AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule,
+    BarBeatDuration, BeamConfig, BlockSet, BlockTextures, BlockTypeConnectedBlockShape, CameraAxis,
+    CameraNode, CameraSettings, CollisionType, Color, ColorAlpha, ColorLight,
+    CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
+    ConnectedBlockFaceTags, ConnectedBlockMatchType, ConnectedBlockPattern, ConnectedBlockRule,
+    ConnectedBlockRuleSetAsset, ConnectedBlockShape, ConnectedBlockUpdateMode, CurveType,
+    DestinationAlign, Direction, Edge, EffectDirection, EmitShape, EntityEffect, EntityPart,
+    EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType,
+    EqualizerEffect, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, Fluid, FluidDrawType,
+    FluidParticle, Hitbox, HitboxCollisionConfig, InitialVelocity, IntersectionHighlight,
+    ItemAnimation, ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations,
+    ItemPullbackConfiguration, ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig,
+    ItemSoundEvent, ItemSoundSet, LoopOption, Model, ModelParticle, ModelVFX, MusicSync,
+    MusicTransition, NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
+    OverlapBehavior as ProtocolOverlapBehavior, Particle, ParticleAnimationFrame,
+    ParticleAttractor, ParticleCollision, ParticleCollisionAction, ParticleCollisionBlockType,
+    ParticleRotationInfluence, ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup,
+    ParticleSystem, ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType,
+    ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangeb, Rangef, RepulsionConfig,
+    ResourceType, ReverbEffect, RoofState, RotationMode, ShaderType, ShapeConnectedBlockRule,
+    ShelterType, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta,
+    StateFade, SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint,
     TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, Trail, UVMotion,
     UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, Weather, WiggleWeights,
     WorldEnvironment,
@@ -63,6 +67,7 @@ use hytale_protocol::io::{ProtocolError, Writer};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::packets::child::decibels_to_linear;
 use crate::registry::{AssetCollection, AssetRegistry, TagPatternNode};
 
 /// Errors from the asset packet encoders.
@@ -312,13 +317,7 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "AmbienceFX",
-                    &UpdateAmbienceFX {
-                        ambience_fx: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.ambience_fx_packet()?,
                 empty_packet(
                     "Interactions",
                     &UpdateInteractions {
@@ -542,6 +541,24 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateAmbienceFX` (id 72) from the `AmbienceFX` store.
+    pub fn ambience_fx_packet(&self) -> Result<AssetPacket> {
+        let mut ambience = BTreeMap::new();
+        for record in self.ambience_fxs.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "AmbienceFX",
+                key: record.key.clone(),
+            })?;
+            ambience.insert(id, ambience_fx(self, &record.key, &record.value));
+        }
+        let packet = UpdateAmbienceFX {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.ambience_fxs, "AmbienceFX")?,
+            ambience_fx: Some(ambience),
+        };
+        AssetPacket::encode("AmbienceFX", &packet)
     }
 
     /// `UpdateConnectedBlockRuleSets` (id 90) from the
@@ -2082,6 +2099,383 @@ fn connected_block_rule_set(
         },
         shapes: Some(shapes),
         patterns,
+    }
+}
+
+fn rangeb(value: Option<&Value>, fallback: Rangeb) -> Rangeb {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return fallback;
+    };
+    Rangeb {
+        min: object.get("Min").and_then(Value::as_i64).unwrap_or(0) as i8,
+        max: object.get("Max").and_then(Value::as_i64).unwrap_or(0) as i8,
+    }
+}
+
+fn state_bindings(registry: &AssetRegistry, value: Option<&Value>) -> Option<Vec<StateBinding>> {
+    let bindings = value?.as_array()?;
+    let bindings: Vec<StateBinding> = bindings
+        .iter()
+        .filter_map(|binding| {
+            let object = binding.as_object()?;
+            let state_id = object.get("AudioState").and_then(Value::as_str)?;
+            let state = registry.audio_states.get(state_id)?;
+            let values: Vec<&str> = state
+                .value
+                .get("Values")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            let deltas = object
+                .get("Deltas")
+                .and_then(Value::as_array)
+                .map(|deltas| {
+                    deltas
+                        .iter()
+                        .filter_map(|delta| {
+                            let delta = delta.as_object()?;
+                            let value_name = delta.get("Value").and_then(Value::as_str);
+                            let value_index = value_name
+                                .and_then(|name| values.iter().position(|value| *value == name))
+                                .map_or(-1, |index| index as i32);
+                            Some(StateDelta {
+                                value_index,
+                                volume_db: map_number(delta, "VolumeDb") as f32,
+                                mute: delta.get("Mute").and_then(Value::as_bool).unwrap_or(false),
+                                pitch_semitones: map_number(delta, "PitchSemitones") as f32,
+                                fade: delta.get("Fade").and_then(state_fade),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .filter(|deltas| !deltas.is_empty());
+            Some(StateBinding {
+                audio_state_index: state.id.unwrap_or(0),
+                deltas,
+            })
+        })
+        .collect();
+    (!bindings.is_empty()).then_some(bindings)
+}
+
+fn state_fade(value: &Value) -> Option<StateFade> {
+    let object = value.as_object()?;
+    Some(StateFade {
+        duration: bar_beat_duration(object.get("Duration")),
+        curve: fade_curve(object.get("Curve")),
+        delay: bar_beat_duration(object.get("Delay")),
+    })
+}
+
+fn ambience_fx_conditions(
+    registry: &AssetRegistry,
+    key: &str,
+    value: Option<&Value>,
+) -> Option<AmbienceFXConditions> {
+    let object = value?.as_object()?;
+    let tag_index = |field: &str| -> i32 {
+        let pattern_key = match object.get(field) {
+            Some(Value::String(name)) => name.clone(),
+            _ => format!("*{key}_Conditions_{field}"),
+        };
+        registry.tag_patterns.id_of(&pattern_key).unwrap_or(-1)
+    };
+    let indices = |field: &str, store: &AssetCollection<Value>| -> Option<Vec<i32>> {
+        let values = object.get(field)?.as_array()?;
+        Some(
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|value| store.id_of(value).unwrap_or(0))
+                .collect(),
+        )
+    };
+    let surrounding = object
+        .get("SurroundingBlockSoundSets")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    let entry = entry.as_object()?;
+                    Some(AmbienceFXBlockSoundSet {
+                        block_sound_set_index: entry
+                            .get("BlockSoundSetId")
+                            .and_then(Value::as_str)
+                            .and_then(|id| registry.block_sound_sets.id_of(id))
+                            .unwrap_or(0),
+                        percent: ranged_f32(entry.get("Percent")),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|entries| !entries.is_empty());
+    let physical_materials = |field: &str| -> Option<Vec<AmbienceFXPhysicalMaterial>> {
+        let entries = object.get(field)?.as_array()?;
+        let entries: Vec<AmbienceFXPhysicalMaterial> = entries
+            .iter()
+            .filter_map(|entry| {
+                let entry = entry.as_object()?;
+                Some(AmbienceFXPhysicalMaterial {
+                    physical_material_index: entry
+                        .get("PhysicalMaterialId")
+                        .and_then(Value::as_str)
+                        .and_then(|id| registry.physical_materials.id_of(id))
+                        .unwrap_or(0),
+                    percent: ranged_f32(entry.get("Percent")),
+                })
+            })
+            .collect();
+        (!entries.is_empty()).then_some(entries)
+    };
+    let enums = |field: &str| -> Option<Vec<&str>> {
+        let values = object.get(field)?.as_array()?;
+        Some(values.iter().filter_map(Value::as_str).collect())
+    };
+    let spaces = enums("Space").map(|values| {
+        values
+            .into_iter()
+            .map(|value| match value {
+                "Tiny" => SpaceSize::Tiny,
+                "Small" => SpaceSize::Small,
+                "Medium" => SpaceSize::Medium,
+                "Large" => SpaceSize::Large,
+                "Unbounded" => SpaceSize::Unbounded,
+                _ => SpaceSize::Any,
+            })
+            .collect::<Vec<_>>()
+    });
+    let shelters = enums("Shelter").map(|values| {
+        values
+            .into_iter()
+            .map(|value| match value {
+                "Open" => ShelterType::Open,
+                "Partial" => ShelterType::Partial,
+                "Sheltered" => ShelterType::Sheltered,
+                "Enclosed" => ShelterType::Enclosed,
+                _ => ShelterType::Any,
+            })
+            .collect::<Vec<_>>()
+    });
+    let surfaces = enums("Surfaces").map(|values| {
+        values
+            .into_iter()
+            .map(|value| match value {
+                "Reflective" => SurfaceType::Reflective,
+                "Mixed" => SurfaceType::Mixed,
+                "Absorbent" => SurfaceType::Absorbent,
+                _ => SurfaceType::Any,
+            })
+            .collect::<Vec<_>>()
+    });
+    Some(AmbienceFXConditions {
+        never: object
+            .get("Never")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        environment_indices: indices("EnvironmentIds", &registry.environments)
+            .filter(|values| !values.is_empty()),
+        weather_indices: indices("WeatherIds", &registry.weathers)
+            .filter(|values| !values.is_empty()),
+        fluid_fx_indices: indices("FluidFXIds", &registry.fluid_fx),
+        environment_tag_pattern_index: tag_index("EnvironmentTagPattern"),
+        weather_tag_pattern_index: tag_index("WeatherTagPattern"),
+        surrounding_block_sound_sets: surrounding,
+        altitude: ranged_i32(Some(object.get("Altitude").unwrap_or(&Value::Null)))
+            .unwrap_or(Range { min: 0, max: 512 }),
+        walls: rangeb(object.get("Walls"), Rangeb { min: 0, max: 4 }),
+        roof: object.get("Roof").and_then(Value::as_bool).unwrap_or(false),
+        roof_material_tag_pattern_index: tag_index("RoofMaterialTagPattern"),
+        floor: object
+            .get("Floor")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        sun_light_level: rangeb(object.get("SunLightLevel"), Rangeb { min: 0, max: 15 }),
+        torch_light_level: rangeb(object.get("TorchLightLevel"), Rangeb { min: 0, max: 15 }),
+        global_light_level: rangeb(object.get("GlobalLightLevel"), Rangeb { min: 0, max: 15 }),
+        day_time: ranged_f32(object.get("DayTime")).unwrap_or(Rangef {
+            min: 0.0,
+            max: 24.0,
+        }),
+        space: spaces,
+        shelter: shelters,
+        surfaces,
+        roof_state: match object.get("RoofState").and_then(Value::as_str) {
+            Some("Roofed") => RoofState::Roofed,
+            Some("Unroofed") => RoofState::Unroofed,
+            _ => RoofState::Any,
+        },
+        space_scale_range: ranged_f32(object.get("SpaceScaleRange")),
+        space_scale_min_range: ranged_f32(object.get("SpaceScaleMinRange")),
+        space_scale_max_range: ranged_f32(object.get("SpaceScaleMaxRange")),
+        escaped_ray_percent_range: ranged_f32(object.get("EscapedRayPercentRange")),
+        reflection_coeff_range: ranged_f32(object.get("ReflectionCoeffRange")),
+        absorption_coeff_range: ranged_f32(object.get("AbsorptionCoeffRange")),
+        roof_distance_range: ranged_f32(object.get("RoofDistanceRange")),
+        surface_physical_materials: physical_materials("SurfacePhysicalMaterials"),
+        surface_physical_materials_match_any: object
+            .get("SurfacePhysicalMaterialsMatchAny")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        exterior_roof_physical_materials: physical_materials("ExteriorRoofPhysicalMaterials"),
+        exterior_roof_physical_materials_match_any: object
+            .get("ExteriorRoofPhysicalMaterialsMatchAny")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn ambience_fx_sound(registry: &AssetRegistry, value: &Value) -> Option<AmbienceFXSound> {
+    let object = value.as_object()?;
+    Some(AmbienceFXSound {
+        sound_event_index: object
+            .get("SoundEventId")
+            .and_then(Value::as_str)
+            .and_then(|id| registry.sound_events.id_of(id))
+            .unwrap_or(0),
+        play3_d: match object.get("Play3D").and_then(Value::as_str) {
+            Some("LocationName") => AmbienceFXSoundPlay3D::LocationName,
+            Some("LocationNameRandom") => AmbienceFXSoundPlay3D::LocationNameRandom,
+            Some("No") => AmbienceFXSoundPlay3D::No,
+            _ => AmbienceFXSoundPlay3D::Random,
+        },
+        block_sound_set_index: object
+            .get("BlockSoundSetId")
+            .and_then(Value::as_str)
+            .and_then(|id| registry.block_sound_sets.id_of(id))
+            .unwrap_or(0),
+        altitude: match object.get("Altitude").and_then(Value::as_str) {
+            Some("Lowest") => AmbienceFXAltitude::Lowest,
+            Some("Highest") => AmbienceFXAltitude::Highest,
+            Some("Random") => AmbienceFXAltitude::Random,
+            _ => AmbienceFXAltitude::Normal,
+        },
+        frequency: ranged_f32(object.get("Frequency")).unwrap_or(Rangef {
+            min: 1.0,
+            max: 10.0,
+        }),
+        radius: ranged_i32(object.get("Radius")).unwrap_or(Range { min: 0, max: 24 }),
+        max_bodies_per_emitter: object
+            .get("MaxBodiesPerEmitter")
+            .and_then(Value::as_i64)
+            .unwrap_or(8) as i32,
+        sunlight_range: object
+            .get("SunlightRange")
+            .map(|value| rangeb(Some(value), Rangeb { min: 0, max: 0 })),
+        state_bindings: state_bindings(registry, object.get("StateBindings")),
+    })
+}
+
+fn ambience_fx(registry: &AssetRegistry, key: &str, json: &Value) -> AmbienceFX {
+    let sounds = json
+        .get("Sounds")
+        .and_then(Value::as_array)
+        .map(|sounds| {
+            sounds
+                .iter()
+                .filter_map(|sound| ambience_fx_sound(registry, sound))
+                .collect::<Vec<_>>()
+        })
+        .filter(|sounds| !sounds.is_empty());
+    let ambient_bed = json
+        .get("AmbientBed")
+        .and_then(Value::as_object)
+        .map(|bed| AmbienceFXAmbientBed {
+            track: bed
+                .get("Track")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            volume: decibels_to_linear(map_number(bed, "Volume") as f32),
+            transition_speed: match bed.get("TransitionSpeed").and_then(Value::as_str) {
+                Some("Fast") => AmbienceTransitionSpeed::Fast,
+                Some("Instant") => AmbienceTransitionSpeed::Instant,
+                _ => AmbienceTransitionSpeed::Default,
+            },
+            state_bindings: state_bindings(registry, bed.get("StateBindings")),
+        });
+    let sound_effect = json
+        .get("SoundEffect")
+        .and_then(Value::as_object)
+        .map(|effect| AmbienceFXSoundEffect {
+            reverb_effect_index: effect
+                .get("ReverbEffectId")
+                .and_then(Value::as_str)
+                .and_then(|id| registry.reverb_effects.id_of(id))
+                .unwrap_or(0),
+            equalizer_effect_index: effect
+                .get("EqualizerEffectId")
+                .and_then(Value::as_str)
+                .and_then(|id| registry.equalizer_effects.id_of(id))
+                .unwrap_or(0),
+            is_instant: effect
+                .get("IsInstant")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        });
+    let blocked = json
+        .get("BlockedAmbienceFxIds")
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .filter_map(|id| registry.ambience_fxs.id_of(id))
+                .collect::<Vec<_>>()
+        })
+        .filter(|ids| !ids.is_empty());
+    let set_states = json
+        .get("SetStates")
+        .and_then(Value::as_array)
+        .map(|states| {
+            states
+                .iter()
+                .filter_map(|state| {
+                    let state = state.as_object()?;
+                    let state_id = state.get("AudioState").and_then(Value::as_str)?;
+                    let record = registry.audio_states.get(state_id)?;
+                    let values: Vec<&str> = record
+                        .value
+                        .get("Values")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect();
+                    let value_index = state
+                        .get("Value")
+                        .and_then(Value::as_str)
+                        .and_then(|value| values.iter().position(|candidate| *candidate == value))
+                        .map_or(-1, |index| index as i32);
+                    Some(AmbienceStateWrite {
+                        audio_state_index: record.id.unwrap_or(0),
+                        value_index,
+                        transition_override: None,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|states| !states.is_empty());
+    let music_container_index = json
+        .get("MusicContainer")
+        .and_then(Value::as_str)
+        .and_then(|id| registry.music_containers.id_of(id))
+        .unwrap_or(0);
+    AmbienceFX {
+        id: Some(key.to_string()),
+        conditions: ambience_fx_conditions(registry, key, json.get("Conditions")),
+        sounds,
+        music_container_index,
+        ambient_bed,
+        sound_effect,
+        priority: json.get("Priority").and_then(Value::as_i64).unwrap_or(0) as i32,
+        blocked_ambience_fx_indices: blocked,
+        audio_category_index: json
+            .get("AudioCategory")
+            .and_then(Value::as_str)
+            .and_then(|id| registry.audio_categories.id_of(id))
+            .unwrap_or(0),
+        set_states,
     }
 }
 

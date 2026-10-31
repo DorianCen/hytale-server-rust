@@ -35,7 +35,7 @@ This is an asset-packet completeness task, not an auth task.
     `FieldcraftCategory`, `ReverbEffect`, `EqualizerEffect`, `BeamConfig`,
     `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
     `ModelVFX`, `EntityUIComponent`, `BlockSet`, `ParticleSystem`,
-    `ParticleSpawner`, `MusicTransition`, `ConnectedBlockRuleSet`;
+    `ParticleSpawner`, `MusicTransition`, `ConnectedBlockRuleSet`, `AmbienceFX`;
   - the two particle packets are byte-identical to the Java goldens
     (`ParticleSystem` 791 systems, `ParticleSpawner` 2439 spawners), covering
     particles, animation frames, attractors, collision, UV motion and the
@@ -45,7 +45,12 @@ This is an asset-packet completeness task, not an auth task.
     points, fades and computed specificity;
   - `ConnectedBlockRuleSet` carries all three rule sets, including shapes
     inherited from `SimplePipe`, templated shape metadata, rotation groups and
-    the face-tag/shape/And/Or/Not rule tree.
+    the face-tag/shape/And/Or/Not rule tree;
+  - `AmbienceFX` carries the `Empty` preload plus conditions, sounds, ambient
+    beds, sound effects, blocked indices and state writes for all 232 assets.
+    Named `MusicContainer` references resolve to registry indices; inline
+    `MusicContainer` children still wait on the `MusicContainer` encoder and
+    currently fall back to `EMPTY`.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
@@ -101,6 +106,8 @@ This is an asset-packet completeness task, not an auth task.
   authored rules, container-index expansion, sync/fade fields and specificity.
 - `connected_block_rule_sets_are_materialized` checks the three rule sets,
   inherited shapes, templated output and expanded rotation groups.
+- `ambience_fx_is_materialized` checks the `Empty` preload, condition
+  indices/patterns, sounds, ambient beds, blocked indices and state writes.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke

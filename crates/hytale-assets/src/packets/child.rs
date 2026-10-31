@@ -722,7 +722,7 @@ fn bool_field(json: &Value, name: &str, default: bool) -> bool {
 }
 
 /// Java `AudioUtil.decibelsToLinearGain`.
-fn decibels_to_linear(decibels: f32) -> f32 {
+pub(crate) fn decibels_to_linear(decibels: f32) -> f32 {
     if decibels <= -100.0 {
         return 0.0;
     }

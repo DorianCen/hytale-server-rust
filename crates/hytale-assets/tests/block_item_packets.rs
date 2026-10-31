@@ -1104,3 +1104,113 @@ fn connected_block_rule_sets_are_materialized() {
         other => panic!("Large Corner should be templated, got {other:?}"),
     }
 }
+
+/// T66: ambience assets carry their conditions, sounds, beds, effects and
+/// state writes instead of an empty placeholder map.
+#[test]
+fn ambience_fx_is_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded: UpdateAmbienceFX = UpdateAmbienceFX::decode(&mut Reader::new(
+        &packet(&packets, UpdateAmbienceFX::ID).payload,
+    ))
+    .expect("decode ambience");
+    assert_eq!(decoded.r#type, UpdateType::Init);
+    assert_eq!(decoded.max_id, 233);
+    let ambience = decoded.ambience_fx.expect("ambience map");
+    assert_eq!(ambience.len(), registry.ambience_fxs.len());
+    assert_eq!(ambience.len(), 233);
+    assert_eq!(
+        ambience.get(&0).and_then(|value| value.id.as_deref()),
+        Some("Empty")
+    );
+    assert!(ambience.values().all(|value| value.id.is_some()));
+
+    let room = ambience
+        .values()
+        .find(|value| value.id.as_deref() == Some("AmbFX_Room"))
+        .expect("AmbFX_Room");
+    let conditions = room.conditions.as_ref().expect("room conditions");
+    assert_eq!(
+        conditions.walls,
+        hytale_protocol::generated::common::Rangeb { min: 0, max: 4 }
+    );
+    assert!(conditions
+        .surface_physical_materials
+        .as_ref()
+        .is_some_and(|materials| materials.len() == 4));
+    assert!(conditions.surface_physical_materials_match_any);
+    assert_eq!(
+        conditions.weather_tag_pattern_index,
+        registry
+            .tag_patterns
+            .id_of("Not_Void_Tier3")
+            .expect("room weather pattern")
+    );
+
+    let bed = room.ambient_bed.as_ref().expect("room ambient bed");
+    assert!(bed
+        .track
+        .as_deref()
+        .is_some_and(|track| track.ends_with("Room_Tone_Generic_Loop_Stereo_01.ogg")));
+    assert!(
+        (bed.volume - 0.158_489).abs() < 0.001,
+        "volume: {}",
+        bed.volume
+    );
+    assert!(room
+        .blocked_ambience_fx_indices
+        .as_ref()
+        .is_some_and(|indices| indices.len() == 5));
+
+    let lava = ambience
+        .values()
+        .find(|value| value.id.as_deref() == Some("Emit_Fluid_Lava"))
+        .expect("Emit_Fluid_Lava");
+    let sound = lava
+        .sounds
+        .as_ref()
+        .and_then(|sounds| sounds.first())
+        .expect("lava sound");
+    assert_eq!(
+        sound.sound_event_index,
+        registry
+            .sound_events
+            .id_of("SFX_Env_Emit_Fluid_Lava")
+            .unwrap()
+    );
+    assert_eq!(sound.radius.min, 0);
+    assert_eq!(sound.radius.max, 15);
+    assert_eq!(
+        sound.play3_d,
+        hytale_protocol::generated::common::AmbienceFXSoundPlay3D::LocationName
+    );
+    assert_eq!(
+        sound.block_sound_set_index,
+        registry.block_sound_sets.id_of("Lava").unwrap()
+    );
+
+    let forest = ambience
+        .values()
+        .find(|value| value.id.as_deref() == Some("Emit_Zone1_Forest_Autumn_Day"))
+        .expect("forest emitter");
+    let conditions = forest.conditions.as_ref().expect("forest conditions");
+    assert_eq!(conditions.day_time.min, 5.0);
+    assert_eq!(conditions.day_time.max, 19.0);
+    assert_eq!(conditions.sun_light_level.min, 10);
+    assert_eq!(conditions.sun_light_level.max, 15);
+    assert_eq!(
+        conditions.environment_tag_pattern_index,
+        registry
+            .tag_patterns
+            .id_of("*Emit_Zone1_Forest_Autumn_Day_Conditions_EnvironmentTagPattern")
+            .unwrap()
+    );
+
+    assert!(ambience.values().any(|value| value.set_states.is_some()));
+    assert!(ambience.values().any(|value| value.sound_effect.is_some()));
+    assert!(ambience.values().any(|value| value.sounds.is_some()));
+}
