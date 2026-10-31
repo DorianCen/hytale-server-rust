@@ -375,6 +375,7 @@ fn block_type_packet_matches_the_java_golden() {
             block.tag_indexes.is_some(),
             "{name}: tagIndexes must not be null"
         );
+
         for index in block.tag_indexes.as_deref().unwrap_or_default() {
             assert!(
                 tags.map().values().any(|value| value == index),
@@ -437,6 +438,30 @@ fn block_type_packet_matches_the_java_golden() {
         );
         assert_eq!(block.supporting, expected.supporting, "{name}: supporting");
     }
+}
+
+/// Every live item carries a materialized tag-index list, like Java.
+#[test]
+fn item_tag_indexes_are_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (_, packets) = load();
+    let decoded = hytale_protocol::generated::assets::UpdateItems::decode(&mut Reader::new(
+        &packet(
+            &packets,
+            hytale_protocol::generated::assets::UpdateItems::ID,
+        )
+        .payload,
+    ))
+    .expect("decode items");
+    let items = decoded.items.expect("item map");
+    assert!(!items.is_empty());
+    assert!(
+        items.values().all(|item| item.tag_indexes.is_some()),
+        "every item must carry a non-null tagIndexes list"
+    );
 }
 
 #[test]

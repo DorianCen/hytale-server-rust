@@ -168,7 +168,9 @@ fn item_base(
         interaction_vars: Some(BTreeMap::new()),
         interaction_config: Some(interaction_config(json)),
         dropped_item_animation: string(json, "DroppedItemAnimation"),
-        tag_indexes: tags.expanded(json.get("Tags")),
+        // Java materializes this list for every item; the client dereferences
+        // it while building item caches.
+        tag_indexes: Some(tags.expanded(json.get("Tags")).unwrap_or_default()),
         item_appearance_conditions: None,
         display_entity_stats_hud: display_entity_stats_hud(
             registry,
