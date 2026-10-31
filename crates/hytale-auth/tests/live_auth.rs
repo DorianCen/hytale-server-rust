@@ -257,6 +257,51 @@ fn grant_and_token_requests_use_the_server_session_bearer() {
 }
 
 #[test]
+fn a_cached_game_session_is_refreshed_without_the_device_flow() {
+    let key = TestKey::generate();
+    let service = MockService::start(HashMap::from([
+        (
+            "/game-session/refresh".to_string(),
+            json!({
+                "sessionToken": "refreshed-session",
+                "identityToken": "refreshed-identity",
+                "expiresAt": "2099-01-01T00:00:00Z",
+            })
+            .to_string(),
+        ),
+        ("/.well-known/jwks.json".to_string(), key.jwks().to_string()),
+    ]));
+    let cache = std::env::temp_dir().join(format!(
+        "hytale-auth-cache-{}-{}.json",
+        std::process::id(),
+        now()
+    ));
+    std::fs::write(
+        &cache,
+        json!({
+            "sessionToken": "cached-session",
+            "identityToken": "cached-identity",
+        })
+        .to_string(),
+    )
+    .expect("cache file");
+    let mut config = LiveAuthConfig::loopback(service.base_url());
+    config.issuer = ISSUER.to_string();
+    config.cache_path = Some(cache.clone());
+
+    let auth = LiveAuth::load_or_connect(config).expect("cached auth");
+    assert_eq!(auth.session_token().as_deref(), Some("refreshed-session"));
+    assert_eq!(auth.identity_token().as_deref(), Some("refreshed-identity"));
+    let requests = service.requests();
+    assert_eq!(requests[0].path, "/game-session/refresh");
+    assert_eq!(
+        requests[0].authorization.as_deref(),
+        Some("Bearer cached-session")
+    );
+    let _ = std::fs::remove_file(cache);
+}
+
+#[test]
 fn device_flow_and_game_session_requests_match_the_java_contract() {
     let service = MockService::start(HashMap::from([
         (

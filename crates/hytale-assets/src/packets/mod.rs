@@ -22,10 +22,16 @@ mod tag_pattern;
 use std::collections::{BTreeMap, BTreeSet};
 
 use hytale_protocol::generated::assets::{
-    UpdateBlockHitboxes, UpdateEntityEffects, UpdateEntityStatTypes, UpdateEnvironments,
-    UpdateFluids, UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities,
-    UpdateItemReticles, UpdateItemSoundSets, UpdatePhysicalMaterials, UpdateProjectileConfigs,
-    UpdateWeathers,
+    UpdateAbilityKeywords, UpdateAmbienceFX, UpdateAudioCategories, UpdateAudioStates,
+    UpdateBeamConfigs, UpdateBlockHitboxes, UpdateBlockSets, UpdateConnectedBlockRuleSets,
+    UpdateEntityEffects, UpdateEntityStatTypes, UpdateEntityUIComponents, UpdateEnvironments,
+    UpdateEqualizerEffects, UpdateFieldcraftCategories, UpdateFluids, UpdateHitboxCollisionConfig,
+    UpdateInteractions, UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities,
+    UpdateItemReticles, UpdateItemSoundSets, UpdateModelvfxs, UpdateMusicContainers,
+    UpdateMusicTransitions, UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
+    UpdateProjectileConfigs, UpdateRecipes, UpdateRepulsionConfig, UpdateResourceTypes,
+    UpdateReverbEffects, UpdateRootInteractions, UpdateSoundSets, UpdateStingers, UpdateTrails,
+    UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
     BlockTextures, CameraAxis, CameraNode, CameraSettings, Color, ColorLight, Direction,
@@ -222,6 +228,14 @@ impl AssetPacket {
     }
 }
 
+/// Encode the default (`Init`, empty) form of an asset-type packet.
+fn empty_packet<T>(store: &'static str) -> Result<AssetPacket>
+where
+    T: Packet + Wire + Default,
+{
+    AssetPacket::encode(store, &T::default())
+}
+
 impl AssetRegistry {
     /// The config-asset packets and the matching `ServerTags` map.
     ///
@@ -259,6 +273,40 @@ impl AssetRegistry {
                 self.projectile_configs_packet()?,
                 self.weathers_packet(&tags)?,
                 self.item_packet(&tags)?,
+                // Release clients require every asset type to be initialized
+                // before `WorldLoadFinished`, even when this port does not yet
+                // model that store's content. Java always sends one `Update*`
+                // packet per enabled store; empty `Init` packets keep the
+                // client's asset-type bookkeeping complete, and the stores
+                // this port does model arrive above with their real payloads.
+                empty_packet::<UpdateBlockSets>("BlockSets")?,
+                empty_packet::<UpdateTrails>("Trails")?,
+                empty_packet::<UpdateParticleSystems>("ParticleSystems")?,
+                empty_packet::<UpdateParticleSpawners>("ParticleSpawners")?,
+                empty_packet::<UpdateModelvfxs>("ModelVFX")?,
+                empty_packet::<UpdateFieldcraftCategories>("FieldcraftCategories")?,
+                empty_packet::<UpdateResourceTypes>("ResourceTypes")?,
+                // The gameplay phase sends the real `UpdateRecipes`; this is
+                // the required asset-type initialization.
+                empty_packet::<UpdateRecipes>("Recipes")?,
+                empty_packet::<UpdateAmbienceFX>("AmbienceFX")?,
+                empty_packet::<UpdateInteractions>("Interactions")?,
+                empty_packet::<UpdateRootInteractions>("RootInteractions")?,
+                empty_packet::<UpdateUnarmedInteractions>("UnarmedInteractions")?,
+                empty_packet::<UpdateEntityUIComponents>("EntityUIComponents")?,
+                empty_packet::<UpdateHitboxCollisionConfig>("HitboxCollisionConfig")?,
+                empty_packet::<UpdateRepulsionConfig>("RepulsionConfig")?,
+                empty_packet::<UpdateSoundSets>("SoundSets")?,
+                empty_packet::<UpdateAudioCategories>("AudioCategories")?,
+                empty_packet::<UpdateReverbEffects>("ReverbEffects")?,
+                empty_packet::<UpdateEqualizerEffects>("EqualizerEffects")?,
+                empty_packet::<UpdateMusicContainers>("MusicContainers")?,
+                empty_packet::<UpdateAudioStates>("AudioStates")?,
+                empty_packet::<UpdateConnectedBlockRuleSets>("ConnectedBlockRuleSets")?,
+                empty_packet::<UpdateMusicTransitions>("MusicTransitions")?,
+                empty_packet::<UpdateStingers>("Stingers")?,
+                empty_packet::<UpdateBeamConfigs>("Beams")?,
+                empty_packet::<UpdateAbilityKeywords>("AbilityKeywords")?,
             ],
             tags: tags.map(),
         })

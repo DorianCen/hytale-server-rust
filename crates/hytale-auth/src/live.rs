@@ -72,6 +72,10 @@ pub struct LiveAuthConfig {
     pub timeout: Duration,
     /// Device-flow poll interval.
     pub device_poll_interval: Duration,
+    /// Optional cache for the server game-session tokens. The device flow
+    /// writes it with mode 0600 and later starts refresh it instead of asking
+    /// for a new authorization.
+    pub cache_path: Option<std::path::PathBuf>,
 }
 
 impl Default for LiveAuthConfig {
@@ -91,6 +95,7 @@ impl Default for LiveAuthConfig {
             audience: std::env::var("HYTALE_SERVER_AUDIENCE").ok(),
             timeout: Duration::from_secs(30),
             device_poll_interval: Duration::from_secs(DEFAULT_DEVICE_POLL_INTERVAL_SECONDS),
+            cache_path: default_cache_path(),
         }
     }
 }
@@ -107,6 +112,7 @@ impl LiveAuthConfig {
             oauth_token_url: format!("{base_url}/oauth2/token"),
             issuer: base_url,
             audience: None,
+            cache_path: None,
             ..Self::default()
         }
     }
@@ -437,6 +443,34 @@ impl std::fmt::Debug for LiveAuth {
 }
 
 impl LiveAuth {
+    /// Reuses a cached game session when possible, otherwise runs the OAuth
+    /// device flow once and caches the resulting tokens.
+    pub fn load_or_connect(config: LiveAuthConfig) -> Result<Arc<Self>> {
+        if let Some(cached) = load_cached_session(&config) {
+            if let Some(cached_token) = cached.session_token.as_deref() {
+                if let Ok(service) = SessionService::new(config.clone()) {
+                    if let Ok(refreshed) = service.refresh_game_session(cached_token) {
+                        let session = GameSession {
+                            session_token: refreshed
+                                .session_token
+                                .or_else(|| Some(cached_token.to_string())),
+                            identity_token: refreshed
+                                .identity_token
+                                .or_else(|| cached.identity_token.clone()),
+                            expires_at: refreshed.expires_at,
+                        };
+                        if let Ok(auth) = Self::assemble(service, session.clone()) {
+                            save_cached_session(config.cache_path.as_deref(), &session);
+                            return Ok(auth);
+                        }
+                    }
+                }
+            }
+            println!("cached Hytale session expired; re-authenticating");
+        }
+        Self::from_device_flow(config)
+    }
+
     /// Authenticates with the OAuth device flow, selects the account's first
     /// game profile and opens a server game session.
     ///
@@ -499,7 +533,9 @@ impl LiveAuth {
                 "game-session/new returned incomplete credentials".to_string(),
             ));
         }
-        Self::assemble(service, session)
+        let auth = Self::assemble(service, session.clone())?;
+        save_cached_session(auth.service.config().cache_path.as_deref(), &session);
+        Ok(auth)
     }
 
     /// Uses externally supplied session/identity tokens (Java
@@ -780,6 +816,64 @@ impl LiveAuth {
                 .is_ok()
         })
     }
+}
+
+fn default_cache_path() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("HYTALE_AUTH_CACHE") {
+        return Some(std::path::PathBuf::from(path));
+    }
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .map(|home| home.join(".config"))
+        })?;
+    Some(base.join("hytale-server-rust").join("auth.json"))
+}
+
+fn save_cached_session(path: Option<&std::path::Path>, session: &GameSession) {
+    let Some(path) = path else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let value = serde_json::json!({
+        "sessionToken": session.session_token,
+        "identityToken": session.identity_token,
+        "expiresAt": session.expires_at,
+    });
+    if let Ok(bytes) = serde_json::to_vec(&value) {
+        let _ = std::fs::write(path, bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+}
+
+fn load_cached_session(config: &LiveAuthConfig) -> Option<GameSession> {
+    let path = config.cache_path.as_ref()?;
+    let bytes = std::fs::read(path).ok()?;
+    let value: Value = serde_json::from_slice(&bytes).ok()?;
+    Some(GameSession {
+        session_token: value
+            .get("sessionToken")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned),
+        identity_token: value
+            .get("identityToken")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned),
+        expires_at: value
+            .get("expiresAt")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    })
 }
 
 fn audience_for(config: &LiveAuthConfig) -> String {

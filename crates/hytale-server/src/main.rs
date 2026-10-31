@@ -663,7 +663,7 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
                     println!("using Hytale session tokens from the environment");
                     LiveAuth::from_tokens(config, session_token, identity_token)
                 }
-                _ => LiveAuth::from_device_flow(config),
+                _ => LiveAuth::load_or_connect(config),
             };
             match live {
                 Ok(live) => AuthMode::authenticated(live),

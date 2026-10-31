@@ -11,12 +11,18 @@ use std::path::PathBuf;
 
 use hytale_assets::{AssetPack, AssetRegistry, TagRegistry};
 use hytale_protocol::generated::assets::{
-    UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets, UpdateBlockSoundSets,
-    UpdateBlockTypes, UpdateEntityEffects, UpdateEntityStatTypes, UpdateEnvironments,
-    UpdateFluidFX, UpdateFluids, UpdateItemCategories, UpdateItemPlayerAnimations,
-    UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets, UpdateItems,
-    UpdatePhysicalMaterials, UpdateProjectileConfigs, UpdateSoundEvents, UpdateTagPatterns,
-    UpdateWeathers,
+    UpdateAbilityKeywords, UpdateAmbienceFX, UpdateAudioCategories, UpdateAudioStates,
+    UpdateBeamConfigs, UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets,
+    UpdateBlockSets, UpdateBlockSoundSets, UpdateBlockTypes, UpdateConnectedBlockRuleSets,
+    UpdateEntityEffects, UpdateEntityStatTypes, UpdateEntityUIComponents, UpdateEnvironments,
+    UpdateEqualizerEffects, UpdateFieldcraftCategories, UpdateFluidFX, UpdateFluids,
+    UpdateHitboxCollisionConfig, UpdateInteractions, UpdateItemCategories,
+    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
+    UpdateItems, UpdateModelvfxs, UpdateMusicContainers, UpdateMusicTransitions,
+    UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
+    UpdateProjectileConfigs, UpdateRecipes, UpdateRepulsionConfig, UpdateResourceTypes,
+    UpdateReverbEffects, UpdateRootInteractions, UpdateSoundEvents, UpdateSoundSets,
+    UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{BlockNeighbor, BlockType, RequiredBlockFaceSupport};
 use hytale_protocol::generated::wire::{Packet, Wire};
@@ -106,11 +112,79 @@ fn config_packets_are_sent_in_dependency_order() {
             UpdateProjectileConfigs::ID,
             UpdateWeathers::ID,
             UpdateItems::ID,
+            UpdateBlockSets::ID,
+            UpdateTrails::ID,
+            UpdateParticleSystems::ID,
+            UpdateParticleSpawners::ID,
+            UpdateModelvfxs::ID,
+            UpdateFieldcraftCategories::ID,
+            UpdateResourceTypes::ID,
+            UpdateRecipes::ID,
+            UpdateAmbienceFX::ID,
+            UpdateInteractions::ID,
+            UpdateRootInteractions::ID,
+            UpdateUnarmedInteractions::ID,
+            UpdateEntityUIComponents::ID,
+            UpdateHitboxCollisionConfig::ID,
+            UpdateRepulsionConfig::ID,
+            UpdateSoundSets::ID,
+            UpdateAudioCategories::ID,
+            UpdateReverbEffects::ID,
+            UpdateEqualizerEffects::ID,
+            UpdateMusicContainers::ID,
+            UpdateAudioStates::ID,
+            UpdateConnectedBlockRuleSets::ID,
+            UpdateMusicTransitions::ID,
+            UpdateStingers::ID,
+            UpdateBeamConfigs::ID,
+            UpdateAbilityKeywords::ID,
         ]
     );
     assert_eq!(packet(&packets, UpdateTagPatterns::ID).store, "TagPattern");
     assert_eq!(packet(&packets, UpdateBlockTypes::ID).store, "BlockType");
     assert_eq!(packet(&packets, UpdateItems::ID).store, "Item");
+}
+
+/// Release clients reject `WorldLoadFinished` unless every one of these asset
+/// types was initialized, even for stores this port sends empty.
+#[test]
+fn release_required_asset_types_are_all_initialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (_, packets) = load();
+    let ids: BTreeSet<u32> = packets.iter().map(|packet| packet.id).collect();
+    for id in [
+        UpdateAbilityKeywords::ID,
+        UpdateAmbienceFX::ID,
+        UpdateAudioCategories::ID,
+        UpdateAudioStates::ID,
+        UpdateBeamConfigs::ID,
+        UpdateBlockSets::ID,
+        UpdateConnectedBlockRuleSets::ID,
+        UpdateEntityUIComponents::ID,
+        UpdateEqualizerEffects::ID,
+        UpdateFieldcraftCategories::ID,
+        UpdateHitboxCollisionConfig::ID,
+        UpdateInteractions::ID,
+        UpdateModelvfxs::ID,
+        UpdateMusicContainers::ID,
+        UpdateMusicTransitions::ID,
+        UpdateParticleSpawners::ID,
+        UpdateParticleSystems::ID,
+        UpdateRecipes::ID,
+        UpdateRepulsionConfig::ID,
+        UpdateResourceTypes::ID,
+        UpdateReverbEffects::ID,
+        UpdateRootInteractions::ID,
+        UpdateSoundSets::ID,
+        UpdateStingers::ID,
+        UpdateTrails::ID,
+        UpdateUnarmedInteractions::ID,
+    ] {
+        assert!(ids.contains(&id), "missing required asset type packet {id}");
+    }
 }
 
 #[test]
