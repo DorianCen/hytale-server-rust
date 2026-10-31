@@ -1480,6 +1480,23 @@ fn interaction_graph_is_materialized() {
     let mut parallels = 0;
     let mut conditions = 0;
     let mut projectiles = 0;
+    let mut effect_conditions = 0;
+    let mut block_conditions = 0;
+    let mut repeats = 0;
+    let mut remove_entities = 0;
+    let mut place_blocks = 0;
+    let mut trigger_cooldowns = 0;
+    let mut durability_conditions = 0;
+    let mut use_blocks = 0;
+    let mut change_stats = 0;
+    let mut change_states = 0;
+    let mut apply_effects = 0;
+    let mut change_blocks = 0;
+    let mut grounded_conditions = 0;
+    let mut memories_conditions = 0;
+    let mut clear_effects = 0;
+    let mut break_blocks = 0;
+    let mut first_clicks = 0;
     for (index, interaction) in &interactions {
         match interaction {
             ProtocolInteraction::SimpleInteraction(simple) => {
@@ -1533,7 +1550,33 @@ fn interaction_graph_is_materialized() {
                 projectiles += 1;
                 assert!(projectile.config_id.is_some());
             }
-            other => panic!("interaction {index} has an unexpected variant: {other:?}"),
+            ProtocolInteraction::EffectConditionInteraction(_) => effect_conditions += 1,
+            ProtocolInteraction::BlockConditionInteraction(_) => block_conditions += 1,
+            ProtocolInteraction::RepeatInteraction(repeat) => {
+                repeats += 1;
+                assert_ne!(repeat.repeat, 0);
+            }
+            ProtocolInteraction::RemoveEntityInteraction(_) => remove_entities += 1,
+            ProtocolInteraction::PlaceBlockInteraction(place) => {
+                place_blocks += 1;
+                assert!(place.block_id >= 0);
+            }
+            ProtocolInteraction::TriggerCooldownInteraction(trigger) => {
+                trigger_cooldowns += 1;
+                assert!(trigger.use_ability_cooldown || trigger.cooldown.is_some());
+            }
+            ProtocolInteraction::DurabilityConditionInteraction(_) => durability_conditions += 1,
+            ProtocolInteraction::UseBlockInteraction(_) => use_blocks += 1,
+            ProtocolInteraction::ChangeStatInteraction(_) => change_stats += 1,
+            ProtocolInteraction::ChangeStateInteraction(_) => change_states += 1,
+            ProtocolInteraction::ApplyEffectInteraction(_) => apply_effects += 1,
+            ProtocolInteraction::ChangeBlockInteraction(_) => change_blocks += 1,
+            ProtocolInteraction::GroundedConditionInteraction(_) => grounded_conditions += 1,
+            ProtocolInteraction::MemoriesConditionInteraction(_) => memories_conditions += 1,
+            ProtocolInteraction::ClearEntityEffectInteraction(_) => clear_effects += 1,
+            ProtocolInteraction::BreakBlockInteraction(_) => break_blocks += 1,
+            ProtocolInteraction::FirstClickInteraction(_) => first_clicks += 1,
+            _ => {}
         }
     }
     assert!(simples > 300, "simple: {simples}");
@@ -1549,6 +1592,41 @@ fn interaction_graph_is_materialized() {
     assert!(parallels >= 25, "parallel: {parallels}");
     assert!(conditions >= 25, "conditions: {conditions}");
     assert!(projectiles >= 20, "projectiles: {projectiles}");
+    assert!(
+        effect_conditions >= 10,
+        "effect conditions: {effect_conditions}"
+    );
+    assert!(
+        block_conditions >= 10,
+        "block conditions: {block_conditions}"
+    );
+    assert!(repeats >= 10, "repeats: {repeats}");
+    assert!(remove_entities >= 10, "remove entities: {remove_entities}");
+    assert!(place_blocks >= 5, "place blocks: {place_blocks}");
+    assert!(
+        trigger_cooldowns >= 5,
+        "trigger cooldowns: {trigger_cooldowns}"
+    );
+    assert!(
+        durability_conditions >= 5,
+        "durability conditions: {durability_conditions}"
+    );
+    assert!(use_blocks >= 5, "use blocks: {use_blocks}");
+    assert!(change_stats >= 3, "change stats: {change_stats}");
+    assert!(change_states >= 3, "change states: {change_states}");
+    assert!(apply_effects >= 3, "apply effects: {apply_effects}");
+    assert!(change_blocks >= 2, "change blocks: {change_blocks}");
+    assert!(
+        grounded_conditions >= 1,
+        "grounded conditions: {grounded_conditions}"
+    );
+    assert!(
+        memories_conditions >= 1,
+        "memories conditions: {memories_conditions}"
+    );
+    assert!(clear_effects >= 1, "clear effects: {clear_effects}");
+    assert!(break_blocks >= 1, "break blocks: {break_blocks}");
+    assert!(first_clicks >= 1, "first clicks: {first_clicks}");
 
     let roots: UpdateRootInteractions = UpdateRootInteractions::decode(&mut Reader::new(
         &packet(&packets, UpdateRootInteractions::ID).payload,

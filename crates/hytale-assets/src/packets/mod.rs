@@ -37,36 +37,43 @@ use hytale_protocol::generated::common::{
     AbilityKeyword, AmbienceFX, AmbienceFXAltitude, AmbienceFXAmbientBed, AmbienceFXBlockSoundSet,
     AmbienceFXConditions, AmbienceFXPhysicalMaterial, AmbienceFXSound, AmbienceFXSoundEffect,
     AmbienceFXSoundPlay3D, AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule,
-    AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig, BenchRequirement,
-    BenchType, BlockSet, BlockTextures, BlockTypeConnectedBlockShape, CameraAxis, CameraNode,
-    CameraSettings, ChargingDelay, ChargingInteraction, CollisionType, Color, ColorAlpha,
-    ColorLight, CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
-    ConditionInteraction, ConnectedBlockFaceTags, ConnectedBlockMatchType, ConnectedBlockPattern,
-    ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape, ConnectedBlockUpdateMode,
-    CraftingRecipe, CurveType, DamageEntityInteraction, DestinationAlign, Direction, Edge,
-    EffectDirection, EmitShape, EntityEffect, EntityPart, EntityStatEffects,
-    EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect,
-    FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, FailOnType, Fluid, FluidDrawType,
-    FluidParticle, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer, InitialVelocity,
-    Interaction, InteractionType, IntersectionHighlight, ItemAnimation, ItemCategory,
-    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
-    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
-    LayerPlacement, LoopOption, MaterialQuantity, Model, ModelParticle, ModelVFX, MusicContainer,
-    MusicMarker, MusicSync, MusicTransition, MusicTransitionType, NotConnectedBlockRule, Opacity,
-    OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction,
-    Particle, ParticleAnimationFrame, ParticleAttractor, ParticleCollision,
-    ParticleCollisionAction, ParticleCollisionBlockType, ParticleRotationInfluence,
-    ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup, ParticleSystem,
-    ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType, ProjectileConfig,
+    ApplyEffectInteraction, AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig,
+    BenchRequirement, BenchType, BlockConditionInteraction, BlockSet, BlockTextures,
+    BlockTypeConnectedBlockShape, BreakBlockInteraction, CameraAxis, CameraNode, CameraSettings,
+    ChangeBlockInteraction, ChangeStatBehaviour, ChangeStatInteraction, ChangeStateInteraction,
+    ChargingDelay, ChargingInteraction, ClearEntityEffectInteraction, CollisionType, Color,
+    ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
+    CombatTextEntityUIComponentAnimationEvent, ComparisonOperator, ConditionInteraction,
+    ConnectedBlockFaceTags, ConnectedBlockMatchType, ConnectedBlockPattern, ConnectedBlockRule,
+    ConnectedBlockRuleSetAsset, ConnectedBlockShape, ConnectedBlockUpdateMode, CraftingRecipe,
+    CurveType, DamageEntityInteraction, DestinationAlign, Direction,
+    DurabilityConditionInteraction, Edge, EffectConditionInteraction, EffectDirection, EmitShape,
+    EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType,
+    EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode, FaceTagConnectedBlockRule,
+    FadeCurve, FailOnType, FirstClickInteraction, Fluid, FluidDrawType, FluidParticle,
+    GroundedConditionInteraction, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
+    InitialVelocity, Interaction, InteractionCooldown, InteractionTarget, InteractionType,
+    IntersectionHighlight, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
+    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
+    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LayerPlacement,
+    LoopOption, Match, MaterialQuantity, MemoriesConditionInteraction, Model, ModelParticle,
+    ModelVFX, MusicContainer, MusicMarker, MusicSync, MusicTransition, MusicTransitionType,
+    NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
+    OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction, Particle,
+    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
+    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
+    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
+    PhysicsConfig, PhysicsType, PickBlockInteraction, PlaceBlockInteraction, ProjectileConfig,
     ProjectileInteraction, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
-    Rangeb, Rangef, RepulsionConfig, ResourceType, ReverbEffect, RoofState, RootInteraction,
-    RotationMode, SegmentMusicContainer, SelectInteraction, Selector, SequenceMusicContainer,
-    SerialInteraction, ShaderType, ShapeConnectedBlockRule, ShelterType, SimpleInteraction,
-    SingleTrackMusicContainer, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize,
-    StateBinding, StateDelta, StateFade, StatsConditionInteraction, Stinger, StingerBinding,
-    StingerShortLead, SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint,
-    TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail, UVMotion,
-    UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather,
+    Rangeb, Rangef, RemoveEntityInteraction, RepeatInteraction, RepulsionConfig, ResourceType,
+    ReverbEffect, RoofState, RootInteraction, RotationMode, SegmentMusicContainer,
+    SelectInteraction, Selector, SequenceMusicContainer, SerialInteraction, ShaderType,
+    ShapeConnectedBlockRule, ShelterType, SimpleInteraction, SingleTrackMusicContainer, Size,
+    SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade,
+    StatsConditionInteraction, Stinger, StingerBinding, StingerShortLead, SubCategoryDefinition,
+    SurfaceType, SwitchTo, SyncPoint, TagPatternConnectedBlockShape, TemplatedConnectedBlockShape,
+    TempoSettings, Trail, TriggerCooldownInteraction, UVMotion, UVMotionCurveType, UpdateType,
+    UseBlockInteraction, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather,
     WieldingInteraction, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
@@ -2199,6 +2206,59 @@ struct InteractionBase {
     failed: i32,
 }
 
+fn interaction_target(value: Option<&Value>) -> InteractionTarget {
+    match value.and_then(Value::as_str) {
+        Some("Owner") => InteractionTarget::Owner,
+        Some("Target") => InteractionTarget::Target,
+        _ => InteractionTarget::User,
+    }
+}
+
+fn interaction_cooldown(value: Option<&Value>) -> Option<InteractionCooldown> {
+    let object = value?.as_object()?;
+    Some(InteractionCooldown {
+        cooldown_id: object
+            .get("Id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        cooldown: map_number(object, "Cooldown") as f32,
+        click_bypass: object
+            .get("ClickBypass")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        charge_times: object
+            .get("Charges")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_f64)
+                    .map(|value| value as f32)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|values| !values.is_empty()),
+        skip_cooldown_reset: object
+            .get("SkipCooldownReset")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        interrupt_recharge: object
+            .get("InterruptRecharge")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn comparison_operator(value: Option<&Value>) -> ComparisonOperator {
+    match value.and_then(Value::as_str) {
+        Some("LessOrEqual") => ComparisonOperator::LessOrEqual,
+        Some("GreaterThan") => ComparisonOperator::GreaterThan,
+        Some("GreaterOrEqual") => ComparisonOperator::GreaterOrEqual,
+        Some("Equal") => ComparisonOperator::Equal,
+        Some("NotEqual") => ComparisonOperator::NotEqual,
+        _ => ComparisonOperator::LessThan,
+    }
+}
+
 fn interaction_base(registry: &AssetRegistry, key: &str, json: &Value) -> InteractionBase {
     InteractionBase {
         wait_for_data_from: WaitForDataFrom::None,
@@ -2478,6 +2538,412 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 .get("IgnoreRoll")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+        }),
+        "EffectCondition" => Interaction::EffectConditionInteraction(EffectConditionInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            entity_effects: json
+                .get("EntityEffectIds")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter_map(|id| registry.entity_effects.id_of(id))
+                .collect(),
+            r#match: match json.get("Match").and_then(Value::as_str) {
+                Some("None") => Match::None,
+                _ => Match::All,
+            },
+            entity_target: interaction_target(json.get("Entity")),
+        }),
+        "BlockCondition" => Interaction::BlockConditionInteraction(BlockConditionInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            use_latest_target: json
+                .get("UseLatestTarget")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            matchers: None,
+        }),
+        "Repeat" => Interaction::RepeatInteraction(RepeatInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            fork_interactions: nested_interaction_index(
+                registry,
+                key,
+                "ForkInteractions",
+                json.get("ForkInteractions"),
+            ),
+            repeat: json.get("Repeat").and_then(Value::as_i64).unwrap_or(0) as i32,
+        }),
+        "RemoveEntity" => Interaction::RemoveEntityInteraction(RemoveEntityInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            entity_target: interaction_target(json.get("Entity")),
+        }),
+        "PlaceBlock" => Interaction::PlaceBlockInteraction(PlaceBlockInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            block_id: json
+                .get("BlockTypeToPlace")
+                .and_then(Value::as_str)
+                .and_then(|id| registry.block_types.id_of(id))
+                .unwrap_or(0),
+            remove_item_in_hand: json
+                .get("RemoveItemInHand")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            quick_replace: json
+                .get("QuickReplace")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            quick_retype: json
+                .get("QuickRetype")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            no_physics: json
+                .get("NoPhysics")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "TriggerCooldown" => Interaction::TriggerCooldownInteraction(TriggerCooldownInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            cooldown: interaction_cooldown(json.get("Cooldown")),
+            use_ability_cooldown: json
+                .get("UseAbilityCooldown")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "DurabilityCondition" => {
+            Interaction::DurabilityConditionInteraction(DurabilityConditionInteraction {
+                wait_for_data_from: base.wait_for_data_from,
+                effects: base.effects,
+                horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+                run_time: base.run_time,
+                on_item_change_behavior: base.on_item_change_behavior,
+                settings: base.settings,
+                rules: base.rules,
+                tags: base.tags,
+                camera: base.camera,
+                next: base.next,
+                failed: base.failed,
+                threshold: number(json, "Threshold") as f32,
+                value_type: match json.get("ValueType").and_then(Value::as_str) {
+                    Some("Percent") => ValueType::Percent,
+                    _ => ValueType::Absolute,
+                },
+                operator: comparison_operator(json.get("Operator")),
+            })
+        }
+        "UseBlock" => Interaction::UseBlockInteraction(UseBlockInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            use_latest_target: json
+                .get("UseLatestTarget")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "ChangeStat" => Interaction::ChangeStatInteraction(ChangeStatInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            entity_target: interaction_target(json.get("Entity")),
+            value_type: match json.get("ValueType").and_then(Value::as_str) {
+                Some("Percent") => ValueType::Percent,
+                _ => ValueType::Absolute,
+            },
+            stat_modifiers: json
+                .get("StatModifiers")
+                .and_then(Value::as_object)
+                .map(|modifiers| {
+                    modifiers
+                        .iter()
+                        .filter_map(|(stat, amount)| {
+                            Some((registry.entity_stat_id(stat)?, amount.as_f64()? as f32))
+                        })
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .filter(|modifiers| !modifiers.is_empty()),
+            change_stat_behaviour: match json.get("ChangeStatBehaviour").and_then(Value::as_str) {
+                Some("Set") => ChangeStatBehaviour::Set,
+                Some("Min") => ChangeStatBehaviour::Min,
+                Some("Max") => ChangeStatBehaviour::Max,
+                _ => ChangeStatBehaviour::Add,
+            },
+            use_ability_cost: json
+                .get("UseAbilityCost")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "ChangeState" => Interaction::ChangeStateInteraction(ChangeStateInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            use_latest_target: json
+                .get("UseLatestTarget")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            state_changes: json
+                .get("Changes")
+                .and_then(Value::as_object)
+                .map(|changes| {
+                    changes
+                        .iter()
+                        .filter_map(|(from, to)| Some((from.clone(), to.as_str()?.to_string())))
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .filter(|changes| !changes.is_empty()),
+            require_block_placement: json
+                .get("RequireBlockPlacement")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "ApplyEffect" => Interaction::ApplyEffectInteraction(ApplyEffectInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            effect_id: json
+                .get("EffectId")
+                .and_then(Value::as_str)
+                .and_then(|id| registry.entity_effects.id_of(id))
+                .unwrap_or(0),
+            entity_target: interaction_target(json.get("Entity")),
+        }),
+        "ChangeBlock" => Interaction::ChangeBlockInteraction(ChangeBlockInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            use_latest_target: json
+                .get("UseLatestTarget")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            block_changes: json
+                .get("Changes")
+                .and_then(Value::as_object)
+                .map(|changes| {
+                    changes
+                        .iter()
+                        .filter_map(|(from, to)| {
+                            Some((
+                                registry.block_types.id_of(from)?,
+                                registry.block_types.id_of(to.as_str()?)?,
+                            ))
+                        })
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .filter(|changes| !changes.is_empty()),
+            world_sound_event_index: json
+                .get("WorldSoundEventId")
+                .and_then(Value::as_str)
+                .and_then(|id| registry.sound_events.id_of(id))
+                .unwrap_or(0),
+            require_not_broken: json
+                .get("RequireNotBroken")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "GroundedCondition" => {
+            Interaction::GroundedConditionInteraction(GroundedConditionInteraction {
+                wait_for_data_from: base.wait_for_data_from,
+                effects: base.effects,
+                horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+                run_time: base.run_time,
+                on_item_change_behavior: base.on_item_change_behavior,
+                settings: base.settings,
+                rules: base.rules,
+                tags: base.tags,
+                camera: base.camera,
+                next: base.next,
+                failed: base.failed,
+                tolerance: number(json, "Tolerance") as f32,
+            })
+        }
+        "MemoriesCondition" => {
+            Interaction::MemoriesConditionInteraction(MemoriesConditionInteraction {
+                wait_for_data_from: base.wait_for_data_from,
+                effects: base.effects,
+                horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+                run_time: base.run_time,
+                on_item_change_behavior: base.on_item_change_behavior,
+                settings: base.settings,
+                rules: base.rules,
+                tags: base.tags,
+                camera: base.camera,
+                memories_next: BTreeMap::new(),
+                failed: base.failed,
+            })
+        }
+        "ClearEntityEffect" => {
+            Interaction::ClearEntityEffectInteraction(ClearEntityEffectInteraction {
+                wait_for_data_from: base.wait_for_data_from,
+                effects: base.effects,
+                horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+                run_time: base.run_time,
+                on_item_change_behavior: base.on_item_change_behavior,
+                settings: base.settings,
+                rules: base.rules,
+                tags: base.tags,
+                camera: base.camera,
+                next: base.next,
+                failed: base.failed,
+                effect_id: json
+                    .get("EntityEffectId")
+                    .and_then(Value::as_str)
+                    .and_then(|id| registry.entity_effects.id_of(id))
+                    .unwrap_or(0),
+                entity_target: interaction_target(json.get("Entity")),
+            })
+        }
+        "BreakBlock" => Interaction::BreakBlockInteraction(BreakBlockInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            use_latest_target: json
+                .get("UseLatestTarget")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            harvest: json
+                .get("Harvest")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            soft_only: json
+                .get("SoftOnly")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "PickBlock" => Interaction::PickBlockInteraction(PickBlockInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            use_latest_target: json
+                .get("UseLatestTarget")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "FirstClick" => Interaction::FirstClickInteraction(FirstClickInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            click: nested_interaction_index(registry, key, "Click", json.get("Click")),
+            held: nested_interaction_index(registry, key, "Held", json.get("Held")),
         }),
         _ => Interaction::SimpleInteraction(SimpleInteraction {
             wait_for_data_from: base.wait_for_data_from,

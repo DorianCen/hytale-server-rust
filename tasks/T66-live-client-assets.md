@@ -66,7 +66,12 @@ This is an asset-packet completeness task, not an auth task.
     `SwapFrom` default. Interaction bodies are type-specific for the ten most
     common nodes (`Simple`, `DamageEntity`, `Serial`, `Selector`,
     `StatsCondition`, `Charging`, `Wielding`, `Parallel`, `Condition`,
-    `Projectile`); the remaining node types still use the base form.
+    `Projectile`, `EffectCondition`, `BlockCondition`, `Repeat`, `RemoveEntity`,
+    `PlaceBlock`, `TriggerCooldown`, `DurabilityCondition`, `UseBlock`,
+    `ChangeStat`, `ChangeState`, `ApplyEffect`, `ChangeBlock`,
+    `GroundedCondition`, `MemoriesCondition`, `ClearEntityEffect`, `BreakBlock`,
+    `PickBlock`, `FirstClick`); the remaining long-tail node types still use
+    the base form.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
@@ -131,9 +136,10 @@ This is an asset-packet completeness task, not an auth task.
   salvage/flower recipe fields end to end.
 - `interaction_graph_is_materialized` checks the 2805-node interaction map,
   732 roots, no dangling `next`/`failed`/root indices, the default unarmed
-  root and the chain-hook root. It also counts and validates the ten
-  type-specific bodies (`Serial`/`Parallel` children, `Projectile.Config`,
-  `Select` fail mode and the implemented flags).
+  root and the chain-hook root. It also counts and validates the typed bodies,
+  including `Serial`/`Parallel` children, `Projectile.Config`, `Select` fail
+  mode, `Repeat`, `TriggerCooldown`, `PlaceBlock` and the condition/change
+  nodes.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke
