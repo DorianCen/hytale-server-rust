@@ -371,6 +371,10 @@ fn block_type_packet_matches_the_java_golden() {
         // handful of blocks (the parent's processed map is inherited), so the
         // full value is compared on representative blocks below.
 
+        assert!(
+            block.tag_indexes.is_some(),
+            "{name}: tagIndexes must not be null"
+        );
         for index in block.tag_indexes.as_deref().unwrap_or_default() {
             assert!(
                 tags.map().values().any(|value| value == index),

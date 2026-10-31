@@ -231,7 +231,11 @@ pub(crate) fn block_type_packet(
                     .and_then(Value::as_str)
                     .and_then(|tag| tags.index(tag))
                     .unwrap_or(i32::MIN),
-                tag_indexes: tags.expanded(json.get("Tags")),
+                // Java materializes an (often empty) tag list for every
+                // processed block; only a few preloaded entries stay null.
+                // The client's `PrepareBlockTypes` copy dereferences this
+                // list, so never send null for a normal block.
+                tag_indexes: Some(tags.expanded(json.get("Tags")).unwrap_or_default()),
                 bench: None,
                 connected_block_rule_set: None,
             },
