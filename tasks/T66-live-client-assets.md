@@ -36,7 +36,7 @@ This is an asset-packet completeness task, not an auth task.
     `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
     `ModelVFX`, `EntityUIComponent`, `BlockSet`, `ParticleSystem`,
     `ParticleSpawner`, `MusicTransition`, `ConnectedBlockRuleSet`, `AmbienceFX`,
-    `MusicContainer`, `Stinger`;
+    `MusicContainer`, `Stinger`, `Recipes`;
   - the two particle packets are byte-identical to the Java goldens
     (`ParticleSystem` 791 systems, `ParticleSpawner` 2439 spawners), covering
     particles, animation frames, attractors, collision, UV motion and the
@@ -55,12 +55,15 @@ This is an asset-packet completeness task, not an auth task.
     documents, including random/sequence/horizontal/segment variants;
   - `Stinger` carries the `EMPTY` preload and both authored stingers with their
     container indices, categories, exclusion groups, volumes and ducking
-    rules.
+    rules;
+  - `Recipes` carries all 410 standalone crafting recipes with inputs,
+    outputs, primary outputs, bench requirements, knowledge gates, time and
+    memories level.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
   - `Interaction`, `RootInteraction`, `UnarmedInteraction` (full action graph);
-  - `Recipes` (asset-specific crafting trees).
+
 - `ModelAsset` has no packet generator; verify whether the missing
   `Debug_Model` model is a common-asset issue before changing packets.
 
@@ -115,6 +118,8 @@ This is an asset-packet completeness task, not an auth task.
 - `music_containers_and_stingers_are_materialized` checks the 674-container
   map, all five variants, inline child/layer resolution, sequence/horizontal
   children, stinger container indices and inline `AmbienceFX` music.
+- `recipes_are_materialized` checks all 410 standalone recipes and the
+  salvage/flower recipe fields end to end.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke

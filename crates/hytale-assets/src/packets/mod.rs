@@ -37,33 +37,34 @@ use hytale_protocol::generated::common::{
     AbilityKeyword, AmbienceFX, AmbienceFXAltitude, AmbienceFXAmbientBed, AmbienceFXBlockSoundSet,
     AmbienceFXConditions, AmbienceFXPhysicalMaterial, AmbienceFXSound, AmbienceFXSoundEffect,
     AmbienceFXSoundPlay3D, AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule,
-    AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig, BlockSet,
-    BlockTextures, BlockTypeConnectedBlockShape, CameraAxis, CameraNode, CameraSettings,
-    CollisionType, Color, ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
-    CombatTextEntityUIComponentAnimationEvent, ConnectedBlockFaceTags, ConnectedBlockMatchType,
-    ConnectedBlockPattern, ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape,
-    ConnectedBlockUpdateMode, CurveType, DestinationAlign, Direction, Edge, EffectDirection,
-    EmitShape, EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior,
-    EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode,
-    FaceTagConnectedBlockRule, FadeCurve, Fluid, FluidDrawType, FluidParticle, Hitbox,
-    HitboxCollisionConfig, HorizontalMusicContainer, InitialVelocity, IntersectionHighlight,
-    ItemAnimation, ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations,
-    ItemPullbackConfiguration, ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig,
-    ItemSoundEvent, ItemSoundSet, LayerPlacement, LoopOption, Model, ModelParticle, ModelVFX,
-    MusicContainer, MusicMarker, MusicSync, MusicTransition, MusicTransitionType,
-    NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
-    OverlapBehavior as ProtocolOverlapBehavior, Particle, ParticleAnimationFrame,
-    ParticleAttractor, ParticleCollision, ParticleCollisionAction, ParticleCollisionBlockType,
-    ParticleRotationInfluence, ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup,
-    ParticleSystem, ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType,
-    ProjectileConfig, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
-    Rangeb, Rangef, RepulsionConfig, ResourceType, ReverbEffect, RoofState, RotationMode,
-    SegmentMusicContainer, SequenceMusicContainer, ShaderType, ShapeConnectedBlockRule,
-    ShelterType, SingleTrackMusicContainer, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize,
-    StateBinding, StateDelta, StateFade, Stinger, StingerBinding, StingerShortLead,
-    SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint, TagPatternConnectedBlockShape,
-    TemplatedConnectedBlockShape, TempoSettings, Trail, UVMotion, UVMotionCurveType, UpdateType,
-    ValueType, Vector2i, Vector3i, Weather, WiggleWeights, WorldEnvironment,
+    AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig, BenchRequirement,
+    BenchType, BlockSet, BlockTextures, BlockTypeConnectedBlockShape, CameraAxis, CameraNode,
+    CameraSettings, CollisionType, Color, ColorAlpha, ColorLight,
+    CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
+    ConnectedBlockFaceTags, ConnectedBlockMatchType, ConnectedBlockPattern, ConnectedBlockRule,
+    ConnectedBlockRuleSetAsset, ConnectedBlockShape, ConnectedBlockUpdateMode, CraftingRecipe,
+    CurveType, DestinationAlign, Direction, Edge, EffectDirection, EmitShape, EntityEffect,
+    EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent,
+    EntityUIType, EqualizerEffect, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, Fluid,
+    FluidDrawType, FluidParticle, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
+    InitialVelocity, IntersectionHighlight, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
+    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
+    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LayerPlacement,
+    LoopOption, MaterialQuantity, Model, ModelParticle, ModelVFX, MusicContainer, MusicMarker,
+    MusicSync, MusicTransition, MusicTransitionType, NotConnectedBlockRule, Opacity,
+    OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, Particle,
+    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
+    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
+    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
+    PhysicsConfig, PhysicsType, ProjectileConfig, RandomMode, RandomMusicContainer, Range,
+    RangeVector2f, RangeVector3f, Rangeb, Rangef, RepulsionConfig, ResourceType, ReverbEffect,
+    RoofState, RotationMode, SegmentMusicContainer, SequenceMusicContainer, ShaderType,
+    ShapeConnectedBlockRule, ShelterType, SingleTrackMusicContainer, Size, SoftParticle,
+    SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade, Stinger,
+    StingerBinding, StingerShortLead, SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint,
+    TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail, UVMotion,
+    UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, Weather, WiggleWeights,
+    WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -310,16 +311,7 @@ impl AssetRegistry {
                 self.model_vfxs_packet()?,
                 self.fieldcraft_categories_packet()?,
                 self.resource_types_packet()?,
-                // The gameplay phase sends the real `UpdateRecipes`; this is
-                // the required asset-type initialization.
-                empty_packet(
-                    "Recipes",
-                    &UpdateRecipes {
-                        recipes: Some(BTreeMap::new()),
-                        removed_recipes: Some(Vec::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.recipes_packet()?,
                 self.ambience_fx_packet()?,
                 empty_packet(
                     "Interactions",
@@ -532,6 +524,23 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateRecipes` (id 58) from the standalone `CraftingRecipe` store.
+    pub fn recipes_packet(&self) -> Result<AssetPacket> {
+        let mut recipes = BTreeMap::new();
+        for record in self.recipes.iter() {
+            recipes.insert(
+                record.key.clone(),
+                crafting_recipe(&record.key, &record.value),
+            );
+        }
+        let packet = UpdateRecipes {
+            r#type: UpdateType::Init,
+            recipes: Some(recipes),
+            removed_recipes: None,
+        };
+        AssetPacket::encode("Recipes", &packet)
     }
 
     /// `UpdateStingers` (id 92) from the `Stinger` store.
@@ -2126,6 +2135,102 @@ fn connected_block_rule_set(
         },
         shapes: Some(shapes),
         patterns,
+    }
+}
+
+fn material_quantity(value: &Value) -> Option<MaterialQuantity> {
+    let object = value.as_object()?;
+    Some(MaterialQuantity {
+        item_id: object
+            .get("ItemId")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        item_tag: object.get("ItemTag").and_then(Value::as_i64).unwrap_or(0) as i32,
+        resource_type_id: object
+            .get("ResourceTypeId")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        quantity: object.get("Quantity").and_then(Value::as_i64).unwrap_or(0) as i32,
+    })
+}
+
+fn material_quantities(value: Option<&Value>) -> Option<Vec<MaterialQuantity>> {
+    let values = value?.as_array()?;
+    let values: Vec<MaterialQuantity> = values.iter().filter_map(material_quantity).collect();
+    (!values.is_empty()).then_some(values)
+}
+
+fn bench_requirements(value: Option<&Value>) -> Option<Vec<BenchRequirement>> {
+    let requirements = value?.as_array()?;
+    let requirements: Vec<BenchRequirement> = requirements
+        .iter()
+        .filter_map(|requirement| {
+            let requirement = requirement.as_object()?;
+            Some(BenchRequirement {
+                r#type: match requirement.get("Type").and_then(Value::as_str) {
+                    Some("Processing") => BenchType::Processing,
+                    Some("DiagramCrafting") => BenchType::DiagramCrafting,
+                    Some("StructuralCrafting") => BenchType::StructuralCrafting,
+                    _ => BenchType::Crafting,
+                },
+                id: requirement
+                    .get("Id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                categories: requirement
+                    .get("Categories")
+                    .and_then(Value::as_array)
+                    .map(|categories| {
+                        categories
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|categories| !categories.is_empty()),
+                required_tier_level: requirement
+                    .get("RequiredTierLevel")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0) as i32,
+                required_augment_tags: requirement
+                    .get("RequiredAugmentTags")
+                    .and_then(Value::as_array)
+                    .map(|tags| {
+                        tags.iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|tags| !tags.is_empty()),
+            })
+        })
+        .collect();
+    (!requirements.is_empty()).then_some(requirements)
+}
+
+fn crafting_recipe(key: &str, json: &Value) -> CraftingRecipe {
+    let primary_output = json.get("PrimaryOutput").and_then(material_quantity);
+    let outputs = material_quantities(json.get("Output")).or_else(|| {
+        // Java `CraftingRecipe.processConfig`: an omitted `Output` defaults to
+        // the primary output.
+        primary_output.clone().map(|output| vec![output])
+    });
+    CraftingRecipe {
+        id: Some(key.to_string()),
+        inputs: material_quantities(json.get("Input")),
+        outputs,
+        primary_output,
+        bench_requirement: bench_requirements(json.get("BenchRequirement")),
+        knowledge_required: json
+            .get("KnowledgeRequired")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        time_seconds: number(json, "TimeSeconds") as f32,
+        required_memories_level: json
+            .get("RequiredMemoriesLevel")
+            .and_then(Value::as_i64)
+            .unwrap_or(0) as i32,
     }
 }
 

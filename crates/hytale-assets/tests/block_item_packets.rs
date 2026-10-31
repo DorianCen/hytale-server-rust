@@ -25,9 +25,9 @@ use hytale_protocol::generated::assets::{
     UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    BlockNeighbor, BlockType, ConnectedBlockShape, ConnectedBlockUpdateMode, DestinationAlign,
-    FadeCurve, MusicContainer as ProtocolMusicContainer, RandomMode, RequiredBlockFaceSupport,
-    SyncPoint, UpdateType,
+    BenchType, BlockNeighbor, BlockType, ConnectedBlockShape, ConnectedBlockUpdateMode,
+    DestinationAlign, FadeCurve, MusicContainer as ProtocolMusicContainer, RandomMode,
+    RequiredBlockFaceSupport, SyncPoint, UpdateType,
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::Reader;
@@ -217,8 +217,11 @@ fn release_required_asset_types_are_all_initialized() {
         &packet(&packets, UpdateRecipes::ID).payload,
     ))
     .expect("decode UpdateRecipes");
-    assert_eq!(recipes.recipes, Some(BTreeMap::new()));
-    assert_eq!(recipes.removed_recipes, Some(Vec::new()));
+    assert!(recipes
+        .recipes
+        .as_ref()
+        .is_some_and(|recipes| !recipes.is_empty()));
+    assert_eq!(recipes.removed_recipes, None);
 
     // Sound events reference AudioCategory/AudioState ids, so those stores
     // must contain the real (preloaded) entries rather than an empty map.
@@ -1385,4 +1388,63 @@ fn music_containers_and_stingers_are_materialized() {
         containers.contains_key(&creative.music_container_index),
         "inline AmbienceFX music container must resolve"
     );
+}
+
+/// T66: standalone crafting recipes are sent in the config burst instead of an
+/// empty init placeholder.
+#[test]
+fn recipes_are_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded: UpdateRecipes = UpdateRecipes::decode(&mut Reader::new(
+        &packet(&packets, UpdateRecipes::ID).payload,
+    ))
+    .expect("decode recipes");
+    assert_eq!(decoded.r#type, UpdateType::Init);
+    assert_eq!(decoded.removed_recipes, None);
+    let recipes = decoded.recipes.expect("recipe map");
+    assert_eq!(recipes.len(), registry.recipes.len());
+    assert_eq!(recipes.len(), 410);
+    assert!(recipes.values().all(|recipe| recipe.id.is_some()));
+    assert!(
+        recipes
+            .values()
+            .filter(|recipe| recipe.outputs.is_some())
+            .count()
+            > 400
+    );
+
+    let recipe = recipes
+        .get("Salvage_Plant_Flower_Common_Blue")
+        .expect("salvage flower recipe");
+    assert_eq!(
+        recipe.id.as_deref(),
+        Some("Salvage_Plant_Flower_Common_Blue")
+    );
+    let input = recipe
+        .inputs
+        .as_ref()
+        .and_then(|inputs| inputs.first())
+        .expect("input");
+    assert_eq!(input.item_id.as_deref(), Some("Plant_Flower_Common_Blue"));
+    assert_eq!(input.quantity, 1);
+    let primary = recipe.primary_output.as_ref().expect("primary output");
+    assert_eq!(primary.item_id.as_deref(), Some("Plant_Petals_Blue"));
+    assert_eq!(primary.quantity, 4);
+    let outputs = recipe.outputs.as_ref().expect("outputs");
+    assert_eq!(outputs.len(), 1);
+    assert_eq!(outputs[0].item_id.as_deref(), Some("Plant_Petals_Blue"));
+    assert_eq!(outputs[0].quantity, 4);
+    let bench = recipe
+        .bench_requirement
+        .as_ref()
+        .and_then(|requirements| requirements.first())
+        .expect("bench requirement");
+    assert_eq!(bench.r#type, BenchType::Processing);
+    assert_eq!(bench.id, "Salvagebench");
+    assert_eq!(recipe.time_seconds, 0.5);
+    assert!(!recipe.knowledge_required);
 }

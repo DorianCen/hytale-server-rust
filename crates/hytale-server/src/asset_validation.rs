@@ -268,6 +268,7 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("AmbienceFX", ambience_fxs),
         store!("MusicContainer", music_containers),
         store!("Stinger", stingers),
+        store!("Recipes", recipes),
     ]
 }
 

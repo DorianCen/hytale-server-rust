@@ -402,6 +402,12 @@ const STINGER: StoreSpec = StoreSpec {
     map: MapKind::IndexedLookupTable,
 };
 
+const RECIPE: StoreSpec = StoreSpec {
+    name: "Recipes",
+    path: "Server/Item/Recipes",
+    map: MapKind::Default,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -963,6 +969,8 @@ pub struct AssetRegistry {
     pub ambience_fxs: AssetCollection<Value>,
     /// `Stinger` (`Server/Audio/Stingers`, `EMPTY` preloaded at 0).
     pub stingers: AssetCollection<Value>,
+    /// Standalone `CraftingRecipe` store (`Server/Item/Recipes`).
+    pub recipes: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1076,6 +1084,7 @@ impl AssetRegistry {
             connected_block_rule_sets: AssetCollection::empty(),
             ambience_fxs: AssetCollection::empty(),
             stingers: AssetCollection::empty(),
+            recipes: AssetCollection::empty(),
         })
     }
 
@@ -1132,6 +1141,7 @@ impl AssetRegistry {
             load_indexed_store(pack, &AMBIENCE_FX, ambience_fx_preloads(), parse_key_asset)?;
         registry.stingers =
             load_indexed_store(pack, &STINGER, stinger_preloads(), parse_key_asset)?;
+        registry.recipes = load_default_store(pack, &RECIPE, Vec::new())?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
