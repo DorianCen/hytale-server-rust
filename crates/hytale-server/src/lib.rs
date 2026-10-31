@@ -15,6 +15,7 @@ pub mod map_image;
 pub mod player_data_tool;
 pub mod player_gameplay;
 pub mod players;
+pub mod security;
 pub mod serve;
 pub mod session;
 pub mod universe_runtime;
@@ -46,9 +47,11 @@ pub use player_data_tool::{
 };
 pub use player_gameplay::{stat_update_packet, PlayerGameplay};
 pub use players::{
-    channel as player_channel, PlayerJoin, PlayerJoinRequest, PlayerMessage, PlayerRegistry,
-    PlayerSession, PLAYER_NPC_TARGET_OFFSET,
+    channel as player_channel, channel_with_capacity as player_channel_with_capacity, PlayerJoin,
+    PlayerJoinError, PlayerJoinRequest, PlayerMessage, PlayerRegistry, PlayerSession,
+    PLAYER_NPC_TARGET_OFFSET,
 };
+pub use security::SessionLimits;
 pub use serve::{
     run as run_serve, serve as serve_listener, PortalRouter, ServeError, ServeOptions, ServeReport,
     SessionSummary,

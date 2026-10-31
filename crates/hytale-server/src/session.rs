@@ -91,7 +91,8 @@ use crate::chunk_streamer::{
 };
 use crate::inventory_rules::AssetItemRules;
 use crate::player_gameplay::PlayerGameplay;
-use crate::players::{self, PlayerJoinRequest, PlayerMessage, PlayerRegistry};
+use crate::players::{self, PlayerJoinError, PlayerJoinRequest, PlayerMessage, PlayerRegistry};
+use crate::security::SessionLimits;
 use crate::world_thread::{
     BlockDamagePacket, NpcPresentationKind, RuntimeEntityEvent, ViewId, WorldThread,
     WorldThreadError, WorldTimeState,
@@ -167,6 +168,8 @@ pub struct SessionOptions {
     pub idle_timeout: Duration,
     /// Authentication mode.
     pub auth: AuthMode,
+    /// Abuse limits: inbound rate/payload, view radius and queue capacity.
+    pub limits: SessionLimits,
     /// Health removed from a block per left-click hit (`1.0` = break a full
     /// health block in one hit, the pre-T57b behavior).
     pub block_break_damage: f32,
@@ -190,6 +193,7 @@ impl Default for SessionOptions {
             world_join_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             auth: AuthMode::Insecure,
+            limits: SessionLimits::default(),
             block_break_damage: 1.0,
             trace: None,
             portal_router: None,
@@ -355,6 +359,12 @@ pub struct GameLoopReport {
     pub disconnected: bool,
     /// The server disconnected the client for idling.
     pub idle_timeout: bool,
+    /// The server disconnected the client for exceeding the inbound rate.
+    pub rate_limited: bool,
+    /// The server disconnected the client because its broadcast queue filled.
+    pub queue_overflow: bool,
+    /// Client view-radius requests clamped to `SessionLimits::max_view_radius`.
+    pub view_radius_clamps: usize,
 }
 
 /// What the session produced.
@@ -430,6 +440,15 @@ pub enum SessionError {
         /// State name.
         state: &'static str,
     },
+    /// The same player UUID already owns a live session in this world.
+    #[error("player {0} is already connected")]
+    DuplicateIdentity(Uuid),
+    /// The client exceeded the inbound frame budget.
+    #[error("client exceeded the inbound packet rate during {phase}")]
+    RateLimited {
+        /// Handshake/game phase.
+        phase: &'static str,
+    },
     /// A token subject was valid JWT-wise but not a protocol UUID.
     #[error("invalid player UUID `{0}`")]
     InvalidUuid(String),
@@ -488,6 +507,7 @@ struct LiveGame<'a> {
     crafting: &'a mut CraftingKnowledge,
     revealed_markers: &'a mut BTreeSet<String>,
     map_chunks: &'a mut BTreeSet<(i32, i32)>,
+    overflow: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// The one block-container or bench window this session owns (`OpenWindow.id`).
@@ -543,7 +563,8 @@ pub async fn serve_connection_with_registry(
         .as_ref()
         .map(|recorder| recorder.begin_session());
     let mut writer = FrameWriter::new(send);
-    let mut reader = FrameReader::new(recv);
+    let mut reader =
+        FrameReader::new(recv).with_max_payload(options.limits.max_inbound_packet_bytes);
     if let Some(trace) = &trace {
         writer = writer.with_trace(Arc::clone(trace) as Arc<dyn hytale_net::PacketTraceSink>);
         reader = reader.with_trace(Arc::clone(trace) as Arc<dyn hytale_net::PacketTraceSink>);
@@ -569,11 +590,12 @@ pub async fn serve_connection_with_registry(
     .map_err(|_| SessionError::Timeout)??;
 
     let start = thread.start_report();
-    let radius = if handshake.view_radius == 0 {
+    let requested_radius = if handshake.view_radius == 0 {
         options.default_view_radius
     } else {
         handshake.view_radius
     };
+    let radius = options.limits.clamp_view_radius(requested_radius);
 
     let player_uuid: WorldUuid = handshake
         .uuid
@@ -604,11 +626,11 @@ pub async fn serve_connection_with_registry(
         .world_uuid
         .parse()
         .map_err(|_| SessionError::InvalidUuid(start.world_uuid.clone()))?;
-    let mut view_id = thread.add_view(player_chunk.0, player_chunk.1, radius)?;
     let interactions = thread.interaction_catalog()?;
 
-    let (message_tx, message_rx) = players::channel();
-    let (player_session, join) = players.register(PlayerJoinRequest {
+    let (message_tx, message_rx) =
+        players::channel_with_capacity(options.limits.max_queued_messages);
+    let (player_session, join) = match players.register(PlayerJoinRequest {
         uuid: handshake.uuid,
         username: handshake.username.clone(),
         world_uuid,
@@ -618,7 +640,20 @@ pub async fn serve_connection_with_registry(
         view_center: player_chunk,
         view_radius: radius,
         sender: message_tx,
-    });
+    }) {
+        Ok(value) => value,
+        Err(PlayerJoinError::DuplicateIdentity(uuid)) => {
+            send_disconnect(&mut writer, "player is already connected").await?;
+            return Err(SessionError::DuplicateIdentity(uuid));
+        }
+    };
+    let mut view_id = match thread.add_view(player_chunk.0, player_chunk.1, radius) {
+        Ok(view_id) => view_id,
+        Err(error) => {
+            let _ = players.unregister(join.network_id);
+            return Err(error.into());
+        }
+    };
     // Everything after registration runs under the teardown path below, so a
     // failed setup/game loop still persists the player and releases the chunk
     // view instead of leaking a registry entry or loaded chunks.
@@ -763,6 +798,7 @@ pub async fn serve_connection_with_registry(
                 crafting: &mut crafting,
                 revealed_markers: &mut revealed_markers,
                 map_chunks: &mut map_chunks,
+                overflow: Arc::clone(&join.overflow),
             },
             options,
         )
@@ -1186,6 +1222,7 @@ async fn perform_handshake(
         required: required_assets.len(),
         ..AssetStreamReport::default()
     };
+    let mut inbound = options.limits.inbound_bucket();
     loop {
         let frame = reader
             .next_frame()
@@ -1194,11 +1231,17 @@ async fn perform_handshake(
                 packet_id: 0,
                 state: "setup-eof",
             })?;
+        if !inbound.allow(std::time::Instant::now()) {
+            send_disconnect(writer, "packet rate limit exceeded").await?;
+            return Err(SessionError::RateLimited { phase: "setup" });
+        }
         match frame.packet_id {
             ViewRadius::ID => {
                 let packet: ViewRadius = frame.decode()?;
                 if packet.value > 0 {
-                    view_radius = ((packet.value as f32) / 32.0).ceil() as u32;
+                    view_radius = options
+                        .limits
+                        .clamp_view_radius(((packet.value as f32) / 32.0).ceil() as u32);
                 }
             }
             RequestAssets::ID => {
@@ -1435,11 +1478,16 @@ async fn enter_game(
         ..GameReport::default()
     };
     let wait = async {
+        let mut inbound = options.limits.inbound_bucket();
         loop {
             let frame = reader
                 .next_frame()
                 .await?
                 .ok_or(SessionError::Disconnected)?;
+            if !inbound.allow(std::time::Instant::now()) {
+                send_disconnect(writer, "packet rate limit exceeded").await?;
+                return Err(SessionError::RateLimited { phase: "join" });
+            }
             match frame.packet_id {
                 ClientReady::ID => {
                     let ready: ClientReady = frame.decode()?;
@@ -2664,6 +2712,7 @@ async fn run_game_loop(
         crafting,
         revealed_markers,
         map_chunks,
+        overflow,
     } = live;
     let mut report = GameLoopReport::default();
     let mut ticker = std::time::Instant::now();
@@ -2743,8 +2792,15 @@ async fn run_game_loop(
         report.teleport_sent = true;
     }
 
+    let mut inbound = options.limits.inbound_bucket();
     loop {
         if connection.close_reason().is_some() {
+            report.disconnected = true;
+            break;
+        }
+        if overflow.load(std::sync::atomic::Ordering::Relaxed) {
+            report.queue_overflow = true;
+            let _ = send_disconnect(writer, "client is too slow").await;
             report.disconnected = true;
             break;
         }
@@ -2965,6 +3021,12 @@ async fn run_game_loop(
         match tokio::time::timeout(wait, reader.next_frame()).await {
             Ok(Ok(Some(frame))) => {
                 last_activity = std::time::Instant::now();
+                if !inbound.allow(last_activity) {
+                    report.rate_limited = true;
+                    let _ = send_disconnect(writer, "packet rate limit exceeded").await;
+                    report.disconnected = true;
+                    break;
+                }
                 match frame.packet_id {
                     ClientReady::ID => {
                         let ready: ClientReady = frame.decode()?;
@@ -3310,7 +3372,11 @@ async fn run_game_loop(
                     ViewRadius::ID => {
                         let packet: ViewRadius = frame.decode()?;
                         if packet.value > 0 {
-                            let next = ((packet.value as f32) / 32.0).ceil() as u32;
+                            let requested = ((packet.value as f32) / 32.0).ceil() as u32;
+                            let next = options.limits.clamp_view_radius(requested);
+                            if next != requested {
+                                report.view_radius_clamps += 1;
+                            }
                             if next != radius {
                                 radius = next;
                                 active_thread.update_view(view, center.0, center.1, radius)?;

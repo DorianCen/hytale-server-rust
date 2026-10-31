@@ -80,8 +80,9 @@ Deferred to M5/M6:
   server validates finite/world bounds, resolves solid-block collision
   (sweep + one-block step), sends correction teleports and exposes a
   deterministic gravity/jump/fly/climb/slide/roll integrator with a mantle
-  helper. Per-packet speed/teleport anti-cheat remains T62; fluids, triggers,
-  world mount entities and entity collisions remain T52/T56/T58.
+  helper. T62 adds the inbound rate/payload budget; per-packet speed/teleport
+  anti-cheat remains a follow-up, as do fluids, triggers, world mount entities
+  and entity collisions (T52/T56/T58).
 - Instance/portal transports and adventure plugins. T59c lands the encounter
   evaluator and portal-timer seam; T60b lands the portal-type/instance catalog,
   target-world creation/selection, saved-player transfer and the live session

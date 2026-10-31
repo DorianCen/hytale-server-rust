@@ -348,7 +348,13 @@ impl AssetPack {
             if entry.is_dir() {
                 continue;
             }
-            let name = entry.name().replace('\\', "/");
+            let name = entry
+                .name()
+                .map_err(|error| AssetError::Zip {
+                    path: self.root.clone(),
+                    message: error.to_string(),
+                })?
+                .replace('\\', "/");
             validate_path(&name)?;
             files.push(name);
         }

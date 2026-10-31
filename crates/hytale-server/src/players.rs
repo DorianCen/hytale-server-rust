@@ -13,7 +13,8 @@
 //! updates.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 
 use hytale_npc::combat::NpcTarget;
@@ -59,6 +60,9 @@ pub enum PlayerMessage {
     WorldMap(UpdateWorldMap),
 }
 
+/// Default per-session broadcast queue capacity.
+pub const PLAYER_MESSAGE_QUEUE_CAPACITY: usize = 4096;
+
 /// A queued player/entity/block message failed to write.
 #[derive(Debug, thiserror::Error)]
 pub enum PlayerMessageError {
@@ -68,6 +72,14 @@ pub enum PlayerMessageError {
     /// A chunks-stream packet failed.
     #[error(transparent)]
     Chunk(#[from] hytale_net::ChunkStreamError),
+}
+
+/// A registration attempt that could not be accepted.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PlayerJoinError {
+    /// The same player UUID is already connected to this world.
+    #[error("player {0} is already connected")]
+    DuplicateIdentity(Uuid),
 }
 
 /// Everything needed to register a joining session.
@@ -90,11 +102,11 @@ pub struct PlayerJoinRequest {
     /// Current view radius in chunks.
     pub view_radius: u32,
     /// Queue for this session's broadcasts.
-    pub sender: Sender<PlayerMessage>,
+    pub sender: SyncSender<PlayerMessage>,
 }
 
 /// What registration returned to the joining session.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct PlayerJoin {
     /// Assigned network/entity id (used by `SetClientId` and the self spawn).
     pub network_id: i32,
@@ -102,6 +114,8 @@ pub struct PlayerJoin {
     pub player_list: Vec<ServerPlayerListPlayer>,
     /// Existing players' map markers for the joining client.
     pub player_markers: Vec<MapMarker>,
+    /// Set when a broadcast cannot be queued because the session is too slow.
+    pub overflow: Arc<AtomicBool>,
 }
 
 struct PlayerEntry {
@@ -114,7 +128,8 @@ struct PlayerEntry {
     skin: Option<PlayerSkin>,
     view_center: (i32, i32),
     view_radius: u32,
-    sender: Sender<PlayerMessage>,
+    sender: SyncSender<PlayerMessage>,
+    overflow: Arc<AtomicBool>,
     visible: BTreeSet<i32>,
 }
 
@@ -170,8 +185,21 @@ impl PlayerRegistry {
     }
 
     /// Register a session and queue the join broadcasts.
-    pub fn register(self: &Arc<Self>, request: PlayerJoinRequest) -> (PlayerSession, PlayerJoin) {
+    ///
+    /// A second connection with an already-registered UUID is refused so a
+    /// stolen/duplicated identity cannot take over or shadow a live session.
+    pub fn register(
+        self: &Arc<Self>,
+        request: PlayerJoinRequest,
+    ) -> Result<(PlayerSession, PlayerJoin), PlayerJoinError> {
         let mut inner = self.inner.lock().expect("player registry poisoned");
+        if inner
+            .players
+            .values()
+            .any(|player| player.uuid == request.uuid)
+        {
+            return Err(PlayerJoinError::DuplicateIdentity(request.uuid));
+        }
         let network_id = inner.next_network_id;
         inner.next_network_id = if network_id == i32::MAX {
             1
@@ -186,6 +214,7 @@ impl PlayerRegistry {
             };
         }
 
+        let overflow = Arc::new(AtomicBool::new(false));
         let entry = PlayerEntry {
             uuid: request.uuid,
             username: request.username.clone(),
@@ -197,6 +226,7 @@ impl PlayerRegistry {
             view_center: request.view_center,
             view_radius: request.view_radius,
             sender: request.sender,
+            overflow: Arc::clone(&overflow),
             visible: BTreeSet::new(),
         };
         let list_entry = entry.list_entry();
@@ -242,7 +272,7 @@ impl PlayerRegistry {
         recompute_visibility(&mut inner);
         drop(inner);
 
-        (
+        Ok((
             PlayerSession {
                 registry: Arc::clone(self),
                 network_id,
@@ -251,8 +281,9 @@ impl PlayerRegistry {
                 network_id,
                 player_list,
                 player_markers,
+                overflow,
             },
-        )
+        ))
     }
 
     /// Remove a session, returning its UUID when it was registered.
@@ -543,6 +574,7 @@ impl PlayerRegistry {
 }
 
 /// Keep a session registered until it is dropped.
+#[derive(Debug)]
 pub struct PlayerSession {
     registry: Arc<PlayerRegistry>,
     network_id: i32,
@@ -561,13 +593,28 @@ impl Drop for PlayerSession {
     }
 }
 
-/// Create the queue pair used by one session.
-pub fn channel() -> (Sender<PlayerMessage>, Receiver<PlayerMessage>) {
-    mpsc::channel()
+/// Create the default bounded queue pair used by one session.
+pub fn channel() -> (SyncSender<PlayerMessage>, Receiver<PlayerMessage>) {
+    channel_with_capacity(PLAYER_MESSAGE_QUEUE_CAPACITY)
+}
+
+/// Create a queue pair with an explicit capacity.
+pub fn channel_with_capacity(
+    capacity: usize,
+) -> (SyncSender<PlayerMessage>, Receiver<PlayerMessage>) {
+    mpsc::sync_channel(capacity.max(1))
 }
 
 fn queue(player: &PlayerEntry, message: PlayerMessage) {
-    let _ = player.sender.send(message);
+    match player.sender.try_send(message) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => {
+            // The session loop checks this flag and disconnects the slow
+            // client before the world thread can block on it.
+            player.overflow.store(true, Ordering::Relaxed);
+        }
+        Err(TrySendError::Disconnected(_)) => {}
+    }
 }
 
 fn recompute_visibility(inner: &mut Inner) {
@@ -1063,7 +1110,7 @@ mod tests {
         uuid: Uuid,
         username: &str,
         center: (i32, i32),
-        sender: Sender<PlayerMessage>,
+        sender: SyncSender<PlayerMessage>,
     ) -> PlayerJoinRequest {
         PlayerJoinRequest {
             uuid,
@@ -1080,6 +1127,49 @@ mod tests {
 
     fn drain(receiver: &Receiver<PlayerMessage>) -> Vec<PlayerMessage> {
         receiver.try_iter().collect()
+    }
+
+    #[test]
+    fn duplicate_identity_is_refused() {
+        let registry = Arc::new(PlayerRegistry::new());
+        let uuid = Uuid::new(3, 3);
+        let (first_tx, _first_rx) = channel();
+        let (first, _) = registry
+            .register(request(uuid, "First", (0, 0), first_tx))
+            .expect("first registration");
+        let (second_tx, _second_rx) = channel();
+        let error = registry
+            .register(request(uuid, "Imposter", (0, 0), second_tx))
+            .expect_err("a duplicate identity must be refused");
+        assert_eq!(error, PlayerJoinError::DuplicateIdentity(uuid));
+
+        drop(first);
+        let (third_tx, _third_rx) = channel();
+        assert!(registry
+            .register(request(uuid, "First", (0, 0), third_tx))
+            .is_ok());
+    }
+
+    #[test]
+    fn a_full_queue_marks_the_session_for_disconnect() {
+        let registry = Arc::new(PlayerRegistry::new());
+        let (tx, rx) = channel_with_capacity(1);
+        let (_session, join) = registry
+            .register(request(Uuid::new(4, 4), "Slow", (0, 0), tx))
+            .expect("register");
+        let packet = ServerSetBlock {
+            x: 0,
+            y: 0,
+            z: 0,
+            block_id: 1,
+            filler: 0,
+            rotation: 0,
+        };
+        registry.broadcast_block(packet.clone());
+        assert!(!join.overflow.load(Ordering::Relaxed));
+        registry.broadcast_block(packet);
+        assert!(join.overflow.load(Ordering::Relaxed));
+        assert!(rx.try_recv().is_ok());
     }
 
     #[test]
@@ -1151,15 +1241,17 @@ mod tests {
     fn join_lists_and_spawns_are_visible_to_each_other() {
         let registry = Arc::new(PlayerRegistry::new());
         let (first_tx, first_rx) = channel();
-        let (first, first_join) =
-            registry.register(request(Uuid::new(1, 1), "First", (0, 0), first_tx));
+        let (first, first_join) = registry
+            .register(request(Uuid::new(1, 1), "First", (0, 0), first_tx))
+            .expect("register");
         assert_eq!(first_join.network_id, 1);
         assert_eq!(first_join.player_list.len(), 1);
         assert_eq!(drain(&first_rx).len(), 0);
 
         let (second_tx, second_rx) = channel();
-        let (second, second_join) =
-            registry.register(request(Uuid::new(1, 2), "Second", (0, 0), second_tx));
+        let (second, second_join) = registry
+            .register(request(Uuid::new(1, 2), "Second", (0, 0), second_tx))
+            .expect("register");
         assert_eq!(second_join.network_id, 2);
         assert_eq!(second_join.player_list.len(), 2);
 
@@ -1187,9 +1279,13 @@ mod tests {
     fn movement_updates_and_removal_reach_visible_viewers() {
         let registry = Arc::new(PlayerRegistry::new());
         let (first_tx, first_rx) = channel();
-        let (first, _) = registry.register(request(Uuid::new(1, 1), "First", (0, 0), first_tx));
+        let (first, _) = registry
+            .register(request(Uuid::new(1, 1), "First", (0, 0), first_tx))
+            .expect("register");
         let (second_tx, second_rx) = channel();
-        let (second, _) = registry.register(request(Uuid::new(1, 2), "Second", (0, 0), second_tx));
+        let (second, _) = registry
+            .register(request(Uuid::new(1, 2), "Second", (0, 0), second_tx))
+            .expect("register");
         let _ = drain(&first_rx);
         let _ = drain(&second_rx);
 
@@ -1221,13 +1317,17 @@ mod tests {
     fn runtime_entities_spawn_only_for_viewers() {
         let registry = Arc::new(PlayerRegistry::new());
         let (first_tx, first_rx) = channel();
-        let (first, _) = registry.register(request(Uuid::new(1, 1), "First", (0, 0), first_tx));
+        let (first, _) = registry
+            .register(request(Uuid::new(1, 1), "First", (0, 0), first_tx))
+            .expect("register");
         let (second_tx, _) = channel();
-        let (second, _) = registry.register(PlayerJoinRequest {
-            view_center: (10, 10),
-            transform: transform(10.0 * 32.0, 10.0 * 32.0),
-            ..request(Uuid::new(1, 2), "Second", (10, 10), second_tx)
-        });
+        let (second, _) = registry
+            .register(PlayerJoinRequest {
+                view_center: (10, 10),
+                transform: transform(10.0 * 32.0, 10.0 * 32.0),
+                ..request(Uuid::new(1, 2), "Second", (10, 10), second_tx)
+            })
+            .expect("register");
         let _ = drain(&first_rx);
 
         let entity = RuntimeEntity::new(
@@ -1377,10 +1477,13 @@ mod tests {
     fn player_markers_follow_joins_moves_and_leaves() {
         let registry = Arc::new(PlayerRegistry::new());
         let (first_tx, first_rx) = channel();
-        let (first, _) = registry.register(request(Uuid::new(1, 1), "First", (0, 0), first_tx));
+        let (first, _) = registry
+            .register(request(Uuid::new(1, 1), "First", (0, 0), first_tx))
+            .expect("register");
         let (second_tx, _second_rx) = channel();
-        let (second, second_join) =
-            registry.register(request(Uuid::new(1, 2), "Second", (0, 0), second_tx));
+        let (second, second_join) = registry
+            .register(request(Uuid::new(1, 2), "Second", (0, 0), second_tx))
+            .expect("register");
         assert!(second_join
             .player_markers
             .iter()
@@ -1419,13 +1522,17 @@ mod tests {
     fn visibility_filter_drops_far_entities() {
         let registry = Arc::new(PlayerRegistry::new());
         let (first_tx, first_rx) = channel();
-        let (first, _) = registry.register(request(Uuid::new(1, 1), "First", (0, 0), first_tx));
+        let (first, _) = registry
+            .register(request(Uuid::new(1, 1), "First", (0, 0), first_tx))
+            .expect("register");
         let (second_tx, _) = channel();
-        let (second, _) = registry.register(PlayerJoinRequest {
-            view_center: (10, 10),
-            transform: transform(10.0 * 32.0, 10.0 * 32.0),
-            ..request(Uuid::new(1, 2), "Second", (10, 10), second_tx)
-        });
+        let (second, _) = registry
+            .register(PlayerJoinRequest {
+                view_center: (10, 10),
+                transform: transform(10.0 * 32.0, 10.0 * 32.0),
+                ..request(Uuid::new(1, 2), "Second", (10, 10), second_tx)
+            })
+            .expect("register");
         let messages = drain(&first_rx);
         assert!(
             !messages

@@ -158,6 +158,12 @@ pub struct SessionSummary {
     pub disconnected: bool,
     /// The server disconnected the client for idleness.
     pub idle_timeout: bool,
+    /// The server disconnected the client for exceeding the inbound rate.
+    pub rate_limited: bool,
+    /// The server disconnected the client because its broadcast queue filled.
+    pub queue_overflow: bool,
+    /// Client view-radius requests clamped to the configured maximum.
+    pub view_radius_clamps: usize,
     /// `ClientMovement` packets processed.
     pub movement_packets: usize,
     /// Movement packets refused by the finite/world bounds.
@@ -195,6 +201,9 @@ impl From<&SessionReport> for SessionSummary {
             unloaded: report.stream.unloaded + report.game_loop.unloaded,
             disconnected: report.game_loop.disconnected,
             idle_timeout: report.game_loop.idle_timeout,
+            rate_limited: report.game_loop.rate_limited,
+            queue_overflow: report.game_loop.queue_overflow,
+            view_radius_clamps: report.game_loop.view_radius_clamps,
             movement_packets: report.game_loop.movement_packets,
             movement_rejections: report.game_loop.movement_rejections,
             movement_corrections: report.game_loop.movement_corrections,

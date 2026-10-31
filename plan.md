@@ -542,7 +542,8 @@ Make time advance and stop using protocol defaults for gameplay rules.
 - Entity traffic is filtered by the square chunk view; the server player list is
   global.
 - Movement updates are throttled to 10 Hz and flushed after a stop.
-- Player-message queues are unbounded; backpressure is T62.
+- Player-message queues are bounded per session by T62 `SessionLimits`; a full
+  queue disconnects the slow client instead of blocking the world thread.
 
 ---
 
@@ -609,7 +610,7 @@ Make time advance and stop using protocol defaults for gameplay rules.
   chunk event queue is still world-wide, so per-view event filtering is a
   follow-up. The startup/CLI base view is replaced by the first session view.
 - Reconnect during a still-registered session creates a second player entry;
-  duplicate-identity takeover is T62.
+  duplicate-identity takeover is refused by T62's registry check.
 - The server closes the QUIC connection after `ServerDisconnect`/teardown rather
   than waiting for a client acknowledgement (Java has no such packet).
 
@@ -727,9 +728,10 @@ documented tolerance; no rubber-banding in the bot loop.
   collisions are T52/T55/T58.
 - Unloaded chunks are air for movement (Java says unknown/solid) so a crossing
   into the next view chunk is not blocked.
-- Per-packet speed anti-cheat and Java's teleport-ack queue are deferred to
-  T62; the current bounds reject non-finite values, out-of-world coordinates and
-  moves over 512 blocks, and correction teleports use an incrementing id.
+- Per-packet speed anti-cheat and Java's teleport-ack queue remain follow-ups;
+  T62 adds the inbound frame budget, while the movement bounds reject non-finite
+  values, out-of-world coordinates and moves over 512 blocks, and correction
+  teleports use an incrementing id.
 - The one-block step height is the block-grid auto-jump ceiling; Java exposes
   slope/wall angles instead.
 
@@ -1056,10 +1058,28 @@ parity follow-up, not the next planned task; T61 remains next.
 
 ### T62 — Security, fuzzing and rate limits
 
+**Status:** done (session 67)
+**Package:** `hytale-net`, `hytale-protocol`, `hytale-assets`, `hytale-server`,
+`tools/client-bot`, docs
+**Depends on:** T48
+**Agent fit:** medium
+
 - Protocol/asset fuzzing, malformed packet handling, auth failure paths, rate
   limits, resource ceilings, dependency audit.
 - Acceptance: fuzz targets run clean for the defined budget; abuse tests fail
   closed.
+
+The security gate is recorded in
+[`tasks/T62-security-fuzzing-rate-limits.md`](tasks/T62-security-fuzzing-rate-limits.md).
+`SessionLimits` adds a bounded inbound payload (4 MiB by default, enforced
+before allocation), a token-bucket inbound packet rate, a 16-chunk view-radius
+ceiling and a bounded 4096-message player broadcast queue. A slow consumer is
+disconnected instead of blocking the world thread, duplicate UUIDs are refused
+before a view is registered, and the listener exposes the limits as CLI flags.
+Deterministic protocol/asset fuzz targets (configurable `HYTALE_FUZZ_ITERATIONS`)
+and loopback flood/oversized-frame abuse tests fail closed. `tools/security.sh`
+runs the fuzz budget, lockfile/duplicate audit and `cargo audit`; the `zip` and
+`zstd` dependencies were upgraded to RUSTSEC-clean releases.
 
 ### T63 — Performance, memory and soak
 

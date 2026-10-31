@@ -14,8 +14,8 @@ use hytale_server::GeneratorOptions;
 use hytale_server::{
     run_chunk_serve, run_chunk_tool, run_headless, run_player_data_tool, run_serve, run_world_boot,
     run_world_config_tool, AuthMode, BuiltinHost, BuiltinRuntime, ChunkServeOptions,
-    ChunkToolOptions, HeadlessOptions, PlayerDataToolOptions, ServeOptions, SessionOptions,
-    StartOptions, WorldBootOptions, WorldConfigToolOptions, WorldThreadOptions,
+    ChunkToolOptions, HeadlessOptions, PlayerDataToolOptions, ServeOptions, SessionLimits,
+    SessionOptions, StartOptions, WorldBootOptions, WorldConfigToolOptions, WorldThreadOptions,
 };
 use hytale_world::player_data::{Position, Rotation};
 
@@ -390,6 +390,21 @@ struct ServeArgs {
     /// Seconds a game session may be idle before the server disconnects it.
     #[arg(long, default_value_t = 300)]
     idle_timeout: u64,
+    /// Maximum view radius a client may request, in chunks.
+    #[arg(long, default_value_t = 16)]
+    max_view_radius: u32,
+    /// Maximum inbound client packets per second.
+    #[arg(long, default_value_t = 512)]
+    max_packets_per_second: u32,
+    /// Inbound packet burst before the rate limiter disconnects.
+    #[arg(long, default_value_t = 1024)]
+    packet_burst: u32,
+    /// Maximum inbound packet payload bytes.
+    #[arg(long, default_value_t = 4194304)]
+    max_packet_bytes: u32,
+    /// Maximum queued broadcast messages per session.
+    #[arg(long, default_value_t = 4096)]
+    max_queued_messages: usize,
     /// Seconds to wait for sessions during shutdown before aborting them.
     #[arg(long, default_value_t = 10)]
     shutdown_timeout: u64,
@@ -691,6 +706,13 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
         world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
         idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
         auth,
+        limits: SessionLimits {
+            max_inbound_packet_bytes: args.max_packet_bytes,
+            inbound_packet_burst: args.packet_burst,
+            inbound_packets_per_second: args.max_packets_per_second,
+            max_view_radius: args.max_view_radius,
+            max_queued_messages: args.max_queued_messages,
+        },
         block_break_damage: 1.0,
         trace: None,
         portal_router: None,
@@ -733,13 +755,15 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
             );
             for session in &report.sessions {
                 println!(
-                    "  {} auth={} chunks={} unloaded={} disconnected={} idle_timeout={}",
+                    "  {} auth={} chunks={} unloaded={} disconnected={} idle_timeout={} rate_limited={} queue_overflow={}",
                     session.username,
                     session.auth_mode,
                     session.chunks,
                     session.unloaded,
                     session.disconnected,
-                    session.idle_timeout
+                    session.idle_timeout,
+                    session.rate_limited,
+                    session.queue_overflow
                 );
             }
             for error in &report.errors {
@@ -824,6 +848,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs, builtin: BuiltinRuntime) -> Exi
             world_join_timeout: std::time::Duration::from_secs(args.world_join_timeout),
             idle_timeout: std::time::Duration::from_secs(args.idle_timeout),
             auth,
+            limits: SessionLimits::default(),
             block_break_damage: 1.0,
             trace: None,
             portal_router: None,

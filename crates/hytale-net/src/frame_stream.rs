@@ -163,17 +163,31 @@ impl FrameWriter {
 pub struct FrameReader {
     recv: RecvStream,
     trace: Option<Arc<dyn PacketTraceSink>>,
+    max_payload: u32,
 }
 
 impl FrameReader {
     /// Wrap an open receive stream.
     pub fn new(recv: RecvStream) -> Self {
-        Self { recv, trace: None }
+        Self {
+            recv,
+            trace: None,
+            max_payload: MAX_PACKET_SIZE,
+        }
     }
 
     /// Attach a packet trace sink.
     pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
         self.trace = Some(trace);
+        self
+    }
+
+    /// Cap inbound payloads below the registry's per-packet Java maximum.
+    ///
+    /// The cap is applied to the compressed frame length and to the declared
+    /// decompressed size, so a small compressed bomb cannot bypass it.
+    pub fn with_max_payload(mut self, max_payload: u32) -> Self {
+        self.max_payload = max_payload.max(1);
         self
     }
 
@@ -198,11 +212,12 @@ impl FrameReader {
             ));
         }
         let info = packet_info(packet_id).ok_or(FrameStreamError::UnknownPacket(packet_id))?;
-        if length > info.max_size {
+        let max_size = info.max_size.min(self.max_payload);
+        if length > max_size {
             return Err(FrameStreamError::Protocol(ProtocolError::PayloadTooLarge {
                 packet_id,
                 length,
-                max: info.max_size,
+                max: max_size,
             }));
         }
 
@@ -221,7 +236,7 @@ impl FrameReader {
             );
         }
         if info.compressed {
-            payload = decompress_payload(&payload, info.max_size as usize)?;
+            payload = decompress_payload(&payload, max_size as usize)?;
         }
         Ok(Some(Frame { packet_id, payload }))
     }

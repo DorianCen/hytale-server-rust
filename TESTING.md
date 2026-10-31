@@ -14,6 +14,7 @@ and boot a `WorldThread`/world generator. Use the tiers below while developing.
 ./tools/test.sh slow          # worldgen/world-boot/server generation suites
 ./tools/test.sh e2e           # ignored loopback/auth/trace tests, serial
 ./tools/test.sh all           # full workspace gate
+HYTALE_FUZZ_ITERATIONS=100000 ./tools/security.sh  # fuzz budget + dependency audit
 ```
 
 Extra arguments are forwarded to cargo:
@@ -22,6 +23,12 @@ Extra arguments are forwarded to cargo:
 ./tools/test.sh unit -- --nocapture
 ./tools/test.sh e2e -- --nocapture
 ```
+
+`tools/security.sh` is the T62 abuse gate: it runs the protocol and asset fuzz
+targets at `HYTALE_FUZZ_ITERATIONS` (default 100,000), verifies `Cargo.lock`,
+prints duplicate dependencies and runs `cargo audit`/`cargo deny` when
+installed. The fuzz targets also run as ordinary tests in the `fast`/`assets`
+tiers with a 10,000-iteration budget.
 
 ## What each tier means
 

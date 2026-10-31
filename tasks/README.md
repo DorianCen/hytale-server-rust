@@ -47,7 +47,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65; asset follow-up T66) |
 | [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | planned (paused) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
-| T62 | Security, fuzzing and rate limits | T48 | medium | planned |
+| T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
 | T63 | Performance, memory and soak | T48 | medium | planned |
 | T64 | Packaging, docs and plugin/mod API | T60 | medium | planned |
 
@@ -56,7 +56,10 @@ scope is in [`../plan.md`](../plan.md). T65 closed live authentication; its
 real-client asset follow-up is T66 (paused). T61 records the
 editor/builder/machinima/voice/cosmetics scope: only cosmetic appearance
 passthrough is in scope, editor clients are refused in every auth mode, and
-`builtin/HytaleGenerator` stays a separate engine project. T52b–T52d closed the parity gaps
+`builtin/HytaleGenerator` stays a separate engine project. T62 lands the
+session abuse limits (payload/rate/view/queue ceilings), duplicate-identity
+refusal, deterministic protocol/asset fuzz targets and the `tools/security.sh`
+dependency/fuzz gate. T52b–T52d closed the parity gaps
 recorded by T52 in session 41. T53's gameplay core, Java entity-gameplay
 fixture and T54's time/weather core are landed; T55 adds the projectile core
 and traversal seam; T56 lands prefab entities/block components and the
