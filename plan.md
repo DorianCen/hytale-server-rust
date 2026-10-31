@@ -1054,7 +1054,8 @@ a release client passes `WorldLoadFinished`. See
 builder-tool/appearance/HUD/ability trees, block states/bench/placement/
 conditional-sound trees, and real SoundSet, ResourceType, FieldcraftCategory,
 ReverbEffect, EqualizerEffect, Beam, HitboxCollision, Repulsion, AbilityKeyword,
-Trail and ModelVFX packets replace their empty placeholders. Golden presence
+Trail, ModelVFX, EntityUIComponent and BlockSet packets replace their empty
+placeholders. Golden presence
 tests cover the item/block trees and the new store map counts. The release
 client still needs a user-run smoke test; particle/block-set/root-interaction/
 music-container trees remain placeholders because their encoders are large

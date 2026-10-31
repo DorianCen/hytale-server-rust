@@ -34,15 +34,14 @@ This is an asset-packet completeness task, not an auth task.
   - real stores replacing placeholders: `SoundSet`, `ResourceType`,
     `FieldcraftCategory`, `ReverbEffect`, `EqualizerEffect`, `BeamConfig`,
     `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
-    `ModelVFX`.
+    `ModelVFX`, `EntityUIComponent`, `BlockSet`.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
   - `ParticleSystem`, `ParticleSpawner` (large nested particle trees);
-  - `BlockSet` (Java resolves includes/excludes through the block-group graph);
   - `Interaction`, `RootInteraction`, `UnarmedInteraction` (full action graph);
   - `MusicContainer`, `ConnectedBlockRuleSet`, `MusicTransition`, `Stinger`,
-    `EntityUIComponent`, `Recipes` (polymorphic/asset-specific trees).
+    `Recipes` (polymorphic/asset-specific trees).
 - `ModelAsset` has no packet generator; verify whether the missing
   `Debug_Model` model is a common-asset issue before changing packets.
 

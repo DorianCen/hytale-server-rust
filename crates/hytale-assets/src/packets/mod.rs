@@ -34,17 +34,19 @@ use hytale_protocol::generated::assets::{
     UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    AbilityKeyword, BeamConfig, BlockTextures, CameraAxis, CameraNode, CameraSettings,
-    CollisionType, Color, ColorAlpha, ColorLight, CurveType, Direction, Edge, EffectDirection,
+    AbilityKeyword, BeamConfig, BlockSet, BlockTextures, CameraAxis, CameraNode, CameraSettings,
+    CollisionType, Color, ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
+    CombatTextEntityUIComponentAnimationEvent, CurveType, Direction, Edge, EffectDirection,
     EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType,
-    EqualizerEffect, FXRenderMode, Fluid, FluidDrawType, FluidParticle, Hitbox,
-    HitboxCollisionConfig, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
-    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
-    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LoopOption, Model,
-    ModelParticle, ModelVFX, Opacity, OverlapBehavior as ProtocolOverlapBehavior, PhysicalMaterial,
-    PhysicsConfig, PhysicsType, ProjectileConfig, Range, Rangef, RepulsionConfig, ResourceType,
-    ReverbEffect, RotationMode, ShaderType, SoundCategory, SoundSet, SubCategoryDefinition,
-    SwitchTo, Trail, UpdateType, ValueType, Vector2i, Weather, WiggleWeights, WorldEnvironment,
+    EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode, Fluid, FluidDrawType,
+    FluidParticle, Hitbox, HitboxCollisionConfig, ItemAnimation, ItemCategory,
+    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
+    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
+    LoopOption, Model, ModelParticle, ModelVFX, Opacity,
+    OverlapBehavior as ProtocolOverlapBehavior, PhysicalMaterial, PhysicsConfig, PhysicsType,
+    ProjectileConfig, Range, RangeVector2f, Rangef, RepulsionConfig, ResourceType, ReverbEffect,
+    RotationMode, ShaderType, SoundCategory, SoundSet, SubCategoryDefinition, SwitchTo, Trail,
+    UpdateType, ValueType, Vector2i, Weather, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -283,13 +285,7 @@ impl AssetRegistry {
                 // packet per enabled store. The maps/vectors must be present
                 // (empty), not null: the client dereferences them while
                 // handling the packet.
-                empty_packet(
-                    "BlockSets",
-                    &UpdateBlockSets {
-                        block_sets: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.block_sets_packet()?,
                 self.trails_packet()?,
                 empty_packet(
                     "ParticleSystems",
@@ -348,13 +344,7 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "EntityUIComponents",
-                    &UpdateEntityUIComponents {
-                        components: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.entity_ui_components_packet()?,
                 self.hitbox_collision_configs_packet()?,
                 self.repulsion_configs_packet()?,
                 self.sound_sets_packet()?,
@@ -415,6 +405,290 @@ impl AssetRegistry {
     /// `UpdateItems` (id 54) from the P0 `Item` store.
     pub fn item_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
         item::item_packet(self, tags)
+    }
+
+    /// `UpdateBlockSets` (id 46) from the `BlockSet` store.
+    pub fn block_sets_packet(&self) -> Result<AssetPacket> {
+        let block_ids: BTreeMap<String, i32> = self
+            .block_types
+            .iter()
+            .filter_map(|record| Some((record.key.clone(), record.id?)))
+            .collect();
+        let all_blocks: BTreeSet<i32> = block_ids.values().copied().collect();
+        let mut groups: BTreeMap<String, BTreeSet<i32>> = BTreeMap::new();
+        let mut hitboxes: BTreeMap<String, BTreeSet<i32>> = BTreeMap::new();
+        let mut categories: BTreeMap<String, BTreeSet<i32>> = BTreeMap::new();
+        for record in self.block_types.iter() {
+            let Some(id) = record.id else { continue };
+            let json = &record.value.json;
+            if let Some(group) = json.get("Group").and_then(Value::as_str) {
+                groups.entry(group.to_string()).or_default().insert(id);
+            }
+            if let Some(hitbox) = json.get("HitboxType").and_then(Value::as_str) {
+                let hitbox = hitbox.split('|').next().unwrap_or(hitbox);
+                hitboxes.entry(hitbox.to_string()).or_default().insert(id);
+            }
+            if let Some(item) = self.items.get(&record.key) {
+                for category in item
+                    .value
+                    .get("Categories")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                {
+                    categories
+                        .entry(category.to_string())
+                        .or_default()
+                        .insert(id);
+                }
+            }
+        }
+
+        let resolve_names = |values: Option<&Value>,
+                             names: &BTreeMap<String, i32>,
+                             result: &mut BTreeSet<i32>,
+                             add: bool| {
+            for pattern in values.and_then(Value::as_array).into_iter().flatten() {
+                let Some(pattern) = pattern.as_str() else {
+                    continue;
+                };
+                for (name, id) in names {
+                    if glob_matches(pattern, name) {
+                        if add {
+                            result.insert(*id);
+                        } else {
+                            result.remove(id);
+                        }
+                    }
+                }
+            }
+        };
+        let resolve_groups = |values: Option<&Value>, result: &mut BTreeSet<i32>, add: bool| {
+            for pattern in values.and_then(Value::as_array).into_iter().flatten() {
+                let Some(pattern) = pattern.as_str() else {
+                    continue;
+                };
+                for (name, ids) in &groups {
+                    if glob_matches(pattern, name) {
+                        for id in ids {
+                            if add {
+                                result.insert(*id);
+                            } else {
+                                result.remove(id);
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        let resolve_hitboxes = |values: Option<&Value>, result: &mut BTreeSet<i32>, add: bool| {
+            for pattern in values.and_then(Value::as_array).into_iter().flatten() {
+                let Some(pattern) = pattern.as_str() else {
+                    continue;
+                };
+                for (name, ids) in &hitboxes {
+                    if glob_matches(pattern, name) {
+                        for id in ids {
+                            if add {
+                                result.insert(*id);
+                            } else {
+                                result.remove(id);
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        let resolve_categories = |values: Option<&Value>, result: &mut BTreeSet<i32>, add: bool| {
+            for category_list in values.and_then(Value::as_array).into_iter().flatten() {
+                let Some(list) = category_list.as_array() else {
+                    continue;
+                };
+                let mut intersection: Option<BTreeSet<i32>> = None;
+                for category in list.iter().filter_map(Value::as_str) {
+                    let Some(ids) = categories.get(category) else {
+                        intersection = Some(BTreeSet::new());
+                        break;
+                    };
+                    intersection = Some(match intersection {
+                        Some(current) => current.intersection(ids).copied().collect(),
+                        None => ids.clone(),
+                    });
+                }
+                for id in intersection.unwrap_or_default() {
+                    if add {
+                        result.insert(id);
+                    } else {
+                        result.remove(&id);
+                    }
+                }
+            }
+        };
+
+        let mut block_sets = BTreeMap::new();
+        for record in self.block_sets.iter() {
+            let json = &record.value;
+            let mut set = BTreeSet::new();
+            if json
+                .get("IncludeAll")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                set.extend(&all_blocks);
+            }
+            resolve_names(json.get("IncludeBlockTypes"), &block_ids, &mut set, true);
+            resolve_groups(json.get("IncludeBlockGroups"), &mut set, true);
+            resolve_hitboxes(json.get("IncludeHitboxTypes"), &mut set, true);
+            resolve_categories(json.get("IncludeCategories"), &mut set, true);
+            resolve_names(json.get("ExcludeBlockTypes"), &block_ids, &mut set, false);
+            resolve_groups(json.get("ExcludeBlockGroups"), &mut set, false);
+            resolve_hitboxes(json.get("ExcludeHitboxTypes"), &mut set, false);
+            resolve_categories(json.get("ExcludeCategories"), &mut set, false);
+            block_sets.insert(
+                record.key.clone(),
+                BlockSet {
+                    name: Some(record.key.clone()),
+                    blocks: Some(set.into_iter().collect()),
+                },
+            );
+        }
+        let packet = UpdateBlockSets {
+            r#type: UpdateType::Init,
+            block_sets: Some(block_sets),
+        };
+        AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateEntityUIComponents` (id 73) from the `EntityUIComponent` store.
+    pub fn entity_ui_components_packet(&self) -> Result<AssetPacket> {
+        let mut components = BTreeMap::new();
+        for record in self.entity_ui_components.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "EntityUIComponent",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            let entity_type = match json.get("Type").and_then(Value::as_str) {
+                Some("CombatText") => EntityUIType::CombatText,
+                _ => EntityUIType::EntityStat,
+            };
+            let hitbox_offset = json
+                .get("HitboxOffset")
+                .and_then(Value::as_object)
+                .map(|offset| Vector2f {
+                    x: offset.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                    y: offset.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                })
+                .unwrap_or_default();
+            let offset_range = json
+                .get("RandomPositionOffsetRange")
+                .and_then(Value::as_object)
+                .map(|offset| {
+                    let range_of = |name: &str| -> Option<Rangef> {
+                        let range = offset.get(name)?.as_object()?;
+                        Some(Rangef {
+                            min: range.get("Min").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                            max: range.get("Max").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                        })
+                    };
+                    RangeVector2f {
+                        x: range_of("X"),
+                        y: range_of("Y"),
+                    }
+                })
+                .unwrap_or_default();
+            let animation_events = json
+                .get("AnimationEvents")
+                .and_then(Value::as_array)
+                .map(|events| {
+                    events
+                        .iter()
+                        .filter_map(|event| {
+                            let event = event.as_object()?;
+                            let position_offset = event
+                                .get("PositionOffset")
+                                .and_then(Value::as_object)
+                                .map(|offset| Vector2f {
+                                    x: offset.get("X").and_then(Value::as_f64).unwrap_or(0.0)
+                                        as f32,
+                                    y: offset.get("Y").and_then(Value::as_f64).unwrap_or(0.0)
+                                        as f32,
+                                })
+                                .unwrap_or_default();
+                            Some(CombatTextEntityUIComponentAnimationEvent {
+                                r#type: match event.get("Type").and_then(Value::as_str) {
+                                    Some("Position") => {
+                                        CombatTextEntityUIAnimationEventType::Position
+                                    }
+                                    Some("Opacity") => {
+                                        CombatTextEntityUIAnimationEventType::Opacity
+                                    }
+                                    _ => CombatTextEntityUIAnimationEventType::Scale,
+                                },
+                                start_at: event
+                                    .get("StartAt")
+                                    .and_then(Value::as_f64)
+                                    .unwrap_or(0.0)
+                                    as f32,
+                                end_at: event.get("EndAt").and_then(Value::as_f64).unwrap_or(0.0)
+                                    as f32,
+                                start_scale: event
+                                    .get("StartScale")
+                                    .and_then(Value::as_f64)
+                                    .unwrap_or(0.0)
+                                    as f32,
+                                end_scale: event
+                                    .get("EndScale")
+                                    .and_then(Value::as_f64)
+                                    .unwrap_or(0.0)
+                                    as f32,
+                                position_offset,
+                                start_opacity: event
+                                    .get("StartOpacity")
+                                    .and_then(Value::as_f64)
+                                    .unwrap_or(0.0)
+                                    as f32,
+                                end_opacity: event
+                                    .get("EndOpacity")
+                                    .and_then(Value::as_f64)
+                                    .unwrap_or(0.0)
+                                    as f32,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            components.insert(
+                id,
+                EntityUIComponent {
+                    r#type: entity_type,
+                    hitbox_offset,
+                    unknown: false,
+                    entity_stat_index: json
+                        .get("EntityStat")
+                        .and_then(Value::as_str)
+                        .and_then(|stat| self.entity_stat_id(stat))
+                        .unwrap_or(0),
+                    combat_text_random_position_offset_range: offset_range,
+                    combat_text_viewport_margin: number(json, "ViewportMargin") as f32,
+                    combat_text_duration: number(json, "Duration") as f32,
+                    combat_text_hit_angle_modifier_strength: number(
+                        json,
+                        "HitAngleModifierStrength",
+                    ) as f32,
+                    combat_text_font_size: number(json, "FontSize") as f32,
+                    combat_text_color: color(json.get("TextColor")).unwrap_or_default(),
+                    combat_text_animation_events: animation_events,
+                },
+            );
+        }
+        let packet = UpdateEntityUIComponents {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.entity_ui_components, "EntityUIComponent")?,
+            components: Some(components),
+        };
+        AssetPacket::encode("EntityUIComponent", &packet)
     }
 
     /// `UpdateModelvfxs` (id 53) from the `ModelVFX` store.
@@ -1769,6 +2043,33 @@ fn vector3(value: &Value) -> Option<Vector3f> {
         y: object.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
         z: object.get("Z").and_then(Value::as_f64).unwrap_or(0.0) as f32,
     })
+}
+
+fn glob_matches(pattern: &str, value: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let value: Vec<char> = value.chars().collect();
+    let (mut p, mut v) = (0usize, 0usize);
+    let (mut star, mut mark) = (None, 0usize);
+    while v < value.len() {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == value[v]) {
+            p += 1;
+            v += 1;
+        } else if p < pattern.len() && pattern[p] == '*' {
+            star = Some(p);
+            p += 1;
+            mark = v;
+        } else if let Some(star) = star {
+            p = star + 1;
+            mark += 1;
+            v = mark;
+        } else {
+            return false;
+        }
+    }
+    while p < pattern.len() && pattern[p] == '*' {
+        p += 1;
+    }
+    p == pattern.len()
 }
 
 fn edge(value: &Value) -> Option<Edge> {

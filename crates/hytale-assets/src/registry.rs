@@ -354,6 +354,18 @@ const MODEL_VFX: StoreSpec = StoreSpec {
     map: MapKind::IndexedLookupTable,
 };
 
+const ENTITY_UI_COMPONENT: StoreSpec = StoreSpec {
+    name: "EntityUIComponent",
+    path: "Server/Entity/UI",
+    map: MapKind::IndexedLookupTable,
+};
+
+const BLOCK_SET: StoreSpec = StoreSpec {
+    name: "BlockSet",
+    path: "Server/Item/Block/Sets",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -899,6 +911,10 @@ pub struct AssetRegistry {
     pub trails: AssetCollection<Value>,
     /// `ModelVFX` (`Server/Entity/ModelVFX`).
     pub model_vfxs: AssetCollection<Value>,
+    /// `EntityUIComponent` (`Server/Entity/UI`).
+    pub entity_ui_components: AssetCollection<Value>,
+    /// `BlockSet` (`Server/Item/Block/Sets`).
+    pub block_sets: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1004,6 +1020,8 @@ impl AssetRegistry {
             ability_keywords: AssetCollection::empty(),
             trails: AssetCollection::empty(),
             model_vfxs: AssetCollection::empty(),
+            entity_ui_components: AssetCollection::empty(),
+            block_sets: AssetCollection::empty(),
         })
     }
 
@@ -1042,6 +1060,9 @@ impl AssetRegistry {
             load_indexed_store(pack, &ABILITY_KEYWORD, Vec::new(), parse_key_asset)?;
         registry.trails = load_indexed_store(pack, &TRAIL, Vec::new(), parse_key_asset)?;
         registry.model_vfxs = load_indexed_store(pack, &MODEL_VFX, Vec::new(), parse_key_asset)?;
+        registry.entity_ui_components =
+            load_indexed_store(pack, &ENTITY_UI_COMPONENT, Vec::new(), parse_key_asset)?;
+        registry.block_sets = load_indexed_store(pack, &BLOCK_SET, Vec::new(), parse_key_asset)?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,

@@ -185,7 +185,7 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateProjectileConfigs::ID, "ProjectileConfig"),
         (UpdateWeathers::ID, "Weather"),
         (UpdateItems::ID, "Item"),
-        (UpdateBlockSets::ID, "BlockSets"),
+        (UpdateBlockSets::ID, "BlockSet"),
         (UpdateTrails::ID, "Trail"),
         (UpdateParticleSystems::ID, "ParticleSystems"),
         (UpdateParticleSpawners::ID, "ParticleSpawners"),
@@ -197,7 +197,7 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateInteractions::ID, "Interactions"),
         (UpdateRootInteractions::ID, "RootInteractions"),
         (UpdateUnarmedInteractions::ID, "UnarmedInteractions"),
-        (UpdateEntityUIComponents::ID, "EntityUIComponents"),
+        (UpdateEntityUIComponents::ID, "EntityUIComponent"),
         (UpdateHitboxCollisionConfig::ID, "HitboxCollisionConfig"),
         (UpdateRepulsionConfig::ID, "RepulsionConfig"),
         (UpdateSoundSets::ID, "SoundSet"),
@@ -259,6 +259,8 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("AbilityKeyword", ability_keywords),
         store!("Trail", trails),
         store!("ModelVFX", model_vfxs),
+        store!("EntityUIComponent", entity_ui_components),
+        store!("BlockSet", block_sets),
     ]
 }
 

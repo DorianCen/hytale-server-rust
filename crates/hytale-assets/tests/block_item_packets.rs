@@ -196,7 +196,10 @@ fn release_required_asset_types_are_all_initialized() {
     ))
     .expect("decode UpdateBlockSets");
     assert_eq!(block_sets.r#type, UpdateType::Init);
-    assert_eq!(block_sets.block_sets, Some(BTreeMap::new()));
+    assert!(block_sets
+        .block_sets
+        .as_ref()
+        .is_some_and(|sets| !sets.is_empty()));
 
     let particles = UpdateParticleSystems::decode(&mut Reader::new(
         &packet(&packets, UpdateParticleSystems::ID).payload,
@@ -811,6 +814,29 @@ fn simple_config_stores_are_no_longer_placeholders() {
         repulsion.repulsion_configs.as_ref().map(BTreeMap::len),
         Some(registry.repulsion_configs.len())
     );
+
+    let block_sets: UpdateBlockSets =
+        UpdateBlockSets::decode(&mut Reader::new(&decode(UpdateBlockSets::ID)))
+            .expect("decode block sets");
+    assert_eq!(
+        block_sets.block_sets.as_ref().map(BTreeMap::len),
+        Some(registry.block_sets.len())
+    );
+    assert!(block_sets.block_sets.as_ref().is_some_and(|sets| sets
+        .values()
+        .any(|set| set.blocks.as_ref().is_some_and(|blocks| !blocks.is_empty()))));
+
+    let entity_ui: UpdateEntityUIComponents =
+        UpdateEntityUIComponents::decode(&mut Reader::new(&decode(UpdateEntityUIComponents::ID)))
+            .expect("decode entity UI");
+    assert_eq!(
+        entity_ui.components.as_ref().map(BTreeMap::len),
+        Some(registry.entity_ui_components.len())
+    );
+    assert!(entity_ui
+        .components
+        .as_ref()
+        .is_some_and(|components| !components.is_empty()));
 
     let model_vfxs: UpdateModelvfxs =
         UpdateModelvfxs::decode(&mut Reader::new(&decode(UpdateModelvfxs::ID)))
