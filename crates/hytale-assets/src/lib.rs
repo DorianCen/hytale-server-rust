@@ -16,6 +16,7 @@ pub mod pack;
 pub mod packets;
 pub mod parent;
 pub mod registry;
+pub mod translations;
 
 pub use common::{CommonAssetError, CommonAssetInfo, CommonAssetRegistry};
 pub use gameplay::{
@@ -32,3 +33,4 @@ pub use registry::{
     Face, FluidAsset, MapKind, StoreSpec, SupportRequirement, TagPatternAsset, TagPatternNode,
     CHILD_STORES, MOVEMENT_CONFIG, P0_STORES, TAG_PATTERN_STORE,
 };
+pub use translations::{load as load_translations, DEFAULT_LANGUAGE};

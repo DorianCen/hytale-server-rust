@@ -1985,3 +1985,26 @@ This file records phase-2 sessions only.
 - **Follow-ups:** capture a release-client log before changing packets; mirror
   the 0.7.5 handler/channel validation in the Rust transport; refresh assets
   separately for content parity.
+
+
+---
+
+## Session 72 — Release-client Debug_Model crash and translations (2026-10-31)
+
+- **Goal:** debug the first authenticated release-client connection.
+- **Client evidence:** the client authenticated, received every config store,
+  reached `Playing`, then crashed after `PrepareWorldMap`. The only asset warning
+  was `Missing model asset:  for block Debug_Model`.
+- **Landed:**
+  - Preloaded `Debug_Model` with `Blocks/_Debug/Model.blockymodel` and
+    `Blocks/_Debug/Texture.png`.
+  - Preloaded `Debug_Cube` with the six `BlockTextures/_Debug/*.png` faces.
+  - `UpdateTranslations` now carries the real `Server/Languages` catalog with
+    Java's `fallback.lang` mapping.
+  - Added block-preload and translation-catalog regressions.
+  - Updated the `serve --help` auth-mode text to list `authenticated`.
+- **Verified:**
+  - `HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets` (including the new tests).
+  - `./tools/test.sh fast` (1551 passed, 24 skipped), clippy and fmt.
+  - `--validate-assets` (50 stores, failures 0).
+- **Follow-up:** rerun the release client and capture the next failure point.

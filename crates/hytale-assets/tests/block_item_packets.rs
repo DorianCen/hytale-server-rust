@@ -1699,3 +1699,55 @@ fn interaction_graph_is_materialized() {
     let unarmed = unarmed.interactions.expect("unarmed map");
     assert_eq!(unarmed.get(&InteractionType::SwapFrom), Some(&0));
 }
+
+/// T66 crash guard: the code-defined `Debug_Model` and `Debug_Cube` blocks are
+/// always present in `UpdateBlockTypes`; the client dereferences their model
+/// and face textures while preparing block types.
+#[test]
+fn debug_block_preloads_carry_models_and_textures() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded = UpdateBlockTypes::decode(&mut Reader::new(
+        &packet(&packets, UpdateBlockTypes::ID).payload,
+    ))
+    .expect("decode UpdateBlockTypes");
+    let blocks = decoded.block_types.expect("block map");
+
+    let debug_model_id = registry
+        .block_types
+        .id_of("Debug_Model")
+        .expect("Debug_Model id");
+    let debug_model = blocks.get(&debug_model_id).expect("Debug_Model entry");
+    assert_eq!(debug_model.name.as_deref(), Some("Debug_Model"));
+    assert_eq!(
+        debug_model.model.as_deref(),
+        Some("Blocks/_Debug/Model.blockymodel")
+    );
+    assert_eq!(
+        debug_model
+            .model_texture
+            .as_ref()
+            .and_then(|textures| textures.first())
+            .and_then(|texture| texture.texture.as_deref()),
+        Some("Blocks/_Debug/Texture.png")
+    );
+
+    let debug_cube_id = registry
+        .block_types
+        .id_of("Debug_Cube")
+        .expect("Debug_Cube id");
+    let debug_cube = blocks.get(&debug_cube_id).expect("Debug_Cube entry");
+    let textures = debug_cube
+        .cube_textures
+        .as_ref()
+        .and_then(|textures| textures.first())
+        .expect("Debug_Cube textures");
+    assert_eq!(textures.top.as_deref(), Some("BlockTextures/_Debug/Up.png"));
+    assert_eq!(
+        textures.bottom.as_deref(),
+        Some("BlockTextures/_Debug/Down.png")
+    );
+}

@@ -423,7 +423,11 @@ struct ServeArgs {
     /// `ServerInfo.maxPlayers`.
     #[arg(long, default_value_t = 20)]
     max_players: i32,
-    /// Authentication mode: `insecure` or `local`.
+    /// Authentication mode: `insecure`, `local` or `authenticated`.
+    ///
+    /// `authenticated` performs the live Hytale OAuth device flow (or uses
+    /// `HYTALE_SERVER_SESSION_TOKEN` + `HYTALE_SERVER_IDENTITY_TOKEN`) and is
+    /// required by release game clients.
     #[arg(long, default_value = "insecure")]
     auth_mode: String,
     /// Base64 PKCS#8 Ed25519 key for `--auth-mode local` (generated when absent).

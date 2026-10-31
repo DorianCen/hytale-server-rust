@@ -23,7 +23,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
-use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets};
+use hytale_assets::{
+    load_translations, AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets,
+};
 use hytale_auth::live::LiveAuth;
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
 use hytale_entities::movement::{MovementBounds, MovementRejection, MovementState};
@@ -423,6 +425,9 @@ pub enum SessionError {
     /// Common-asset loading failed.
     #[error(transparent)]
     CommonAssets(#[from] hytale_assets::CommonAssetError),
+    /// Pack asset loading failed (translations and other non-store files).
+    #[error(transparent)]
+    Assets(#[from] hytale_assets::AssetError),
     /// The blocking asset load task failed.
     #[error("common-asset load task failed: {0}")]
     AssetTask(String),
@@ -899,6 +904,7 @@ async fn perform_handshake(
     common_assets: &CommonAssetRegistry,
 ) -> Result<Handshake, SessionError> {
     let connect: Connect = expect(reader, Connect::ID).await?;
+    let language = connect.language.clone();
     if connect.protocol_crc != settings::CRC {
         send_disconnect(writer, "protocol mismatch").await?;
         return Err(SessionError::UnexpectedPacket {
@@ -1195,6 +1201,8 @@ async fn perform_handshake(
         }
     };
 
+    let translations = load_translations(common_assets.pack(), &language)?;
+
     let required_assets = common_assets.required_assets();
     writer
         .write_packet(
@@ -1258,6 +1266,7 @@ async fn perform_handshake(
                     common_assets,
                     packet.assets.as_deref(),
                     &config_assets.packets,
+                    &translations,
                     options.chunk_compression_level,
                 )
                 .await?;
@@ -1313,6 +1322,7 @@ async fn send_common_assets(
     common_assets: &CommonAssetRegistry,
     requested: Option<&[hytale_protocol::generated::common::Asset]>,
     config_packets: &[AssetPacket],
+    translations: &BTreeMap<String, String>,
     compression_level: i32,
 ) -> Result<AssetStreamReport, SessionError> {
     let to_send: Vec<CommonAssetInfo> = common_assets
@@ -1397,7 +1407,7 @@ async fn send_common_assets(
         .write_packet(
             &UpdateTranslations {
                 r#type: UpdateType::Init,
-                translations: Some(BTreeMap::new()),
+                translations: Some(translations.clone()),
             },
             compression_level,
         )

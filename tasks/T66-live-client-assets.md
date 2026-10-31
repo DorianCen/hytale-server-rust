@@ -145,6 +145,30 @@ This is an asset-packet completeness task, not an auth task.
   `ApplyForce` and the condition/change nodes.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
+## 2026-10-31 release-client crash
+
+The authenticated release client reached `SettingUp -> Playing`, received every
+config store, and then crashed while preparing the world. The log's only
+asset warning was:
+
+```text
+Missing model asset:  for block Debug_Model
+```
+
+`Debug_Model` is a Java `preLoadAssets` block. The Rust preload omitted its
+`CustomModel`/`CustomModelTexture` fields, so the client received an empty model
+path and crashed after `PrepareWorldMap`.
+
+Fixed in this slice:
+
+- `Debug_Model` now preloads
+  `Blocks/_Debug/Model.blockymodel` and `Blocks/_Debug/Texture.png`.
+- `Debug_Cube` now carries the six `BlockTextures/_Debug/*.png` faces.
+- `UpdateTranslations` now sends the real `Server/Languages/<language>` catalog
+  instead of an empty map, using Java's `fallback.lang` language fallback.
+- Regressions: `debug_block_preloads_carry_models_and_textures` and
+  `translations_carry_server_catalog_and_language_fallback`.
+
 ## Client/server version comparison
 
 The old and new Java checkouts share the same protocol (CRC `3908406161`,

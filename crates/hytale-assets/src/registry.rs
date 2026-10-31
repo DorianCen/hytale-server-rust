@@ -2842,11 +2842,32 @@ fn block_type_preloads() -> Vec<(&'static str, Value)> {
         ("Unknown", json!({"DrawType": "Cube", "Material": "Solid"})),
         (
             "Debug_Cube",
-            json!({"DrawType": "Cube", "Material": "Solid"}),
+            json!({
+                "DrawType": "Cube",
+                "Material": "Solid",
+                "VariantRotation": "Debug",
+                "Textures": [{
+                    "Up": "BlockTextures/_Debug/Up.png",
+                    "Down": "BlockTextures/_Debug/Down.png",
+                    "North": "BlockTextures/_Debug/North.png",
+                    "South": "BlockTextures/_Debug/South.png",
+                    "East": "BlockTextures/_Debug/East.png",
+                    "West": "BlockTextures/_Debug/West.png"
+                }]
+            }),
         ),
         (
             "Debug_Model",
-            json!({"DrawType": "Model", "Material": "Empty"}),
+            json!({
+                "DrawType": "Model",
+                "Material": "Empty",
+                "VariantRotation": "Debug",
+                "CustomModel": "Blocks/_Debug/Model.blockymodel",
+                "CustomModelTexture": [{
+                    "Texture": "Blocks/_Debug/Texture.png",
+                    "Weight": 1
+                }]
+            }),
         ),
     ]
 }
