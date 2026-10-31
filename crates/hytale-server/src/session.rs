@@ -870,6 +870,15 @@ async fn perform_handshake(
             state: "protocol-crc",
         });
     }
+    // T61: editor clients are unsupported in every auth mode. Refuse before
+    // the auth branch so insecure mode cannot bypass the check.
+    if connect.client_type == ClientType::Editor {
+        send_disconnect(writer, "editor connections are not supported").await?;
+        return Err(SessionError::UnexpectedPacket {
+            packet_id: Connect::ID,
+            state: "auth:editor",
+        });
+    }
 
     let (identity, auth_mode) = match &options.auth {
         AuthMode::Insecure => {
@@ -898,13 +907,6 @@ async fn perform_handshake(
             service,
             token_ttl_secs,
         } => {
-            if connect.client_type == ClientType::Editor {
-                send_disconnect(writer, "editor connections are not supported").await?;
-                return Err(SessionError::UnexpectedPacket {
-                    packet_id: Connect::ID,
-                    state: "auth:editor",
-                });
-            }
             let identity_token = match connect.identity_token.clone() {
                 Some(token) => token,
                 None => {
@@ -1027,13 +1029,6 @@ async fn perform_handshake(
             )
         }
         AuthMode::Authenticated(live) => {
-            if connect.client_type == ClientType::Editor {
-                send_disconnect(writer, "editor connections are not supported").await?;
-                return Err(SessionError::UnexpectedPacket {
-                    packet_id: Connect::ID,
-                    state: "auth:editor",
-                });
-            }
             let identity_token = connect
                 .identity_token
                 .clone()
@@ -4001,6 +3996,60 @@ mod tests {
     use hytale_world::player_data::{
         PlayerModelReference, PlayerSkinData, Position, Rotation, EMPTY_ITEM_ID,
     };
+
+    #[test]
+    fn live_skin_maps_every_cosmetic_field() {
+        let raw = serde_json::json!({
+            "bodyCharacteristic": "BodyA",
+            "underwear": "UnderwearA",
+            "face": "FaceA",
+            "eyes": "EyesA",
+            "ears": "EarsA",
+            "mouth": "MouthA",
+            "facialHair": "FacialHairA",
+            "haircut": "HaircutA",
+            "eyebrows": "EyebrowsA",
+            "pants": "PantsA",
+            "overpants": "OverpantsA",
+            "undertop": "UndertopA",
+            "overtop": "OvertopA",
+            "shoes": "ShoesA",
+            "headAccessory": "HeadAccessoryA",
+            "faceAccessory": "FaceAccessoryA",
+            "earAccessory": "EarAccessoryA",
+            "skinFeature": "SkinFeatureA",
+            "gloves": "GlovesA",
+            "cape": "CapeA"
+        })
+        .to_string();
+
+        let skin = live_skin(&raw).expect("skin");
+        assert_eq!(skin.body_characteristic.as_deref(), Some("BodyA"));
+        assert_eq!(skin.underwear.as_deref(), Some("UnderwearA"));
+        assert_eq!(skin.face.as_deref(), Some("FaceA"));
+        assert_eq!(skin.eyes.as_deref(), Some("EyesA"));
+        assert_eq!(skin.ears.as_deref(), Some("EarsA"));
+        assert_eq!(skin.mouth.as_deref(), Some("MouthA"));
+        assert_eq!(skin.facial_hair.as_deref(), Some("FacialHairA"));
+        assert_eq!(skin.haircut.as_deref(), Some("HaircutA"));
+        assert_eq!(skin.eyebrows.as_deref(), Some("EyebrowsA"));
+        assert_eq!(skin.pants.as_deref(), Some("PantsA"));
+        assert_eq!(skin.overpants.as_deref(), Some("OverpantsA"));
+        assert_eq!(skin.undertop.as_deref(), Some("UndertopA"));
+        assert_eq!(skin.overtop.as_deref(), Some("OvertopA"));
+        assert_eq!(skin.shoes.as_deref(), Some("ShoesA"));
+        assert_eq!(skin.head_accessory.as_deref(), Some("HeadAccessoryA"));
+        assert_eq!(skin.face_accessory.as_deref(), Some("FaceAccessoryA"));
+        assert_eq!(skin.ear_accessory.as_deref(), Some("EarAccessoryA"));
+        assert_eq!(skin.skin_feature.as_deref(), Some("SkinFeatureA"));
+        assert_eq!(skin.gloves.as_deref(), Some("GlovesA"));
+        assert_eq!(skin.cape.as_deref(), Some("CapeA"));
+
+        // Java sometimes nests the skin JSON as a string claim.
+        let nested = serde_json::to_string(&raw).expect("quoted claim");
+        assert_eq!(live_skin(&nested), Some(skin));
+        assert!(live_skin("not json").is_none());
+    }
 
     #[test]
     fn bench_types_map_to_java_window_types() {

@@ -1083,6 +1083,71 @@ mod tests {
     }
 
     #[test]
+    fn saved_skin_preserves_every_cosmetic_slot() {
+        let expected = PlayerSkin {
+            body_characteristic: Some("BodyA".to_string()),
+            underwear: Some("UnderwearA".to_string()),
+            face: Some("FaceA".to_string()),
+            eyes: Some("EyesA".to_string()),
+            ears: Some("EarsA".to_string()),
+            mouth: Some("MouthA".to_string()),
+            facial_hair: Some("FacialHairA".to_string()),
+            haircut: Some("HaircutA".to_string()),
+            eyebrows: Some("EyebrowsA".to_string()),
+            pants: Some("PantsA".to_string()),
+            overpants: Some("OverpantsA".to_string()),
+            undertop: Some("UndertopA".to_string()),
+            overtop: Some("OvertopA".to_string()),
+            shoes: Some("ShoesA".to_string()),
+            head_accessory: Some("HeadAccessoryA".to_string()),
+            face_accessory: Some("FaceAccessoryA".to_string()),
+            ear_accessory: Some("EarAccessoryA".to_string()),
+            skin_feature: Some("SkinFeatureA".to_string()),
+            gloves: Some("GlovesA".to_string()),
+            cape: Some("CapeA".to_string()),
+        };
+        let appearance = PlayerAppearance {
+            skin: Some(PlayerSkinData {
+                body_characteristic: expected.body_characteristic.clone(),
+                underwear: expected.underwear.clone(),
+                face: expected.face.clone(),
+                eyes: expected.eyes.clone(),
+                ears: expected.ears.clone(),
+                mouth: expected.mouth.clone(),
+                facial_hair: expected.facial_hair.clone(),
+                haircut: expected.haircut.clone(),
+                eyebrows: expected.eyebrows.clone(),
+                pants: expected.pants.clone(),
+                overpants: expected.overpants.clone(),
+                undertop: expected.undertop.clone(),
+                overtop: expected.overtop.clone(),
+                shoes: expected.shoes.clone(),
+                head_accessory: expected.head_accessory.clone(),
+                face_accessory: expected.face_accessory.clone(),
+                ear_accessory: expected.ear_accessory.clone(),
+                skin_feature: expected.skin_feature.clone(),
+                gloves: expected.gloves.clone(),
+                cape: expected.cape.clone(),
+            }),
+            ..PlayerAppearance::default()
+        };
+
+        let updates = spawn_entity_updates(1, transform(0.0, 0.0), &appearance, None);
+        let entity = &updates.updates.as_ref().expect("updates")[0];
+        let skin = entity
+            .updates
+            .as_ref()
+            .expect("components")
+            .iter()
+            .find_map(|component| match component {
+                ComponentUpdate::PlayerSkinUpdate(update) => update.skin.clone(),
+                _ => None,
+            })
+            .expect("saved skin");
+        assert_eq!(skin, expected);
+    }
+
+    #[test]
     fn join_lists_and_spawns_are_visible_to_each_other() {
         let registry = Arc::new(PlayerRegistry::new());
         let (first_tx, first_rx) = channel();

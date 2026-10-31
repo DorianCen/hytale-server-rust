@@ -104,7 +104,9 @@ Deferred to M6:
   remaining adventure plugins stay deferred.
 - `builtin/HytaleGenerator` (density/assignment worldgen, 783 files) — separate
   engine, not part of the classic `WorldGenerator` port.
-- Editor, AssetEditor, BuilderTools, machinima, voice, cosmetics.
+- Editor, AssetEditor, BuilderTools, machinima and voice remain out of scope;
+  cosmetic appearance passthrough is landed. See
+  [`tasks/T61-editor-builder-scope.md`](tasks/T61-editor-builder-scope.md).
 
 ## 2. Java plugin compatibility
 

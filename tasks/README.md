@@ -46,14 +46,17 @@ context. The main agent owns sequencing and shared-file edits.
 | [T60b](T60b-followup-gameplay.md) | Player combat/stats, containers, crafting, encounters, portal/ECS | T60 | low | done (session 64) |
 | [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65; asset follow-up T66) |
 | [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | planned (paused) |
-| T61 | Editor/builder/machinima/voice/cosmetics scope | T60 | low | planned |
+| T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | Security, fuzzing and rate limits | T48 | medium | planned |
 | T63 | Performance, memory and soak | T48 | medium | planned |
 | T64 | Packaging, docs and plugin/mod API | T60 | medium | planned |
 
 Task files for T43–T66 are created when their milestone starts; the milestone
 scope is in [`../plan.md`](../plan.md). T65 closed live authentication; its
-real-client asset follow-up is T66 (paused). T52b–T52d closed the parity gaps
+real-client asset follow-up is T66 (paused). T61 records the
+editor/builder/machinima/voice/cosmetics scope: only cosmetic appearance
+passthrough is in scope, editor clients are refused in every auth mode, and
+`builtin/HytaleGenerator` stays a separate engine project. T52b–T52d closed the parity gaps
 recorded by T52 in session 41. T53's gameplay core, Java entity-gameplay
 fixture and T54's time/weather core are landed; T55 adds the projectile core
 and traversal seam; T56 lands prefab entities/block components and the

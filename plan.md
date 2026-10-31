@@ -1020,11 +1020,26 @@ actions/conditions and deeper instance lifecycle policy remain follow-ups.
 
 ### T61 — Editor, builder tools, machinima, voice, cosmetics; HytaleGenerator
 
-**Package:** separate/deferred
+**Status:** done (session 66)
+**Package:** docs, `hytale-server`, `tools/client-bot`
+**Depends on:** T60
+**Agent fit:** low
 **Goal:** scope explicitly after M6; keep `builtin/HytaleGenerator` as a separate
 engine project.
 **Acceptance:** documented scope decision and, if implemented, parity smoke
 tests.
+
+The decision is recorded in
+[`tasks/T61-editor-builder-scope.md`](tasks/T61-editor-builder-scope.md).
+Editor/AssetEditor, builder-tool world editing, machinima and voice relay are
+out of scope; the generated protocol codecs stay available for compatibility.
+Cosmetic appearance passthrough is in scope: all 20 `PlayerSkin` slots are
+preserved from live auth and saved player data, with unit coverage. Editor
+clients are now refused before the auth branch in every mode, including
+insecure, with a loopback regression test. Builder-tool item payload fields
+remain part of T66's config-asset completeness. `builtin/HytaleGenerator` stays
+a separate engine project; `worldgen-hytale` remains the classic
+`WorldGenerator` port.
 
 ### T66 — Live-client config-asset completeness (follow-up)
 
