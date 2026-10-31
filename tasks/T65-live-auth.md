@@ -1,6 +1,6 @@
 # T65 — Live session-service authentication
 
-**Status:** done (session 65)
+**Status:** done (session 65; live-client asset follow-up in T66)
 **Package:** `hytale-auth`, `hytale-server`, `client-bot`, docs
 **Depends on:** T48, T42
 
@@ -47,6 +47,14 @@ exchange backed by Hytale's OAuth and session services.
 - The grant exchange binds the server's own TLS certificate fingerprint.
 - `./tools/test.sh fast`, the local `auth_join` E2E and the live
   `live_auth_join` E2E pass.
+
+## Completion note
+
+Verified against the release client: it sent `Connect(identityToken)`, received
+`AuthGrant` with the server identity token, validated `ServerAuthToken`, and
+entered `SettingUp` (log 2026-10-31 15:37). Subsequent `WorldLoadFinished`
+failures are config-asset completeness, not authentication; they are tracked in
+[T66](T66-live-client-assets.md).
 
 ## Deviations
 

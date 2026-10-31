@@ -210,6 +210,10 @@ encoded in `testdata/golden/server/trace/v1-lifecycle.jsonl` /
 - The initial chunk snapshot is generated before it is streamed, so a cold
   world with a large `--view-radius` can exceed the client's load timeout.
   Prefer radius 0-2 for the first join; a warmed world reconnects quickly.
+- A release client now authenticates and enters `SettingUp`; it still fails in
+  `WorldLoadFinished` while config-asset stores are incomplete. That is a
+  separate asset-packet gap tracked by `tasks/T66-live-client-assets.md`, not
+  an authentication failure.
 - The setup flow observed by the client is `AuthGrant` → `ServerAuthToken` →
   `RequiredAssets` → config asset handlers → `JoinWorld`.
 - A default online client expects the live Hytale session authority. The local

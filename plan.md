@@ -1026,6 +1026,15 @@ engine project.
 **Acceptance:** documented scope decision and, if implemented, parity smoke
 tests.
 
+### T66 — Live-client config-asset completeness (follow-up)
+
+**Package:** `hytale-assets`, `hytale-server`, `client-bot`, docs
+**Status:** planned (paused after T65)
+**Goal:** encode the remaining Java config-asset stores and non-null fields so
+a release client passes `WorldLoadFinished`. See
+[`tasks/T66-live-client-assets.md`](tasks/T66-live-client-assets.md). This is a
+parity follow-up, not the next planned task; T61 remains next.
+
 ---
 
 ## M7 — Production hardening
