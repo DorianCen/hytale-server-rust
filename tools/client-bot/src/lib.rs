@@ -49,8 +49,8 @@ use hytale_protocol::generated::setup::{
 use hytale_protocol::generated::window::{CloseWindow, OpenWindow, UpdateWindow};
 use hytale_protocol::generated::wire::{Packet, Vector2f, Wire};
 use hytale_protocol::generated::world::{
-    ClearChunks, ServerSetBlock, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn,
-    SetFluids, UnloadChunk, UpdateBlockDamage, UpdateBlockDamages, UpdateTime, UpdateTimeSettings,
+    ServerSetBlock, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
+    UnloadChunk, UpdateBlockDamage, UpdateBlockDamages, UpdateTime, UpdateTimeSettings,
     WorldGameplayConfig,
 };
 use hytale_protocol::generated::worldmap::{UpdateWorldMap, UpdateWorldMapSettings};
@@ -328,8 +328,6 @@ pub struct DevJoinOptions {
 /// World-join state observed by the bot.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GameJoinReport {
-    /// `ClearChunks` arrived on the chunks stream.
-    pub clear_chunks: bool,
     /// `ViewRadius` arrived on the chunks stream.
     pub view_radius: Option<i32>,
     /// `JoinWorld` arrived on the setup stream.
@@ -1451,24 +1449,12 @@ async fn enter_game_client(
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
 ) -> Result<(GameJoinReport, ChunkStreamReader, Vec<ChunkFrame>), AuthJoinError> {
-    let mut chunks = ChunkStreamReader::accept(session.connection()).await?;
     let mut pending = Vec::new();
     let mut game = GameJoinReport::default();
 
-    // The server opens the chunks stream and sends ClearChunks before
-    // JoinWorld, then waits for our ClientReady. ViewRadius arrives only after
-    // the server processes that ready packet.
-    loop {
-        let frame = chunks.next_frame().await?.ok_or(AuthJoinError::Closed)?;
-        match frame.packet_id {
-            ClearChunks::ID => game.clear_chunks = true,
-            _ => pending.push(frame),
-        }
-        if game.clear_chunks {
-            break;
-        }
-    }
-
+    // The server writes JoinWorld on the setup stream and waits for our
+    // ClientReady. The server-opened chunks stream is not observable until the
+    // first frame is written (ViewRadius), so accept it only after ready.
     loop {
         let frame = reader.next_frame().await?.ok_or(AuthJoinError::Closed)?;
         match frame.packet_id {
@@ -1506,6 +1492,7 @@ async fn enter_game_client(
         .await?;
     game.sent_ready_for_chunks = true;
 
+    let mut chunks = ChunkStreamReader::accept(session.connection()).await?;
     // `ViewRadius` is written on the chunks stream after the client is ready.
     while game.view_radius.is_none() {
         let frame = chunks.next_frame().await?.ok_or(AuthJoinError::Closed)?;

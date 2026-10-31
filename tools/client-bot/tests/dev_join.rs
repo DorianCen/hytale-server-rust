@@ -12,9 +12,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use client_bot::{dev_join, DevJoinOptions};
-use hytale_net::{connect, ServerEndpointBuilder, TlsIdentity};
+use hytale_net::{connect, ChunkStreamReader, ServerEndpointBuilder, TlsIdentity};
 use hytale_protocol::generated::common::PlayerSkin;
-use hytale_protocol::io::Uuid;
+use hytale_protocol::generated::wire::Wire;
+use hytale_protocol::generated::worldmap::UpdateWorldMap;
+use hytale_protocol::generated::Packet;
+use hytale_protocol::io::{Reader, Uuid};
 use hytale_server::{
     serve_session_connection, GeneratorOptions, SessionOptions, WorldThread, WorldThreadOptions,
 };
@@ -123,15 +126,55 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     .await
     .expect("dev join");
 
+    // `UpdateWorldMap` rides the second server-opened stream. The join report
+    // does not consume it, so read the buffered markers directly here.
+    let mut world_map = tokio::time::timeout(
+        Duration::from_secs(5),
+        ChunkStreamReader::accept(session.connection()),
+    )
+    .await
+    .expect("world map stream opened")
+    .expect("world map stream");
+    let mut marker_ids = Vec::new();
+    let read_markers = async {
+        loop {
+            let frame = world_map
+                .next_frame()
+                .await
+                .expect("world map frame")
+                .expect("world map stream open");
+            if frame.packet_id != UpdateWorldMap::ID {
+                continue;
+            }
+            let packet = UpdateWorldMap::decode(&mut Reader::new(&frame.payload))
+                .expect("decode UpdateWorldMap");
+            if let Some(markers) = packet.added_markers {
+                marker_ids.extend(
+                    markers
+                        .into_iter()
+                        .map(|marker| (marker.id, marker.marker_image)),
+                );
+            }
+            if marker_ids
+                .iter()
+                .any(|(id, image)| id == "block:4:201:4" && image == "HuntSite.png")
+            {
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(2), read_markers)
+        .await
+        .expect("world map marker");
+
     assert!(report.handshake_packets.contains(&364)); // RequestInsecurePlayerOptions
     assert!(report.handshake_packets.contains(&14)); // ConnectAccept
     assert!(report.handshake_packets.contains(&20)); // WorldSettings
     assert!(report.handshake_packets.contains(&22)); // WorldLoadFinished
-    assert!(report.game.clear_chunks);
     assert!(report.game.join_world);
     assert!(report.game.player_list);
     assert!(report.game.self_spawn);
-    assert_eq!(report.game.self_spawn_model, None);
+    assert_eq!(report.game.self_spawn_model.as_deref(), Some("Player"));
     let skin = report
         .game
         .self_spawn_skin
@@ -159,11 +202,9 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
         .as_ref()
         .expect("world map settings after the join");
     assert!(settings.enabled);
-    assert!(report
-        .observation
-        .map_markers
+    assert!(marker_ids
         .iter()
-        .any(|marker| { marker.id == "block:4:201:4" && marker.image == "HuntSite.png" }));
+        .any(|(id, image)| id == "block:4:201:4" && image == "HuntSite.png"));
     assert_eq!(
         report
             .observation

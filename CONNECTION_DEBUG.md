@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-10-31 (sixth run)
+# Connection-debug session handoff — 2026-11-01 (seventh run)
 
 ## Objective
 
@@ -8,20 +8,46 @@ Hytale client.** The agent must never launch it.
 ## Current status
 
 - Authentication, setup, assets, world load and `JoinWorld` all succeed.
-- The client enters `StartJoiningWorld`, waits on the chunk screen, receives no
-  further packets, and the QUIC connection times out after 30 s. No crash and no
-  channel/stage errors remain (only the non-fatal item-icon-atlas warning).
-- The client requested `ViewRadius = 128` blocks (4 chunks) and the server
-  streams the corresponding 9x9 columns.
-- The previous two attempts used either payload-less `SetChunk` (27 bytes) or
-  `SetAbsentChunks` **instead of** it; both stalled. The live batch now sends
-  **both**: the normal `SetChunk`/`SetChunkEnvironments` pair plus an explicit
-  `SetAbsentChunks` marker for every data-less section.
-- This hybrid has **not yet been confirmed by a rerun**.
+- Sixth run (`d1fe31b`) still stalled on the chunk screen even with both
+  `SetChunk` and `SetAbsentChunks` for data-less sections.
+- Seventh run fixes the actual blocker: a fresh join is not a world transition.
+  Java `Universe` calls `world.addPlayer(playerRef, null, false, false)`, so the
+  first `JoinWorld` has `clearWorld = false` and `fadeInOut = false`, and no
+  `ClearChunks` is sent. The Rust server sent `ClearChunks` plus
+  `clearWorld = true`, `fadeInOut = true`; the client therefore discarded the
+  chunk stream it had just rendered ("All rendered chunks were discarded.") and
+  waited for chunks that would never be resent.
+- The fix has **not yet been confirmed by a client rerun**.
 
 ## Evidence
 
-Client log (ends mid-load, no exception):
+Sixth-run client log:
+
+```text
+/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_23-21-54_client.log
+```
+
+Seventh run:
+
+```text
+/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_23-38-17_client.log
+```
+
+The decisive new lines are immediately after `Received JoinWorldPacket`:
+
+```text
+Received JoinWorldPacket
+All rendered chunks were discarded.
+All rendered chunks were discarded.
+GameInstance.OnSetupComplete()
+GameInstance.StartJoiningWorld()
+```
+
+The same warning appears in older failure logs only during teardown, so it is
+the client's world-clear path. `ProcessJoinWorldPacket: FadeInOut is True`
+confirms the server asked for a transition on a fresh join.
+
+## Earlier evidence
 
 ```text
 /home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_21-34-06_client.log
@@ -212,15 +238,38 @@ was decoded as `128` blocks (4 chunks), so 9x9 columns is the expected area.
 
 ## Root cause (sixth run)
 
-Not yet proven. The client accepts both chunk forms (payload-less `SetChunk` in
-`2a2c217` and `SetAbsentChunks` in `bc5a6a9`) but does not finish. The current
-hypothesis is that the client needs the section to be *created* by
-`SetChunk`/`SetChunkEnvironments` **and** marked absent by `SetAbsentChunks`;
-both forms alone leave a "never-arriving" cell. The live batch now sends both
-for data-less sections.
+The hybrid absent markers did not help because the chunks were not being
+rejected: they were being **discarded after rendering**. The client's log shows
+`All rendered chunks were discarded.` immediately after `JoinWorld`, and
+`FadeInOut is True`.
+
+## Root cause (seventh run)
+
+Java's first-world add path in `Universe` is:
+
+```java
+world.addPlayer(playerRefComponent, null, false, false);
+```
+
+so `onSetupPlayerJoining` builds `new JoinWorld(false, false, uuid, 0, 9)` and
+skips `ClearChunks` entirely. The Rust server sent `ClearChunks` and
+`JoinWorld { clear_world: true, fade_in_out: true }`. The client interpreted the
+fresh join as a world transition, rendered the incoming chunks, then discarded
+them when it entered the new world. Its chunk tracker was left waiting for
+sections that the server had already sent once and never resent.
 
 ## Fixes landed
 
+- `crates/hytale-server/src/session.rs`
+  - Fresh joins send `JoinWorld { clear_world: false, fade_in_out: false }` and
+    no `ClearChunks`, matching Java `Universe.addPlayer(..., false, false)`.
+  - World switches keep `ClearChunks + JoinWorld { clear_world: true }` but use
+    `fade_in_out: false` (Java `transferPlayerAsync`).
+- `tools/client-bot`
+  - The bot accepts the server-opened `Chunks` stream only after sending
+    `ClientReady`; a QUIC unidirectional stream is not observable by the peer
+    until its first frame, which is `ViewRadius` (written after ready).
+  - `dev_join` now reads the buffered `WorldMap` stream directly for markers.
 - `crates/hytale-assets/src/packets/mod.rs`
   - `Weather.Fog` is now always populated from `FogDistance`, defaulting to
     Java's `{-96, 1024}`.
@@ -248,7 +297,7 @@ for data-less sections.
     `SetChunk`/`SetChunkEnvironments` pair and additionally emit
     `SetAbsentChunks` for sections whose `data` is `None`; the raw
     `initial`/`full` batches stay byte-identical to the Java dumper fixtures.
-  - Regression: `chunk::stream::tests::client_batches_mark_absent_sections`.
+  - Regression: `chunk::stream::tests::client_batch_adds_absent_markers_for_data_less_sections`.
 - `crates/hytale-server/src/session.rs` / `world_thread.rs`
   - Send the world's `UpdateSunSettings` and `UpdatePostFxSettings` (Java
     `onFinishPlayerJoining`) and move `UpdateWorldMapSettings` before the chunk
@@ -276,7 +325,11 @@ nodes found no cycles.
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.806s] 1555 tests run: 1555 passed, 24 skipped
+Summary [ 19.561s] 1555 tests run: 1555 passed, 24 skipped
+
+cargo test -p client-bot --test auth_join -- --ignored        → 2 passed
+cargo test -p client-bot --test dev_join -- --ignored         → 1 passed
+cargo test -p client-bot --test portal_session -- --ignored   → 1 passed
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
 block_item_packets: 19 passed
@@ -291,16 +344,17 @@ cargo fmt --all -- --check                              → clean
 
 ## What to do next
 
-1. Rerun the release client against this commit.
-2. The client should finish chunk loading, send `ClientReady(readyForGameplay)`,
-   receive `ClientTeleport`, and show the world.
-3. If anything still fails, capture `target/trace/RealTest.jsonl`; world-map
+1. Rerun the release client against this commit. The client should keep the
+   chunks it receives, finish the chunk tracker, send
+   `ClientReady(readyForGameplay)`, receive `ClientTeleport`, and show the
+   world.
+2. If anything still fails, capture `target/trace/RealTest.jsonl`; world-map
    packets now show `"stream":"world_map"` and chunk absent markers as
    `SetAbsentChunks`.
-4. Known follow-up: the saved player transform is still `(0, 0, 0)`. Add a real
+3. Known follow-up: the saved player transform is still `(0, 0, 0)`. Add a real
    surface spawn (Java spawn provider) so the player does not start inside the
    ground.
-5. Do not speculate about protocol mismatch; protocol is proven identical.
+4. Do not speculate about protocol mismatch; protocol is proven identical.
 
 ## Commands
 

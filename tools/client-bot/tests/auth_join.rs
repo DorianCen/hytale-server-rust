@@ -155,11 +155,10 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
     );
     assert!(report.translations);
     assert!(report.rebuild_requested);
-    assert!(report.game.clear_chunks);
     assert!(report.game.join_world);
     assert!(report.game.player_list);
     assert!(report.game.self_spawn);
-    assert_eq!(report.game.self_spawn_model, None);
+    assert_eq!(report.game.self_spawn_model.as_deref(), Some("Player"));
     assert_eq!(report.game.self_spawn_skin, None);
     assert_eq!(
         report.game.self_spawn_armor,

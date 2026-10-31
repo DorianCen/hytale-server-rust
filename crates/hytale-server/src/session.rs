@@ -9,7 +9,7 @@
 //!            → ServerAuthToken → WorldSettings/ServerInfo
 //! both:      RequestAssets → common asset blobs + config asset packets
 //!            → WorldLoadProgress/WorldLoadFinished → SetupFinalize
-//! game:      ClearChunks + JoinWorld → ClientReady(readyForChunks)
+//! game:      JoinWorld (clearWorld=false, fadeInOut=false) → ClientReady(readyForChunks)
 //!            → world/entity identity packets → chunk stream
 //! ```
 //!
@@ -228,7 +228,7 @@ pub struct GameReport {
     pub client_ready_for_chunks: bool,
     /// The client sent `ClientReady(readyForGameplay)` before the chunk stream.
     pub client_ready_for_gameplay: bool,
-    /// `ClearChunks` was written on the chunks stream.
+    /// `ClearChunks` was written on the chunks stream (world switches only).
     pub clear_chunks: bool,
     /// `JoinWorld` was written.
     pub join_world: bool,
@@ -1469,14 +1469,17 @@ async fn enter_game(
         chunks = chunks.with_trace(trace.clone() as Arc<dyn hytale_net::PacketTraceSink>);
         world_map = world_map.with_trace(trace as Arc<dyn hytale_net::PacketTraceSink>);
     }
-    chunks
-        .write_packet(&ClearChunks {}, options.chunk_compression_level)
-        .await?;
+    // Java `Universe` joins a fresh connection with
+    // `world.addPlayer(playerRef, null, false, false)`: the first world add
+    // neither clears the client's (empty) chunk view nor plays the world-switch
+    // fade. Sending `ClearChunks`/`clearWorld`/`fadeInOut` here makes the client
+    // treat the first join as a transition and discard the chunks that arrive
+    // while it is still entering the world.
     writer
         .write_packet(
             &JoinWorld {
-                clear_world: true,
-                fade_in_out: true,
+                clear_world: false,
+                fade_in_out: false,
                 world_uuid,
                 min_section_y: Some(0),
                 max_section_y: Some(9),
@@ -1486,7 +1489,7 @@ async fn enter_game(
         .await?;
 
     let mut game = GameReport {
-        clear_chunks: true,
+        clear_chunks: false,
         join_world: true,
         ..GameReport::default()
     };
@@ -2695,7 +2698,7 @@ pub async fn switch_session_world(
         .write_packet(
             &JoinWorld {
                 clear_world: true,
-                fade_in_out: true,
+                fade_in_out: false,
                 world_uuid: packet_uuid,
                 min_section_y: Some(0),
                 max_section_y: Some(9),
@@ -2776,8 +2779,8 @@ async fn run_game_loop(
     let mut owned_target: Option<Arc<WorldThread>> = None;
 
     if let (Some(portal), Some(router)) = (&options.portal_on_join, &options.portal_router) {
-        // Let the joining client finish its initial ClearChunks/JoinWorld and
-        // chunk snapshot before the live world switch.
+        // Let the joining client finish its initial JoinWorld and chunk snapshot
+        // before the live world switch.
         tokio::time::sleep(Duration::from_secs(2)).await;
         let (arrival, target) = router.open_portal_instance(portal, *transform)?;
         let health = active_thread.player_health(network_id)?;

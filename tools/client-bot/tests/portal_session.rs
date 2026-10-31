@@ -114,7 +114,6 @@ async fn a_connected_player_arrives_in_goblin_breach_after_the_handoff() {
     .expect("client join timeout")
     .expect("client join");
     assert!(report.game.join_world);
-    assert!(report.game.clear_chunks);
 
     let _ = shutdown_tx.send(());
     let served = tokio::time::timeout(Duration::from_secs(30), server_task)

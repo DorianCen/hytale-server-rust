@@ -2138,3 +2138,33 @@ This file records phase-2 sessions only.
   fmt, `--validate-assets`.
 - **Follow-up:** rerun; if the stall remains, match Java's nearest-first sphere
   ordering instead of the square column batch.
+
+---
+
+## Session 78 — Fresh join is not a world transition (2026-11-01)
+
+- **Goal:** unblock the client after the hybrid absent-marker run still stalled.
+- **Evidence:** the seventh-run client log shows
+  `All rendered chunks were discarded.` twice immediately after
+  `Received JoinWorldPacket`, followed by `OnSetupComplete`/`StartJoiningWorld`
+  and a silent chunk screen. The same warning appears in earlier logs only
+  during teardown, so it is the client's world-clear path.
+- **Root cause:** Java `Universe.addPlayer(playerRef, null, false, false)` joins
+  a fresh connection with `clearWorld=false`, `fadeInOut=false`, and no
+  `ClearChunks`. The Rust server sent `ClearChunks` plus
+  `JoinWorld { clear_world: true, fade_in_out: true }`, so the client rendered
+  the incoming chunks and then discarded them as part of a transition it was not
+  supposed to perform.
+- **Landed:**
+  - Fresh joins now send `JoinWorld { clear_world: false, fade_in_out: false }`
+    and no `ClearChunks`.
+  - World switches keep `ClearChunks + clear_world: true` but use
+    `fade_in_out: false`, matching Java `transferPlayerAsync`.
+  - `client-bot` accepts the `Chunks` stream only after `ClientReady` (a QUIC
+    uni stream is not observable until its first frame); `dev_join` reads the
+    buffered `WorldMap` stream for markers.
+- **Verified:** `./tools/test.sh fast` (1555 passed), ignored `auth_join`,
+  `dev_join`, `portal_session` loopback tests, clippy, fmt, chunk goldens,
+  `--validate-assets`.
+- **Follow-up:** rerun the release client; then add a real surface spawn and
+  confirm `ClientTeleport` and movement.

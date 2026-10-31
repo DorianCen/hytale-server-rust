@@ -323,3 +323,15 @@ encodings each stalled on their own:
 The live batches now send **both** for data-less sections: the normal
 `SetChunk`/`SetChunkEnvironments` pair plus an explicit `SetAbsentChunks`. The
 raw batches remain unchanged for the Java dumper goldens.
+
+### Seventh run: fresh joins must not clear/fade the world
+
+The client discarded the chunks it had just rendered (`All rendered chunks were
+discarded.`) right after `JoinWorld`, because the server sent `ClearChunks` and
+`JoinWorld { clear_world: true, fade_in_out: true }`. Java's fresh-join path is
+`world.addPlayer(playerRef, null, false, false)`, so it sends
+`JoinWorld { clear_world: false, fade_in_out: false }` and no `ClearChunks`.
+
+Fixed in `crates/hytale-server/src/session.rs`. World switches still clear
+chunks but no longer request a fade. `client-bot` now accepts the `Chunks`
+stream after `ClientReady`, and `dev_join` reads the `WorldMap` stream directly.
