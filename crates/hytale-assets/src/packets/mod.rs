@@ -22,13 +22,13 @@ mod tag_pattern;
 use std::collections::{BTreeMap, BTreeSet};
 
 use hytale_protocol::generated::assets::{
-    UpdateAbilityKeywords, UpdateAmbienceFX, UpdateAudioCategories, UpdateAudioStates,
-    UpdateBeamConfigs, UpdateBlockHitboxes, UpdateBlockSets, UpdateConnectedBlockRuleSets,
-    UpdateEntityEffects, UpdateEntityStatTypes, UpdateEntityUIComponents, UpdateEnvironments,
-    UpdateEqualizerEffects, UpdateFieldcraftCategories, UpdateFluids, UpdateHitboxCollisionConfig,
-    UpdateInteractions, UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities,
-    UpdateItemReticles, UpdateItemSoundSets, UpdateModelvfxs, UpdateMusicContainers,
-    UpdateMusicTransitions, UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
+    UpdateAbilityKeywords, UpdateAmbienceFX, UpdateBeamConfigs, UpdateBlockHitboxes,
+    UpdateBlockSets, UpdateConnectedBlockRuleSets, UpdateEntityEffects, UpdateEntityStatTypes,
+    UpdateEntityUIComponents, UpdateEnvironments, UpdateEqualizerEffects,
+    UpdateFieldcraftCategories, UpdateFluids, UpdateHitboxCollisionConfig, UpdateInteractions,
+    UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles,
+    UpdateItemSoundSets, UpdateModelvfxs, UpdateMusicContainers, UpdateMusicTransitions,
+    UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
     UpdateProjectileConfigs, UpdateRecipes, UpdateRepulsionConfig, UpdateResourceTypes,
     UpdateReverbEffects, UpdateRootInteractions, UpdateSoundSets, UpdateStingers, UpdateTrails,
     UpdateUnarmedInteractions, UpdateWeathers,
@@ -397,13 +397,7 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "AudioCategories",
-                    &UpdateAudioCategories {
-                        categories: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.audio_category_packet()?,
                 empty_packet(
                     "ReverbEffects",
                     &UpdateReverbEffects {
@@ -425,13 +419,7 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "AudioStates",
-                    &UpdateAudioStates {
-                        audio_states: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.audio_state_packet()?,
                 empty_packet(
                     "ConnectedBlockRuleSets",
                     &UpdateConnectedBlockRuleSets {

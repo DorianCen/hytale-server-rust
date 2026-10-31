@@ -211,6 +211,30 @@ fn release_required_asset_types_are_all_initialized() {
     .expect("decode UpdateRecipes");
     assert_eq!(recipes.recipes, Some(BTreeMap::new()));
     assert_eq!(recipes.removed_recipes, Some(Vec::new()));
+
+    // Sound events reference AudioCategory/AudioState ids, so those stores
+    // must contain the real (preloaded) entries rather than an empty map.
+    let categories = UpdateAudioCategories::decode(&mut Reader::new(
+        &packet(&packets, UpdateAudioCategories::ID).payload,
+    ))
+    .expect("decode UpdateAudioCategories");
+    let categories = categories.categories.expect("categories");
+    assert!(
+        categories.contains_key(&0),
+        "the EMPTY category preload is missing"
+    );
+    assert!(categories.len() > 1, "only the preload category was sent");
+
+    let states = UpdateAudioStates::decode(&mut Reader::new(
+        &packet(&packets, UpdateAudioStates::ID).payload,
+    ))
+    .expect("decode UpdateAudioStates");
+    let states = states.audio_states.expect("audio states");
+    assert!(
+        states.contains_key(&0),
+        "the EMPTY audio-state preload is missing"
+    );
+    assert!(states.len() > 1, "only the preload audio state was sent");
 }
 
 #[test]

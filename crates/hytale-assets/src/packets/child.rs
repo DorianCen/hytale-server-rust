@@ -9,15 +9,16 @@
 use std::collections::BTreeMap;
 
 use hytale_protocol::generated::assets::{
-    UpdateBlockBreakingDecals, UpdateBlockParticleSets, UpdateBlockSoundSets, UpdateFluidFX,
-    UpdateSoundEvents,
+    UpdateAudioCategories, UpdateAudioStates, UpdateBlockBreakingDecals, UpdateBlockParticleSets,
+    UpdateBlockSoundSets, UpdateFluidFX, UpdateSoundEvents,
 };
 use hytale_protocol::generated::common::{
-    AudioCategoryDuckingRule, BarBeatDuration, BlockBreakingDecal, BlockParticleEvent,
-    BlockParticleSet, BlockSoundEvent, BlockSoundSet, Direction, FadeCurve, FloatRange, FluidFX,
-    FluidFXMovementSettings, FluidFog, FluidParticle, NearFar, ShaderType, SoundEvent,
-    SoundEventLayer, SoundEventLayerRandomSettings, StateBinding, StateDelta, StateFade,
-    UpdateType,
+    AudioCategory as ProtocolAudioCategory, AudioCategoryDuckingRule,
+    AudioState as ProtocolAudioState, AudioStateAuthority, BarBeatDuration, BlockBreakingDecal,
+    BlockParticleEvent, BlockParticleSet, BlockSoundEvent, BlockSoundSet, Direction, FadeCurve,
+    FloatRange, FluidFX, FluidFXMovementSettings, FluidFog, FluidParticle, NearFar, ShaderType,
+    SoundEvent, SoundEventLayer, SoundEventLayerRandomSettings, StateBinding, StateDelta,
+    StateFade, UpdateType,
 };
 use hytale_protocol::generated::wire::Vector3f;
 use serde_json::Value;
@@ -202,6 +203,107 @@ impl AssetRegistry {
             fluid_fx: Some(effects),
         };
         AssetPacket::encode("FluidFX", &packet)
+    }
+
+    /// `UpdateAudioCategories` (id 80) from the `AudioCategory` store.
+    ///
+    /// The store is preloaded with `EMPTY` at id 0 by Java; the registry keeps
+    /// that preload, so sound events can resolve every category they reference.
+    pub fn audio_category_packet(&self) -> Result<AssetPacket> {
+        let mut categories = BTreeMap::new();
+        for record in self.audio_categories.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "AudioCategory",
+                key: record.key.clone(),
+            })?;
+            let parent = record
+                .value
+                .get("Parent")
+                .and_then(Value::as_str)
+                .and_then(|key| self.audio_categories.id_of(key))
+                .unwrap_or(-1);
+            categories.insert(
+                id,
+                ProtocolAudioCategory {
+                    id: Some(record.key.clone()),
+                    volume: record
+                        .value
+                        .get("Volume")
+                        .and_then(Value::as_f64)
+                        .map_or(1.0, |db| decibels_to_linear(db as f32)),
+                    parent_audio_category_index: parent,
+                    state_bindings: None,
+                    ducking_rules: None,
+                    max_ducking_db: record
+                        .value
+                        .get("MaxDuckingDb")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0) as f32,
+                },
+            );
+        }
+        let packet = UpdateAudioCategories {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.audio_categories, "AudioCategory")?,
+            categories: Some(categories),
+        };
+        AssetPacket::encode("AudioCategory", &packet)
+    }
+
+    /// `UpdateAudioStates` (id 89) from the `AudioState` store.
+    pub fn audio_state_packet(&self) -> Result<AssetPacket> {
+        let mut states = BTreeMap::new();
+        for record in self.audio_states.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "AudioState",
+                key: record.key.clone(),
+            })?;
+            let values = record
+                .value
+                .get("Values")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let default_value_index = record
+                .value
+                .get("DefaultValue")
+                .and_then(Value::as_str)
+                .and_then(|name| values.iter().position(|value| value == name))
+                .map_or(0, |index| index as i32);
+            let authority = match record.value.get("Authority").and_then(Value::as_str) {
+                Some("Client") => AudioStateAuthority::Client,
+                _ => AudioStateAuthority::Server,
+            };
+            states.insert(
+                id,
+                ProtocolAudioState {
+                    id: Some(record.key.clone()),
+                    authority,
+                    values: Some(values),
+                    default_value_index,
+                    default_sync_to: None,
+                    default_transition: None,
+                    transitions: None,
+                    revert_when_inactive: record
+                        .value
+                        .get("RevertWhenInactive")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                },
+            );
+        }
+        let packet = UpdateAudioStates {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.audio_states, "AudioState")?,
+            audio_states: Some(states),
+        };
+        AssetPacket::encode("AudioState", &packet)
     }
 
     /// `UpdateSoundEvents` (id 65) from the `SoundEvent` store.
