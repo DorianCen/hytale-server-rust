@@ -70,8 +70,11 @@ This is an asset-packet completeness task, not an auth task.
     `PlaceBlock`, `TriggerCooldown`, `DurabilityCondition`, `UseBlock`,
     `ChangeStat`, `ChangeState`, `ApplyEffect`, `ChangeBlock`,
     `GroundedCondition`, `MemoriesCondition`, `ClearEntityEffect`, `BreakBlock`,
-    `PickBlock`, `FirstClick`); the remaining long-tail node types still use
-    the base form.
+    `PickBlock`, `FirstClick`, `ModifyInventory`, `ApplyForce`, `UseEntity`,
+    `MovementCondition`, `DragPlaceBlock`, `ExtrudePlaceBlock`,
+    `SurfaceDrawPlaceBlock`, `Replace`, `ChangeActiveSlot`); the remaining
+    server-only long-tail node types map to the base form, matching Java's
+    `SimpleInstantInteraction` packets.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
@@ -138,8 +141,8 @@ This is an asset-packet completeness task, not an auth task.
   732 roots, no dangling `next`/`failed`/root indices, the default unarmed
   root and the chain-hook root. It also counts and validates the typed bodies,
   including `Serial`/`Parallel` children, `Projectile.Config`, `Select` fail
-  mode, `Repeat`, `TriggerCooldown`, `PlaceBlock` and the condition/change
-  nodes.
+  mode, `Repeat`, `TriggerCooldown`, `PlaceBlock`, `ModifyInventory`,
+  `ApplyForce` and the condition/change nodes.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke

@@ -1058,8 +1058,8 @@ Trail, ModelVFX, EntityUIComponent, BlockSet, ParticleSystem, ParticleSpawner,
 MusicTransition, ConnectedBlockRuleSet, AmbienceFX, MusicContainer, Stinger,
 Recipes, Interaction, RootInteraction and UnarmedInteraction packets replace
 their empty placeholders; the particle packets are byte-identical to the Java
-goldens. Interaction bodies are type-specific for 26 node types; the remaining long
-  tail still uses the base form. Golden presence tests cover the item/block
+goldens. Interaction bodies are type-specific for 35 node types; remaining server-only
+  interactions map to the base form as in Java. Golden presence tests cover the item/block
 trees and the new store map counts. The release client still needs a user-run
 smoke test; root-interaction/music-container/ambience trees remain placeholders
 because their encoders are large polymorphic surfaces not yet ported.

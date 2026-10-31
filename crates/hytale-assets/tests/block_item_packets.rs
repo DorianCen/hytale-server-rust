@@ -1497,6 +1497,15 @@ fn interaction_graph_is_materialized() {
     let mut clear_effects = 0;
     let mut break_blocks = 0;
     let mut first_clicks = 0;
+    let mut modify_inventories = 0;
+    let mut apply_forces = 0;
+    let mut use_entities = 0;
+    let mut movement_conditions = 0;
+    let mut drag_places = 0;
+    let mut extrude_places = 0;
+    let mut surface_draws = 0;
+    let mut replacements = 0;
+    let mut active_slots = 0;
     for (index, interaction) in &interactions {
         match interaction {
             ProtocolInteraction::SimpleInteraction(simple) => {
@@ -1576,6 +1585,15 @@ fn interaction_graph_is_materialized() {
             ProtocolInteraction::ClearEntityEffectInteraction(_) => clear_effects += 1,
             ProtocolInteraction::BreakBlockInteraction(_) => break_blocks += 1,
             ProtocolInteraction::FirstClickInteraction(_) => first_clicks += 1,
+            ProtocolInteraction::ModifyInventoryInteraction(_) => modify_inventories += 1,
+            ProtocolInteraction::ApplyForceInteraction(_) => apply_forces += 1,
+            ProtocolInteraction::UseEntityInteraction(_) => use_entities += 1,
+            ProtocolInteraction::MovementConditionInteraction(_) => movement_conditions += 1,
+            ProtocolInteraction::DragPlaceBlockInteraction(_) => drag_places += 1,
+            ProtocolInteraction::ExtrudePlaceBlockInteraction(_) => extrude_places += 1,
+            ProtocolInteraction::SurfaceDrawPlaceBlockInteraction(_) => surface_draws += 1,
+            ProtocolInteraction::ReplaceInteraction(_) => replacements += 1,
+            ProtocolInteraction::ChangeActiveSlotInteraction(_) => active_slots += 1,
             _ => {}
         }
     }
@@ -1627,6 +1645,21 @@ fn interaction_graph_is_materialized() {
     assert!(clear_effects >= 1, "clear effects: {clear_effects}");
     assert!(break_blocks >= 1, "break blocks: {break_blocks}");
     assert!(first_clicks >= 1, "first clicks: {first_clicks}");
+    assert!(
+        modify_inventories >= 5,
+        "modify inventory: {modify_inventories}"
+    );
+    assert!(apply_forces >= 10, "apply force: {apply_forces}");
+    assert!(use_entities >= 1, "use entity: {use_entities}");
+    assert!(
+        movement_conditions >= 1,
+        "movement conditions: {movement_conditions}"
+    );
+    assert!(drag_places >= 1, "drag place: {drag_places}");
+    assert!(extrude_places >= 1, "extrude place: {extrude_places}");
+    assert!(surface_draws >= 1, "surface draw: {surface_draws}");
+    assert!(replacements >= 1, "replacements: {replacements}");
+    assert!(active_slots >= 1, "active slots: {active_slots}");
 
     let roots: UpdateRootInteractions = UpdateRootInteractions::decode(&mut Reader::new(
         &packet(&packets, UpdateRootInteractions::ID).payload,
