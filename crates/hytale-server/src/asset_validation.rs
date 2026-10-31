@@ -194,9 +194,9 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateResourceTypes::ID, "ResourceType"),
         (UpdateRecipes::ID, "Recipes"),
         (UpdateAmbienceFX::ID, "AmbienceFX"),
-        (UpdateInteractions::ID, "Interactions"),
-        (UpdateRootInteractions::ID, "RootInteractions"),
-        (UpdateUnarmedInteractions::ID, "UnarmedInteractions"),
+        (UpdateInteractions::ID, "Interaction"),
+        (UpdateRootInteractions::ID, "RootInteraction"),
+        (UpdateUnarmedInteractions::ID, "UnarmedInteraction"),
         (UpdateEntityUIComponents::ID, "EntityUIComponent"),
         (UpdateHitboxCollisionConfig::ID, "HitboxCollisionConfig"),
         (UpdateRepulsionConfig::ID, "RepulsionConfig"),
@@ -269,6 +269,8 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("MusicContainer", music_containers),
         store!("Stinger", stingers),
         store!("Recipes", recipes),
+        store!("Interaction", interactions),
+        store!("RootInteraction", root_interactions),
     ]
 }
 

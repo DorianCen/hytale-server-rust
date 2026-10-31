@@ -36,7 +36,8 @@ This is an asset-packet completeness task, not an auth task.
     `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
     `ModelVFX`, `EntityUIComponent`, `BlockSet`, `ParticleSystem`,
     `ParticleSpawner`, `MusicTransition`, `ConnectedBlockRuleSet`, `AmbienceFX`,
-    `MusicContainer`, `Stinger`, `Recipes`;
+    `MusicContainer`, `Stinger`, `Recipes`, `Interaction`, `RootInteraction`,
+    `UnarmedInteraction`;
   - the two particle packets are byte-identical to the Java goldens
     (`ParticleSystem` 791 systems, `ParticleSpawner` 2439 spawners), covering
     particles, animation frames, attractors, collision, UV motion and the
@@ -58,11 +59,19 @@ This is an asset-packet completeness task, not an auth task.
     rules;
   - `Recipes` carries all 410 standalone crafting recipes with inputs,
     outputs, primary outputs, bench requirements, knowledge gates, time and
-    memories level.
+    memories level;
+  - `Interaction`, `RootInteraction` and `UnarmedInteraction` stream the full
+    ID graph: 2805 interaction nodes, 732 roots (including the `*Default_Swap`
+    preload), inline `Next`/`Failed` children, root interaction lists and the
+    `SwapFrom` default. Interaction bodies currently use the structurally
+    valid base `SimpleInteraction` form; per-type payloads are the remaining
+    fidelity follow-up.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
-  - `Interaction`, `RootInteraction`, `UnarmedInteraction` (full action graph);
+  - per-type interaction payload fidelity (the ID graph is now streamed, but
+    `DamageEntity`, `Projectile`, `Charging`, conditions and the other node
+    bodies still use the base form).
 
 - `ModelAsset` has no packet generator; verify whether the missing
   `Debug_Model` model is a common-asset issue before changing packets.
@@ -120,6 +129,9 @@ This is an asset-packet completeness task, not an auth task.
   children, stinger container indices and inline `AmbienceFX` music.
 - `recipes_are_materialized` checks all 410 standalone recipes and the
   salvage/flower recipe fields end to end.
+- `interaction_graph_is_materialized` checks the 2805-node interaction map,
+  732 roots, no dangling `next`/`failed`/root indices, the default unarmed
+  root and the chain-hook root. It does not yet assert per-type bodies.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke

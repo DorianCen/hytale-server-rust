@@ -408,6 +408,18 @@ const RECIPE: StoreSpec = StoreSpec {
     map: MapKind::Default,
 };
 
+const INTERACTION: StoreSpec = StoreSpec {
+    name: "Interaction",
+    path: "Server/Item/Interactions",
+    map: MapKind::IndexedLookupTable,
+};
+
+const ROOT_INTERACTION: StoreSpec = StoreSpec {
+    name: "RootInteraction",
+    path: "Server/Item/RootInteractions",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -971,6 +983,10 @@ pub struct AssetRegistry {
     pub stingers: AssetCollection<Value>,
     /// Standalone `CraftingRecipe` store (`Server/Item/Recipes`).
     pub recipes: AssetCollection<Value>,
+    /// `Interaction` store (`Server/Item/Interactions`).
+    pub interactions: AssetCollection<Value>,
+    /// `RootInteraction` store (`Server/Item/RootInteractions`).
+    pub root_interactions: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1085,6 +1101,8 @@ impl AssetRegistry {
             ambience_fxs: AssetCollection::empty(),
             stingers: AssetCollection::empty(),
             recipes: AssetCollection::empty(),
+            interactions: AssetCollection::empty(),
+            root_interactions: AssetCollection::empty(),
         })
     }
 
@@ -1142,6 +1160,13 @@ impl AssetRegistry {
         registry.stingers =
             load_indexed_store(pack, &STINGER, stinger_preloads(), parse_key_asset)?;
         registry.recipes = load_default_store(pack, &RECIPE, Vec::new())?;
+        registry.interactions = load_interactions(pack)?;
+        registry.root_interactions = load_indexed_store(
+            pack,
+            &ROOT_INTERACTION,
+            root_interaction_preloads(),
+            parse_key_asset,
+        )?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -1320,6 +1345,102 @@ fn asset_key(path: &str) -> String {
         .strip_suffix(".json")
         .unwrap_or(path)
         .to_string()
+}
+
+/// Load `Interaction` files plus the inline `Next`/`Failed` children and the
+/// inline interaction children of `RootInteraction.Interactions`.
+fn load_interactions(pack: &AssetPack) -> Result<AssetCollection<Value>, AssetError> {
+    let mut preloaded = preloaded_assets_with(interaction_preloads());
+    let mut loaded: HashSet<String> = preloaded
+        .iter()
+        .map(|asset| asset.key.to_ascii_lowercase())
+        .collect();
+    let files = read_store_files(pack, INTERACTION.path)?;
+    let files = apply_preload_replacements(&mut preloaded, files);
+    let mut raw = files;
+    raw.extend(load_contained_interactions(pack)?);
+    let ordered = assign_phase(
+        raw,
+        &mut loaded,
+        MissingParentPolicy::Error,
+        INTERACTION.name,
+    )?;
+    let mut all = preloaded;
+    all.extend(ordered);
+    let resolved = resolve_assets(all, INTERACTION.name, MergeHook::Shallow)?;
+    let records = resolved
+        .into_iter()
+        .enumerate()
+        .map(|(index, asset)| {
+            let id = i32::try_from(index).map_err(|_| AssetError::InvalidAsset {
+                store: INTERACTION.name.to_string(),
+                key: asset.raw.key.clone(),
+                message: "asset id exceeds i32".to_string(),
+            })?;
+            Ok(AssetRecord {
+                key: asset.raw.key,
+                id: Some(id),
+                parent: asset.raw.parent,
+                source: asset.raw.source,
+                preloaded: asset.raw.preloaded,
+                value: asset.merged,
+            })
+        })
+        .collect::<Result<Vec<_>, AssetError>>()?;
+    AssetCollection::new(INTERACTION.name, records)
+}
+
+fn load_contained_interactions(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetError> {
+    let mut out = Vec::new();
+    for asset in read_store_files(pack, INTERACTION.path)? {
+        extract_inline_interactions(&asset.key, &asset.value, &asset.source, &mut out);
+    }
+    for asset in read_store_files(pack, ROOT_INTERACTION.path)? {
+        let Some(interactions) = asset.value.get("Interactions").and_then(Value::as_array) else {
+            continue;
+        };
+        for (index, child) in interactions.iter().enumerate() {
+            if !child.is_object() {
+                continue;
+            }
+            let key = format!("*{}_Interactions_{index}", asset.key);
+            out.push(contained_interaction(
+                key.clone(),
+                &asset.source,
+                child.clone(),
+            ));
+            extract_inline_interactions(&key, child, &asset.source, &mut out);
+        }
+    }
+    Ok(out)
+}
+
+fn extract_inline_interactions(root: &str, value: &Value, source: &str, out: &mut Vec<RawAsset>) {
+    if !value.is_object() {
+        return;
+    }
+    for field in ["Next", "Failed"] {
+        let Some(child) = value.get(field).filter(|child| child.is_object()) else {
+            continue;
+        };
+        let key = format!("*{root}_{field}");
+        out.push(contained_interaction(key.clone(), source, child.clone()));
+        extract_inline_interactions(&key, child, source, out);
+    }
+}
+
+fn contained_interaction(key: String, source: &str, value: Value) -> RawAsset {
+    RawAsset {
+        key,
+        parent: value
+            .get("Parent")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        container_item: None,
+        source: source.to_string(),
+        preloaded: false,
+        value,
+    }
 }
 
 /// Load `MusicContainer` files plus the inline child containers Java registers
@@ -2775,6 +2896,19 @@ fn ambience_fx_preloads() -> Vec<(&'static str, Value)> {
 /// Java `Stinger.EMPTY_STINGER`.
 fn stinger_preloads() -> Vec<(&'static str, Value)> {
     vec![("EMPTY", json!({}))]
+}
+
+/// Java `ChangeActiveSlotInteraction.DEFAULT_INTERACTION`.
+fn interaction_preloads() -> Vec<(&'static str, Value)> {
+    vec![("*Change_Active_Slot", json!({"Type": "Simple"}))]
+}
+
+/// Java `ChangeActiveSlotInteraction.DEFAULT_ROOT`.
+fn root_interaction_preloads() -> Vec<(&'static str, Value)> {
+    vec![(
+        "*Default_Swap",
+        json!({"Interactions": ["*Change_Active_Slot"]}),
+    )]
 }
 
 /// Java `AudioCategory.PRELOAD_ORDER` (reserved indices 0-5).

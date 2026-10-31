@@ -47,24 +47,25 @@ use hytale_protocol::generated::common::{
     EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent,
     EntityUIType, EqualizerEffect, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, Fluid,
     FluidDrawType, FluidParticle, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
-    InitialVelocity, IntersectionHighlight, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
-    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
-    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LayerPlacement,
-    LoopOption, MaterialQuantity, Model, ModelParticle, ModelVFX, MusicContainer, MusicMarker,
-    MusicSync, MusicTransition, MusicTransitionType, NotConnectedBlockRule, Opacity,
-    OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, Particle,
-    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
-    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
-    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
-    PhysicsConfig, PhysicsType, ProjectileConfig, RandomMode, RandomMusicContainer, Range,
-    RangeVector2f, RangeVector3f, Rangeb, Rangef, RepulsionConfig, ResourceType, ReverbEffect,
-    RoofState, RotationMode, SegmentMusicContainer, SequenceMusicContainer, ShaderType,
-    ShapeConnectedBlockRule, ShelterType, SingleTrackMusicContainer, Size, SoftParticle,
-    SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade, Stinger,
+    InitialVelocity, Interaction, InteractionType, IntersectionHighlight, ItemAnimation,
+    ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration,
+    ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent,
+    ItemSoundSet, LayerPlacement, LoopOption, MaterialQuantity, Model, ModelParticle, ModelVFX,
+    MusicContainer, MusicMarker, MusicSync, MusicTransition, MusicTransitionType,
+    NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
+    OverlapBehavior as ProtocolOverlapBehavior, Particle, ParticleAnimationFrame,
+    ParticleAttractor, ParticleCollision, ParticleCollisionAction, ParticleCollisionBlockType,
+    ParticleRotationInfluence, ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup,
+    ParticleSystem, ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType,
+    ProjectileConfig, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
+    Rangeb, Rangef, RepulsionConfig, ResourceType, ReverbEffect, RoofState, RootInteraction,
+    RotationMode, SegmentMusicContainer, SequenceMusicContainer, ShaderType,
+    ShapeConnectedBlockRule, ShelterType, SimpleInteraction, SingleTrackMusicContainer, Size,
+    SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade, Stinger,
     StingerBinding, StingerShortLead, SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint,
     TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail, UVMotion,
-    UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, Weather, WiggleWeights,
-    WorldEnvironment,
+    UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather,
+    WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -252,15 +253,6 @@ impl AssetPacket {
     }
 }
 
-/// Encode an empty (`Init`) asset-type packet. The caller supplies explicit
-/// empty collections so the client's handlers never see a null map/vector.
-fn empty_packet<T>(store: &'static str, packet: &T) -> Result<AssetPacket>
-where
-    T: Packet + Wire,
-{
-    AssetPacket::encode(store, packet)
-}
-
 impl AssetRegistry {
     /// The config-asset packets and the matching `ServerTags` map.
     ///
@@ -313,27 +305,9 @@ impl AssetRegistry {
                 self.resource_types_packet()?,
                 self.recipes_packet()?,
                 self.ambience_fx_packet()?,
-                empty_packet(
-                    "Interactions",
-                    &UpdateInteractions {
-                        interactions: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "RootInteractions",
-                    &UpdateRootInteractions {
-                        interactions: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "UnarmedInteractions",
-                    &UpdateUnarmedInteractions {
-                        interactions: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.interactions_packet()?,
+                self.root_interactions_packet()?,
+                self.unarmed_interactions_packet()?,
                 self.entity_ui_components_packet()?,
                 self.hitbox_collision_configs_packet()?,
                 self.repulsion_configs_packet()?,
@@ -524,6 +498,56 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateInteractions` (id 56) from the `Interaction` store.
+    pub fn interactions_packet(&self) -> Result<AssetPacket> {
+        let mut interactions = BTreeMap::new();
+        for record in self.interactions.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "Interaction",
+                key: record.key.clone(),
+            })?;
+            interactions.insert(id, simple_interaction(self, &record.key, &record.value));
+        }
+        let packet = UpdateInteractions {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.interactions, "Interaction")?,
+            interactions: Some(interactions),
+        };
+        AssetPacket::encode("Interaction", &packet)
+    }
+
+    /// `UpdateRootInteractions` (id 57) from the `RootInteraction` store.
+    pub fn root_interactions_packet(&self) -> Result<AssetPacket> {
+        let mut interactions = BTreeMap::new();
+        for record in self.root_interactions.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "RootInteraction",
+                key: record.key.clone(),
+            })?;
+            interactions.insert(id, root_interaction(self, &record.key, &record.value));
+        }
+        let packet = UpdateRootInteractions {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.root_interactions, "RootInteraction")?,
+            interactions: Some(interactions),
+        };
+        AssetPacket::encode("RootInteraction", &packet)
+    }
+
+    /// `UpdateUnarmedInteractions` (id 63) from the built-in default root.
+    pub fn unarmed_interactions_packet(&self) -> Result<AssetPacket> {
+        let mut interactions = BTreeMap::new();
+        interactions.insert(
+            InteractionType::SwapFrom,
+            self.root_interactions.id_of("*Default_Swap").unwrap_or(0),
+        );
+        let packet = UpdateUnarmedInteractions {
+            r#type: UpdateType::Init,
+            interactions: Some(interactions),
+        };
+        AssetPacket::encode("UnarmedInteraction", &packet)
     }
 
     /// `UpdateRecipes` (id 58) from the standalone `CraftingRecipe` store.
@@ -2135,6 +2159,81 @@ fn connected_block_rule_set(
         },
         shapes: Some(shapes),
         patterns,
+    }
+}
+
+fn nested_interaction_index(
+    registry: &AssetRegistry,
+    parent_key: &str,
+    field: &str,
+    value: Option<&Value>,
+) -> i32 {
+    match value {
+        Some(Value::String(id)) => registry.interactions.id_of(id).unwrap_or(0),
+        Some(Value::Object(_)) => registry
+            .interactions
+            .id_of(&format!("*{parent_key}_{field}"))
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn simple_interaction(registry: &AssetRegistry, key: &str, json: &Value) -> Interaction {
+    Interaction::SimpleInteraction(SimpleInteraction {
+        // T66 currently streams the interaction ID graph; type-specific node
+        // payloads remain a follow-up.
+        wait_for_data_from: WaitForDataFrom::None,
+        effects: None,
+        horizontal_speed_multiplier: json
+            .get("HorizontalSpeedMultiplier")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0) as f32,
+        run_time: number(json, "RunTime") as f32,
+        on_item_change_behavior: Default::default(),
+        settings: None,
+        rules: Default::default(),
+        tags: None,
+        camera: None,
+        next: nested_interaction_index(registry, key, "Next", json.get("Next")),
+        failed: nested_interaction_index(registry, key, "Failed", json.get("Failed")),
+    })
+}
+
+fn root_interaction(registry: &AssetRegistry, key: &str, json: &Value) -> RootInteraction {
+    let interactions = json
+        .get("Interactions")
+        .and_then(Value::as_array)
+        .map(|interactions| {
+            interactions
+                .iter()
+                .enumerate()
+                .map(|(index, interaction)| match interaction {
+                    Value::String(id) => registry.interactions.id_of(id).unwrap_or(0),
+                    Value::Object(_) => registry
+                        .interactions
+                        .id_of(&format!("*{key}_Interactions_{index}"))
+                        .unwrap_or(0),
+                    _ => 0,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    RootInteraction {
+        id: Some(key.to_string()),
+        interactions,
+        cooldown: None,
+        settings: None,
+        rules: Default::default(),
+        tags: None,
+        click_queuing_timeout: number(json, "ClickQueuingTimeout") as f32,
+        require_new_click: json
+            .get("RequireNewClick")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        hud_input_binding_entry: json
+            .get("HudInputBindingEntry")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
     }
 }
 

@@ -1055,9 +1055,10 @@ builder-tool/appearance/HUD/ability trees, block states/bench/placement/
 conditional-sound trees, and real SoundSet, ResourceType, FieldcraftCategory,
 ReverbEffect, EqualizerEffect, Beam, HitboxCollision, Repulsion, AbilityKeyword,
 Trail, ModelVFX, EntityUIComponent, BlockSet, ParticleSystem, ParticleSpawner,
-MusicTransition, ConnectedBlockRuleSet, AmbienceFX, MusicContainer, Stinger and
-Recipes packets replace their empty placeholders; the particle packets are
-byte-identical to the Java goldens. Golden presence tests cover the item/block
+MusicTransition, ConnectedBlockRuleSet, AmbienceFX, MusicContainer, Stinger,
+Recipes, Interaction, RootInteraction and UnarmedInteraction packets replace
+their empty placeholders; the particle packets are byte-identical to the Java
+goldens. Interaction bodies currently use the base form; per-type payloads remain. Golden presence tests cover the item/block
 trees and the new store map counts. The release client still needs a user-run
 smoke test; root-interaction/music-container/ambience trees remain placeholders
 because their encoders are large polymorphic surfaces not yet ported.

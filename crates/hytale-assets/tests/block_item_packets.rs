@@ -26,8 +26,9 @@ use hytale_protocol::generated::assets::{
 };
 use hytale_protocol::generated::common::{
     BenchType, BlockNeighbor, BlockType, ConnectedBlockShape, ConnectedBlockUpdateMode,
-    DestinationAlign, FadeCurve, MusicContainer as ProtocolMusicContainer, RandomMode,
-    RequiredBlockFaceSupport, SyncPoint, UpdateType,
+    DestinationAlign, FadeCurve, Interaction as ProtocolInteraction, InteractionType,
+    MusicContainer as ProtocolMusicContainer, RandomMode, RequiredBlockFaceSupport, SyncPoint,
+    UpdateType,
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::Reader;
@@ -1447,4 +1448,81 @@ fn recipes_are_materialized() {
     assert_eq!(bench.id, "Salvagebench");
     assert_eq!(recipe.time_seconds, 0.5);
     assert!(!recipe.knowledge_required);
+}
+
+/// T66: the interaction and root-interaction ID graph is streamed instead of
+/// empty init maps. Node bodies are the structurally valid base form; the
+/// type-specific interaction payloads remain a follow-up.
+#[test]
+fn interaction_graph_is_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+
+    let decoded: UpdateInteractions = UpdateInteractions::decode(&mut Reader::new(
+        &packet(&packets, UpdateInteractions::ID).payload,
+    ))
+    .expect("decode interactions");
+    assert_eq!(decoded.r#type, UpdateType::Init);
+    assert_eq!(decoded.max_id, registry.interactions.len() as i32);
+    let interactions = decoded.interactions.expect("interaction map");
+    assert_eq!(interactions.len(), registry.interactions.len());
+    assert!(interactions.len() > 2000);
+    for (index, interaction) in &interactions {
+        match interaction {
+            ProtocolInteraction::SimpleInteraction(simple) => {
+                assert!(
+                    interactions.contains_key(&simple.next),
+                    "interaction {index} next {} is dangling",
+                    simple.next
+                );
+                assert!(
+                    interactions.contains_key(&simple.failed),
+                    "interaction {index} failed {} is dangling",
+                    simple.failed
+                );
+            }
+            _ => panic!("interaction {index} must use the base streaming form"),
+        }
+    }
+
+    let roots: UpdateRootInteractions = UpdateRootInteractions::decode(&mut Reader::new(
+        &packet(&packets, UpdateRootInteractions::ID).payload,
+    ))
+    .expect("decode roots");
+    assert_eq!(roots.max_id, registry.root_interactions.len() as i32);
+    let roots = roots.interactions.expect("root map");
+    assert_eq!(roots.len(), registry.root_interactions.len());
+    assert_eq!(
+        roots.get(&0).and_then(|root| root.id.as_deref()),
+        Some("*Default_Swap")
+    );
+    for root in roots.values() {
+        assert!(root.id.is_some());
+        assert!(!root.interactions.is_empty());
+        assert!(root
+            .interactions
+            .iter()
+            .all(|index| interactions.contains_key(index)));
+    }
+
+    let chain_hook = roots
+        .values()
+        .find(|root| root.id.as_deref() == Some("Root_Ability_ChainHook"))
+        .expect("Root_Ability_ChainHook");
+    assert_eq!(chain_hook.interactions.len(), 1);
+    let first = registry
+        .interactions
+        .get_by_id(chain_hook.interactions[0])
+        .expect("chain hook interaction");
+    assert_eq!(first.key, "Ability_ChainHook_Cast");
+
+    let unarmed: UpdateUnarmedInteractions = UpdateUnarmedInteractions::decode(&mut Reader::new(
+        &packet(&packets, UpdateUnarmedInteractions::ID).payload,
+    ))
+    .expect("decode unarmed interactions");
+    let unarmed = unarmed.interactions.expect("unarmed map");
+    assert_eq!(unarmed.get(&InteractionType::SwapFrom), Some(&0));
 }
