@@ -48,7 +48,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | planned (paused) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
-| T63 | Performance, memory and soak | T48 | medium | planned |
+| [T63](T63-performance-memory-soak.md) | Performance, memory and soak | T48 | medium | done (session 68) |
 | T64 | Packaging, docs and plugin/mod API | T60 | medium | planned |
 
 Task files for T43–T66 are created when their milestone starts; the milestone
@@ -59,7 +59,9 @@ passthrough is in scope, editor clients are refused in every auth mode, and
 `builtin/HytaleGenerator` stays a separate engine project. T62 lands the
 session abuse limits (payload/rate/view/queue ceilings), duplicate-identity
 refusal, deterministic protocol/asset fuzz targets and the `tools/security.sh`
-dependency/fuzz gate. T52b–T52d closed the parity gaps
+dependency/fuzz gate. T63 publishes the release performance/memory baseline
+for boot, assets, config cache, tick, chunk stream and save, and adds the
+1,000-cycle join/edit/save soak with an RSS ceiling. T52b–T52d closed the parity gaps
 recorded by T52 in session 41. T53's gameplay core, Java entity-gameplay
 fixture and T54's time/weather core are landed; T55 adds the projectile core
 and traversal seam; T56 lands prefab entities/block components and the

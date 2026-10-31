@@ -59,14 +59,14 @@ fn config_assets_are_cached_per_world() {
         std::sync::Arc::ptr_eq(&first, &second),
         "sessions must share one encoded ConfigAssets"
     );
-    assert_eq!(first.packets.len(), 21);
+    let ids: Vec<u32> = first.packets.iter().map(|packet| packet.id).collect();
     assert_eq!(
-        first
-            .packets
-            .iter()
-            .map(|packet| packet.id)
-            .collect::<Vec<_>>(),
-        vec![41, 87, 65, 42, 63, 83, 61, 84, 40, 44, 45, 43, 55, 57, 56, 52, 72, 51, 85, 47, 54]
+        ids,
+        vec![
+            41, 87, 65, 42, 63, 83, 61, 84, 40, 44, 45, 43, 55, 57, 56, 52, 72, 51, 85, 47, 54, 46,
+            48, 49, 50, 53, 58, 59, 60, 62, 66, 67, 68, 73, 74, 75, 79, 80, 81, 82, 88, 89, 90, 91,
+            92, 93, 94,
+        ]
     );
     assert!(!first.tags.is_empty());
 

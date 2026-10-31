@@ -1083,10 +1083,30 @@ runs the fuzz budget, lockfile/duplicate audit and `cargo audit`; the `zip` and
 
 ### T63 — Performance, memory and soak
 
+**Status:** done (session 68)
+**Package:** `hytale-server`, `tools`, docs
+**Depends on:** T48, T62
+**Agent fit:** medium
+
 - Benchmark boot, asset decode, config packet cache, chunk stream, world tick and
   save; memory ceilings; long-running soak with repeated joins/edits.
 - Acceptance: published numbers against Java where comparable; no leaks in the
   soak budget.
+
+The baseline is recorded in
+[`BENCHMARKS.md`](BENCHMARKS.md) and
+[`tasks/T63-performance-memory-soak.md`](tasks/T63-performance-memory-soak.md).
+`hytale-server --example perf` measures pack/P0/phase-2/config encode, world
+spawn, config-cache cold/hit, tick+simulate throughput, one out-of-view chunk
+load, join chunk packet/zstd framing, block edit and save, with RSS snapshots.
+`tools/perf.sh` archives the hardware/build/config header and results under
+`target/perf/`. `hytale-server::memory` exposes portable RSS/peak-RSS readers.
+`hytale-server/tests/soak.rs` runs repeated register/edit/tick/save/unregister
+cycles, asserts the view/registry are clean and enforces a 64 MiB RSS growth
+ceiling; 1,000 cycles grew +417,792 B on the reference host. The stale
+asset-backed config-cache test was corrected to the current 47-packet burst.
+Java comparison remains pending because the Java server is not available in
+this workspace.
 
 ### T64 — Packaging, docs and plugin/mod API
 

@@ -15,6 +15,7 @@ and boot a `WorldThread`/world generator. Use the tiers below while developing.
 ./tools/test.sh e2e           # ignored loopback/auth/trace tests, serial
 ./tools/test.sh all           # full workspace gate
 HYTALE_FUZZ_ITERATIONS=100000 ./tools/security.sh  # fuzz budget + dependency audit
+tools/perf.sh                 # release perf probe + join/edit/save soak
 ```
 
 Extra arguments are forwarded to cargo:
@@ -29,6 +30,12 @@ targets at `HYTALE_FUZZ_ITERATIONS` (default 100,000), verifies `Cargo.lock`,
 prints duplicate dependencies and runs `cargo audit`/`cargo deny` when
 installed. The fuzz targets also run as ordinary tests in the `fast`/`assets`
 tiers with a 10,000-iteration budget.
+
+`tools/perf.sh` is the T63 performance gate. It runs the release probe
+(`hytale-server --example perf`) and the release soak
+(`HYTALE_SOAK_CYCLES`, default 100), writing metrics and environment metadata
+under `target/perf/`. The soak grows resident memory by no more than
+`HYTALE_SOAK_RSS_LIMIT_MIB` (default 64 MiB).
 
 ## What each tier means
 

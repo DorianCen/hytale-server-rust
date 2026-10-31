@@ -12,6 +12,7 @@ pub mod generation;
 pub mod headless;
 pub mod inventory_rules;
 pub mod map_image;
+pub mod memory;
 pub mod player_data_tool;
 pub mod player_gameplay;
 pub mod players;
@@ -42,6 +43,7 @@ pub use hytale_world::simulation::{
     BlockChange, BlockDrop, FluidChange, SimulationReport, SimulationStages, SimulationTables,
 };
 pub use inventory_rules::AssetItemRules;
+pub use memory::{peak_resident_bytes, resident_bytes};
 pub use player_data_tool::{
     run as run_player_data_tool, PlayerDataToolError, PlayerDataToolOptions, PlayerDataToolReport,
 };
