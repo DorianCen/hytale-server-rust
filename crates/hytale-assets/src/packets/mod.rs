@@ -228,12 +228,13 @@ impl AssetPacket {
     }
 }
 
-/// Encode the default (`Init`, empty) form of an asset-type packet.
-fn empty_packet<T>(store: &'static str) -> Result<AssetPacket>
+/// Encode an empty (`Init`) asset-type packet. The caller supplies explicit
+/// empty collections so the client's handlers never see a null map/vector.
+fn empty_packet<T>(store: &'static str, packet: &T) -> Result<AssetPacket>
 where
-    T: Packet + Wire + Default,
+    T: Packet + Wire,
 {
-    AssetPacket::encode(store, &T::default())
+    AssetPacket::encode(store, packet)
 }
 
 impl AssetRegistry {
@@ -276,37 +277,196 @@ impl AssetRegistry {
                 // Release clients require every asset type to be initialized
                 // before `WorldLoadFinished`, even when this port does not yet
                 // model that store's content. Java always sends one `Update*`
-                // packet per enabled store; empty `Init` packets keep the
-                // client's asset-type bookkeeping complete, and the stores
-                // this port does model arrive above with their real payloads.
-                empty_packet::<UpdateBlockSets>("BlockSets")?,
-                empty_packet::<UpdateTrails>("Trails")?,
-                empty_packet::<UpdateParticleSystems>("ParticleSystems")?,
-                empty_packet::<UpdateParticleSpawners>("ParticleSpawners")?,
-                empty_packet::<UpdateModelvfxs>("ModelVFX")?,
-                empty_packet::<UpdateFieldcraftCategories>("FieldcraftCategories")?,
-                empty_packet::<UpdateResourceTypes>("ResourceTypes")?,
+                // packet per enabled store. The maps/vectors must be present
+                // (empty), not null: the client dereferences them while
+                // handling the packet.
+                empty_packet(
+                    "BlockSets",
+                    &UpdateBlockSets {
+                        block_sets: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "Trails",
+                    &UpdateTrails {
+                        trails: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "ParticleSystems",
+                    &UpdateParticleSystems {
+                        particle_systems: Some(BTreeMap::new()),
+                        removed_particle_systems: Some(Vec::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "ParticleSpawners",
+                    &UpdateParticleSpawners {
+                        particle_spawners: Some(BTreeMap::new()),
+                        removed_particle_spawners: Some(Vec::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "ModelVFX",
+                    &UpdateModelvfxs {
+                        model_vf_xs: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "FieldcraftCategories",
+                    &UpdateFieldcraftCategories {
+                        item_categories: Some(Vec::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "ResourceTypes",
+                    &UpdateResourceTypes {
+                        resource_types: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
                 // The gameplay phase sends the real `UpdateRecipes`; this is
                 // the required asset-type initialization.
-                empty_packet::<UpdateRecipes>("Recipes")?,
-                empty_packet::<UpdateAmbienceFX>("AmbienceFX")?,
-                empty_packet::<UpdateInteractions>("Interactions")?,
-                empty_packet::<UpdateRootInteractions>("RootInteractions")?,
-                empty_packet::<UpdateUnarmedInteractions>("UnarmedInteractions")?,
-                empty_packet::<UpdateEntityUIComponents>("EntityUIComponents")?,
-                empty_packet::<UpdateHitboxCollisionConfig>("HitboxCollisionConfig")?,
-                empty_packet::<UpdateRepulsionConfig>("RepulsionConfig")?,
-                empty_packet::<UpdateSoundSets>("SoundSets")?,
-                empty_packet::<UpdateAudioCategories>("AudioCategories")?,
-                empty_packet::<UpdateReverbEffects>("ReverbEffects")?,
-                empty_packet::<UpdateEqualizerEffects>("EqualizerEffects")?,
-                empty_packet::<UpdateMusicContainers>("MusicContainers")?,
-                empty_packet::<UpdateAudioStates>("AudioStates")?,
-                empty_packet::<UpdateConnectedBlockRuleSets>("ConnectedBlockRuleSets")?,
-                empty_packet::<UpdateMusicTransitions>("MusicTransitions")?,
-                empty_packet::<UpdateStingers>("Stingers")?,
-                empty_packet::<UpdateBeamConfigs>("Beams")?,
-                empty_packet::<UpdateAbilityKeywords>("AbilityKeywords")?,
+                empty_packet(
+                    "Recipes",
+                    &UpdateRecipes {
+                        recipes: Some(BTreeMap::new()),
+                        removed_recipes: Some(Vec::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "AmbienceFX",
+                    &UpdateAmbienceFX {
+                        ambience_fx: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "Interactions",
+                    &UpdateInteractions {
+                        interactions: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "RootInteractions",
+                    &UpdateRootInteractions {
+                        interactions: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "UnarmedInteractions",
+                    &UpdateUnarmedInteractions {
+                        interactions: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "EntityUIComponents",
+                    &UpdateEntityUIComponents {
+                        components: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "HitboxCollisionConfig",
+                    &UpdateHitboxCollisionConfig {
+                        hitbox_collision_configs: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "RepulsionConfig",
+                    &UpdateRepulsionConfig {
+                        repulsion_configs: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "SoundSets",
+                    &UpdateSoundSets {
+                        sound_sets: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "AudioCategories",
+                    &UpdateAudioCategories {
+                        categories: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "ReverbEffects",
+                    &UpdateReverbEffects {
+                        effects: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "EqualizerEffects",
+                    &UpdateEqualizerEffects {
+                        effects: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "MusicContainers",
+                    &UpdateMusicContainers {
+                        music_containers: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "AudioStates",
+                    &UpdateAudioStates {
+                        audio_states: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "ConnectedBlockRuleSets",
+                    &UpdateConnectedBlockRuleSets {
+                        rule_sets: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "MusicTransitions",
+                    &UpdateMusicTransitions {
+                        music_transitions: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "Stingers",
+                    &UpdateStingers {
+                        stingers: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "Beams",
+                    &UpdateBeamConfigs {
+                        beam_configs: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
+                empty_packet(
+                    "AbilityKeywords",
+                    &UpdateAbilityKeywords {
+                        ability_keywords: Some(BTreeMap::new()),
+                        ..Default::default()
+                    },
+                )?,
             ],
             tags: tags.map(),
         })

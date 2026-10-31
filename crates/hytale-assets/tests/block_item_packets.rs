@@ -24,7 +24,9 @@ use hytale_protocol::generated::assets::{
     UpdateReverbEffects, UpdateRootInteractions, UpdateSoundEvents, UpdateSoundSets,
     UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
 };
-use hytale_protocol::generated::common::{BlockNeighbor, BlockType, RequiredBlockFaceSupport};
+use hytale_protocol::generated::common::{
+    BlockNeighbor, BlockType, RequiredBlockFaceSupport, UpdateType,
+};
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::Reader;
 
@@ -185,6 +187,30 @@ fn release_required_asset_types_are_all_initialized() {
     ] {
         assert!(ids.contains(&id), "missing required asset type packet {id}");
     }
+
+    // Regression: the release client null-references an empty asset store if
+    // its collection is encoded as null. Every required collection must be an
+    // explicit empty map/vector.
+    let block_sets = UpdateBlockSets::decode(&mut Reader::new(
+        &packet(&packets, UpdateBlockSets::ID).payload,
+    ))
+    .expect("decode UpdateBlockSets");
+    assert_eq!(block_sets.r#type, UpdateType::Init);
+    assert_eq!(block_sets.block_sets, Some(BTreeMap::new()));
+
+    let particles = UpdateParticleSystems::decode(&mut Reader::new(
+        &packet(&packets, UpdateParticleSystems::ID).payload,
+    ))
+    .expect("decode UpdateParticleSystems");
+    assert_eq!(particles.particle_systems, Some(BTreeMap::new()));
+    assert_eq!(particles.removed_particle_systems, Some(Vec::new()));
+
+    let recipes = UpdateRecipes::decode(&mut Reader::new(
+        &packet(&packets, UpdateRecipes::ID).payload,
+    ))
+    .expect("decode UpdateRecipes");
+    assert_eq!(recipes.recipes, Some(BTreeMap::new()));
+    assert_eq!(recipes.removed_recipes, Some(Vec::new()));
 }
 
 #[test]
