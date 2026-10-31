@@ -98,6 +98,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "bytes",
     );
     report_memory("assets");
+    // Keep the asset phase isolated: the world thread loads its own registry.
+    // Dropping these before `WorldThread::spawn` keeps the boot RSS comparison
+    // honest instead of retaining two extra registries.
+    drop(config);
+    drop(registry);
+    drop(p0);
+    report_memory("assets_dropped");
 
     let mut options = WorldThreadOptions::with_defaults(
         GeneratorOptions {

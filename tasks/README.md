@@ -60,8 +60,9 @@ passthrough is in scope, editor clients are refused in every auth mode, and
 session abuse limits (payload/rate/view/queue ceilings), duplicate-identity
 refusal, deterministic protocol/asset fuzz targets and the `tools/security.sh`
 dependency/fuzz gate. T63 publishes the release performance/memory baseline
-for boot, assets, config cache, tick, chunk stream and save, and adds the
-1,000-cycle join/edit/save soak with an RSS ceiling. T52b–T52d closed the parity gaps
+for boot, assets, config cache, tick, chunk stream and save, adds the
+1,000-cycle join/edit/save soak with an RSS ceiling, and records Java
+boot/validation comparisons via `tools/java-baseline.sh`. T52b–T52d closed the parity gaps
 recorded by T52 in session 41. T53's gameplay core, Java entity-gameplay
 fixture and T54's time/weather core are landed; T55 adds the projectile core
 and traversal seam; T56 lands prefab entities/block components and the

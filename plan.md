@@ -1103,10 +1103,13 @@ load, join chunk packet/zstd framing, block edit and save, with RSS snapshots.
 `target/perf/`. `hytale-server::memory` exposes portable RSS/peak-RSS readers.
 `hytale-server/tests/soak.rs` runs repeated register/edit/tick/save/unregister
 cycles, asserts the view/registry are clean and enforces a 64 MiB RSS growth
-ceiling; 1,000 cycles grew +417,792 B on the reference host. The stale
-asset-backed config-cache test was corrected to the current 47-packet burst.
-Java comparison remains pending because the Java server is not available in
-this workspace.
+ceiling; 1,000 cycles grew +421,888 B on the reference host. The stale
+asset-backed config-cache and `--validate-assets` expectations were corrected
+to the current 47-packet burst. `tools/java-baseline.sh` runs the shared-source
+Java server for the comparison: boot to ready is 4.09–4.10 s / 2.78–3.44 GiB peak RSS
+for Java versus 4.07 s / 1.11 GiB for the Rust world spawn on the same zip pack;
+asset validation is 42.9–43.6 s / 4.83–6.00 GiB for Java (all stores)
+versus 9.92 s / 1.34 GiB for Rust (27 stores), so the validation ratio is not equal scope.
 
 ### T64 — Packaging, docs and plugin/mod API
 

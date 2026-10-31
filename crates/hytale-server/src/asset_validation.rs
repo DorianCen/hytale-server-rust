@@ -12,12 +12,18 @@ use hytale_assets::{
     AssetCollection, AssetError, AssetPack, AssetPacket, AssetPacketError, AssetRegistry,
 };
 use hytale_protocol::generated::assets::{
-    UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets, UpdateBlockSoundSets,
-    UpdateBlockTypes, UpdateEntityEffects, UpdateEntityStatTypes, UpdateEnvironments,
-    UpdateFluidFX, UpdateFluids, UpdateItemCategories, UpdateItemPlayerAnimations,
-    UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets, UpdateItems,
-    UpdatePhysicalMaterials, UpdateProjectileConfigs, UpdateSoundEvents, UpdateTagPatterns,
-    UpdateWeathers,
+    UpdateAbilityKeywords, UpdateAmbienceFX, UpdateAudioCategories, UpdateAudioStates,
+    UpdateBeamConfigs, UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets,
+    UpdateBlockSets, UpdateBlockSoundSets, UpdateBlockTypes, UpdateConnectedBlockRuleSets,
+    UpdateEntityEffects, UpdateEntityStatTypes, UpdateEntityUIComponents, UpdateEnvironments,
+    UpdateEqualizerEffects, UpdateFieldcraftCategories, UpdateFluidFX, UpdateFluids,
+    UpdateHitboxCollisionConfig, UpdateInteractions, UpdateItemCategories,
+    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
+    UpdateItems, UpdateModelvfxs, UpdateMusicContainers, UpdateMusicTransitions,
+    UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
+    UpdateProjectileConfigs, UpdateRecipes, UpdateRepulsionConfig, UpdateResourceTypes,
+    UpdateReverbEffects, UpdateRootInteractions, UpdateSoundEvents, UpdateSoundSets,
+    UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{TagPattern, TagPatternType};
 use hytale_protocol::generated::wire::{Packet, Wire};
@@ -156,7 +162,7 @@ pub fn validate_assets(pack: &Path) -> Result<AssetValidationReport, AssetValida
 }
 
 /// The expected config packet order. Kept here so the CLI reports order drift.
-fn expected_packets() -> [(u32, &'static str); 21] {
+fn expected_packets() -> [(u32, &'static str); 47] {
     [
         (UpdateBlockHitboxes::ID, "BlockBoundingBoxes"),
         (UpdatePhysicalMaterials::ID, "PhysicalMaterial"),
@@ -179,6 +185,32 @@ fn expected_packets() -> [(u32, &'static str); 21] {
         (UpdateProjectileConfigs::ID, "ProjectileConfig"),
         (UpdateWeathers::ID, "Weather"),
         (UpdateItems::ID, "Item"),
+        (UpdateBlockSets::ID, "BlockSets"),
+        (UpdateTrails::ID, "Trails"),
+        (UpdateParticleSystems::ID, "ParticleSystems"),
+        (UpdateParticleSpawners::ID, "ParticleSpawners"),
+        (UpdateModelvfxs::ID, "ModelVFX"),
+        (UpdateFieldcraftCategories::ID, "FieldcraftCategories"),
+        (UpdateResourceTypes::ID, "ResourceTypes"),
+        (UpdateRecipes::ID, "Recipes"),
+        (UpdateAmbienceFX::ID, "AmbienceFX"),
+        (UpdateInteractions::ID, "Interactions"),
+        (UpdateRootInteractions::ID, "RootInteractions"),
+        (UpdateUnarmedInteractions::ID, "UnarmedInteractions"),
+        (UpdateEntityUIComponents::ID, "EntityUIComponents"),
+        (UpdateHitboxCollisionConfig::ID, "HitboxCollisionConfig"),
+        (UpdateRepulsionConfig::ID, "RepulsionConfig"),
+        (UpdateSoundSets::ID, "SoundSets"),
+        (UpdateAudioCategories::ID, "AudioCategory"),
+        (UpdateReverbEffects::ID, "ReverbEffects"),
+        (UpdateEqualizerEffects::ID, "EqualizerEffects"),
+        (UpdateMusicContainers::ID, "MusicContainers"),
+        (UpdateAudioStates::ID, "AudioState"),
+        (UpdateConnectedBlockRuleSets::ID, "ConnectedBlockRuleSets"),
+        (UpdateMusicTransitions::ID, "MusicTransitions"),
+        (UpdateStingers::ID, "Stingers"),
+        (UpdateBeamConfigs::ID, "Beams"),
+        (UpdateAbilityKeywords::ID, "AbilityKeywords"),
     ]
 }
 
@@ -424,6 +456,110 @@ fn check_packet(packet: &AssetPacket, tags: &BTreeSet<i32>) -> Result<usize, Str
                 Err(failures.join("; "))
             }
         }
+        UpdateBlockSets::ID => {
+            let _: UpdateBlockSets = decode(packet)?;
+            Ok(0)
+        }
+        UpdateTrails::ID => {
+            let _: UpdateTrails = decode(packet)?;
+            Ok(0)
+        }
+        UpdateParticleSystems::ID => {
+            let _: UpdateParticleSystems = decode(packet)?;
+            Ok(0)
+        }
+        UpdateParticleSpawners::ID => {
+            let _: UpdateParticleSpawners = decode(packet)?;
+            Ok(0)
+        }
+        UpdateModelvfxs::ID => {
+            let _: UpdateModelvfxs = decode(packet)?;
+            Ok(0)
+        }
+        UpdateFieldcraftCategories::ID => {
+            let _: UpdateFieldcraftCategories = decode(packet)?;
+            Ok(0)
+        }
+        UpdateResourceTypes::ID => {
+            let _: UpdateResourceTypes = decode(packet)?;
+            Ok(0)
+        }
+        UpdateRecipes::ID => {
+            let _: UpdateRecipes = decode(packet)?;
+            Ok(0)
+        }
+        UpdateAmbienceFX::ID => {
+            let _: UpdateAmbienceFX = decode(packet)?;
+            Ok(0)
+        }
+        UpdateInteractions::ID => {
+            let _: UpdateInteractions = decode(packet)?;
+            Ok(0)
+        }
+        UpdateRootInteractions::ID => {
+            let _: UpdateRootInteractions = decode(packet)?;
+            Ok(0)
+        }
+        UpdateUnarmedInteractions::ID => {
+            let _: UpdateUnarmedInteractions = decode(packet)?;
+            Ok(0)
+        }
+        UpdateEntityUIComponents::ID => {
+            let _: UpdateEntityUIComponents = decode(packet)?;
+            Ok(0)
+        }
+        UpdateHitboxCollisionConfig::ID => {
+            let _: UpdateHitboxCollisionConfig = decode(packet)?;
+            Ok(0)
+        }
+        UpdateRepulsionConfig::ID => {
+            let _: UpdateRepulsionConfig = decode(packet)?;
+            Ok(0)
+        }
+        UpdateSoundSets::ID => {
+            let _: UpdateSoundSets = decode(packet)?;
+            Ok(0)
+        }
+        UpdateAudioCategories::ID => {
+            let _: UpdateAudioCategories = decode(packet)?;
+            Ok(0)
+        }
+        UpdateReverbEffects::ID => {
+            let _: UpdateReverbEffects = decode(packet)?;
+            Ok(0)
+        }
+        UpdateEqualizerEffects::ID => {
+            let _: UpdateEqualizerEffects = decode(packet)?;
+            Ok(0)
+        }
+        UpdateMusicContainers::ID => {
+            let _: UpdateMusicContainers = decode(packet)?;
+            Ok(0)
+        }
+        UpdateAudioStates::ID => {
+            let _: UpdateAudioStates = decode(packet)?;
+            Ok(0)
+        }
+        UpdateConnectedBlockRuleSets::ID => {
+            let _: UpdateConnectedBlockRuleSets = decode(packet)?;
+            Ok(0)
+        }
+        UpdateMusicTransitions::ID => {
+            let _: UpdateMusicTransitions = decode(packet)?;
+            Ok(0)
+        }
+        UpdateStingers::ID => {
+            let _: UpdateStingers = decode(packet)?;
+            Ok(0)
+        }
+        UpdateBeamConfigs::ID => {
+            let _: UpdateBeamConfigs = decode(packet)?;
+            Ok(0)
+        }
+        UpdateAbilityKeywords::ID => {
+            let _: UpdateAbilityKeywords = decode(packet)?;
+            Ok(0)
+        }
         other => Err(format!("unexpected config packet id {other}")),
     }
 }
@@ -520,4 +656,25 @@ pub fn print_report(pack: &Path, report: &AssetValidationReport) -> bool {
 /// The default pack path used by the CLI.
 pub fn default_pack_path() -> PathBuf {
     PathBuf::from("Assets/Assets.zip")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expected_config_assets_cover_the_release_burst() {
+        let expected = expected_packets();
+        assert_eq!(expected.len(), 47);
+        let ids: BTreeSet<u32> = expected.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids.len(), expected.len(), "config packet ids are unique");
+        let stores: BTreeSet<&str> = expected.iter().map(|(_, store)| *store).collect();
+        assert_eq!(
+            stores.len(),
+            expected.len(),
+            "config packet stores are unique"
+        );
+        assert_eq!(expected[20], (UpdateItems::ID, "Item"));
+        assert_eq!(expected[46], (UpdateAbilityKeywords::ID, "AbilityKeywords"));
+    }
 }

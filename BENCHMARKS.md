@@ -114,25 +114,25 @@ HYTALE_SOAK_CYCLES=1000 cargo test --release -p hytale-server --test soak -- --i
 | Metric | Result |
 |---|---:|
 | Asset pack open | 0.002 ms |
-| P0 registry decode | 1,276.3 ms |
-| Phase-2 registry decode (includes P0) | 2,574.3 ms |
-| Config asset encode | 68.5 ms |
+| P0 registry decode | 1,271.4 ms |
+| Phase-2 registry decode (includes P0) | 2,541.0 ms |
+| Config asset encode | 68.4 ms |
 | Config packets / payload | 47 packets / 10,116,796 B |
-| World spawn (9 initial chunk requests) | 4,085.6 ms |
-| Config cache cold / hit | 0.028 ms / 0.009 ms |
+| World spawn (9 initial chunk requests) | 4,071.7 ms |
+| Config cache cold / hit | 0.036 ms / 0.006 ms |
 | Config cache shared (`Arc::ptr_eq`) | true |
-| 200 ticks + simulation passes | 1,908.6 ms |
+| 200 ticks + simulation passes | 1,907.5 ms |
 | Tick throughput (load + simulate) | 104.8 ticks/s |
-| Load one chunk outside the view | 210.0 ms |
-| Join chunk batch encode | 0.347 ms (21 packets, 298,878 B raw) |
-| Join chunk batch zstd framing | 0.614 ms (20,896 B framed) |
-| Block edit | 0.014 ms |
-| Save 10 chunks | 39.7 ms |
-| RSS after world spawn | 1.199 GiB |
-| RSS after save | 1.715 GiB |
+| Load one chunk outside the view | 209.8 ms |
+| Join chunk batch encode | 0.385 ms (21 packets, 298,878 B raw) |
+| Join chunk batch zstd framing | 0.648 ms (20,896 B framed) |
+| Block edit | 0.024 ms |
+| Save 10 chunks | 48.7 ms |
+| RSS after world spawn | 1.111 GiB |
+| RSS after save | 1.592 GiB |
 
 A second run with view radius 0 measured 134.8 ticks/s, a 12.8 ms save of 2
-chunks and 1.672 GiB RSS after save. The 8-chunk difference is roughly 5.4 MiB
+chunks and 1.557 GiB RSS after save. The 8-chunk difference is roughly 4.5 MiB
 per loaded chunk on this workload (includes the world's chunk/entity caches,
 not just the column bytes).
 
@@ -140,7 +140,7 @@ not just the column bytes).
 
 `HYTALE_SOAK_CYCLES=1000` (register player → edit block → tick/simulate → save
 every 10 cycles → unregister) completed in 1.09 s. Resident memory moved from
-1,128,144,896 B to 1,128,562,688 B: **+417,792 B over 1,000 cycles**, below the
+1,128,251,392 B to 1,128,673,280 B: **+421,888 B over 1,000 cycles**, below the
 64 MiB regression ceiling. The radius-1 view held at most 9 chunks and the
 player registry was empty at the end.
 
@@ -148,10 +148,22 @@ The same test at 100 cycles grew +602,112 B. Memory is dominated by the
 resident asset registry (~503 MiB) and world caches (~1.1 GiB at radius 1), not
 per-cycle session state.
 
-### Comparison
+### Java comparison
 
-Java CoreServer numbers are not available in this workspace (the release Java
-server is a user-run external binary), so the Java/Rust ratios remain pending.
+Java: HytaleServer `0.0.0-dev` revision `387dc7e0aa08a887d3e013de7ec1752b8ae9e53e`,
+Temurin JDK 25.0.4, same host. Reproduce with `tools/java-baseline.sh`; raw
+logs are under `target/perf/java-*`.
+
+| Probe | Rust | Java | Notes |
+|---|---:|---:|---|
+| Asset validation | 9.92 s / 1.34 GiB peak RSS | 42.9–43.6 s / 4.83–6.00 GiB peak RSS | Rust validates 27 stores and encodes 47 config packets twice; Java validates every loaded store (100+ types, including interactions/NPC/model assets). Not equal scope; the Java JVM heap peak varies between runs. |
+| Boot to ready (zip pack) | `WorldThread::spawn` 4.07 s / 1.11 GiB RSS | 4.09–4.10 s to `Hytale Server Booted`; 4.73–4.77 s process / 2.78–3.44 GiB peak RSS | Java boot includes all plugins and a fresh universe; Rust has the implemented world systems only, radius-1 view and 4 chunks/tick. |
+
+The Java validation path also reported the expected `Plugin.Instance.Discovery`
+deprecation warnings and exited 0. The Rust validation was run against the same
+extracted `HytaleAssets` tree and now passes with the current 47-packet config
+burst.
+
 These numbers should be compared only against the same pack, seed, hardware and
 view radius. No worldgen benchmark regressed: the existing worldgen criterion
 targets are unchanged.
@@ -165,6 +177,8 @@ targets are unchanged.
 - The soak harness is `crates/hytale-server/tests/soak.rs`; the probe is
   `crates/hytale-server/examples/perf.rs`; both are excluded from the default
   `fast` tier.
-- The probe is a single warm-cache run; two consecutive runs on this host
-  varied by less than 2% for decode, tick and save. Median/p95 capture is a
-  follow-up when the Java comparison harness exists.
+- The probe is a single warm-cache run; consecutive runs on this host varied by
+  less than 2% for decode, tick and save. Median/p95 capture is a follow-up.
+- Rust `WorldThread::spawn` loads the phase-2 registry itself; the probe also
+  measures P0/phase-2 decode separately for reporting, so the probe's total
+  wall time is not the boot time. Use the `world.spawn` row for boot.

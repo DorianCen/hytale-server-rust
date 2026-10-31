@@ -54,12 +54,21 @@ It asserts that the registry is empty at the end, the radius-1 view holds at
 most 9 chunks, edits are still readable, and resident memory growth stays under
 `HYTALE_SOAK_RSS_LIMIT_MIB` (default 64 MiB).
 
-### Stale config-cache regression
+### Stale config-cache/validation regressions
 
 The asset-backed `config_assets_are_cached_per_world` test still asserted the
 pre-T65 21-packet burst, so it only passed when the fast tier skipped assets.
-T63 updates it to the current 47-packet release-client burst and its exact ids,
-and the test now runs with assets.
+T63 updates it to the current 47-packet release-client burst and its exact ids.
+`--validate-assets` had the same stale 21-packet expectation and no decode arms
+for the newer empty initialization packets; it now validates all 47 packets and
+passes against the shared-source `HytaleAssets` tree.
+
+### Java comparison harness
+
+`tools/java-baseline.sh` builds no Java code itself; it runs the already-built
+shared-source `HytaleServer.jar` for `--validate-assets` and an offline
+`--boot-command stop` boot with the same asset pack and records wall time plus
+peak RSS under `target/perf/`.
 
 ### Published baseline
 
@@ -80,18 +89,21 @@ cargo fmt --all -- --check
 
 Measured T63 numbers (AMD Ryzen 7 9800X3D, 64 GiB RAM, Linux 7.3.1):
 
-- P0 decode 1.28 s; phase-2 decode 2.57 s; config encode 68.5 ms.
-- World spawn 4.09 s; config-cache hit 0.009 ms.
+- P0 decode 1.27 s; phase-2 decode 2.54 s; config encode 68.4 ms.
+- World spawn 4.07 s; config-cache hit 0.006 ms.
 - 200 tick+simulate passes at 104.8 ticks/s; one out-of-view chunk load 210 ms.
-- Join chunk batch: 0.347 ms encode / 0.614 ms zstd framing.
-- Save 10 chunks: 39.7 ms.
-- 1,000 join/edit/save cycles: +417,792 B RSS, under the 64 MiB ceiling.
+- Join chunk batch: 0.385 ms encode / 0.648 ms zstd framing.
+- Save 10 chunks: 48.7 ms.
+- 1,000 join/edit/save cycles: +421,888 B RSS, under the 64 MiB ceiling.
 
 ## Deviations
 
-- A Java CoreServer baseline is not available in this workspace; the probe and
-  report are ready for a side-by-side run with the same pack/seed, but the
-  Java/Rust ratio remains pending.
+- The Java comparison uses HytaleServer's `--validate-assets` and offline
+  `--boot-command stop` paths. Rust validates 27 stores and encodes 47 config
+  packets; Java validates every loaded store, so the asset-validation ratio is
+  not equal scope. Boot uses the same `Assets.zip`, but the Rust world contains
+  only the implemented systems (no plugins/NPC assets). Raw Java logs are under
+  `target/perf/java-*`; reproduce with `tools/java-baseline.sh`.
 - The probe is an example binary rather than criterion to avoid a multi-second
   asset boot inside the default test suite. Existing worldgen criterion benches
   are unchanged.
@@ -103,8 +115,6 @@ Measured T63 numbers (AMD Ryzen 7 9800X3D, 64 GiB RAM, Linux 7.3.1):
 
 ## Follow-ups
 
-- Run the same probe against the Java server on this host and fill the
-  comparison column in `BENCHMARKS.md`.
 - Add a concurrent 10/50/100-player load generator if multiplayer deployment
   sizing becomes a requirement.
 - Move the chunk-per-region/storage microbenchmarks to criterion if they become
