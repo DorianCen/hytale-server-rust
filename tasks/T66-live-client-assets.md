@@ -145,6 +145,14 @@ This is an asset-packet completeness task, not an auth task.
   `ApplyForce` and the condition/change nodes.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
+## Client/server version comparison
+
+The old and new Java checkouts share the same protocol (CRC `3908406161`,
+build `258`) and the Rust asset pack matches the old checkout byte-for-byte.
+The 0.7.5 delta is cosmetic/Halloween assets plus server-side security and
+packet-handler validation, not a wire-protocol change. See
+[`JAVA_VERSION_DIFF.md`](../JAVA_VERSION_DIFF.md).
+
 ## User-run real-client smoke
 
 The client is never launched by the agent. After deploying this revision:

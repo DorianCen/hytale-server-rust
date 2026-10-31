@@ -1957,3 +1957,31 @@ This file records phase-2 sessions only.
   - Crafting UI presentation beyond the bench payload contract.
   - Player death-screen/configured-spawn policy and effect conditions.
   - Full motion-controller action set and deeper instance removal/adventure policy.
+
+---
+
+## Session 71 — Java 0.7.2 vs 0.7.5 protocol/asset comparison (2026-10-31)
+
+- **Goal:** determine whether the release-client/server version gap explains the
+  `WorldLoadFinished` failure instead of treating it as a T66 asset bug.
+- **Landed:**
+  - Compared the old shared-source checkout (`387dc7e0a`, 2026-10-14) with the
+    current one (`bcc393865`, 2026-10-30).
+  - Added [`JAVA_VERSION_DIFF.md`](JAVA_VERSION_DIFF.md) with the evidence and
+    conclusion.
+  - Added `tools/compare-java-versions.py` to reproduce the comparison.
+- **Verified:**
+  - `Protocol/protocol-version.json` is identical: CRC `3908406161`, build `258`.
+  - The entire `Protocol/` tree is unchanged; no generated packet class changed.
+  - `Assets/extracted/Server` matches the old checkout byte-for-byte on all
+    36,498 common JSON files. The new checkout changes 30 cosmetic/Halloween
+    documents and adds 4 items.
+  - No asset-store or `*PacketGenerator` Java source changed.
+  - Existing `crates/hytale-protocol/tests/registry.rs` still asserts the same
+    CRC/build constants.
+- **Conclusion:** the version gap is not a protocol-level incompatibility.
+  The failure is more likely in Rust setup/common-asset handling or the new
+  0.7.5 packet-handler/channel pre-checks, not in the shared wire contract.
+- **Follow-ups:** capture a release-client log before changing packets; mirror
+  the 0.7.5 handler/channel validation in the Rust transport; refresh assets
+  separately for content parity.
