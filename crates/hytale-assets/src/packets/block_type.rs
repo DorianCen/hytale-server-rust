@@ -11,10 +11,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use hytale_protocol::generated::assets::UpdateBlockTypes;
 use hytale_protocol::generated::common::{
-    BlockBreaking, BlockFaceSupport, BlockGathering, BlockMaterial, BlockMovementSettings,
-    BlockNeighbor, BlockSupportsRequiredForType, BlockTextures, BlockType, DrawType, Harvesting,
-    ModelTexture, RailConfig, RailPoint, RandomRotation, RequiredBlockFaceSupport, Rotation,
-    ShadingMode, SoftBlock, SupportMatch, Tint, UpdateType, VariantRotation, Vector3i,
+    Bench, BenchTierLevel, BenchUpgradeRequirement, BlockBreaking, BlockFaceSupport,
+    BlockGathering, BlockMaterial, BlockMovementSettings, BlockNeighbor,
+    BlockPlacementRotationMode, BlockPlacementSettings, BlockPreviewVisibility,
+    BlockSupportsRequiredForType, BlockTextures, BlockType, ConditionalBlockSound, DrawType,
+    Harvesting, MaterialQuantity, ModelTexture, RailConfig, RailPoint, RandomRotation,
+    RequiredBlockFaceSupport, Rotation, ShadingMode, SoftBlock, SupportMatch, Tint, UpdateType,
+    VariantRotation, Vector3i,
 };
 use hytale_protocol::generated::wire::Vector3f;
 use serde_json::Value;
@@ -194,8 +197,6 @@ pub(crate) fn block_type_packet(
                 sound_occlusion_opacity: f32_field(json, "SoundOcclusionOpacity", 1.0),
                 // The AmbientSoundEvent store is not streamed yet.
                 ambient_sound_event_index: 0,
-                // `conditionalSounds` is deferred (see T33).
-                conditional_sounds: None,
                 particles: {
                     let particles = model_particles(json.get("Particles"))?;
                     (!particles.is_empty()).then_some(particles)
@@ -214,7 +215,7 @@ pub(crate) fn block_type_packet(
                 interaction_hint: Some(interaction_hint),
                 gathering,
                 // Deferred stores / trees.
-                placement_settings: None,
+                placement_settings: placement_settings(json.get("PlacementSettings")),
                 display: None,
                 rail: rail(json.get("Rail")),
                 ignore_support_when_placed: json
@@ -225,7 +226,8 @@ pub(crate) fn block_type_packet(
                 // interactions). A null map is copied by the client during
                 // `PrepareBlockTypes` and crashes at `WorldLoadFinished`.
                 interactions: Some(BTreeMap::new()),
-                states: None,
+                conditional_sounds: conditional_sounds(registry, json.get("ConditionalSounds"))?,
+                states: states(registry, key, id, json),
                 transition_to_tag: json
                     .get("TransitionToTag")
                     .and_then(Value::as_str)
@@ -236,7 +238,7 @@ pub(crate) fn block_type_packet(
                 // The client's `PrepareBlockTypes` copy dereferences this
                 // list, so never send null for a normal block.
                 tag_indexes: Some(tags.expanded(json.get("Tags")).unwrap_or_default()),
-                bench: None,
+                bench: bench(json.get("Bench")),
                 connected_block_rule_set: None,
             },
         );
@@ -327,6 +329,150 @@ fn drop_list_id(
 // ---------------------------------------------------------------------------
 // Field helpers
 // ---------------------------------------------------------------------------
+
+fn states(
+    registry: &AssetRegistry,
+    key: &str,
+    id: i32,
+    json: &Value,
+) -> Option<BTreeMap<String, i32>> {
+    let definitions = json
+        .get("State")
+        .and_then(|state| state.get("Definitions"))
+        .and_then(Value::as_object)?;
+    let mut states = BTreeMap::new();
+    // Java always tells the client where the default state resolves.
+    states.insert("default".to_string(), id);
+    for (name, value) in definitions {
+        if !value.is_object() {
+            continue;
+        }
+        let definition_key = format!("*{key}_State_Definitions_{name}");
+        if let Some(block_id) = registry.block_types.id_of(&definition_key) {
+            states.insert(name.clone(), block_id);
+        }
+    }
+    Some(states)
+}
+
+fn bench(value: Option<&Value>) -> Option<Bench> {
+    let object = value?.as_object()?;
+    let levels = object.get("TierLevels")?.as_array()?;
+    let mut tiers = Vec::with_capacity(levels.len());
+    for level in levels {
+        let level = level.as_object()?;
+        let requirement = level
+            .get("UpgradeRequirement")
+            .and_then(Value::as_object)
+            .map(|requirement| BenchUpgradeRequirement {
+                material: requirement
+                    .get("Material")
+                    .and_then(Value::as_array)
+                    .map(|entries| {
+                        entries
+                            .iter()
+                            .filter_map(|entry| {
+                                let entry = entry.as_object()?;
+                                Some(MaterialQuantity {
+                                    item_id: entry
+                                        .get("ItemId")
+                                        .and_then(Value::as_str)
+                                        .map(ToOwned::to_owned),
+                                    item_tag: 0,
+                                    resource_type_id: entry
+                                        .get("ResourceTypeId")
+                                        .and_then(Value::as_str)
+                                        .map(ToOwned::to_owned),
+                                    quantity: entry
+                                        .get("Quantity")
+                                        .and_then(Value::as_i64)
+                                        .and_then(|value| i32::try_from(value).ok())
+                                        .unwrap_or(0),
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|material| !material.is_empty()),
+                time_seconds: requirement
+                    .get("TimeSeconds")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0),
+            });
+        tiers.push(BenchTierLevel {
+            bench_upgrade_requirement: requirement,
+            crafting_time_reduction_modifier: level
+                .get("CraftingTimeReductionModifier")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            extra_input_slot: level
+                .get("ExtraInputSlot")
+                .and_then(Value::as_i64)
+                .unwrap_or(0) as i32,
+            extra_output_slot: level
+                .get("ExtraOutputSlot")
+                .and_then(Value::as_i64)
+                .unwrap_or(0) as i32,
+        });
+    }
+    Some(Bench {
+        bench_tier_levels: (!tiers.is_empty()).then_some(tiers),
+    })
+}
+
+fn placement_settings(value: Option<&Value>) -> Option<BlockPlacementSettings> {
+    let object = value?.as_object()?;
+    Some(BlockPlacementSettings {
+        allow_rotation_key: object
+            .get("AllowRotationKey")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        place_in_empty_blocks: object
+            .get("PlaceInEmptyBlocks")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        preview_visibility: match object.get("PreviewVisibility").and_then(Value::as_str) {
+            Some("AlwaysVisible") => BlockPreviewVisibility::AlwaysVisible,
+            Some("AlwaysHidden") => BlockPreviewVisibility::AlwaysHidden,
+            _ => BlockPreviewVisibility::Default,
+        },
+        rotation_mode: match object.get("RotationMode").and_then(Value::as_str) {
+            Some("FacingPlayer") => BlockPlacementRotationMode::FacingPlayer,
+            Some("StairFacingPlayer") => BlockPlacementRotationMode::StairFacingPlayer,
+            Some("BlockNormal") => BlockPlacementRotationMode::BlockNormal,
+            _ => BlockPlacementRotationMode::Default,
+        },
+        wall_placement_override_block_id: 0,
+        floor_placement_override_block_id: 0,
+        ceiling_placement_override_block_id: 0,
+        allow_break_replace: object
+            .get("AllowBreakReplace")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn conditional_sounds(
+    registry: &AssetRegistry,
+    value: Option<&Value>,
+) -> Result<Option<Vec<ConditionalBlockSound>>> {
+    let Some(entries) = value.and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let sounds: Vec<ConditionalBlockSound> = entries
+        .iter()
+        .filter_map(|entry| {
+            let entry = entry.as_object()?;
+            let sound = entry.get("SoundEventId").and_then(Value::as_str)?;
+            Some(ConditionalBlockSound {
+                sound_event_index: registry.sound_events.id_of(sound).unwrap_or(0),
+                // AmbienceFX is not loaded yet; the object is still
+                // materialized so the client never sees a null entry.
+                ambience_fx_index: 0,
+            })
+        })
+        .collect();
+    Ok((!sounds.is_empty()).then_some(sounds))
+}
 
 fn opt_string(json: &Value, name: &str) -> Option<String> {
     json.get(name)

@@ -34,16 +34,19 @@ use hytale_protocol::generated::assets::{
     UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    BlockTextures, CameraAxis, CameraNode, CameraSettings, Color, ColorLight, Direction,
-    EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType, Fluid,
-    FluidDrawType, FluidParticle, Hitbox, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
+    AbilityKeyword, BeamConfig, BlockTextures, CameraAxis, CameraNode, CameraSettings,
+    CollisionType, Color, ColorAlpha, ColorLight, CurveType, Direction, Edge, EffectDirection,
+    EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType,
+    EqualizerEffect, FXRenderMode, Fluid, FluidDrawType, FluidParticle, Hitbox,
+    HitboxCollisionConfig, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
     ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
-    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, Model, ModelParticle,
-    Opacity, OverlapBehavior as ProtocolOverlapBehavior, PhysicalMaterial, PhysicsConfig,
-    PhysicsType, ProjectileConfig, Rangef, RotationMode, ShaderType, SubCategoryDefinition,
-    UpdateType, ValueType, Weather, WiggleWeights, WorldEnvironment,
+    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LoopOption, Model,
+    ModelParticle, ModelVFX, Opacity, OverlapBehavior as ProtocolOverlapBehavior, PhysicalMaterial,
+    PhysicsConfig, PhysicsType, ProjectileConfig, Range, Rangef, RepulsionConfig, ResourceType,
+    ReverbEffect, RotationMode, ShaderType, SoundCategory, SoundSet, SubCategoryDefinition,
+    SwitchTo, Trail, UpdateType, ValueType, Vector2i, Weather, WiggleWeights, WorldEnvironment,
 };
-use hytale_protocol::generated::wire::{Packet, Vector3f, Wire};
+use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
 use serde_json::Value;
 use thiserror::Error;
@@ -287,13 +290,7 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "Trails",
-                    &UpdateTrails {
-                        trails: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.trails_packet()?,
                 empty_packet(
                     "ParticleSystems",
                     &UpdateParticleSystems {
@@ -310,27 +307,9 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "ModelVFX",
-                    &UpdateModelvfxs {
-                        model_vf_xs: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "FieldcraftCategories",
-                    &UpdateFieldcraftCategories {
-                        item_categories: Some(Vec::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "ResourceTypes",
-                    &UpdateResourceTypes {
-                        resource_types: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.model_vfxs_packet()?,
+                self.fieldcraft_categories_packet()?,
+                self.resource_types_packet()?,
                 // The gameplay phase sends the real `UpdateRecipes`; this is
                 // the required asset-type initialization.
                 empty_packet(
@@ -376,42 +355,12 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "HitboxCollisionConfig",
-                    &UpdateHitboxCollisionConfig {
-                        hitbox_collision_configs: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "RepulsionConfig",
-                    &UpdateRepulsionConfig {
-                        repulsion_configs: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "SoundSets",
-                    &UpdateSoundSets {
-                        sound_sets: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.hitbox_collision_configs_packet()?,
+                self.repulsion_configs_packet()?,
+                self.sound_sets_packet()?,
                 self.audio_category_packet()?,
-                empty_packet(
-                    "ReverbEffects",
-                    &UpdateReverbEffects {
-                        effects: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "EqualizerEffects",
-                    &UpdateEqualizerEffects {
-                        effects: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.reverb_effects_packet()?,
+                self.equalizer_effects_packet()?,
                 empty_packet(
                     "MusicContainers",
                     &UpdateMusicContainers {
@@ -441,20 +390,8 @@ impl AssetRegistry {
                         ..Default::default()
                     },
                 )?,
-                empty_packet(
-                    "Beams",
-                    &UpdateBeamConfigs {
-                        beam_configs: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "AbilityKeywords",
-                    &UpdateAbilityKeywords {
-                        ability_keywords: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.beam_configs_packet()?,
+                self.ability_keywords_packet()?,
             ],
             tags: tags.map(),
         })
@@ -478,6 +415,452 @@ impl AssetRegistry {
     /// `UpdateItems` (id 54) from the P0 `Item` store.
     pub fn item_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
         item::item_packet(self, tags)
+    }
+
+    /// `UpdateModelvfxs` (id 53) from the `ModelVFX` store.
+    pub fn model_vfxs_packet(&self) -> Result<AssetPacket> {
+        let mut model_vfxs = BTreeMap::new();
+        for record in self.model_vfxs.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "ModelVFX",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            model_vfxs.insert(
+                id,
+                ModelVFX {
+                    id: Some(record.key.clone()),
+                    switch_to: match json.get("SwitchTo").and_then(Value::as_str) {
+                        Some("PostColor") => SwitchTo::PostColor,
+                        Some("Distortion") => SwitchTo::Distortion,
+                        Some("Transparency") => SwitchTo::Transparency,
+                        Some("AlphaTransparency") => SwitchTo::AlphaTransparency,
+                        _ => SwitchTo::Disappear,
+                    },
+                    effect_direction: match json.get("EffectDirection").and_then(Value::as_str) {
+                        Some("BottomUp") => EffectDirection::BottomUp,
+                        Some("TopDown") => EffectDirection::TopDown,
+                        Some("ToCenter") => EffectDirection::ToCenter,
+                        Some("FromCenter") => EffectDirection::FromCenter,
+                        _ => EffectDirection::None,
+                    },
+                    animation_duration: number(json, "AnimationDuration") as f32,
+                    animation_range: json.get("AnimationRange").and_then(Value::as_object).map(
+                        |range| Vector2f {
+                            x: range.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                            y: range.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                        },
+                    ),
+                    loop_option: match json.get("LoopOption").and_then(Value::as_str) {
+                        Some("Loop") => LoopOption::Loop,
+                        Some("LoopMirror") => LoopOption::LoopMirror,
+                        _ => LoopOption::PlayOnce,
+                    },
+                    curve_type: match json.get("CurveType").and_then(Value::as_str) {
+                        Some("QuartIn") => CurveType::QuartIn,
+                        Some("QuartOut") => CurveType::QuartOut,
+                        Some("QuartInOut") => CurveType::QuartInOut,
+                        _ => CurveType::Linear,
+                    },
+                    highlight_color: color(json.get("HighlightColor")),
+                    highlight_thickness: number(json, "HighlightThickness") as f32,
+                    use_bloom_on_highlight: json
+                        .get("UseBloomOnHighlight")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    use_progessive_highlight: json
+                        .get("UseProgessiveHighlight")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    noise_scale: json
+                        .get("NoiseScale")
+                        .and_then(Value::as_object)
+                        .map(|scale| Vector2f {
+                            x: scale.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                            y: scale.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                        }),
+                    noise_scroll_speed: json
+                        .get("NoiseScrollSpeed")
+                        .and_then(Value::as_object)
+                        .map(|speed| Vector2f {
+                            x: speed.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                            y: speed.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                        }),
+                    post_color: color(json.get("PostColor")),
+                    post_color_opacity: number(json, "PostColorOpacity") as f32,
+                    opacity: number(json, "Opacity") as f32,
+                },
+            );
+        }
+        let packet = UpdateModelvfxs {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.model_vfxs, "ModelVFX")?,
+            model_vf_xs: Some(model_vfxs),
+        };
+        AssetPacket::encode("ModelVFX", &packet)
+    }
+
+    /// `UpdateTrails` (id 48) from the `Trail` store.
+    pub fn trails_packet(&self) -> Result<AssetPacket> {
+        let mut trails = BTreeMap::new();
+        for record in self.trails.iter() {
+            let json = &record.value;
+            let start = json.get("Start").and_then(edge);
+            let end = json.get("End").and_then(edge);
+            let animation = json.get("Animation").and_then(Value::as_object);
+            trails.insert(
+                record.key.clone(),
+                Trail {
+                    id: Some(record.key.clone()),
+                    texture: json
+                        .get("TexturePath")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    life_span: json.get("LifeSpan").and_then(Value::as_i64).unwrap_or(0) as i32,
+                    roll: number(json, "Roll") as f32,
+                    start,
+                    end,
+                    light_influence: number(json, "LightInfluence") as f32,
+                    render_mode: match json.get("RenderMode").and_then(Value::as_str) {
+                        Some("BlendAdd") => FXRenderMode::BlendAdd,
+                        Some("Erosion") => FXRenderMode::Erosion,
+                        Some("Distortion") => FXRenderMode::Distortion,
+                        _ => FXRenderMode::BlendLinear,
+                    },
+                    intersection_highlight: None,
+                    smooth: json.get("Smooth").and_then(Value::as_bool).unwrap_or(false),
+                    frame_size: animation
+                        .and_then(|animation| animation.get("FrameSize"))
+                        .and_then(Value::as_object)
+                        .map(|size| Vector2i {
+                            x: size.get("X").and_then(Value::as_i64).unwrap_or(0) as i32,
+                            y: size.get("Y").and_then(Value::as_i64).unwrap_or(0) as i32,
+                        }),
+                    frame_range: animation
+                        .and_then(|animation| animation.get("FrameRange"))
+                        .and_then(Value::as_object)
+                        .map(|range| Range {
+                            min: range.get("Min").and_then(Value::as_i64).unwrap_or(0) as i32,
+                            max: range.get("Max").and_then(Value::as_i64).unwrap_or(0) as i32,
+                        }),
+                    frame_life_span: animation
+                        .and_then(|animation| animation.get("FrameLifeSpan"))
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0) as i32,
+                },
+            );
+        }
+        let packet = UpdateTrails {
+            r#type: UpdateType::Init,
+            trails: Some(trails),
+        };
+        AssetPacket::encode("Trail", &packet)
+    }
+
+    /// `UpdateHitboxCollisionConfig` (id 74).
+    pub fn hitbox_collision_configs_packet(&self) -> Result<AssetPacket> {
+        let mut configs = BTreeMap::new();
+        for record in self.hitbox_collision_configs.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "HitboxCollisionConfig",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            configs.insert(
+                id,
+                HitboxCollisionConfig {
+                    collision_type: match json.get("CollisionType").and_then(Value::as_str) {
+                        Some("Soft") => CollisionType::Soft,
+                        _ => CollisionType::Hard,
+                    },
+                    soft_collision_offset_ratio: number(json, "SoftCollisionOffsetRatio") as f32,
+                    rotate_hitbox: json
+                        .get("RotateHitbox")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    allow_entity_anchoring: json
+                        .get("AllowEntityAnchoring")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    rotate_anchored_entities: json
+                        .get("RotateAnchoredEntities")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                },
+            );
+        }
+        let packet = UpdateHitboxCollisionConfig {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.hitbox_collision_configs, "HitboxCollisionConfig")?,
+            hitbox_collision_configs: Some(configs),
+        };
+        AssetPacket::encode("HitboxCollisionConfig", &packet)
+    }
+
+    /// `UpdateRepulsionConfig` (id 75).
+    pub fn repulsion_configs_packet(&self) -> Result<AssetPacket> {
+        let mut configs = BTreeMap::new();
+        for record in self.repulsion_configs.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "RepulsionConfig",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            configs.insert(
+                id,
+                RepulsionConfig {
+                    radius: number(json, "Radius") as f32,
+                    min_force: number(json, "MinForce") as f32,
+                    max_force: number(json, "MaxForce") as f32,
+                },
+            );
+        }
+        let packet = UpdateRepulsionConfig {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.repulsion_configs, "RepulsionConfig")?,
+            repulsion_configs: Some(configs),
+        };
+        AssetPacket::encode("RepulsionConfig", &packet)
+    }
+
+    /// `UpdateAbilityKeywords` (id 94).
+    pub fn ability_keywords_packet(&self) -> Result<AssetPacket> {
+        let mut keywords = BTreeMap::new();
+        for record in self.ability_keywords.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "AbilityKeyword",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            keywords.insert(
+                id,
+                AbilityKeyword {
+                    id: Some(record.key.clone()),
+                    translation_key: json
+                        .get("Name")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    show_on_tooltip: json
+                        .get("ShowOnTooltip")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true),
+                },
+            );
+        }
+        let packet = UpdateAbilityKeywords {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.ability_keywords, "AbilityKeyword")?,
+            ability_keywords: Some(keywords),
+        };
+        AssetPacket::encode("AbilityKeyword", &packet)
+    }
+
+    /// `UpdateReverbEffects` (id 81) from the `ReverbEffect` store.
+    pub fn reverb_effects_packet(&self) -> Result<AssetPacket> {
+        let mut effects = BTreeMap::new();
+        for record in self.reverb_effects.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "ReverbEffect",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            effects.insert(
+                id,
+                ReverbEffect {
+                    id: Some(record.key.clone()),
+                    dry_gain: number(json, "DryGain") as f32,
+                    modal_density: number(json, "ModalDensity") as f32,
+                    diffusion: number(json, "Diffusion") as f32,
+                    gain: number(json, "Gain") as f32,
+                    high_frequency_gain: number(json, "HighFrequencyGain") as f32,
+                    decay_time: number(json, "DecayTime") as f32,
+                    high_frequency_decay_ratio: number(json, "HighFrequencyDecayRatio") as f32,
+                    reflection_gain: number(json, "ReflectionGain") as f32,
+                    reflection_delay: number(json, "ReflectionDelay") as f32,
+                    late_reverb_gain: number(json, "LateReverbGain") as f32,
+                    late_reverb_delay: number(json, "LateReverbDelay") as f32,
+                    room_rolloff_factor: number(json, "RoomRolloffFactor") as f32,
+                    air_absorption_high_frequency_gain: number(
+                        json,
+                        "AirAbsorbptionHighFrequencyGain",
+                    ) as f32,
+                    limit_decay_high_frequency: json
+                        .get("LimitDecayHighFrequency")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                },
+            );
+        }
+        let packet = UpdateReverbEffects {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.reverb_effects, "ReverbEffect")?,
+            effects: Some(effects),
+        };
+        AssetPacket::encode("ReverbEffect", &packet)
+    }
+
+    /// `UpdateEqualizerEffects` (id 82) from the `EqualizerEffect` store.
+    pub fn equalizer_effects_packet(&self) -> Result<AssetPacket> {
+        let mut effects = BTreeMap::new();
+        for record in self.equalizer_effects.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "EqualizerEffect",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            effects.insert(
+                id,
+                EqualizerEffect {
+                    id: Some(record.key.clone()),
+                    low_gain: number(json, "LowGain") as f32,
+                    low_cut_off: number(json, "LowCutOff") as f32,
+                    low_mid_gain: number(json, "LowMidGain") as f32,
+                    low_mid_center: number(json, "LowMidCenter") as f32,
+                    low_mid_width: number(json, "LowMidWidth") as f32,
+                    high_mid_gain: number(json, "HighMidGain") as f32,
+                    high_mid_center: number(json, "HighMidCenter") as f32,
+                    high_mid_width: number(json, "HighMidWidth") as f32,
+                    high_gain: number(json, "HighGain") as f32,
+                    high_cut_off: number(json, "HighCutOff") as f32,
+                },
+            );
+        }
+        let packet = UpdateEqualizerEffects {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.equalizer_effects, "EqualizerEffect")?,
+            effects: Some(effects),
+        };
+        AssetPacket::encode("EqualizerEffect", &packet)
+    }
+
+    /// `UpdateSoundSets` (id 79) from the `SoundSet` store.
+    pub fn sound_sets_packet(&self) -> Result<AssetPacket> {
+        let mut sound_sets = BTreeMap::new();
+        for record in self.sound_sets.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "SoundSet",
+                key: record.key.clone(),
+            })?;
+            let json = &record.value;
+            let sounds = json
+                .get("SoundEvents")
+                .and_then(Value::as_object)
+                .map(|events| {
+                    events
+                        .iter()
+                        .filter_map(|(name, value)| {
+                            let event = value.as_str()?;
+                            Some((name.clone(), self.sound_events.id_of(event).unwrap_or(0)))
+                        })
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .filter(|sounds| !sounds.is_empty());
+            let category = match json.get("Category").and_then(Value::as_str) {
+                Some("Music") => SoundCategory::Music,
+                Some("Ambient") => SoundCategory::Ambient,
+                Some("UI") => SoundCategory::UI,
+                Some("Voice") => SoundCategory::Voice,
+                _ => SoundCategory::SFX,
+            };
+            sound_sets.insert(
+                id,
+                SoundSet {
+                    id: Some(record.key.clone()),
+                    sounds,
+                    category,
+                },
+            );
+        }
+        let packet = UpdateSoundSets {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.sound_sets, "SoundSet")?,
+            sound_sets: Some(sound_sets),
+        };
+        AssetPacket::encode("SoundSet", &packet)
+    }
+
+    /// `UpdateResourceTypes` (id 59) from the `ResourceType` store.
+    pub fn resource_types_packet(&self) -> Result<AssetPacket> {
+        let mut resource_types = BTreeMap::new();
+        for record in self.resource_types.iter() {
+            resource_types.insert(
+                record.key.clone(),
+                ResourceType {
+                    id: Some(record.key.clone()),
+                    icon: record
+                        .value
+                        .get("Icon")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                },
+            );
+        }
+        let packet = UpdateResourceTypes {
+            r#type: UpdateType::Init,
+            resource_types: Some(resource_types),
+        };
+        AssetPacket::encode("ResourceType", &packet)
+    }
+
+    /// `UpdateFieldcraftCategories` (id 58) from the `FieldcraftCategory` store.
+    pub fn fieldcraft_categories_packet(&self) -> Result<AssetPacket> {
+        let categories = self
+            .fieldcraft_categories
+            .iter()
+            .map(|record| ItemCategory {
+                id: Some(record.key.clone()),
+                name: record
+                    .value
+                    .get("Name")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                icon: record
+                    .value
+                    .get("Icon")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                order: record
+                    .value
+                    .get("Order")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0) as i32,
+                info_display_mode: ItemGridInfoDisplayMode::default(),
+                children: None,
+                sub_categories: None,
+            })
+            .collect();
+        let packet = UpdateFieldcraftCategories {
+            r#type: UpdateType::Init,
+            item_categories: Some(categories),
+        };
+        AssetPacket::encode("FieldcraftCategory", &packet)
+    }
+
+    /// `UpdateBeamConfigs` (id 93) from the `Beam` store.
+    pub fn beam_configs_packet(&self) -> Result<AssetPacket> {
+        let mut beam_configs = BTreeMap::new();
+        for record in self.beams.iter() {
+            let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
+                store: "Beam",
+                key: record.key.clone(),
+            })?;
+            beam_configs.insert(
+                id,
+                BeamConfig {
+                    texture: record
+                        .value
+                        .get("TexturePath")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                },
+            );
+        }
+        let packet = UpdateBeamConfigs {
+            r#type: UpdateType::Init,
+            max_id: next_id(&self.beams, "Beam")?,
+            beam_configs: Some(beam_configs),
+        };
+        AssetPacket::encode("BeamConfig", &packet)
     }
 
     /// `UpdateItemSoundSets` (id 43) from the `ItemSoundSet` store.
@@ -1385,6 +1768,33 @@ fn vector3(value: &Value) -> Option<Vector3f> {
         x: object.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32,
         y: object.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
         z: object.get("Z").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+    })
+}
+
+fn edge(value: &Value) -> Option<Edge> {
+    let object = value.as_object()?;
+    Some(Edge {
+        color: object.get("Color").and_then(color_alpha),
+        width: object.get("Width").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+    })
+}
+
+fn color_alpha(value: &Value) -> Option<ColorAlpha> {
+    let text = value.as_str()?;
+    let hex = text.strip_prefix('#').unwrap_or(text);
+    let (alpha, rgb) = if hex.len() == 8 {
+        (u8::from_str_radix(&hex[0..2], 16).ok()?, &hex[2..])
+    } else {
+        (255, hex)
+    };
+    let red = u8::from_str_radix(&rgb[0..2], 16).ok()?;
+    let green = u8::from_str_radix(&rgb[2..4], 16).ok()?;
+    let blue = u8::from_str_radix(&rgb[4..6], 16).ok()?;
+    Some(ColorAlpha {
+        alpha: alpha as i8,
+        red: red as i8,
+        green: green as i8,
+        blue: blue as i8,
     })
 }
 

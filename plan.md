@@ -1046,11 +1046,19 @@ a separate engine project; `worldgen-hytale` remains the classic
 ### T66 — Live-client config-asset completeness (follow-up)
 
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`, docs
-**Status:** planned (paused after T65)
+**Status:** in progress (session 70; real-client verification pending)
 **Goal:** encode the remaining Java config-asset stores and non-null fields so
 a release client passes `WorldLoadFinished`. See
-[`tasks/T66-live-client-assets.md`](tasks/T66-live-client-assets.md). This is a
-parity follow-up, not the next planned task; T61 remains next.
+[`tasks/T66-live-client-assets.md`](tasks/T66-live-client-assets.md).
+**Landed (session 70):** item tool/weapon/armor/glider/trails/block-selector/
+builder-tool/appearance/HUD/ability trees, block states/bench/placement/
+conditional-sound trees, and real SoundSet, ResourceType, FieldcraftCategory,
+ReverbEffect, EqualizerEffect, Beam, HitboxCollision, Repulsion, AbilityKeyword,
+Trail and ModelVFX packets replace their empty placeholders. Golden presence
+tests cover the item/block trees and the new store map counts. The release
+client still needs a user-run smoke test; particle/block-set/root-interaction/
+music-container trees remain placeholders because their encoders are large
+polymorphic surfaces not yet ported.
 
 ---
 

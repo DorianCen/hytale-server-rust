@@ -45,7 +45,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T60](T60-builtin-module-runtime.md) | Builtin module runtime and selected modules | T58, T59 | low/medium | done (session 63) |
 | [T60b](T60b-followup-gameplay.md) | Player combat/stats, containers, crafting, encounters, portal/ECS | T60 | low | done (session 64) |
 | [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65; asset follow-up T66) |
-| [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | planned (paused) |
+| [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | in progress (session 70; real-client smoke pending) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
 | [T63](T63-performance-memory-soak.md) | Performance, memory and soak | T48 | medium | done (session 68) |
@@ -53,7 +53,8 @@ context. The main agent owns sequencing and shared-file edits.
 
 Task files for T43–T66 are created when their milestone starts; the milestone
 scope is in [`../plan.md`](../plan.md). T65 closed live authentication; its
-real-client asset follow-up is T66 (paused). T61 records the
+real-client asset follow-up is T66 (in progress; session 70 landed the item,
+block and eleven store encoders, user-run client smoke still pending). T61 records the
 editor/builder/machinima/voice/cosmetics scope: only cosmetic appearance
 passthrough is in scope, editor clients are refused in every auth mode, and
 `builtin/HytaleGenerator` stays a separate engine project. T62 lands the

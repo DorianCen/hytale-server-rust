@@ -4,18 +4,22 @@
 //! references use the Rust-owned `BlockType` ids.
 //!
 //! The registry resolves each item's `Parent` chain before this encoder runs.
-//! The large nested payloads (`tool`, `weapon`, `armor`, `gliderConfig`,
-//! `ability`, `blockSelectorTool`, `builderToolData`, `trails`,
-//! `itemAppearanceConditions`, `pullbackConfig`, `hudUI` and the interaction
-//! ids) stay `None`/`0`/empty for now; see the T33 task's Deviations section.
+//! The T66 slice decodes the item tool/weapon/armor/glider/trail/HUD/ability
+//! trees that Java always materializes. Deeper interaction-variable and
+//! damage-breakdown trees remain follow-ups and are documented in T66.
 
 use std::collections::BTreeMap;
 
 use hytale_protocol::generated::assets::UpdateItems;
 use hytale_protocol::generated::common::{
-    AssetIconProperties, FormattedMessage, GameMode, InteractionConfiguration, InteractionPriority,
-    InteractionType, ItemBase, ItemEntityConfig, ItemResourceType, ItemTranslationProperties,
-    ItemUtility, ModelParticle, PrioritySlot, UpdateType,
+    AbilityCostType, AbilitySlot, AssetIconProperties, BlockSelectorToolData, BoxBreakShape,
+    BreakShape, BreakShapeOrientation, BuilderToolState, CalculationType, Cosmetic,
+    CylinderBreakShape, Direction, EntityPart, FloatRange, FormattedMessage, GameMode,
+    InteractionConfiguration, InteractionPriority, InteractionType, ItemAbility,
+    ItemAppearanceCondition, ItemArmor, ItemArmorSlot, ItemBase, ItemEntityConfig, ItemGlider,
+    ItemHudUI, ItemHudUIType, ItemResourceType, ItemTool, ItemToolSpec, ItemTranslationProperties,
+    ItemUtility, ItemWeapon, ModelParticle, ModelTrail, Modifier, ModifierTarget, PrioritySlot,
+    ResistanceCalculationType, ResistanceModifier, UpdateType, ValueType,
 };
 use hytale_protocol::generated::wire::{Vector2f, Vector3f};
 use serde_json::Value;
@@ -141,20 +145,20 @@ fn item_base(
         consumable: boolean(json, "Consumable", false),
         variant: boolean(json, "Variant", false),
         block_id,
-        tool: None,
-        weapon: None,
-        armor: None,
-        glider_config: None,
+        tool: item_tool(json.get("Tool")),
+        weapon: item_weapon(registry, json.get("Weapon")),
+        armor: item_armor(registry, json.get("Armor")),
+        glider_config: item_glider(json.get("Glider")),
         utility: Some(utility(registry, json.get("Utility"))),
-        block_selector_tool: None,
-        builder_tool_data: None,
+        block_selector_tool: block_selector_tool(json.get("BlockSelectorTool")),
+        builder_tool_data: builder_tool_data(json.get("BuilderTool")),
         item_entity,
         set: string(json, "Set"),
         categories: non_empty_strings(json.get("Categories")),
         sub_category: string(json, "SubCategory"),
         particles: non_empty_particles(json.get("Particles"))?,
         first_person_particles: non_empty_particles(json.get("FirstPersonParticles"))?,
-        trails: None,
+        trails: item_trails(json.get("Trails")),
         light: color_light(json.get("Light")),
         durability: number(json, "MaxDurability").unwrap_or(0.0),
         sound_event_index: 0,
@@ -171,7 +175,10 @@ fn item_base(
         // Java materializes this list for every item; the client dereferences
         // it while building item caches.
         tag_indexes: Some(tags.expanded(json.get("Tags")).unwrap_or_default()),
-        item_appearance_conditions: None,
+        item_appearance_conditions: item_appearance_conditions(
+            registry,
+            json.get("ItemAppearanceConditions"),
+        ),
         display_entity_stats_hud: display_entity_stats_hud(
             registry,
             json.get("DisplayEntityStatsHUD"),
@@ -179,8 +186,8 @@ fn item_base(
         pullback_config: None,
         clips_geometry: boolean(json, "ClipsGeometry", false),
         render_deployable_preview: boolean(json, "RenderDeployablePreview", false),
-        hud_ui: None,
-        ability: None,
+        hud_ui: item_hud_ui(json.get("HudUI")),
+        ability: item_ability(json.get("Ability")),
     })
 }
 
@@ -206,6 +213,449 @@ fn block_id(registry: &AssetRegistry, key: &str, has_block: bool) -> i32 {
             .and_then(|record| record.parent.clone());
     }
     UNKNOWN_BLOCK_ID
+}
+
+fn f32_value(value: Option<&Value>) -> f32 {
+    value.and_then(Value::as_f64).unwrap_or(0.0) as f32
+}
+
+fn f64_value(value: Option<&Value>) -> f64 {
+    value.and_then(Value::as_f64).unwrap_or(0.0)
+}
+
+fn modifiers(
+    registry: &AssetRegistry,
+    value: Option<&Value>,
+) -> Option<BTreeMap<i32, Vec<Modifier>>> {
+    let object = value?.as_object()?;
+    let mut result = BTreeMap::new();
+    for (stat, entries) in object {
+        let Some(stat_id) = registry.entity_stat_id(stat) else {
+            continue;
+        };
+        let list: Vec<Modifier> = entries
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let entry = entry.as_object()?;
+                Some(Modifier {
+                    target: match entry.get("Target").and_then(Value::as_str) {
+                        Some("Max") => ModifierTarget::Max,
+                        _ => ModifierTarget::Min,
+                    },
+                    calculation_type: match entry.get("CalculationType").and_then(Value::as_str) {
+                        Some("Multiplicative") => CalculationType::Multiplicative,
+                        _ => CalculationType::Additive,
+                    },
+                    amount: f32_value(entry.get("Amount")),
+                })
+            })
+            .collect();
+        if !list.is_empty() {
+            result.insert(stat_id, list);
+        }
+    }
+    (!result.is_empty()).then_some(result)
+}
+
+fn resistance_modifiers(
+    value: Option<&Value>,
+) -> Option<BTreeMap<String, Vec<ResistanceModifier>>> {
+    let object = value?.as_object()?;
+    let mut result = BTreeMap::new();
+    for (cause, entries) in object {
+        let list: Vec<ResistanceModifier> = entries
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let entry = entry.as_object()?;
+                Some(ResistanceModifier {
+                    calculation_type: match entry.get("CalculationType").and_then(Value::as_str) {
+                        Some("Percent") => ResistanceCalculationType::Percent,
+                        _ => ResistanceCalculationType::Flat,
+                    },
+                    amount: f32_value(entry.get("Amount")),
+                })
+            })
+            .collect();
+        if !list.is_empty() {
+            result.insert(cause.clone(), list);
+        }
+    }
+    (!result.is_empty()).then_some(result)
+}
+
+fn calculation_modifiers(
+    value: Option<&Value>,
+    lowercase_keys: bool,
+) -> Option<BTreeMap<String, Vec<Modifier>>> {
+    let object = value?.as_object()?;
+    let mut result = BTreeMap::new();
+    for (key, entries) in object {
+        let list: Vec<Modifier> = entries
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let entry = entry.as_object()?;
+                Some(Modifier {
+                    target: ModifierTarget::Min,
+                    calculation_type: match entry.get("CalculationType").and_then(Value::as_str) {
+                        Some("Multiplicative") => CalculationType::Multiplicative,
+                        _ => CalculationType::Additive,
+                    },
+                    amount: f32_value(entry.get("Amount")),
+                })
+            })
+            .collect();
+        if !list.is_empty() {
+            let key = if lowercase_keys {
+                key.to_ascii_lowercase()
+            } else {
+                key.clone()
+            };
+            result.insert(key, list);
+        }
+    }
+    (!result.is_empty()).then_some(result)
+}
+
+fn item_tool(value: Option<&Value>) -> Option<ItemTool> {
+    let object = value?.as_object()?;
+    let specs = object
+        .get("Specs")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    let entry = entry.as_object()?;
+                    Some(ItemToolSpec {
+                        gather_type: entry
+                            .get("GatherType")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned),
+                        power: f32_value(entry.get("Power")),
+                        quality: entry
+                            .get("Quality")
+                            .and_then(Value::as_i64)
+                            .and_then(|value| i32::try_from(value).ok())
+                            .unwrap_or(0),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|specs| !specs.is_empty());
+    Some(ItemTool {
+        specs,
+        speed: f32_value(object.get("Speed")),
+        break_shape: break_shape(object.get("BreakShape")),
+    })
+}
+
+fn break_shape(value: Option<&Value>) -> Option<BreakShape> {
+    let object = value?.as_object()?;
+    let width = object.get("Width").and_then(Value::as_i64).unwrap_or(0) as i32;
+    let height = object.get("Height").and_then(Value::as_i64).unwrap_or(0) as i32;
+    let depth = object.get("Depth").and_then(Value::as_i64).unwrap_or(0) as i32;
+    let centered = object
+        .get("Centered")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let offset = vector3(object.get("Offset"));
+    let orientation = match object.get("Orientation").and_then(Value::as_str) {
+        Some("Surface") => BreakShapeOrientation::Surface,
+        _ => BreakShapeOrientation::View,
+    };
+    Some(match object.get("Id").and_then(Value::as_str) {
+        Some("Cylinder") => BreakShape::CylinderBreakShape(CylinderBreakShape {
+            width,
+            height,
+            depth,
+            centered,
+            offset,
+            orientation,
+        }),
+        _ => BreakShape::BoxBreakShape(BoxBreakShape {
+            width,
+            height,
+            depth,
+            centered,
+            offset,
+            orientation,
+        }),
+    })
+}
+
+fn item_weapon(registry: &AssetRegistry, value: Option<&Value>) -> Option<ItemWeapon> {
+    let object = value?.as_object()?;
+    Some(ItemWeapon {
+        entity_stats_to_clear: object
+            .get("EntityStatsToClear")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|stat| registry.entity_stat_id(stat))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|ids| !ids.is_empty()),
+        stat_modifiers: modifiers(registry, object.get("StatModifiers")),
+        render_dual_wielded: object
+            .get("RenderDualWielded")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        basic_damage_breakdown: None,
+        ultimate_damage_breakdown: None,
+    })
+}
+
+fn item_armor(registry: &AssetRegistry, value: Option<&Value>) -> Option<ItemArmor> {
+    let object = value?.as_object()?;
+    let armor_slot = match object.get("ArmorSlot").and_then(Value::as_str) {
+        Some("Chest") => ItemArmorSlot::Chest,
+        Some("Hands") => ItemArmorSlot::Hands,
+        Some("Legs") => ItemArmorSlot::Legs,
+        _ => ItemArmorSlot::Head,
+    };
+    let cosmetics = object
+        .get("CosmeticsToHide")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(cosmetic)
+                .collect::<Vec<_>>()
+        })
+        .filter(|entries| !entries.is_empty());
+    Some(ItemArmor {
+        armor_slot,
+        cosmetics_to_hide: cosmetics,
+        stat_modifiers: modifiers(registry, object.get("StatModifiers")),
+        base_damage_resistance: f64_value(object.get("BaseDamageResistance")),
+        damage_resistance: resistance_modifiers(object.get("DamageResistance")),
+        damage_enhancement: calculation_modifiers(object.get("DamageEnhancement"), false),
+        damage_class_enhancement: calculation_modifiers(object.get("DamageClassEnhancement"), true),
+        movement_settings: None,
+    })
+}
+
+fn cosmetic(name: &str) -> Option<Cosmetic> {
+    Some(match name {
+        "Haircut" => Cosmetic::Haircut,
+        "FacialHair" => Cosmetic::FacialHair,
+        "Undertop" => Cosmetic::Undertop,
+        "Overtop" => Cosmetic::Overtop,
+        "Pants" => Cosmetic::Pants,
+        "Overpants" => Cosmetic::Overpants,
+        "Shoes" => Cosmetic::Shoes,
+        "Gloves" => Cosmetic::Gloves,
+        "Cape" => Cosmetic::Cape,
+        "HeadAccessory" => Cosmetic::HeadAccessory,
+        "FaceAccessory" => Cosmetic::FaceAccessory,
+        "EarAccessory" => Cosmetic::EarAccessory,
+        "Ear" => Cosmetic::Ear,
+        _ => return None,
+    })
+}
+
+fn item_glider(value: Option<&Value>) -> Option<ItemGlider> {
+    let object = value?.as_object()?;
+    Some(ItemGlider {
+        terminal_velocity: f32_value(object.get("TerminalVelocity")),
+        fall_speed_multiplier: f32_value(object.get("FallSpeedMultiplier")),
+        horizontal_speed_multiplier: f32_value(object.get("HorizontalSpeedMultiplier")),
+        speed: f32_value(object.get("Speed")),
+        dive_terminal_velocity: f32_value(object.get("DiveTerminalVelocity")),
+        dive_speed: f32_value(object.get("DiveSpeed")),
+        dive_fall_speed_multiplier: f32_value(object.get("DiveFallSpeedMultiplier")),
+        dive_horizontal_speed_multiplier: f32_value(object.get("DiveHorizontalSpeedMultiplier")),
+        energy_climb_rate: f32_value(object.get("EnergyClimbRate")),
+        dive_speed_to_energy_ratio: f32_value(object.get("DiveSpeedToEnergyRatio")),
+    })
+}
+
+fn block_selector_tool(value: Option<&Value>) -> Option<BlockSelectorToolData> {
+    let object = value?.as_object()?;
+    Some(BlockSelectorToolData {
+        durability_loss_on_use: f32_value(object.get("DurabilityLossOnUse")),
+    })
+}
+
+fn builder_tool_data(value: Option<&Value>) -> Option<BuilderToolState> {
+    let object = value?.as_object()?;
+    Some(BuilderToolState {
+        id: object
+            .get("Id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        is_brush: object
+            .get("IsBrush")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        args: None,
+    })
+}
+
+fn item_trails(value: Option<&Value>) -> Option<Vec<ModelTrail>> {
+    let entries = value?.as_array()?;
+    let trails: Vec<ModelTrail> = entries
+        .iter()
+        .filter_map(|entry| {
+            let entry = entry.as_object()?;
+            Some(ModelTrail {
+                trail_id: entry
+                    .get("TrailId")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                target_entity_part: match entry.get("TargetEntityPart").and_then(Value::as_str) {
+                    Some("Entity") => EntityPart::Entity,
+                    Some("PrimaryItem") => EntityPart::PrimaryItem,
+                    Some("SecondaryItem") => EntityPart::SecondaryItem,
+                    _ => EntityPart::Self_,
+                },
+                target_node_name: entry
+                    .get("TargetNodeName")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                position_offset: vector3(entry.get("PositionOffset")),
+                rotation_offset: entry.get("RotationOffset").and_then(Value::as_object).map(
+                    |rotation| Direction {
+                        yaw: f32_value(rotation.get("Yaw")),
+                        pitch: f32_value(rotation.get("Pitch")),
+                        roll: f32_value(rotation.get("Roll")),
+                    },
+                ),
+                fixed_rotation: entry
+                    .get("FixedRotation")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect();
+    (!trails.is_empty()).then_some(trails)
+}
+
+fn item_hud_ui(value: Option<&Value>) -> Option<Vec<ItemHudUI>> {
+    let entries = value?.as_array()?;
+    let entries: Vec<ItemHudUI> = entries
+        .iter()
+        .filter_map(|entry| {
+            let entry = entry.as_object()?;
+            Some(ItemHudUI {
+                path: entry
+                    .get("Path")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                r#type: match entry.get("Type").and_then(Value::as_str) {
+                    Some("Legend") => ItemHudUIType::Legend,
+                    _ => ItemHudUIType::Hud,
+                },
+            })
+        })
+        .collect();
+    (!entries.is_empty()).then_some(entries)
+}
+
+fn item_appearance_conditions(
+    registry: &AssetRegistry,
+    value: Option<&Value>,
+) -> Option<BTreeMap<i32, Vec<ItemAppearanceCondition>>> {
+    let object = value?.as_object()?;
+    let mut result = BTreeMap::new();
+    for (stat, entries) in object {
+        let Some(stat_id) = registry.entity_stat_id(stat) else {
+            continue;
+        };
+        let conditions: Vec<ItemAppearanceCondition> = entries
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let entry = entry.as_object()?;
+                Some(ItemAppearanceCondition {
+                    particles: None,
+                    first_person_particles: None,
+                    model: entry
+                        .get("Model")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    texture: entry
+                        .get("Texture")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    model_vfx_id: entry
+                        .get("ModelVFXId")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    condition: entry
+                        .get("Condition")
+                        .and_then(Value::as_array)
+                        .map(|range| FloatRange {
+                            inclusive_min: range.first().and_then(Value::as_f64).unwrap_or(0.0)
+                                as f32,
+                            inclusive_max: range.get(1).and_then(Value::as_f64).unwrap_or(0.0)
+                                as f32,
+                        }),
+                    condition_value_type: match entry
+                        .get("ConditionValueType")
+                        .and_then(Value::as_str)
+                    {
+                        Some("Absolute") => ValueType::Absolute,
+                        _ => ValueType::Percent,
+                    },
+                    local_sound_event_id: 0,
+                    world_sound_event_id: 0,
+                })
+            })
+            .collect();
+        if !conditions.is_empty() {
+            result.insert(stat_id, conditions);
+        }
+    }
+    (!result.is_empty()).then_some(result)
+}
+
+fn item_ability(value: Option<&Value>) -> Option<ItemAbility> {
+    let object = value?.as_object()?;
+    let attributes = object
+        .get("Attributes")
+        .and_then(Value::as_object)
+        .map(|attributes| {
+            attributes
+                .iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_f64()? as f32)))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .filter(|attributes| !attributes.is_empty());
+    Some(ItemAbility {
+        slot: match object.get("Slot").and_then(Value::as_str) {
+            Some("Support") => AbilitySlot::Support,
+            _ => AbilitySlot::Core,
+        },
+        cooldown: f32_value(object.get("Cooldown")),
+        cost: f32_value(object.get("Cost")),
+        cost_type: match object.get("CostType").and_then(Value::as_str) {
+            Some("Mana") => AbilityCostType::Mana,
+            Some("Stamina") => AbilityCostType::Stamina,
+            Some("Health") => AbilityCostType::Health,
+            _ => AbilityCostType::None,
+        },
+        weapons: None,
+        weapon_tag_indexes: None,
+        ability_keyword_indexes: None,
+        requires_any_ability_keyword_indexes: None,
+        requires_all_ability_keyword_indexes: None,
+        excludes_any_ability_keyword_indexes: None,
+        on_hit_effects: None,
+        attributes,
+        attribute_modifiers: None,
+        cast: 0,
+    })
 }
 
 fn string(json: &Value, name: &str) -> Option<String> {

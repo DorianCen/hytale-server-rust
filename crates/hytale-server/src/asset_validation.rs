@@ -186,12 +186,12 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateWeathers::ID, "Weather"),
         (UpdateItems::ID, "Item"),
         (UpdateBlockSets::ID, "BlockSets"),
-        (UpdateTrails::ID, "Trails"),
+        (UpdateTrails::ID, "Trail"),
         (UpdateParticleSystems::ID, "ParticleSystems"),
         (UpdateParticleSpawners::ID, "ParticleSpawners"),
         (UpdateModelvfxs::ID, "ModelVFX"),
-        (UpdateFieldcraftCategories::ID, "FieldcraftCategories"),
-        (UpdateResourceTypes::ID, "ResourceTypes"),
+        (UpdateFieldcraftCategories::ID, "FieldcraftCategory"),
+        (UpdateResourceTypes::ID, "ResourceType"),
         (UpdateRecipes::ID, "Recipes"),
         (UpdateAmbienceFX::ID, "AmbienceFX"),
         (UpdateInteractions::ID, "Interactions"),
@@ -200,17 +200,17 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateEntityUIComponents::ID, "EntityUIComponents"),
         (UpdateHitboxCollisionConfig::ID, "HitboxCollisionConfig"),
         (UpdateRepulsionConfig::ID, "RepulsionConfig"),
-        (UpdateSoundSets::ID, "SoundSets"),
+        (UpdateSoundSets::ID, "SoundSet"),
         (UpdateAudioCategories::ID, "AudioCategory"),
-        (UpdateReverbEffects::ID, "ReverbEffects"),
-        (UpdateEqualizerEffects::ID, "EqualizerEffects"),
+        (UpdateReverbEffects::ID, "ReverbEffect"),
+        (UpdateEqualizerEffects::ID, "EqualizerEffect"),
         (UpdateMusicContainers::ID, "MusicContainers"),
         (UpdateAudioStates::ID, "AudioState"),
         (UpdateConnectedBlockRuleSets::ID, "ConnectedBlockRuleSets"),
         (UpdateMusicTransitions::ID, "MusicTransitions"),
         (UpdateStingers::ID, "Stingers"),
-        (UpdateBeamConfigs::ID, "Beams"),
-        (UpdateAbilityKeywords::ID, "AbilityKeywords"),
+        (UpdateBeamConfigs::ID, "BeamConfig"),
+        (UpdateAbilityKeywords::ID, "AbilityKeyword"),
     ]
 }
 
@@ -248,6 +248,17 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("BlockTypeListAsset", block_type_lists),
         store!("PrefabListAsset", prefab_lists),
         store!("GameplayConfig", gameplay_configs),
+        store!("SoundSet", sound_sets),
+        store!("ResourceType", resource_types),
+        store!("FieldcraftCategory", fieldcraft_categories),
+        store!("ReverbEffect", reverb_effects),
+        store!("EqualizerEffect", equalizer_effects),
+        store!("Beam", beams),
+        store!("HitboxCollisionConfig", hitbox_collision_configs),
+        store!("RepulsionConfig", repulsion_configs),
+        store!("AbilityKeyword", ability_keywords),
+        store!("Trail", trails),
+        store!("ModelVFX", model_vfxs),
     ]
 }
 
@@ -675,6 +686,6 @@ mod tests {
             "config packet stores are unique"
         );
         assert_eq!(expected[20], (UpdateItems::ID, "Item"));
-        assert_eq!(expected[46], (UpdateAbilityKeywords::ID, "AbilityKeywords"));
+        assert_eq!(expected[46], (UpdateAbilityKeywords::ID, "AbilityKeyword"));
     }
 }

@@ -288,6 +288,72 @@ const MUSIC_CONTAINER: StoreSpec = StoreSpec {
     map: MapKind::IndexedLookupTable,
 };
 
+const REVERB_EFFECT: StoreSpec = StoreSpec {
+    name: "ReverbEffect",
+    path: "Server/Audio/Reverb",
+    map: MapKind::IndexedLookupTable,
+};
+
+const EQUALIZER_EFFECT: StoreSpec = StoreSpec {
+    name: "EqualizerEffect",
+    path: "Server/Audio/EQ",
+    map: MapKind::IndexedLookupTable,
+};
+
+const SOUND_SET: StoreSpec = StoreSpec {
+    name: "SoundSet",
+    path: "Server/Audio/SoundSets",
+    map: MapKind::IndexedLookupTable,
+};
+
+const RESOURCE_TYPE: StoreSpec = StoreSpec {
+    name: "ResourceType",
+    path: "Server/Item/ResourceTypes",
+    map: MapKind::Default,
+};
+
+const FIELDCRAFT_CATEGORY: StoreSpec = StoreSpec {
+    name: "FieldcraftCategory",
+    path: "Server/Item/Category/Fieldcraft",
+    map: MapKind::Default,
+};
+
+const BEAM_CONFIG: StoreSpec = StoreSpec {
+    name: "Beam",
+    path: "Server/Entity/Beams",
+    map: MapKind::IndexedLookupTable,
+};
+
+const HITBOX_COLLISION: StoreSpec = StoreSpec {
+    name: "HitboxCollisionConfig",
+    path: "Server/Entity/HitboxCollision",
+    map: MapKind::IndexedLookupTable,
+};
+
+const REPULSION_CONFIG: StoreSpec = StoreSpec {
+    name: "RepulsionConfig",
+    path: "Server/Entity/Repulsion",
+    map: MapKind::IndexedLookupTable,
+};
+
+const ABILITY_KEYWORD: StoreSpec = StoreSpec {
+    name: "AbilityKeyword",
+    path: "Server/Abilities/Keywords",
+    map: MapKind::IndexedLookupTable,
+};
+
+const TRAIL: StoreSpec = StoreSpec {
+    name: "Trail",
+    path: "Server/Entity/Trails",
+    map: MapKind::IndexedLookupTable,
+};
+
+const MODEL_VFX: StoreSpec = StoreSpec {
+    name: "ModelVFX",
+    path: "Server/Entity/ModelVFX",
+    map: MapKind::IndexedLookupTable,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -811,6 +877,28 @@ pub struct AssetRegistry {
     pub audio_states: AssetCollection<Value>,
     /// `MusicContainer` (dependency of encounter forced music).
     pub music_containers: AssetCollection<Value>,
+    /// `ReverbEffect` (`Server/Audio/Reverb`).
+    pub reverb_effects: AssetCollection<Value>,
+    /// `EqualizerEffect` (`Server/Audio/EQ`).
+    pub equalizer_effects: AssetCollection<Value>,
+    /// `SoundSet` (`Server/Audio/SoundSets`).
+    pub sound_sets: AssetCollection<Value>,
+    /// `ResourceType` (`Server/Item/ResourceTypes`).
+    pub resource_types: AssetCollection<Value>,
+    /// `FieldcraftCategory` (`Server/Item/Category/Fieldcraft`).
+    pub fieldcraft_categories: AssetCollection<Value>,
+    /// `Beam` (`Server/Entity/Beams`).
+    pub beams: AssetCollection<Value>,
+    /// `HitboxCollisionConfig` (`Server/Entity/HitboxCollision`).
+    pub hitbox_collision_configs: AssetCollection<Value>,
+    /// `RepulsionConfig` (`Server/Entity/Repulsion`).
+    pub repulsion_configs: AssetCollection<Value>,
+    /// `AbilityKeyword` (`Server/Abilities/Keywords`).
+    pub ability_keywords: AssetCollection<Value>,
+    /// `Trail` (`Server/Entity/Trails`).
+    pub trails: AssetCollection<Value>,
+    /// `ModelVFX` (`Server/Entity/ModelVFX`).
+    pub model_vfxs: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -905,6 +993,17 @@ impl AssetRegistry {
             audio_categories: AssetCollection::empty(),
             audio_states: AssetCollection::empty(),
             music_containers: AssetCollection::empty(),
+            reverb_effects: AssetCollection::empty(),
+            equalizer_effects: AssetCollection::empty(),
+            sound_sets: AssetCollection::empty(),
+            resource_types: AssetCollection::empty(),
+            fieldcraft_categories: AssetCollection::empty(),
+            beams: AssetCollection::empty(),
+            hitbox_collision_configs: AssetCollection::empty(),
+            repulsion_configs: AssetCollection::empty(),
+            ability_keywords: AssetCollection::empty(),
+            trails: AssetCollection::empty(),
+            model_vfxs: AssetCollection::empty(),
         })
     }
 
@@ -926,6 +1025,23 @@ impl AssetRegistry {
             music_container_preloads(),
             parse_key_asset,
         )?;
+        registry.reverb_effects =
+            load_indexed_store(pack, &REVERB_EFFECT, Vec::new(), parse_key_asset)?;
+        registry.equalizer_effects =
+            load_indexed_store(pack, &EQUALIZER_EFFECT, Vec::new(), parse_key_asset)?;
+        registry.sound_sets = load_indexed_store(pack, &SOUND_SET, Vec::new(), parse_key_asset)?;
+        registry.resource_types = load_default_store(pack, &RESOURCE_TYPE, Vec::new())?;
+        registry.fieldcraft_categories =
+            load_default_store(pack, &FIELDCRAFT_CATEGORY, Vec::new())?;
+        registry.beams = load_indexed_store(pack, &BEAM_CONFIG, Vec::new(), parse_key_asset)?;
+        registry.hitbox_collision_configs =
+            load_indexed_store(pack, &HITBOX_COLLISION, Vec::new(), parse_key_asset)?;
+        registry.repulsion_configs =
+            load_indexed_store(pack, &REPULSION_CONFIG, Vec::new(), parse_key_asset)?;
+        registry.ability_keywords =
+            load_indexed_store(pack, &ABILITY_KEYWORD, Vec::new(), parse_key_asset)?;
+        registry.trails = load_indexed_store(pack, &TRAIL, Vec::new(), parse_key_asset)?;
+        registry.model_vfxs = load_indexed_store(pack, &MODEL_VFX, Vec::new(), parse_key_asset)?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,

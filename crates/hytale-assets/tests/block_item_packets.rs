@@ -437,6 +437,26 @@ fn block_type_packet_matches_the_java_golden() {
             "{name}: interactionHint"
         );
         assert_eq!(block.supporting, expected.supporting, "{name}: supporting");
+        assert_eq!(
+            block.placement_settings.is_some(),
+            expected.placement_settings.is_some(),
+            "{name}: placementSettings presence"
+        );
+        assert_eq!(
+            block.conditional_sounds.is_some(),
+            expected.conditional_sounds.is_some(),
+            "{name}: conditionalSounds presence"
+        );
+        assert_eq!(
+            block.states.is_some(),
+            expected.states.is_some(),
+            "{name}: states presence"
+        );
+        assert_eq!(
+            block.bench.is_some(),
+            expected.bench.is_some(),
+            "{name}: bench presence"
+        );
     }
 }
 
@@ -563,6 +583,55 @@ fn item_packet_matches_the_java_golden() {
             item.render_deployable_preview, expected.render_deployable_preview,
             "{key}: renderDeployablePreview"
         );
+        // Nested item trees are presence-checked: Java sends the object when
+        // the asset declares it and omits it otherwise. Deep values are
+        // covered by the per-field regressions below.
+        assert_eq!(item.tool.is_some(), expected.tool.is_some(), "{key}: tool");
+        assert_eq!(
+            item.weapon.is_some(),
+            expected.weapon.is_some(),
+            "{key}: weapon"
+        );
+        assert_eq!(
+            item.armor.is_some(),
+            expected.armor.is_some(),
+            "{key}: armor"
+        );
+        assert_eq!(
+            item.glider_config.is_some(),
+            expected.glider_config.is_some(),
+            "{key}: gliderConfig"
+        );
+        assert_eq!(
+            item.block_selector_tool.is_some(),
+            expected.block_selector_tool.is_some(),
+            "{key}: blockSelectorTool"
+        );
+        assert_eq!(
+            item.builder_tool_data.is_some(),
+            expected.builder_tool_data.is_some(),
+            "{key}: builderToolData"
+        );
+        assert_eq!(
+            item.trails.is_some(),
+            expected.trails.is_some(),
+            "{key}: trails"
+        );
+        assert_eq!(
+            item.item_appearance_conditions.is_some(),
+            expected.item_appearance_conditions.is_some(),
+            "{key}: itemAppearanceConditions"
+        );
+        assert_eq!(
+            item.hud_ui.is_some(),
+            expected.hud_ui.is_some(),
+            "{key}: hudUI"
+        );
+        assert_eq!(
+            item.ability.is_some(),
+            expected.ability.is_some(),
+            "{key}: ability"
+        );
 
         // The one allowed block-id difference is the Java dump's failed
         // `ExamplePrefabPlacementBlock_Tree`, which Java maps to `Unknown`.
@@ -644,4 +713,167 @@ fn item_packet_has_java_key_coverage() {
         .filter(|key| !golden.contains_key(*key))
         .collect();
     assert_eq!(extra.len(), registry.items.len() - golden.len());
+}
+
+/// T66: previously-empty stores now carry the real asset data instead of a
+/// placeholder map. Counts are derived from the same registry the packets are
+/// built from, so the gate fails if a loader regression empties one.
+#[test]
+fn simple_config_stores_are_no_longer_placeholders() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+
+    let decode = |id: u32| -> Vec<u8> { packet(&packets, id).payload.clone() };
+    let sound_sets: UpdateSoundSets =
+        UpdateSoundSets::decode(&mut Reader::new(&decode(UpdateSoundSets::ID)))
+            .expect("decode sound sets");
+    assert_eq!(
+        sound_sets.sound_sets.as_ref().map(BTreeMap::len),
+        Some(registry.sound_sets.len())
+    );
+    assert!(sound_sets
+        .sound_sets
+        .as_ref()
+        .is_some_and(|sets| sets.values().any(|set| set.sounds.is_some())));
+
+    let resource_types: UpdateResourceTypes =
+        UpdateResourceTypes::decode(&mut Reader::new(&decode(UpdateResourceTypes::ID)))
+            .expect("decode resource types");
+    assert_eq!(
+        resource_types.resource_types.as_ref().map(BTreeMap::len),
+        Some(registry.resource_types.len())
+    );
+
+    let fieldcraft: UpdateFieldcraftCategories = UpdateFieldcraftCategories::decode(
+        &mut Reader::new(&decode(UpdateFieldcraftCategories::ID)),
+    )
+    .expect("decode fieldcraft");
+    assert_eq!(
+        fieldcraft.item_categories.as_ref().map(Vec::len),
+        Some(registry.fieldcraft_categories.len())
+    );
+
+    let reverb: UpdateReverbEffects =
+        UpdateReverbEffects::decode(&mut Reader::new(&decode(UpdateReverbEffects::ID)))
+            .expect("decode reverb");
+    assert_eq!(
+        reverb.effects.as_ref().map(BTreeMap::len),
+        Some(registry.reverb_effects.len())
+    );
+    assert!(reverb
+        .effects
+        .as_ref()
+        .is_some_and(|effects| !effects.is_empty()));
+
+    let equalizer: UpdateEqualizerEffects =
+        UpdateEqualizerEffects::decode(&mut Reader::new(&decode(UpdateEqualizerEffects::ID)))
+            .expect("decode equalizer");
+    assert_eq!(
+        equalizer.effects.as_ref().map(BTreeMap::len),
+        Some(registry.equalizer_effects.len())
+    );
+    assert!(equalizer
+        .effects
+        .as_ref()
+        .is_some_and(|effects| !effects.is_empty()));
+
+    let beams: UpdateBeamConfigs =
+        UpdateBeamConfigs::decode(&mut Reader::new(&decode(UpdateBeamConfigs::ID)))
+            .expect("decode beams");
+    assert_eq!(
+        beams.beam_configs.as_ref().map(BTreeMap::len),
+        Some(registry.beams.len())
+    );
+    assert!(beams
+        .beam_configs
+        .as_ref()
+        .is_some_and(|configs| !configs.is_empty()));
+
+    let hitboxes: UpdateHitboxCollisionConfig = UpdateHitboxCollisionConfig::decode(
+        &mut Reader::new(&decode(UpdateHitboxCollisionConfig::ID)),
+    )
+    .expect("decode hitbox collision");
+    assert_eq!(
+        hitboxes
+            .hitbox_collision_configs
+            .as_ref()
+            .map(BTreeMap::len),
+        Some(registry.hitbox_collision_configs.len())
+    );
+
+    let repulsion: UpdateRepulsionConfig =
+        UpdateRepulsionConfig::decode(&mut Reader::new(&decode(UpdateRepulsionConfig::ID)))
+            .expect("decode repulsion");
+    assert_eq!(
+        repulsion.repulsion_configs.as_ref().map(BTreeMap::len),
+        Some(registry.repulsion_configs.len())
+    );
+
+    let model_vfxs: UpdateModelvfxs =
+        UpdateModelvfxs::decode(&mut Reader::new(&decode(UpdateModelvfxs::ID)))
+            .expect("decode model vfx");
+    assert_eq!(
+        model_vfxs.model_vf_xs.as_ref().map(BTreeMap::len),
+        Some(registry.model_vfxs.len())
+    );
+    assert!(model_vfxs
+        .model_vf_xs
+        .as_ref()
+        .is_some_and(|effects| !effects.is_empty()));
+
+    let trails: UpdateTrails =
+        UpdateTrails::decode(&mut Reader::new(&decode(UpdateTrails::ID))).expect("decode trails");
+    assert_eq!(
+        trails.trails.as_ref().map(BTreeMap::len),
+        Some(registry.trails.len())
+    );
+    assert!(trails
+        .trails
+        .as_ref()
+        .is_some_and(|trails| !trails.is_empty()));
+
+    let keywords: UpdateAbilityKeywords =
+        UpdateAbilityKeywords::decode(&mut Reader::new(&decode(UpdateAbilityKeywords::ID)))
+            .expect("decode ability keywords");
+    assert_eq!(
+        keywords.ability_keywords.as_ref().map(BTreeMap::len),
+        Some(registry.ability_keywords.len())
+    );
+    assert!(keywords
+        .ability_keywords
+        .as_ref()
+        .is_some_and(|keywords| !keywords.is_empty()));
+}
+
+/// T66: every item tree Java materializes should be present for the same
+/// asset keys. Counts mirror the T66 gap inventory.
+#[test]
+fn item_nested_trees_have_the_expected_presence() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (_, packets) = load();
+    let decoded = UpdateItems::decode(&mut Reader::new(&packet(&packets, UpdateItems::ID).payload))
+        .expect("decode items");
+    let items = decoded.items.expect("item map");
+    let count = |f: fn(&hytale_protocol::generated::common::ItemBase) -> bool| {
+        items.values().filter(|item| f(item)).count()
+    };
+    let counts = (
+        count(|item| item.tool.is_some()),
+        count(|item| item.weapon.is_some()),
+        count(|item| item.armor.is_some()),
+        count(|item| item.glider_config.is_some()),
+        count(|item| item.block_selector_tool.is_some()),
+        count(|item| item.builder_tool_data.is_some()),
+        count(|item| item.trails.is_some()),
+        count(|item| item.item_appearance_conditions.is_some()),
+        count(|item| item.hud_ui.is_some()),
+        count(|item| item.ability.is_some()),
+    );
+    assert_eq!(counts, (37, 275, 122, 2, 2, 39, 5, 117, 26, 24));
 }

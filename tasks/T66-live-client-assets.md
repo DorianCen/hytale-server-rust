@@ -1,6 +1,6 @@
 # T66 — Live-client config-asset completeness
 
-**Status:** planned (paused after T65)
+**Status:** in progress (session 70; real-client verification pending)
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`, docs
 **Depends on:** T35, T39, T60b, T65
 **Agent fit:** medium (Java generator reading + golden comparison; iterative
@@ -21,20 +21,28 @@ This is an asset-packet completeness task, not an auth task.
 - Fixed in the T65 follow-up: all required asset types are now initialized,
   empty collections are non-null, `AudioCategory`/`AudioState` carry real data,
   and block/item `tagIndexes` and block `interactions` are materialized.
-- Still failing: release client `WorldLoadFinished` null (16:22 run).
-- Golden presence gaps measured against `testdata/golden/server/assets`:
-  - items: `tool` (34), `weapon` (275), `armor` (120), `gliderConfig` (2),
-    `trails` (5), `blockSelectorTool` (2), `builderToolData` (9),
-    `itemAppearanceConditions` (98), `hudUI` (8), `ability` (24);
-  - blocks: `states` (4017), `connectedBlockRuleSet` (2171),
-    `placementSettings` (1081), `bench` (56), `conditionalSounds` (3);
-  - required stores currently empty/placeholder: `ParticleSystem`,
-    `ParticleSpawner`, `AmbienceFX`, `BlockSet`, `Interaction`,
-    `RootInteraction`, `UnarmedInteraction`, `SoundSet`, `MusicContainer`,
-    `ReverbEffect`, `EqualizerEffect`, `ConnectedBlockRuleSet`,
-    `MusicTransition`, `Stinger`, `BeamConfig`, `AbilityKeyword`,
-    `ResourceType`, `FieldcraftCategory`, `Trail`, `ModelVFX`,
-    `EntityUIComponent`, `HitboxCollisionConfig`, `RepulsionConfig`, `Recipes`.
+- Landed in session 70:
+  - items: `tool`, `weapon`, `armor`, `gliderConfig`, `trails`,
+    `blockSelectorTool`, `builderToolData`, `itemAppearanceConditions`,
+    `hudUI` and `ability` now carry parsed data (counts are asserted against
+    the Java golden: tool 37, weapon 275, armor 122, glider 2,
+    blockSelectorTool 2, builderTool 39, trails 5, appearance 117, hudUI 26,
+    ability 24 in the current pack);
+  - blocks: `states`, `bench`, `placementSettings` and `conditionalSounds` are
+    populated; `conditionalSounds` materializes an entry even when AmbienceFX
+    is still unresolved;
+  - real stores replacing placeholders: `SoundSet`, `ResourceType`,
+    `FieldcraftCategory`, `ReverbEffect`, `EqualizerEffect`, `BeamConfig`,
+    `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
+    `ModelVFX`.
+- Still pending real-client verification: release client
+  `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
+  placeholders are:
+  - `ParticleSystem`, `ParticleSpawner` (large nested particle trees);
+  - `BlockSet` (Java resolves includes/excludes through the block-group graph);
+  - `Interaction`, `RootInteraction`, `UnarmedInteraction` (full action graph);
+  - `MusicContainer`, `ConnectedBlockRuleSet`, `MusicTransition`, `Stinger`,
+    `EntityUIComponent`, `Recipes` (polymorphic/asset-specific trees).
 - `ModelAsset` has no packet generator; verify whether the missing
   `Debug_Model` model is a common-asset issue before changing packets.
 
@@ -65,6 +73,31 @@ This is an asset-packet completeness task, not an auth task.
   always-non-null collection is sent as null.
 - The golden-presence suite fails on any regression of the above.
 - `./tools/test.sh fast`, asset tests, clippy and fmt are clean.
+
+## Session 70 regression coverage
+
+- `crates/hytale-assets/tests/block_item_packets.rs` now presence-checks every
+  nested item tree against `Item.bin` and asserts the current pack counts.
+- The same test checks `states`, `bench`, `placementSettings` and
+  `conditionalSounds` presence against `BlockType.bin`.
+- `simple_config_stores_are_no_longer_placeholders` decodes the real
+  sound-set/resource/fieldcraft/reverb/equalizer/beam/hitbox/repulsion/
+  ability-keyword/trail/model-VFX packets and compares their map lengths to
+  the registry.
+- `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
+
+## User-run real-client smoke
+
+The client is never launched by the agent. After deploying this revision:
+
+1. Build the server (`cargo build --release -p hytale-server`).
+2. Start it with `--auth-mode authenticated` and the same asset pack.
+3. Connect the release client and let it reach `SettingUp`/`WorldLoadFinished`.
+4. If it still fails, capture the client log around `WorldLoadFinished` and the
+   server trace (`serve --trace <path>`); the next asset gap is then data-driven
+   from the named access rather than guessed.
+5. On success, record `Playing`, spawn, movement and a block edit in the trace
+   fixture runbook.
 
 ## Notes
 
