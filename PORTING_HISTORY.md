@@ -2070,3 +2070,30 @@ This file records phase-2 sessions only.
 - **Follow-up:** rerun the release client. A further `NullReferenceException`
   in this handler means another Java-always-populated field is still null.
   Also investigate the non-fatal item icon atlas warning.
+
+---
+
+## Session 75 — Release-client chunk-loading stall (2026-10-31)
+
+- **Goal:** get the client past `StartJoiningWorld` and the chunk-loading screen.
+- **Evidence:** the client received `JoinWorld` and streamed chunks, then went
+  silent and the QUIC connection timed out after 30 s. The trace showed 81
+  `SetColumn`, 810 `SetChunk` and 810 `SetChunkEnvironments`.
+- **Cause:** sections with no stored data were sent as `SetChunk` with
+  `data = null`. Java's `ChunkTracker` sends `SetAbsentChunks` for those; without
+  it the client waits for a never-arriving section and never sends
+  `ClientReady(readyForGameplay)`.
+- **Landed:**
+  - Live chunk batches (`initial_for_client` / `full_for_client`) mark data-less
+    sections with `SetAbsentChunks`; raw batches remain byte-identical to the
+    Java dumper goldens.
+  - Send `UpdateSunSettings` and `UpdatePostFxSettings` from the world config and
+    move `UpdateWorldMapSettings` before the chunk snapshot (Java
+    `onFinishPlayerJoining`).
+  - `WorldThread::client_effects()` command; new absent-section regression.
+- **Verified:**
+  - `./tools/test.sh fast` (1554 passed, 24 skipped), clippy and fmt.
+  - `cargo test -p hytale-world --test chunk_packets_golden` passes.
+  - `--validate-assets` (50 stores, failures 0).
+- **Follow-up:** rerun the client; add a real surface spawn (the saved transform
+  is still `(0,0,0)`), then confirm `ClientTeleport` and gameplay.

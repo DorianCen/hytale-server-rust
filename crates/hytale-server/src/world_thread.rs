@@ -966,6 +966,9 @@ enum Command {
     GameplayConfig {
         reply: SyncSender<Result<WorldGameplayConfig, String>>,
     },
+    ClientEffects {
+        reply: SyncSender<Result<hytale_world::world_config::ClientEffects, String>>,
+    },
     SetTimePaused {
         paused: bool,
         reply: SyncSender<Result<WorldTimeState, String>>,
@@ -2837,6 +2840,20 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::GameplayConfig { reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// The world's `ClientEffects` (sun and post-FX settings).
+    pub fn client_effects(
+        &self,
+    ) -> Result<hytale_world::world_config::ClientEffects, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ClientEffects { reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -5345,6 +5362,9 @@ fn run(
                     Command::GameplayConfig { reply } => {
                         let _ = reply.send(Ok(gameplay_config.clone()));
                     }
+                    Command::ClientEffects { reply } => {
+                        let _ = reply.send(Ok(save.config().client_effects.clone()));
+                    }
                     Command::SetTimePaused { paused, reply } => {
                         advance_clock(&mut clock, &mut last_clock);
                         clock.set_paused(paused);
@@ -5736,9 +5756,9 @@ fn chunk_packets(save: &WorldSave, x: i32, z: i32, full: bool) -> Result<ChunkPa
         .chunk(x, z)
         .ok_or_else(|| format!("chunk ({x}, {z}) is not loaded"))?;
     if full {
-        ChunkPacketBatch::full(column)
+        ChunkPacketBatch::full_for_client(column)
     } else {
-        ChunkPacketBatch::initial(column)
+        ChunkPacketBatch::initial_for_client(column)
     }
     .map_err(|error| error.to_string())
 }

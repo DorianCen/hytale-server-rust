@@ -261,3 +261,30 @@ Fixed in this slice:
 Remaining known issue from the same run: the client logs a non-fatal
 `Failed to prepare the item icon atlas; item icons are unavailable` warning.
 Investigate after the world join succeeds.
+
+### Fourth run: chunk loading stalled on absent sections
+
+After the Weather fix the client reached `JoinWorld`, `OnSetupComplete`,
+`PrepareJoiningWorld` and `StartJoiningWorld`, then received no further packets
+and timed out. The server had streamed 81 columns (`SetColumn` + 810
+`SetChunk` + 810 `SetChunkEnvironments`).
+
+Cause: sections with no stored data were sent as `SetChunk` with `data = null`.
+Java's `ChunkTracker` marks those with `SetAbsentChunks`; its own comment says
+that otherwise "the client sees a never-arriving neighbour and stalls meshing of
+the section adjacent to a column's terrain top / bottom". The client never
+finished chunk tracking and never sent `ClientReady(readyForGameplay)`.
+
+Fixed in this slice:
+
+- `ChunkPacketBatch::initial_for_client` / `full_for_client` emit
+  `SetAbsentChunks` for data-less sections; the raw `initial`/`full` batches stay
+  byte-identical to the Java dumper fixtures.
+- `session.rs` now sends `UpdateSunSettings` and `UpdatePostFxSettings` from the
+  world config, and `UpdateWorldMapSettings` before the chunk snapshot, matching
+  Java's `onFinishPlayerJoining`.
+- Regressions: `chunk::stream::tests::client_batches_mark_absent_sections`; the
+  chunk golden test still passes.
+
+Known follow-up: the saved player transform is `(0, 0, 0)`. A real surface spawn
+(Java spawn provider) is still needed so the player does not start in the ground.

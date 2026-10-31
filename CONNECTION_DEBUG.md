@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-10-31 (third run)
+# Connection-debug session handoff — 2026-10-31 (fourth run)
 
 ## Objective
 
@@ -7,17 +7,19 @@ Hytale client.** The agent must never launch it.
 
 ## Current status
 
-- The client authenticates, receives every config store, reaches `Playing`, and
-  runs all world-load steps through `PrepareWorldMap`.
-- The interaction-chain SIGSEGV is fixed: the client no longer crashes.
-- The third run now fails with a **managed NullReferenceException** while
-  handling packet `22 WorldLoadFinished`. The client disconnects itself.
-- The null is `Weather.Fog`: Java always sends
-  `NearFar(fogDistance[0], fogDistance[1])` (default `{-96, 1024}`), while the
-  Rust weather encoder sent `fog: None` for every weather. The client's weather
-  clone dereferences `Fog` unconditionally.
-- Fixed by encoding `Weather.Fog` from `FogDistance`, with Java's default. The
-  fix has **not yet been confirmed by a rerun**.
+- Authentication, setup, assets, world load and `JoinWorld` all succeed now.
+- The client enters `GameInstance.StartJoiningWorld()` and waits for chunks.
+- The server streams 81 columns (810 `SetChunk`, 810
+  `SetChunkEnvironments`, 81 `SetColumn`), then the client stops receiving and
+  the QUIC connection times out after 30s.
+- Cause: sections with no stored data were sent as `SetChunk` with
+  `data = null`. Java's `ChunkTracker` marks those with `SetAbsentChunks`;
+  without it the client "sees a never-arriving neighbour and stalls meshing" and
+  never sends `ClientReady(readyForGameplay)`.
+- Fixed by emitting `SetAbsentChunks` for data-less sections in the live chunk
+  stream. Also restored Java's missing join packets: `UpdateSunSettings`,
+  `UpdatePostFxSettings`, and world-map settings before the chunk batch.
+- The fix has **not yet been confirmed by a rerun**.
 
 ## Evidence
 
@@ -114,6 +116,51 @@ on `WorldLoadFinished` and dereferences `Fog` without a null check.
 Note `Creative_Hub` has no `FogDistance` of its own but inherits
 `Forgotten_Temple` (`-32, 512`); the merged asset value is used.
 
+Fourth run (after the Weather fix):
+
+```text
+/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_22-51-37_client.log
+```
+
+The client now reaches:
+
+```text
+Received JoinWorldPacket
+GameInstance.OnSetupComplete()
+ProcessJoinWorldPacket: FadeInOut is True
+GameInstance.PrepareJoiningWorld()
+GameInstance.StartJoiningWorld()
+[Voice] World transition cleared playbacks and speaker state
+```
+
+and then only:
+
+```text
+ReceiveLoop: No packets received for 5.0s (total: 1862)
+... (repeated)
+Connection is closed after 1862 packets
+Disconnected during loading (network): Connection timed out
+```
+
+Trace (`target/trace/RealTest.jsonl`) shows the server streamed:
+
+```text
+setColumn                81
+SetChunk                 810
+SetChunkEnvironments     810
+UpdateWorldMapSettings     1
+```
+
+## Root cause (fourth run)
+
+Sections with no stored data were sent as `SetChunk` with `data = null`.
+Java's `ChunkTracker` deliberately marks such sections with `SetAbsentChunks`
+instead (see its `markAbsent` comment: without it "the client sees a
+never-arriving neighbour and stalls meshing of the section adjacent to a
+column's terrain top / bottom"). The client therefore never finished its chunk
+tracker, never sent `ClientReady(readyForGameplay)`, and the QUIC connection
+idled out after 30 s.
+
 ## Fixes landed
 
 - `crates/hytale-assets/src/packets/mod.rs`
@@ -138,6 +185,16 @@ Note `Creative_Hub` has no `FogDistance` of its own but inherits
   - `crates/hytale-assets/tests/block_item_packets.rs`
     - `weather_fog_is_always_sent`
     - interaction dangling-id checks now allow the sentinel.
+- `crates/hytale-world/src/chunk/stream.rs`
+  - `initial_for_client` / `full_for_client` replace `SetChunk` with
+    `SetAbsentChunks` for sections whose `data` is `None`; the raw `initial` /
+    `full` batches stay byte-identical to the Java dumper fixtures.
+  - Regression: `chunk::stream::tests::client_batches_mark_absent_sections`.
+- `crates/hytale-server/src/session.rs` / `world_thread.rs`
+  - Send the world's `UpdateSunSettings` and `UpdatePostFxSettings` (Java
+    `onFinishPlayerJoining`) and move `UpdateWorldMapSettings` before the chunk
+    snapshot.
+  - `WorldThread::client_effects()` exposes the world config's `ClientEffects`.
 
 After the containment fix only 2 references remain unresolved (two root
 interaction names used inside an interaction array); they are sent as
@@ -148,13 +205,14 @@ nodes found no cycles.
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.453s] 1553 tests run: 1553 passed, 24 skipped
+Summary [ 19.665s] 1554 tests run: 1554 passed, 24 skipped
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
 block_item_packets: 19 passed
 interaction_packets: 1 passed
 (all other hytale-assets suites passed)
 
+cargo test -p hytale-world --test chunk_packets_golden   → passes
 cargo clippy --workspace --all-targets -- -D warnings   → clean
 cargo fmt --all -- --check                              → clean
 --validate-assets                                       → 50 stores, failures: 0
@@ -163,14 +221,14 @@ cargo fmt --all -- --check                              → clean
 ## What to do next
 
 1. Rerun the release client against this commit.
-2. If it passes `PrepareWorldMap`, the client should send `SetupFinalize`; then
-   the server sends `ClearChunks` + `JoinWorld`. Report the next failing stage.
-3. If another `NullReferenceException` appears while handling
-   `WorldLoadFinished`, it is the same class of bug: a field Java always
-   populates that our encoder leaves `null`. The exception's innermost offset
-   plus a short disassembly of that method identifies the field.
-4. The client also logs (non-fatal) `Failed to prepare the item icon atlas` in
-   the third run. Track it down once the world join works.
+2. It should finish chunk loading, send `ClientReady(readyForGameplay)`, and
+   receive `ClientTeleport`.
+3. If it still stalls, capture `target/trace/RealTest.jsonl` and the client log;
+   the trace now includes `SetAbsentChunks` and the sun/post-FX packets, so the
+   next gap can be compared against Java's join burst.
+4. Known follow-up: the saved player transform is still `(0, 0, 0)`; once the
+   client joins, add a real surface spawn (Java's spawn provider) so the player
+   does not start inside the ground.
 5. Do not speculate about protocol mismatch; protocol is proven identical.
 
 ## Commands

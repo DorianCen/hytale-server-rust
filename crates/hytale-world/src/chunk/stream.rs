@@ -20,7 +20,8 @@
 use hytale_protocol::frame::{compress_payload, encode_frame};
 use hytale_protocol::generated::wire::{NetworkChannel, Packet, Wire};
 use hytale_protocol::generated::world::{
-    SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids, UnloadChunk,
+    SetAbsentChunks, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
+    UnloadChunk,
 };
 use hytale_protocol::io::{ProtocolError, Writer};
 use thiserror::Error;
@@ -90,26 +91,56 @@ pub struct ChunkPacketBatch {
 impl ChunkPacketBatch {
     /// The initial join set: `SetColumn` + all `SetChunk`/`SetChunkEnvironments`.
     pub fn initial(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
-        Self::build(column, false)
+        Self::build(column, false, false)
     }
 
     /// The full update set, including tint and fluid packets.
     pub fn full(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
-        Self::build(column, true)
+        Self::build(column, true, false)
     }
 
-    fn build(column: &ChunkColumn, include_updates: bool) -> Result<Self, ChunkStreamError> {
+    /// The initial set used by the live chunk stream.
+    ///
+    /// Sections with no stored data are sent as `SetAbsentChunks`, like Java's
+    /// `ChunkTracker`. The raw serializer (`initial`) keeps the payload-less
+    /// `SetChunk` form for the Java dump fixtures.
+    pub fn initial_for_client(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
+        Self::build(column, false, true)
+    }
+
+    /// The full update set used by the live chunk stream.
+    pub fn full_for_client(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
+        Self::build(column, true, true)
+    }
+
+    fn build(
+        column: &ChunkColumn,
+        include_updates: bool,
+        absent_packets: bool,
+    ) -> Result<Self, ChunkStreamError> {
         let mut packets = Vec::with_capacity(SECTION_COUNT * 3 + 2);
         push(&column.set_column_packet()?, &mut packets)?;
         if include_updates {
             push(&column.tintmap_packet(), &mut packets)?;
         }
         for section_y in 0..SECTION_COUNT as i32 {
-            push(&column.set_chunk_packet(section_y)?, &mut packets)?;
-            push(
-                &column.set_chunk_environments_packet(section_y)?,
-                &mut packets,
-            )?;
+            let chunk = column.set_chunk_packet(section_y)?;
+            if absent_packets && chunk.data.is_none() {
+                push(
+                    &SetAbsentChunks {
+                        x: column.x(),
+                        z: column.z(),
+                        ys: Some(vec![section_y]),
+                    },
+                    &mut packets,
+                )?;
+            } else {
+                push(&chunk, &mut packets)?;
+                push(
+                    &column.set_chunk_environments_packet(section_y)?,
+                    &mut packets,
+                )?;
+            }
             if include_updates {
                 if let Some(fluids) = column.set_fluids_packet(section_y) {
                     push(&fluids, &mut packets)?;
@@ -167,12 +198,13 @@ pub fn unload_chunk(x: i32, z: i32) -> Result<StreamPacket, ChunkStreamError> {
 }
 
 /// Packet ids covered by a batch, for diagnostics.
-pub fn chunk_packet_ids() -> [u32; 5] {
+pub fn chunk_packet_ids() -> [u32; 6] {
     [
         SetColumn::ID,
         SetChunkTintmap::ID,
         SetChunk::ID,
         SetChunkEnvironments::ID,
+        SetAbsentChunks::ID,
         SetFluids::ID,
     ]
 }
@@ -218,6 +250,28 @@ mod tests {
         let unloaded =
             UnloadChunk::decode(&mut Reader::new(decoded.payload)).expect("decode UnloadChunk");
         assert_eq!((unloaded.chunk_x, unloaded.chunk_z), (4, -5));
+    }
+
+    #[test]
+    fn client_batches_mark_absent_sections() {
+        let column = ChunkColumn::new(0, 0);
+        let initial = ChunkPacketBatch::initial_for_client(&column).expect("initial");
+        let absent: Vec<i32> = initial
+            .packets
+            .iter()
+            .filter(|packet| packet.id == SetAbsentChunks::ID)
+            .flat_map(|packet| {
+                let decoded =
+                    SetAbsentChunks::decode(&mut Reader::new(packet.payload())).expect("decode");
+                assert_eq!((decoded.x, decoded.z), (0, 0));
+                decoded.ys.expect("ys")
+            })
+            .collect();
+        assert_eq!(absent, (0..SECTION_COUNT as i32).collect::<Vec<_>>());
+        assert!(initial
+            .packets
+            .iter()
+            .all(|packet| packet.id != SetChunk::ID));
     }
 
     #[test]

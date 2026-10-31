@@ -76,8 +76,8 @@ use hytale_protocol::generated::window::{
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::{ClearChunks, PlaySoundEvent3D, SpawnParticleSystem};
 use hytale_protocol::generated::world::{
-    ServerSetBlock, ServerSetFluid, SetAudioState, UpdateForcedMusic, UpdateTime,
-    UpdateTimeSettings, UpdateWeather, WorldGameplayConfig,
+    ServerSetBlock, ServerSetFluid, SetAudioState, UpdateForcedMusic, UpdatePostFxSettings,
+    UpdateSunSettings, UpdateTime, UpdateTimeSettings, UpdateWeather, WorldGameplayConfig,
 };
 use hytale_protocol::generated::worldmap::{UpdateWorldMap, UpdateWorldMapSettings};
 use hytale_protocol::io::Uuid;
@@ -85,7 +85,7 @@ use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 use hytale_world::collision::Vec3;
 use hytale_world::crafting::{CraftingKnowledge, RecipeCatalog};
 use hytale_world::player_data::{PlayerAppearance, PlayerTransform};
-use hytale_world::world_config::WorldUuid;
+use hytale_world::world_config::{ClientEffects, WorldUuid};
 use thiserror::Error;
 
 use crate::chunk_streamer::{
@@ -486,6 +486,7 @@ struct EnterGame {
     skin: Option<PlayerSkin>,
     world_time: WorldTimeState,
     weather: Option<i32>,
+    client_effects: ClientEffects,
     gameplay_config: WorldGameplayConfig,
     movement_settings: MovementSettings,
     inventory: PlayerInventory,
@@ -625,6 +626,7 @@ pub async fn serve_connection_with_registry(
         player_transform.position.z.floor() as i32,
     )?;
     let gameplay_config = thread.gameplay_config()?;
+    let client_effects = thread.client_effects()?;
     let movement_settings = thread.movement_settings()?;
     let skin = handshake.skin.clone();
     let world_uuid: Uuid = start
@@ -685,6 +687,7 @@ pub async fn serve_connection_with_registry(
                 skin,
                 world_time,
                 weather,
+                client_effects,
                 gameplay_config,
                 movement_settings,
                 inventory: inventory.clone(),
@@ -729,12 +732,6 @@ pub async fn serve_connection_with_registry(
             }
         }
         game.runtime_entities = runtime_entities;
-        writer
-            .write_packet(
-                &world_map_settings_packet(),
-                options.chunk_compression_level,
-            )
-            .await?;
         let (visible_markers, new_markers) =
             map_markers_for_player(thread, &revealed_markers, player_transform.position)?;
         if !visible_markers.is_empty() {
@@ -1455,6 +1452,7 @@ async fn enter_game(
         skin,
         world_time,
         weather,
+        client_effects,
         gameplay_config,
         movement_settings,
         inventory,
@@ -1563,6 +1561,29 @@ async fn enter_game(
         .write_packet(
             &UpdateFeatures {
                 features: Some(BTreeMap::new()),
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    // Java `World.onFinishPlayerJoining` writes the world's client effects
+    // (sun and post-FX) before the chunk tracker starts.
+    writer
+        .write_packet(
+            &UpdateSunSettings {
+                height_percentage: client_effects.sun_height_percent as f32,
+                angle_radians: client_effects.sun_angle_degrees.to_radians() as f32,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    writer
+        .write_packet(
+            &UpdatePostFxSettings {
+                global_intensity: client_effects.bloom_intensity as f32,
+                power: client_effects.bloom_power as f32,
+                sunshaft_scale: client_effects.sunshaft_scale_factor as f32,
+                sun_intensity: client_effects.sun_intensity as f32,
+                sunshaft_intensity: client_effects.sunshaft_intensity as f32,
             },
             options.chunk_compression_level,
         )
@@ -1685,6 +1706,14 @@ async fn enter_game(
     game.time = true;
     game.game_mode = true;
     game.movement_settings = true;
+    // Java writes the world-map settings before chunk tracking begins; the
+    // client expects them before the initial chunk batch.
+    writer
+        .write_packet(
+            &world_map_settings_packet(),
+            options.chunk_compression_level,
+        )
+        .await?;
     // This stream stays open for the chunk snapshot.
     Ok((game, chunks))
 }
