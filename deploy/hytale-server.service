@@ -1,0 +1,36 @@
+[Unit]
+Description=Hytale Rust CoreServer
+Documentation=file:/srv/hytale/share/doc/PACKAGING.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hytale
+Group=hytale
+WorkingDirectory=/srv/hytale
+Environment=RUST_LOG=info
+EnvironmentFile=-/etc/hytale/server.env
+ExecStart=/usr/local/bin/hytale-server serve \
+    --universe /srv/hytale/universe \
+    --world default \
+    --assets-pack /srv/hytale/assets/Assets.zip \
+    --assets-root /srv/hytale/assets/extracted \
+    --bind 0.0.0.0:5520
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/hytale
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

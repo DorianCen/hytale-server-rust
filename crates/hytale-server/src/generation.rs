@@ -170,7 +170,7 @@ pub struct WorldGenerator {
 impl WorldGenerator {
     /// Load the asset pack and start the generator workers.
     pub fn open(options: &GeneratorOptions) -> Result<Self, GenerationError> {
-        require_file(&options.assets_pack, "asset pack")?;
+        require_pack(&options.assets_pack, "asset pack")?;
         require_dir(&options.assets_root, "unpacked asset tree")?;
         require_file(&options.world_dir.join("World.json"), "world configuration")?;
         if options.workers == 0 {
@@ -275,6 +275,18 @@ impl WorldGenerator {
 
 fn require_file(path: &std::path::Path, what: &'static str) -> Result<(), GenerationError> {
     if path.is_file() {
+        Ok(())
+    } else {
+        Err(GenerationError::MissingPath {
+            path: path.to_path_buf(),
+            what,
+        })
+    }
+}
+
+/// Asset packs can be a `.zip` or an extracted directory.
+fn require_pack(path: &std::path::Path, what: &'static str) -> Result<(), GenerationError> {
+    if path.is_file() || path.is_dir() {
         Ok(())
     } else {
         Err(GenerationError::MissingPath {

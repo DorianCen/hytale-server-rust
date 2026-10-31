@@ -1113,10 +1113,29 @@ versus 9.92 s / 1.34 GiB for Rust (27 stores), so the validation ratio is not eq
 
 ### T64 — Packaging, docs and plugin/mod API
 
+**Status:** done (session 69)
+**Package:** docs, `hytale-server`, `hytale-builtin`, `tools`, `deploy`, CI
+**Depends on:** T60, T63
+**Agent fit:** medium
+
 - Cross-platform release builds, service/package docs, asset-mod compatibility
   docs, Rust plugin API and migration guide.
 - Acceptance: reproducible release artifact; documented plugin/asset-mod
   workflow; no Java-plugin compatibility claims.
+
+The release gate is recorded in
+[`tasks/T64-packaging-docs-plugin-api.md`](tasks/T64-packaging-docs-plugin-api.md).
+`tools/release.sh` builds `hytale-server`/`client-bot` with `--locked`, stages
+docs and the systemd unit, and writes a deterministic archive plus SHA-256
+checksum; CI rebuilds twice and compares the hashes. `PACKAGING.md`,
+`deploy/hytale-server.service` and `deploy/README.md` cover build, layout,
+systemd, network, auth, upgrade and rollback. `PLUGINS.md` documents the
+compiled-in `BuiltinModule`/`BuiltinHost` API, lifecycle and Java migration
+limits, with a runnable example and public-lifecycle regression tests.
+`ASSET_MODS.md` documents the supported single-pack merge workflow; the world
+path now accepts extracted directory packs, covered by an asset-backed boot
+test. Runtime overlays and dynamic/Java plugin loading remain explicit
+follow-ups, not compatibility claims.
 
 ---
 

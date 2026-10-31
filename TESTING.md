@@ -17,6 +17,7 @@ and boot a `WorldThread`/world generator. Use the tiers below while developing.
 HYTALE_FUZZ_ITERATIONS=100000 ./tools/security.sh  # fuzz budget + dependency audit
 tools/perf.sh                 # release perf probe + join/edit/save soak
 tools/java-baseline.sh        # Java CoreServer boot/validation comparison
+tools/release.sh              # reproducible release archive + checksum
 ```
 
 Extra arguments are forwarded to cargo:
@@ -41,6 +42,11 @@ under `target/perf/`. The soak grows resident memory by no more than
 `tools/java-baseline.sh` expects the shared-source Java checkout under
 `.hytale-source/hytale-shared-source` and a built `HytaleServer.jar`. It records
 Java asset validation and offline boot timings/peak RSS under `target/perf/`.
+
+`tools/release.sh` builds the release binaries, stages the docs/deployment unit
+and writes a deterministic `dist/hytale-server-<version>-<target>.tar.gz` plus a
+SHA-256 checksum. Running it twice on the same checkout must produce the same
+archive hash; CI enforces that.
 
 ## What each tier means
 

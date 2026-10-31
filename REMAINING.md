@@ -111,10 +111,15 @@ Deferred to M6:
 
 ## 2. Java plugin compatibility
 
-- The Rust server does not load Java plugins or transform bytecode.
-- Asset-only mods (packs with `manifest.json` and assets) are supported.
-- Code plugins use a Rust-native API. A WASM or dynamic-library ABI is a later
-  decision.
+- The Rust server does not load Java plugins, classload jars or transform
+  bytecode.
+- Asset-only mods are supported by merging their `Common/`/`Server/` files into
+  one directory or zip pack before startup. Runtime overlay stacking and
+  manifest-driven mod discovery are not implemented; see
+  [`ASSET_MODS.md`](ASSET_MODS.md).
+- Code plugins use the compiled-in Rust `BuiltinModule`/`BuiltinHost` API. A
+  WASM or dynamic-library ABI is a later decision; see
+  [`PLUGINS.md`](PLUGINS.md).
 - A JVM sidecar/bridge is explicitly out of scope; adding it requires a scope
   change.
 

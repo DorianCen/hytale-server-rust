@@ -6,3 +6,6 @@ Cargo.lock.bak
 .hytale-source/
 # Game asset pack (3.7 GB zip + extracted tree) — not part of the source tree.
 Assets/
+
+# Release packaging output.
+/dist/

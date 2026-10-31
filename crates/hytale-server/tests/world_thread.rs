@@ -35,6 +35,31 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 #[test]
+fn an_extracted_asset_pack_can_boot_a_world() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("directory-pack");
+    let pack = repo_root().join("Assets/extracted");
+    let (thread, start) =
+        hytale_server::WorldThread::spawn(hytale_server::WorldThreadOptions::with_defaults(
+            hytale_server::GeneratorOptions {
+                assets_pack: pack.clone(),
+                assets_root: pack,
+                world_dir: repo_root().join("testdata/Default"),
+                workers: 1,
+            },
+            save_dir.clone(),
+        ))
+        .expect("the extracted directory pack boots");
+    assert_eq!(start.initial_loads, 1);
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn config_assets_are_cached_per_world() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

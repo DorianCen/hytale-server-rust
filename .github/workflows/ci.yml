@@ -23,3 +23,31 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests (fast tier)
         run: ./tools/test.sh fast
+
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build reproducible release archive
+        run: |
+          tools/release.sh
+          first="$(sha256sum dist/*.tar.gz | awk '{print $1}')"
+          tools/release.sh
+          second="$(sha256sum dist/*.tar.gz | awk '{print $1}')"
+          test "$first" = "$second"
+      - name: Verify checksum and contents
+        run: |
+          (cd dist && sha256sum -c *.tar.gz.sha256)
+          tar -tzf dist/*.tar.gz | grep -q '/bin/hytale-server$'
+          tar -tzf dist/*.tar.gz | grep -q '/share/doc/PACKAGING.md$'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hytale-server-release
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
