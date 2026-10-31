@@ -187,8 +187,8 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateItems::ID, "Item"),
         (UpdateBlockSets::ID, "BlockSet"),
         (UpdateTrails::ID, "Trail"),
-        (UpdateParticleSystems::ID, "ParticleSystems"),
-        (UpdateParticleSpawners::ID, "ParticleSpawners"),
+        (UpdateParticleSystems::ID, "ParticleSystem"),
+        (UpdateParticleSpawners::ID, "ParticleSpawner"),
         (UpdateModelvfxs::ID, "ModelVFX"),
         (UpdateFieldcraftCategories::ID, "FieldcraftCategory"),
         (UpdateResourceTypes::ID, "ResourceType"),
@@ -261,6 +261,8 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("ModelVFX", model_vfxs),
         store!("EntityUIComponent", entity_ui_components),
         store!("BlockSet", block_sets),
+        store!("ParticleSystem", particle_systems),
+        store!("ParticleSpawner", particle_spawners),
     ]
 }
 

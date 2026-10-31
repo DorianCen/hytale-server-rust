@@ -205,8 +205,11 @@ fn release_required_asset_types_are_all_initialized() {
         &packet(&packets, UpdateParticleSystems::ID).payload,
     ))
     .expect("decode UpdateParticleSystems");
-    assert_eq!(particles.particle_systems, Some(BTreeMap::new()));
-    assert_eq!(particles.removed_particle_systems, Some(Vec::new()));
+    assert!(particles
+        .particle_systems
+        .as_ref()
+        .is_some_and(|systems| !systems.is_empty()));
+    assert_eq!(particles.removed_particle_systems, None);
 
     let recipes = UpdateRecipes::decode(&mut Reader::new(
         &packet(&packets, UpdateRecipes::ID).payload,
@@ -902,4 +905,62 @@ fn item_nested_trees_have_the_expected_presence() {
         count(|item| item.ability.is_some()),
     );
     assert_eq!(counts, (37, 275, 122, 2, 2, 39, 5, 117, 26, 24));
+}
+
+/// T66: the particle stores are not Rust-id-dependent, so the Rust payload can
+/// be byte-compared with the Java dump once map ordering is canonicalized.
+#[test]
+fn particle_packets_match_the_java_golden() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (_, packets) = load();
+    for (id, store) in [
+        (UpdateParticleSystems::ID, "ParticleSystem"),
+        (UpdateParticleSpawners::ID, "ParticleSpawner"),
+    ] {
+        let expected =
+            std::fs::read(repo_root().join(format!("testdata/golden/server/assets/{store}.bin")))
+                .expect("read the golden payload");
+        assert_eq!(
+            packet(&packets, id).payload,
+            expected,
+            "{store} packet differs from the Java golden"
+        );
+    }
+}
+
+/// T66: the particle packets carry real data: every system has spawners and
+/// every spawner has a particle definition, with counts matching the registry.
+#[test]
+fn particle_stores_are_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+
+    let systems: UpdateParticleSystems = UpdateParticleSystems::decode(&mut Reader::new(
+        &packet(&packets, UpdateParticleSystems::ID).payload,
+    ))
+    .expect("decode particle systems");
+    let systems = systems.particle_systems.expect("particle system map");
+    assert_eq!(systems.len(), registry.particle_systems.len());
+    assert!(systems.values().all(|system| system
+        .spawners
+        .as_ref()
+        .is_some_and(|spawners| !spawners.is_empty())));
+
+    let spawners: UpdateParticleSpawners = UpdateParticleSpawners::decode(&mut Reader::new(
+        &packet(&packets, UpdateParticleSpawners::ID).payload,
+    ))
+    .expect("decode particle spawners");
+    let spawners = spawners.particle_spawners.expect("particle spawner map");
+    assert_eq!(spawners.len(), registry.particle_spawners.len());
+    assert!(spawners.values().all(|spawner| spawner.particle.is_some()));
+    assert!(spawners.values().any(|spawner| spawner
+        .particle
+        .as_ref()
+        .is_some_and(|particle| particle.animation_frames.is_some())));
 }

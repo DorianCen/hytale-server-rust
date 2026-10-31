@@ -37,15 +37,19 @@ use hytale_protocol::generated::common::{
     AbilityKeyword, BeamConfig, BlockSet, BlockTextures, CameraAxis, CameraNode, CameraSettings,
     CollisionType, Color, ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
     CombatTextEntityUIComponentAnimationEvent, CurveType, Direction, Edge, EffectDirection,
-    EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType,
-    EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode, Fluid, FluidDrawType,
-    FluidParticle, Hitbox, HitboxCollisionConfig, ItemAnimation, ItemCategory,
-    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
-    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
-    LoopOption, Model, ModelParticle, ModelVFX, Opacity,
-    OverlapBehavior as ProtocolOverlapBehavior, PhysicalMaterial, PhysicsConfig, PhysicsType,
-    ProjectileConfig, Range, RangeVector2f, Rangef, RepulsionConfig, ResourceType, ReverbEffect,
-    RotationMode, ShaderType, SoundCategory, SoundSet, SubCategoryDefinition, SwitchTo, Trail,
+    EmitShape, EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior,
+    EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode, Fluid,
+    FluidDrawType, FluidParticle, Hitbox, HitboxCollisionConfig, InitialVelocity,
+    IntersectionHighlight, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
+    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
+    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LoopOption, Model,
+    ModelParticle, ModelVFX, Opacity, OverlapBehavior as ProtocolOverlapBehavior, Particle,
+    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
+    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
+    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
+    PhysicsConfig, PhysicsType, ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangef,
+    RepulsionConfig, ResourceType, ReverbEffect, RotationMode, ShaderType, Size, SoftParticle,
+    SoundCategory, SoundSet, SubCategoryDefinition, SwitchTo, Trail, UVMotion, UVMotionCurveType,
     UpdateType, ValueType, Vector2i, Weather, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
@@ -287,22 +291,8 @@ impl AssetRegistry {
                 // handling the packet.
                 self.block_sets_packet()?,
                 self.trails_packet()?,
-                empty_packet(
-                    "ParticleSystems",
-                    &UpdateParticleSystems {
-                        particle_systems: Some(BTreeMap::new()),
-                        removed_particle_systems: Some(Vec::new()),
-                        ..Default::default()
-                    },
-                )?,
-                empty_packet(
-                    "ParticleSpawners",
-                    &UpdateParticleSpawners {
-                        particle_spawners: Some(BTreeMap::new()),
-                        removed_particle_spawners: Some(Vec::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.particle_systems_packet()?,
+                self.particle_spawners_packet()?,
                 self.model_vfxs_packet()?,
                 self.fieldcraft_categories_packet()?,
                 self.resource_types_packet()?,
@@ -558,6 +548,41 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateParticleSystems` (id 49) from the `ParticleSystem` store.
+    pub fn particle_systems_packet(&self) -> Result<AssetPacket> {
+        let mut systems = BTreeMap::new();
+        for record in self.particle_systems.iter() {
+            systems.insert(
+                record.key.clone(),
+                particle_system(&record.key, &record.value),
+            );
+        }
+        let packet = UpdateParticleSystems {
+            r#type: UpdateType::Init,
+            particle_systems: Some(systems),
+            // Java's init packet leaves the removed list null.
+            removed_particle_systems: None,
+        };
+        AssetPacket::encode("ParticleSystem", &packet)
+    }
+
+    /// `UpdateParticleSpawners` (id 50) from the `ParticleSpawner` store.
+    pub fn particle_spawners_packet(&self) -> Result<AssetPacket> {
+        let mut spawners = BTreeMap::new();
+        for record in self.particle_spawners.iter() {
+            spawners.insert(
+                record.key.clone(),
+                particle_spawner(&record.key, &record.value),
+            );
+        }
+        let packet = UpdateParticleSpawners {
+            r#type: UpdateType::Init,
+            particle_spawners: Some(spawners),
+            removed_particle_spawners: None,
+        };
+        AssetPacket::encode("ParticleSpawner", &packet)
     }
 
     /// `UpdateEntityUIComponents` (id 73) from the `EntityUIComponent` store.
@@ -1769,6 +1794,373 @@ fn text(json: &Value, name: &str) -> Option<String> {
 
 fn boolean(json: &Value, name: &str, fallback: bool) -> bool {
     json.get(name).and_then(Value::as_bool).unwrap_or(fallback)
+}
+
+fn ranged_f32(value: Option<&Value>) -> Option<Rangef> {
+    let object = value?.as_object()?;
+    Some(Rangef {
+        min: object.get("Min").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        max: object.get("Max").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+    })
+}
+
+fn ranged_i32(value: Option<&Value>) -> Option<Range> {
+    let object = value?.as_object()?;
+    Some(Range {
+        min: object.get("Min").and_then(Value::as_i64).unwrap_or(0) as i32,
+        max: object.get("Max").and_then(Value::as_i64).unwrap_or(0) as i32,
+    })
+}
+
+fn range_vector2f(value: Option<&Value>) -> Option<RangeVector2f> {
+    let object = value?.as_object()?;
+    Some(RangeVector2f {
+        x: ranged_f32(object.get("X")),
+        y: ranged_f32(object.get("Y")),
+    })
+}
+
+fn range_vector3f(value: Option<&Value>) -> Option<RangeVector3f> {
+    let object = value?.as_object()?;
+    Some(RangeVector3f {
+        x: ranged_f32(object.get("X")),
+        y: ranged_f32(object.get("Y")),
+        z: ranged_f32(object.get("Z")),
+    })
+}
+
+fn direction(value: Option<&Value>) -> Option<Direction> {
+    let object = value?.as_object()?;
+    Some(Direction {
+        yaw: object.get("Yaw").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        pitch: object.get("Pitch").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        roll: object.get("Roll").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+    })
+}
+
+fn size(value: Option<&Value>) -> Option<Size> {
+    let object = value?.as_object()?;
+    Some(Size {
+        width: object.get("Width").and_then(Value::as_i64).unwrap_or(0) as i32,
+        height: object.get("Height").and_then(Value::as_i64).unwrap_or(0) as i32,
+    })
+}
+
+fn map_number(object: &serde_json::Map<String, Value>, name: &str) -> f64 {
+    object.get(name).and_then(Value::as_f64).unwrap_or(0.0)
+}
+
+fn particle_animation_frame(value: &Value) -> Option<ParticleAnimationFrame> {
+    let object = value.as_object()?;
+    Some(ParticleAnimationFrame {
+        frame_index: ranged_i32(object.get("FrameIndex")),
+        scale: range_vector2f(object.get("Scale")),
+        rotation: range_vector3f(object.get("Rotation")),
+        color: color(object.get("Color")),
+        // Java's `ParticleAnimationFrame.UNASSIGNED_OPACITY`.
+        opacity: object
+            .get("Opacity")
+            .and_then(Value::as_f64)
+            .unwrap_or(-1.0) as f32,
+    })
+}
+
+fn particle(value: Option<&Value>) -> Option<Particle> {
+    let object = value?.as_object()?;
+    let animation_frames = object
+        .get("Animation")
+        .and_then(Value::as_object)
+        .map(|frames| {
+            frames
+                .iter()
+                .filter_map(|(index, frame)| {
+                    Some((index.parse::<i32>().ok()?, particle_animation_frame(frame)?))
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .filter(|frames| !frames.is_empty());
+    Some(Particle {
+        texture_path: object
+            .get("Texture")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        frame_size: size(object.get("FrameSize")),
+        uv_option: match object.get("UVOption").and_then(Value::as_str) {
+            Some("RandomFlipU") => ParticleUVOption::RandomFlipU,
+            Some("RandomFlipV") => ParticleUVOption::RandomFlipV,
+            Some("RandomFlipUV") => ParticleUVOption::RandomFlipUV,
+            Some("FlipU") => ParticleUVOption::FlipU,
+            Some("FlipV") => ParticleUVOption::FlipV,
+            Some("FlipUV") => ParticleUVOption::FlipUV,
+            _ => ParticleUVOption::None,
+        },
+        scale_ratio_constraint: match object.get("ScaleRatioConstraint").and_then(Value::as_str) {
+            Some("Preserved") => ParticleScaleRatioConstraint::Preserved,
+            Some("None") => ParticleScaleRatioConstraint::None,
+            _ => ParticleScaleRatioConstraint::OneToOne,
+        },
+        soft_particles: match object.get("SoftParticles").and_then(Value::as_str) {
+            Some("Disable") => SoftParticle::Disable,
+            Some("Require") => SoftParticle::Require,
+            _ => SoftParticle::Enable,
+        },
+        soft_particles_fade_factor: object
+            .get("SoftParticlesFadeFactor")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0) as f32,
+        camera_near_fade_start_distance: map_number(object, "CameraNearFadeStartDistance") as f32,
+        camera_near_fade_end_distance: map_number(object, "CameraNearFadeEndDistance") as f32,
+        camera_far_fade_start_distance: map_number(object, "CameraFarFadeStartDistance") as f32,
+        camera_far_fade_end_distance: map_number(object, "CameraFarFadeEndDistance") as f32,
+        use_sprite_blending: object
+            .get("UseSpriteBlending")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        initial_animation_frame: object
+            .get("InitialAnimationFrame")
+            .and_then(particle_animation_frame),
+        collision_animation_frame: object
+            .get("CollisionAnimationFrame")
+            .and_then(particle_animation_frame),
+        animation_frames,
+    })
+}
+
+fn particle_attractor(value: &Value) -> Option<ParticleAttractor> {
+    let object = value.as_object()?;
+    Some(ParticleAttractor {
+        position: object.get("Position").and_then(vector3),
+        radial_axis: object.get("RadialAxis").and_then(vector3),
+        trail_position_multiplier: map_number(object, "TrailPositionMultiplier") as f32,
+        radius: map_number(object, "Radius") as f32,
+        radial_acceleration: map_number(object, "RadialAcceleration") as f32,
+        radial_tangent_acceleration: map_number(object, "RadialTangentAcceleration") as f32,
+        linear_acceleration: object.get("LinearAcceleration").and_then(vector3),
+        radial_impulse: map_number(object, "RadialImpulse") as f32,
+        radial_tangent_impulse: map_number(object, "RadialTangentImpulse") as f32,
+        linear_impulse: object.get("LinearImpulse").and_then(vector3),
+        damping_multiplier: object.get("DampingMultiplier").and_then(vector3),
+    })
+}
+
+fn particle_collision(value: Option<&Value>) -> Option<ParticleCollision> {
+    let object = value?.as_object()?;
+    Some(ParticleCollision {
+        block_type: match object.get("BlockType").and_then(Value::as_str) {
+            Some("Air") => ParticleCollisionBlockType::Air,
+            Some("Solid") => ParticleCollisionBlockType::Solid,
+            Some("All") => ParticleCollisionBlockType::All,
+            _ => ParticleCollisionBlockType::None,
+        },
+        action: match object.get("Action").and_then(Value::as_str) {
+            Some("LastFrame") => ParticleCollisionAction::LastFrame,
+            Some("Linger") => ParticleCollisionAction::Linger,
+            _ => ParticleCollisionAction::Expire,
+        },
+        particle_rotation_influence: particle_rotation_influence(
+            object.get("ParticleRotationInfluence"),
+        ),
+    })
+}
+
+fn particle_rotation_influence(value: Option<&Value>) -> ParticleRotationInfluence {
+    match value.and_then(Value::as_str) {
+        Some("Billboard") => ParticleRotationInfluence::Billboard,
+        Some("BillboardY") => ParticleRotationInfluence::BillboardY,
+        Some("BillboardVelocity") => ParticleRotationInfluence::BillboardVelocity,
+        Some("Velocity") => ParticleRotationInfluence::Velocity,
+        _ => ParticleRotationInfluence::None,
+    }
+}
+
+fn initial_velocity(value: Option<&Value>) -> Option<InitialVelocity> {
+    let object = value?.as_object()?;
+    Some(InitialVelocity {
+        yaw: ranged_f32(object.get("Yaw")),
+        pitch: ranged_f32(object.get("Pitch")),
+        speed: ranged_f32(object.get("Speed")),
+    })
+}
+
+fn uv_motion(value: Option<&Value>) -> Option<UVMotion> {
+    let object = value?.as_object()?;
+    Some(UVMotion {
+        texture: object
+            .get("Texture")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        add_random_uv_offset: object
+            .get("AddRandomUVOffset")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        speed_x: map_number(object, "SpeedX") as f32,
+        speed_y: map_number(object, "SpeedY") as f32,
+        scale: map_number(object, "Scale") as f32,
+        strength: map_number(object, "Strength") as f32,
+        strength_curve_type: match object.get("StrengthCurveType").and_then(Value::as_str) {
+            Some("IncreaseLinear") => UVMotionCurveType::IncreaseLinear,
+            Some("IncreaseQuartIn") => UVMotionCurveType::IncreaseQuartIn,
+            Some("IncreaseQuartInOut") => UVMotionCurveType::IncreaseQuartInOut,
+            Some("IncreaseQuartOut") => UVMotionCurveType::IncreaseQuartOut,
+            Some("DecreaseLinear") => UVMotionCurveType::DecreaseLinear,
+            Some("DecreaseQuartIn") => UVMotionCurveType::DecreaseQuartIn,
+            Some("DecreaseQuartInOut") => UVMotionCurveType::DecreaseQuartInOut,
+            Some("DecreaseQuartOut") => UVMotionCurveType::DecreaseQuartOut,
+            _ => UVMotionCurveType::Constant,
+        },
+    })
+}
+
+fn intersection_highlight(value: Option<&Value>) -> Option<IntersectionHighlight> {
+    let object = value?.as_object()?;
+    Some(IntersectionHighlight {
+        highlight_threshold: map_number(object, "HighlightThreshold") as f32,
+        highlight_color: color(object.get("HighlightColor")),
+    })
+}
+
+fn particle_spawner_group(value: &Value) -> Option<ParticleSpawnerGroup> {
+    let object = value.as_object()?;
+    Some(ParticleSpawnerGroup {
+        spawner_id: object
+            .get("SpawnerId")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        position_offset: object.get("PositionOffset").and_then(vector3),
+        rotation_offset: direction(object.get("RotationOffset")),
+        fixed_rotation: object
+            .get("FixedRotation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        start_delay: map_number(object, "StartDelay") as f32,
+        spawn_rate: ranged_f32(object.get("SpawnRate")),
+        wave_delay: ranged_f32(object.get("WaveDelay")),
+        total_spawners: object
+            .get("TotalSpawners")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32,
+        max_concurrent: object
+            .get("MaxConcurrent")
+            .and_then(Value::as_i64)
+            .unwrap_or(0) as i32,
+        initial_velocity: initial_velocity(object.get("InitialVelocity")),
+        emit_offset: range_vector3f(object.get("EmitOffset")),
+        life_span: ranged_f32(object.get("LifeSpan")),
+        attractors: object
+            .get("Attractors")
+            .and_then(Value::as_array)
+            .map(|attractors| {
+                attractors
+                    .iter()
+                    .filter_map(particle_attractor)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|attractors| !attractors.is_empty()),
+    })
+}
+
+fn particle_system(key: &str, json: &Value) -> ParticleSystem {
+    ParticleSystem {
+        id: Some(key.to_string()),
+        spawners: json
+            .get("Spawners")
+            .and_then(Value::as_array)
+            .map(|spawners| {
+                spawners
+                    .iter()
+                    .filter_map(particle_spawner_group)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|spawners| !spawners.is_empty()),
+        life_span: number(json, "LifeSpan") as f32,
+        cull_distance: number(json, "CullDistance") as f32,
+        bounding_radius: number(json, "BoundingRadius") as f32,
+        is_important: json
+            .get("IsImportant")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+fn particle_spawner(key: &str, json: &Value) -> ParticleSpawner {
+    let rotation_influence = particle_rotation_influence(json.get("ParticleRotationInfluence"));
+    let collision = particle_collision(json.get("ParticleCollision")).map(|mut collision| {
+        // Java falls back to the spawner's rotation influence when the
+        // collision block does not define one.
+        if json
+            .get("ParticleCollision")
+            .and_then(Value::as_object)
+            .and_then(|collision| collision.get("ParticleRotationInfluence"))
+            .is_none()
+        {
+            collision.particle_rotation_influence = rotation_influence;
+        }
+        collision
+    });
+    ParticleSpawner {
+        id: Some(key.to_string()),
+        particle: particle(json.get("Particle")),
+        shape: match json.get("Shape").and_then(Value::as_str) {
+            Some("Cube") => EmitShape::Cube,
+            _ => EmitShape::Sphere,
+        },
+        emit_offset: range_vector3f(json.get("EmitOffset")),
+        camera_offset: number(json, "CameraOffset") as f32,
+        use_emit_direction: json
+            .get("UseEmitDirection")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        life_span: number(json, "LifeSpan") as f32,
+        spawn_rate: ranged_f32(json.get("SpawnRate")),
+        spawn_burst: json
+            .get("SpawnBurst")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        wave_delay: ranged_f32(json.get("WaveDelay")),
+        total_particles: ranged_i32(json.get("TotalParticles")),
+        max_concurrent_particles: json
+            .get("MaxConcurrentParticles")
+            .and_then(Value::as_i64)
+            .unwrap_or(0) as i32,
+        initial_velocity: initial_velocity(json.get("InitialVelocity")),
+        velocity_stretch_multiplier: number(json, "VelocityStretchMultiplier") as f32,
+        particle_rotation_influence: rotation_influence,
+        particle_rotate_with_spawner: json
+            .get("ParticleRotateWithSpawner")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        is_low_res: json
+            .get("IsLowRes")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        trail_spawner_position_multiplier: number(json, "TrailSpawnerPositionMultiplier") as f32,
+        trail_spawner_rotation_multiplier: number(json, "TrailSpawnerRotationMultiplier") as f32,
+        particle_collision: collision,
+        render_mode: match json.get("RenderMode").and_then(Value::as_str) {
+            Some("BlendAdd") => FXRenderMode::BlendAdd,
+            Some("Erosion") => FXRenderMode::Erosion,
+            Some("Distortion") => FXRenderMode::Distortion,
+            _ => FXRenderMode::BlendLinear,
+        },
+        light_influence: number(json, "LightInfluence") as f32,
+        linear_filtering: json
+            .get("LinearFiltering")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        particle_life_span: ranged_f32(json.get("ParticleLifeSpan")),
+        uv_motion: uv_motion(json.get("UVMotion")),
+        attractors: json
+            .get("Attractors")
+            .and_then(Value::as_array)
+            .map(|attractors| {
+                attractors
+                    .iter()
+                    .filter_map(particle_attractor)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|attractors| !attractors.is_empty()),
+        intersection_highlight: intersection_highlight(json.get("IntersectionHighlight")),
+    }
 }
 
 fn number(json: &Value, name: &str) -> f64 {

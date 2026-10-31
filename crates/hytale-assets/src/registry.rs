@@ -366,6 +366,18 @@ const BLOCK_SET: StoreSpec = StoreSpec {
     map: MapKind::IndexedLookupTable,
 };
 
+const PARTICLE_SYSTEM: StoreSpec = StoreSpec {
+    name: "ParticleSystem",
+    path: "Server/Particles",
+    map: MapKind::IndexedLookupTable,
+};
+
+const PARTICLE_SPAWNER: StoreSpec = StoreSpec {
+    name: "ParticleSpawner",
+    path: "Server/Particles",
+    map: MapKind::Default,
+};
+
 /// One loaded asset with its assigned id and provenance.
 #[derive(Debug, Clone)]
 pub struct AssetRecord<T> {
@@ -915,6 +927,10 @@ pub struct AssetRegistry {
     pub entity_ui_components: AssetCollection<Value>,
     /// `BlockSet` (`Server/Item/Block/Sets`).
     pub block_sets: AssetCollection<Value>,
+    /// `ParticleSystem` (`Server/Particles/*.particlesystem`).
+    pub particle_systems: AssetCollection<Value>,
+    /// `ParticleSpawner` (`Server/Particles/**/*.particlespawner`).
+    pub particle_spawners: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1022,6 +1038,8 @@ impl AssetRegistry {
             model_vfxs: AssetCollection::empty(),
             entity_ui_components: AssetCollection::empty(),
             block_sets: AssetCollection::empty(),
+            particle_systems: AssetCollection::empty(),
+            particle_spawners: AssetCollection::empty(),
         })
     }
 
@@ -1063,6 +1081,10 @@ impl AssetRegistry {
         registry.entity_ui_components =
             load_indexed_store(pack, &ENTITY_UI_COMPONENT, Vec::new(), parse_key_asset)?;
         registry.block_sets = load_indexed_store(pack, &BLOCK_SET, Vec::new(), parse_key_asset)?;
+        registry.particle_systems =
+            load_indexed_store_extension(pack, &PARTICLE_SYSTEM, "particlesystem")?;
+        registry.particle_spawners =
+            load_indexed_store_extension(pack, &PARTICLE_SPAWNER, "particlespawner")?;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -1295,6 +1317,81 @@ fn load_indexed_store_with<T>(
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
     AssetCollection::new(spec.name, records)
+}
+
+/// Load an indexed store whose files use a non-`.json` extension.
+fn load_indexed_store_extension(
+    pack: &AssetPack,
+    spec: &StoreSpec,
+    extension: &str,
+) -> Result<AssetCollection<Value>, AssetError> {
+    let files = read_store_files_extension(pack, spec.path, extension)?;
+    let mut loaded: HashSet<String> = HashSet::new();
+    let ordered = assign_phase(files, &mut loaded, MissingParentPolicy::Error, spec.name)?;
+    let resolved = resolve_assets(ordered, spec.name, MergeHook::Shallow)?;
+    let records = resolved
+        .into_iter()
+        .enumerate()
+        .map(|(index, asset)| {
+            let id = i32::try_from(index).map_err(|_| AssetError::InvalidAsset {
+                store: spec.name.to_string(),
+                key: asset.raw.key.clone(),
+                message: "asset id exceeds i32".to_string(),
+            })?;
+            Ok(AssetRecord {
+                key: asset.raw.key,
+                id: Some(id),
+                parent: asset.raw.parent,
+                source: asset.raw.source,
+                preloaded: asset.raw.preloaded,
+                value: asset.merged,
+            })
+        })
+        .collect::<Result<Vec<_>, AssetError>>()?;
+    AssetCollection::new(spec.name, records)
+}
+
+fn read_store_files_extension(
+    pack: &AssetPack,
+    path: &str,
+    extension: &str,
+) -> Result<Vec<RawAsset>, AssetError> {
+    let prefix = format!("{path}/");
+    let suffix = format!(".{extension}");
+    let mut files: Vec<String> = pack
+        .list_in_storage_order()?
+        .into_iter()
+        .filter(|file| file.starts_with(&prefix) && file.ends_with(&suffix))
+        .collect();
+    files.reverse();
+    let contents = pack.read_many(&files)?;
+    let mut assets = Vec::with_capacity(files.len());
+    for (path, bytes) in files.into_iter().zip(contents) {
+        let key = path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&path)
+            .strip_suffix(&suffix)
+            .unwrap_or(&path)
+            .to_string();
+        let value: Value = serde_json::from_slice(&bytes).map_err(|source| AssetError::Json {
+            key: path.clone(),
+            source,
+        })?;
+        let parent = value
+            .get("Parent")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        assets.push(RawAsset {
+            key,
+            parent,
+            container_item: None,
+            source: path,
+            preloaded: false,
+            value,
+        });
+    }
+    Ok(assets)
 }
 
 /// Load a `DefaultAssetMap` store with a typed decoder.

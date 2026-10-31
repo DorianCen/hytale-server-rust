@@ -34,11 +34,15 @@ This is an asset-packet completeness task, not an auth task.
   - real stores replacing placeholders: `SoundSet`, `ResourceType`,
     `FieldcraftCategory`, `ReverbEffect`, `EqualizerEffect`, `BeamConfig`,
     `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
-    `ModelVFX`, `EntityUIComponent`, `BlockSet`.
+    `ModelVFX`, `EntityUIComponent`, `BlockSet`, `ParticleSystem`,
+    `ParticleSpawner`;
+  - the two particle packets are byte-identical to the Java goldens
+    (`ParticleSystem` 791 systems, `ParticleSpawner` 2439 spawners), covering
+    particles, animation frames, attractors, collision, UV motion and the
+    spawner-group tree.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
-  - `ParticleSystem`, `ParticleSpawner` (large nested particle trees);
   - `Interaction`, `RootInteraction`, `UnarmedInteraction` (full action graph);
   - `MusicContainer`, `ConnectedBlockRuleSet`, `MusicTransition`, `Stinger`,
     `Recipes` (polymorphic/asset-specific trees).
@@ -83,6 +87,10 @@ This is an asset-packet completeness task, not an auth task.
   sound-set/resource/fieldcraft/reverb/equalizer/beam/hitbox/repulsion/
   ability-keyword/trail/model-VFX packets and compares their map lengths to
   the registry.
+- `particle_packets_match_the_java_golden` byte-compares both particle
+  packets with `testdata/golden/server/assets/*.bin`; `particle_stores_are_
+  materialized` checks the map counts and that every system has spawners and
+  every spawner has a particle definition.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke
