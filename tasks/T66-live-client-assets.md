@@ -169,6 +169,40 @@ Fixed in this slice:
 - Regressions: `debug_block_preloads_carry_models_and_textures` and
   `translations_carry_server_catalog_and_language_fallback`.
 
+### Second run: interaction id `NOT_FOUND` self-loop
+
+The client was rerun with the Debug_Model fix. The model warning disappeared but
+the client still died at the same point. It is a native SIGSEGV, not a managed
+exception: `coredumpctl` shows the main thread's stack repeating
+`HytaleClient+0xa561fd` hundreds of times (stack exhaustion), and walking out of
+the recursion lands in the interaction resolver (`HytaleClient+0xa55e60`), whose
+strings include "Interaction index {0} is out of range or references an
+unpopulated slot; skipping malformed reference".
+
+Cause: Java sends `AssetMapWithIndexes.NOT_FOUND` (`i32::MIN`) for an absent
+interaction reference, but the Rust encoders used `0`. Interaction id `0` is the
+preloaded `*Change_Active_Slot`, which has no `Next`/`Failed`, so the payload
+made it point at itself and the client followed the chain forever.
+
+Fixed in this slice:
+
+- `INTERACTION_NOT_FOUND` (`i32::MIN`) for every interaction reference:
+  `Next`/`Failed`/`Blocked`, `Click`/`Held`, all eight `MovementCondition`
+  directions, fork/ground/collision next, serial/parallel arrays, root children
+  and the unarmed `SwapFrom` binding.
+- Inline `Interactions` array elements are registered as contained interaction
+  assets at any depth, matching Java's `CHILD_ASSET_CODEC_ARRAY`. Before this,
+  most inline children resolved to `0`.
+- `DamageEntity.Blocked` and the `MovementCondition` directions now come from
+  JSON instead of hardcoded `0`.
+- Regression: `crates/hytale-assets/tests/interaction_packets.rs`
+  (`absent_interaction_references_use_not_found`).
+
+After the containment fix only 2 references stay unresolved (root interaction
+names used inside an interaction array); they are sent as `NOT_FOUND` and the
+client skips them. A key-level walk of all 5,758 interaction nodes found no
+cycles.
+
 ## Client/server version comparison
 
 The old and new Java checkouts share the same protocol (CRC `3908406161`,

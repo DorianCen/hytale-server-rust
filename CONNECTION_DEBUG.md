@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-10-31
+# Connection-debug session handoff — 2026-10-31 (second run)
 
 ## Objective
 
@@ -7,88 +7,127 @@ Hytale client.** The agent must never launch it.
 
 ## Current status
 
-- The authenticated release client now passes setup and reaches `Playing`.
-- It then crashed while preparing the world.
-- The first crash was caused by the code-defined `Debug_Model` block arriving
-  with an empty model path.
-- That preload is fixed, but the client has **not yet been rerun** to confirm the
-  crash is gone.
+- The client authenticates, receives every config store, reaches `Playing`, and
+  runs all world-load steps through `PrepareWorldMap`.
+- It then dies with a **native SIGSEGV**, not a managed exception.
+- The `Debug_Model` model-path warning is gone, so that fix was real but was not
+  the crash.
+- The crash is a runaway recursion in the client's interaction resolver. It was
+  triggered by the server encoding "no interaction" as id `0` instead of Java's
+  `AssetMapWithIndexes.NOT_FOUND` (`i32::MIN`).
+- Interaction id `0` is the preloaded `*Change_Active_Slot`, which has no
+  `Next`/`Failed`. The old payload therefore made node `0` point at itself and
+  the client followed the chain until the stack was exhausted.
 
-Latest code commit: `c3ae322` (`fix: preload debug block models and send translations`).
+## Evidence
 
-## Client evidence
-
-Log:
+Client log (ends mid-load, no exception):
 
 ```text
-/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_21-20-39_client.log
+/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_21-34-06_client.log
 ```
 
-Key lines:
+Last lines:
 
 ```text
-Stage SettingUp -> Playing took 102ms
-Missing model asset:  for block Debug_Model
+Stage SettingUp -> Playing took 119ms
 Loading world: PrepareRootInterations: 0ms
 PrepareAmbienceFX: 0ms
-PrepareInterations: 0ms
-PrepareBlockOverlayAtlas: 1ms
-PrepareWorldMap: 2ms
+Loading world: PrepareInterations: 0ms
+PrepareBlockOverlayAtlas: 0ms
+Loading world: PrepareWorldMap: 2ms
 ```
 
-The log ends immediately after `PrepareWorldMap`, with no managed exception.
-The empty `Debug_Model` model path is the only asset warning in the log.
+Crash dump (`coredumpctl info 533403`):
+
+- `SIGSEGV` on the main thread, `RSP` exactly at the stack guard page.
+- The crashing stack repeats `HytaleClient + 0xa561fd` hundreds of times, i.e.
+  unbounded recursion, not a nil dereference.
+- Walking the stack out of the recursion locates `HytaleClient + 0xa55e60`,
+  whose string literals include:
+  `Interaction index {0} is out of range or references an unpopulated slot; skipping malformed reference`.
+
+Sentry envelope (fatal SIGSEGV at `2026-10-31T20:34:16.683Z`):
+
+```text
+.../UserData/.sentry-cache/SentryNative/419ac751-.../b47a0f16-....envelope
+```
+
+Its breadcrumbs also stop at `PrepareWorldMap`.
+
+Server side:
+
+```text
+session error: connection handshake timed out
+```
+
+The trace ends at `WorldLoadFinished`; the client crashed before sending
+`SetupFinalize`, so the server never enters the game stage.
+
+## Root cause
+
+Java sends `Integer.MIN_VALUE` for an absent interaction reference:
+
+- `AssetMapWithIndexes.NOT_FOUND = Integer.MIN_VALUE`
+- `Interaction.getInteractionIdOrUnknown(null)` returns that sentinel.
+
+The Rust encoders used `0` for absent references. Since `0` is a valid
+interaction id, every absent `Next`/`Failed` became "go to interaction 0".
+Interaction 0 has no `Next`, so its own encoded reference was `0` as well: a
+one-node cycle the client resolves recursively.
 
 ## Fixes landed
 
-- `Debug_Model` preload now has:
-  - `Blocks/_Debug/Model.blockymodel`
-  - `Blocks/_Debug/Texture.png`
-- `Debug_Cube` preload now has all six `BlockTextures/_Debug/*.png` faces.
-- `UpdateTranslations` now sends the real `Server/Languages/<language>` catalog
-  instead of an empty map, including Java’s `fallback.lang` behavior.
-- `serve --help` now lists `--auth-mode authenticated`.
-- New regressions:
-  - `debug_block_preloads_carry_models_and_textures`
-  - `translations_carry_server_catalog_and_language_fallback`
+- `crates/hytale-assets/src/packets/mod.rs`
+  - Added `INTERACTION_NOT_FOUND` (`i32::MIN`) and used it for every interaction
+    reference: `Next`, `Failed`, `Blocked`, `Click`/`Held`, the eight
+    `MovementCondition` directions, `ForkInteractions`, ground/collision next,
+    `Serial`/`Parallel` child arrays, root-interaction children and the unarmed
+    `SwapFrom` binding.
+  - `DamageEntity.Blocked` and the `MovementCondition` directions are now
+    resolved from JSON instead of being hardcoded to `0`.
+- `crates/hytale-assets/src/registry.rs`
+  - Inline objects in `Interactions` arrays are registered as contained
+    interaction assets at any nesting depth, matching Java's
+    `CHILD_ASSET_CODEC_ARRAY`. Previously only root-interaction arrays were
+    registered, so many references collapsed to `0`.
+- Regressions:
+  - `crates/hytale-assets/tests/interaction_packets.rs`
+    - `absent_interaction_references_use_not_found`
+  - `crates/hytale-assets/tests/block_item_packets.rs` now allows the sentinel
+    while still rejecting dangling ids.
+
+After the containment fix only 2 references remain unresolved (two root
+interaction names used inside an interaction array); they are sent as
+`NOT_FOUND` and the client skips them. A key-level walk of all 5,758 interaction
+nodes found no cycles.
 
 ## Verification evidence
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.689s] 1551 tests run: 1551 passed, 24 skipped
+Summary [ 19.611s] 1552 tests run: 1552 passed, 24 skipped
+
+HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
+block_item_packets: 18 passed
+interaction_packets: 1 passed
+(all other hytale-assets suites passed)
+
+cargo clippy --workspace --all-targets -- -D warnings   → clean
+cargo fmt --all -- --check                              → clean
+--validate-assets                                       → 50 stores, failures: 0
 ```
-
-- `HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets` → all pass
-- `cargo clippy --workspace --all-targets -- -D warnings` → clean
-- `cargo fmt --all -- --check` → clean
-- `--validate-assets` → 50 stores, `failures: 0`
-
-## Version comparison (done earlier)
-
-Old Java source used by the rewrite: `.hytale-source/hytale-shared-source`
-(`387dc7e0a`, 2026-10-14).
-Current Java source: `/home/chome/Projects/hytale-shared-source`
-(`bcc393865`, 2026-10-30).
-
-- Wire protocol is **identical**: CRC `3908406161`, build `258`, zero changed
-  files under `Protocol/`.
-- Rust `Assets/extracted/Server` matches the **old** checkout byte-for-byte on
-  all 36,498 common JSON files.
-- 0.7.5 changes 30 cosmetic/Halloween documents and adds 4 items; no asset-store
-  or `*PacketGenerator` code changed.
-- Therefore the version gap is not a protocol-level incompatibility. See
-  `JAVA_VERSION_DIFF.md` and `tools/compare-java-versions.py`.
 
 ## What to do next
 
-1. User reruns the client against commit `c3ae322` or newer.
-2. Capture the new client log.
-3. If it passes `PrepareWorldMap`, report the next failing stage or the first
-   warning/error.
-4. If it crashes again after the same point, inspect whether the next
-   client-side `Prepare*` stage dereferences another preload or missing asset.
-5. Do not speculate about protocol mismatch; protocol is proven identical.
+1. Rerun the release client against this commit.
+2. If it passes `PrepareWorldMap`, the client should send `SetupFinalize`; then
+   the server sends `ClearChunks` + `JoinWorld`. Report the next failing stage.
+3. If it crashes again, capture the new client log, `coredumpctl info <pid>`,
+   and the newest Sentry envelope. The next suspect is another asset id space
+   that still uses `0` for "none" (block/effect/sound/item ids) or a long-tail
+   interaction field listed below.
+4. Do not speculate about protocol mismatch; protocol is proven identical.
 
 ## Commands
 
@@ -114,20 +153,26 @@ ids, channels, order and payload hashes.
 
 ## Important files
 
-- `crates/hytale-assets/src/registry.rs` — block preloads (Debug_Model/Debug_Cube)
-- `crates/hytale-assets/src/translations.rs` — `.lang` parser/catalog
+- `crates/hytale-assets/src/packets/mod.rs` — interaction encoders and
+  `INTERACTION_NOT_FOUND`
+- `crates/hytale-assets/src/registry.rs` — contained interaction registration
+- `crates/hytale-assets/tests/interaction_packets.rs` — new sentinel/self-loop
+  regression
+- `crates/hytale-assets/tests/block_item_packets.rs` — interaction graph
+  materialization
+- `crates/hytale-assets/src/registry.rs` — block preloads and translations
 - `crates/hytale-server/src/session.rs` — auth/setup/asset burst
-- `crates/hytale-server/src/main.rs` — CLI help text
-- `crates/hytale-assets/tests/block_item_packets.rs` — block/config regressions
-- `crates/hytale-assets/tests/translations.rs` — translation regression
 - `tasks/T66-live-client-assets.md` — current T66 status
-- `PORTING_HISTORY.md` — session 72 entry
+- `PORTING_HISTORY.md` — Session 73 entry
 - `JAVA_VERSION_DIFF.md` — 0.7.2 vs 0.7.5 comparison
 
 ## Remaining T66 gaps
 
-- Confirm the `Debug_Model` fix with the release client.
-- Interaction bodies are typed for 35 common node types; the remaining long-tail
-  types use the base form.
-- T66 is **not complete** until the release client reaches and remains in
-  `Playing` through world load/spawn without crashing.
+- Confirm this interaction-sentinel fix with the release client; T66 is **not
+  complete** until the client remains in `Playing` through world load, spawn,
+  movement and a block edit.
+- Long-tail interaction variants still use the `Simple` base form: `Chaining`,
+  the `MemoriesCondition` `Next` map, the `Charging`/`Wielding` next maps,
+  `PlaceModeSelect`, `ChangeActiveSlot` details and similar.
+- Other asset id spaces still encode "missing" as `0`; Java uses
+  `NOT_FOUND`/`-1` for several of them, so the same class of bug may appear next.

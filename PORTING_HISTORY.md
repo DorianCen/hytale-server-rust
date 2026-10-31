@@ -2008,3 +2008,38 @@ This file records phase-2 sessions only.
   - `./tools/test.sh fast` (1551 passed, 24 skipped), clippy and fmt.
   - `--validate-assets` (50 stores, failures 0).
 - **Follow-up:** rerun the release client and capture the next failure point.
+
+---
+
+## Session 73 — Release-client interaction-chain SIGSEGV (2026-10-31)
+
+- **Goal:** diagnose the second release-client crash after the `Debug_Model` fix.
+- **Evidence:** the client logged every world-load step through
+  `PrepareWorldMap: 2ms` and then died without a managed exception.
+  `coredumpctl` reported `SIGSEGV` with the main-thread stack repeating
+  `HytaleClient+0xa561fd` and `RSP` on the stack guard page, i.e. runaway
+  recursion. Unwinding out of the recursion reached the interaction resolver at
+  `HytaleClient+0xa55e60` ("Interaction index {0} is out of range or references
+  an unpopulated slot; skipping malformed reference").
+- **Cause:** Java's `AssetMapWithIndexes.NOT_FOUND` is `Integer.MIN_VALUE`, but
+  the Rust interaction encoders used `0` for absent references. Interaction `0`
+  is the preloaded `*Change_Active_Slot`, which has no `Next`/`Failed`, so the
+  payload encoded a self-reference and the client looped forever.
+- **Landed:**
+  - `INTERACTION_NOT_FOUND` (`i32::MIN`) for `Next`/`Failed`/`Blocked`,
+    `Click`/`Held`, the `MovementCondition` directions, fork/ground/collision
+    next, serial/parallel arrays, root children and unarmed `SwapFrom`.
+  - Inline elements of `Interactions` arrays are registered as contained
+    interaction assets at any depth, matching Java's `CHILD_ASSET_CODEC_ARRAY`.
+  - `DamageEntity.Blocked` and the `MovementCondition` directions are resolved
+    from JSON instead of hardcoded `0`.
+  - `crates/hytale-assets/tests/interaction_packets.rs` regression plus updated
+    dangling-reference checks in `block_item_packets.rs`.
+- **Verified:**
+  - `./tools/test.sh fast` (1552 passed, 24 skipped), clippy and fmt.
+  - `HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets` (all suites, including 18
+    `block_item_packets` and the new interaction test).
+  - `--validate-assets` (50 stores, failures 0).
+- **Follow-up:** rerun the release client. If it still crashes, the next
+  suspects are other id spaces that still use `0` for "none" and the long-tail
+  interaction variants that still use the `Simple` base form.

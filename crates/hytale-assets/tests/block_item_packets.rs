@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use hytale_assets::packets::INTERACTION_NOT_FOUND;
 use hytale_assets::{AssetPack, AssetRegistry, TagRegistry};
 use hytale_protocol::generated::assets::{
     UpdateAbilityKeywords, UpdateAmbienceFX, UpdateAudioCategories, UpdateAudioStates,
@@ -1511,12 +1512,13 @@ fn interaction_graph_is_materialized() {
             ProtocolInteraction::SimpleInteraction(simple) => {
                 simples += 1;
                 assert!(
-                    interactions.contains_key(&simple.next),
+                    simple.next == INTERACTION_NOT_FOUND || interactions.contains_key(&simple.next),
                     "interaction {index} next {} is dangling",
                     simple.next
                 );
                 assert!(
-                    interactions.contains_key(&simple.failed),
+                    simple.failed == INTERACTION_NOT_FOUND
+                        || interactions.contains_key(&simple.failed),
                     "interaction {index} failed {} is dangling",
                     simple.failed
                 );
@@ -1525,10 +1527,9 @@ fn interaction_graph_is_materialized() {
             ProtocolInteraction::SerialInteraction(serial) => {
                 serials += 1;
                 assert!(!serial.serial_interactions.is_empty());
-                assert!(serial
-                    .serial_interactions
-                    .iter()
-                    .all(|next| interactions.contains_key(next)));
+                assert!(serial.serial_interactions.iter().all(|next| {
+                    *next == INTERACTION_NOT_FOUND || interactions.contains_key(next)
+                }));
             }
             ProtocolInteraction::SelectInteraction(selector) => {
                 selectors += 1;
@@ -1552,7 +1553,7 @@ fn interaction_graph_is_materialized() {
                 assert!(parallel
                     .next
                     .iter()
-                    .all(|next| interactions.contains_key(next)));
+                    .all(|next| *next == INTERACTION_NOT_FOUND || interactions.contains_key(next)));
             }
             ProtocolInteraction::ConditionInteraction(_) => conditions += 1,
             ProtocolInteraction::ProjectileInteraction(projectile) => {
@@ -1678,7 +1679,7 @@ fn interaction_graph_is_materialized() {
         assert!(root
             .interactions
             .iter()
-            .all(|index| interactions.contains_key(index)));
+            .all(|index| *index == INTERACTION_NOT_FOUND || interactions.contains_key(index)));
     }
 
     let chain_hook = roots

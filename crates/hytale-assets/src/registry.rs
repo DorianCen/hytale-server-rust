@@ -1427,6 +1427,21 @@ fn extract_inline_interactions(root: &str, value: &Value, source: &str, out: &mu
         out.push(contained_interaction(key.clone(), source, child.clone()));
         extract_inline_interactions(&key, child, source, out);
     }
+    // Java's `CHILD_ASSET_CODEC_ARRAY` registers every inline element of an
+    // `Interactions` array as a contained asset at any nesting depth. Without
+    // these ids the encoder falls back to `NOT_FOUND` and the client cannot
+    // resolve the chain.
+    let Some(children) = value.get("Interactions").and_then(Value::as_array) else {
+        return;
+    };
+    for (index, child) in children.iter().enumerate() {
+        if !child.is_object() {
+            continue;
+        }
+        let key = format!("*{root}_Interactions_{index}");
+        out.push(contained_interaction(key.clone(), source, child.clone()));
+        extract_inline_interactions(&key, child, source, out);
+    }
 }
 
 fn contained_interaction(key: String, source: &str, value: Value) -> RawAsset {

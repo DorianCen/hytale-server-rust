@@ -553,7 +553,9 @@ impl AssetRegistry {
         let mut interactions = BTreeMap::new();
         interactions.insert(
             InteractionType::SwapFrom,
-            self.root_interactions.id_of("*Default_Swap").unwrap_or(0),
+            self.root_interactions
+                .id_of("*Default_Swap")
+                .unwrap_or(INTERACTION_NOT_FOUND),
         );
         let packet = UpdateUnarmedInteractions {
             r#type: UpdateType::Init,
@@ -2174,6 +2176,13 @@ fn connected_block_rule_set(
     }
 }
 
+/// Java `AssetMapWithIndexes.NOT_FOUND`.
+///
+/// Optional asset references are sent as this sentinel. `0` is a real
+/// interaction id, so using it for "no interaction" makes the client follow the
+/// first interaction instead of stopping, which can loop forever on a chain.
+pub const INTERACTION_NOT_FOUND: i32 = i32::MIN;
+
 fn nested_interaction_index(
     registry: &AssetRegistry,
     parent_key: &str,
@@ -2181,12 +2190,15 @@ fn nested_interaction_index(
     value: Option<&Value>,
 ) -> i32 {
     match value {
-        Some(Value::String(id)) => registry.interactions.id_of(id).unwrap_or(0),
+        Some(Value::String(id)) => registry
+            .interactions
+            .id_of(id)
+            .unwrap_or(INTERACTION_NOT_FOUND),
         Some(Value::Object(_)) => registry
             .interactions
             .id_of(&format!("*{parent_key}_{field}"))
-            .unwrap_or(0),
-        _ => 0,
+            .unwrap_or(INTERACTION_NOT_FOUND),
+        _ => INTERACTION_NOT_FOUND,
     }
 }
 
@@ -2294,12 +2306,15 @@ fn interaction_indices(
                 .iter()
                 .enumerate()
                 .map(|(index, value)| match value {
-                    Value::String(id) => registry.interactions.id_of(id).unwrap_or(0),
+                    Value::String(id) => registry
+                        .interactions
+                        .id_of(id)
+                        .unwrap_or(INTERACTION_NOT_FOUND),
                     Value::Object(_) => registry
                         .interactions
                         .id_of(&format!("*{key}_Interactions_{index}"))
-                        .unwrap_or(0),
-                    _ => 0,
+                        .unwrap_or(INTERACTION_NOT_FOUND),
+                    _ => INTERACTION_NOT_FOUND,
                 })
                 .collect()
         })
@@ -2332,7 +2347,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             camera: base.camera,
             next: base.next,
             failed: base.failed,
-            blocked: 0,
+            blocked: nested_interaction_index(registry, key, "Blocked", json.get("Blocked")),
             damage_effects: None,
             angled_damage: None,
             targeted_damage: BTreeMap::new(),
@@ -3043,14 +3058,34 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 camera: base.camera,
                 next: base.next,
                 failed: base.failed,
-                forward: 0,
+                forward: nested_interaction_index(registry, key, "Forward", json.get("Forward")),
                 back: nested_interaction_index(registry, key, "Back", json.get("Back")),
                 left: nested_interaction_index(registry, key, "Left", json.get("Left")),
                 right: nested_interaction_index(registry, key, "Right", json.get("Right")),
-                forward_left: 0,
-                forward_right: 0,
-                back_left: 0,
-                back_right: 0,
+                forward_left: nested_interaction_index(
+                    registry,
+                    key,
+                    "ForwardLeft",
+                    json.get("ForwardLeft"),
+                ),
+                forward_right: nested_interaction_index(
+                    registry,
+                    key,
+                    "ForwardRight",
+                    json.get("ForwardRight"),
+                ),
+                back_left: nested_interaction_index(
+                    registry,
+                    key,
+                    "BackLeft",
+                    json.get("BackLeft"),
+                ),
+                back_right: nested_interaction_index(
+                    registry,
+                    key,
+                    "BackRight",
+                    json.get("BackRight"),
+                ),
             })
         }
         "DragPlaceBlock" => Interaction::DragPlaceBlockInteraction(DragPlaceBlockInteraction {
@@ -3185,24 +3220,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
 }
 
 fn root_interaction(registry: &AssetRegistry, key: &str, json: &Value) -> RootInteraction {
-    let interactions = json
-        .get("Interactions")
-        .and_then(Value::as_array)
-        .map(|interactions| {
-            interactions
-                .iter()
-                .enumerate()
-                .map(|(index, interaction)| match interaction {
-                    Value::String(id) => registry.interactions.id_of(id).unwrap_or(0),
-                    Value::Object(_) => registry
-                        .interactions
-                        .id_of(&format!("*{key}_Interactions_{index}"))
-                        .unwrap_or(0),
-                    _ => 0,
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let interactions = interaction_indices(registry, key, "Interactions", json.get("Interactions"));
     RootInteraction {
         id: Some(key.to_string()),
         interactions,
