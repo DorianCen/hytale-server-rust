@@ -569,8 +569,12 @@ not part of v1.
 ## 8. Network and auth
 
 - QUIC via `quinn`; TLS via `rustls`.
-- ALPN `hytale/<protocol version>`; accept the previous version only to send a
+- ALPN `hytale/<protocol version>` plus the previous version, matching the Java
+  listener's advertised list; the previous version is only there to send a
   structured “outdated” disconnect.
+- A loopback `--bind` also opens the other loopback family on the same port
+  (`127.0.0.1` + `[::1]`), because `localhost` resolves to `::1` first on many
+  hosts and a single UDP socket belongs to one address family.
 - mTLS required. Self-signed client certificates are accepted; the JWT
   certificate binding (`cnf.x5t#S256`) is the actual identity check.
 - Connection states: `Initial` → `Authentication` → `Setup` → `Game`.

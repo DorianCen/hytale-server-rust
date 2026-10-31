@@ -26,12 +26,18 @@ asset or protocol bodies.
    ```sh
    cargo run -p hytale-server -- serve \
      --universe target/trace-universe --world TraceWorld \
-     --bind 0.0.0.0:5520 --view-radius 0 \
+     --view-radius 1 \
      --trace target/trace/real-client.jsonl
    ```
 
    The console prints `packet trace: target/trace/real-client.jsonl` before
-   accepting connections.
+   accepting connections. The default `--bind 127.0.0.1:5520` also listens on
+   `[::1]:5520`, so a client that resolves `localhost` to IPv6 reaches it.
+
+   Keep the first run at `--view-radius` 0-2. The initial snapshot is generated
+   before it is streamed, so a cold radius-8 world takes minutes; the client may
+   give up while the world thread is still generating. Once the spawn chunks are
+   loaded, reconnecting is fast.
 
 3. Start the vanilla client and connect to `localhost:5520`. Exercise the v1
    lifecycle: spawn, look around/move, place and break a block, disconnect, then
@@ -50,6 +56,22 @@ asset or protocol bodies.
    `testdata/golden/server/trace/` after normalizing it (outbound records, one
    representative per packet type/session, hashes blank for time/entity/list
    payloads) and update the gate.
+
+### If the client reports "QUIC handshake failed"
+
+A 20-second failure with no server-side log line means the client's UDP packets
+never reached a listener. The common cause is an address-family mismatch:
+`localhost` resolves to `::1` first on many systems, while a server bound to
+`127.0.0.1` or `0.0.0.0` only has an IPv4 socket. Check that the startup line
+lists the address the client actually dials:
+
+- no `--bind` (recommended): binds `127.0.0.1:5520` **and** `[::1]:5520`;
+- `--bind [::]:5520`: dual-stack on all interfaces (IPv6 wildcard);
+- `--bind 0.0.0.0:5520`: IPv4 only, so IPv6 `localhost` still fails.
+
+A failed handshake that *does* reach the server now logs
+`QUIC handshake failed: QUIC handshake with <peer> failed: ...`, which names
+the TLS/ALPN error instead of timing out silently.
 
 > Auth note: the default online client uses the live Hytale session authority.
 > The current server's local EdDSA profile is for offline/dev verification; use

@@ -6,7 +6,7 @@
 //! selected world thread (and therefore its cached config burst); assets are not
 //! re-encoded per connection.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -263,6 +263,32 @@ pub enum ServeError {
     MissingWorld(String),
 }
 
+/// The other loopback address family on the same port.
+///
+/// `localhost` resolves to `::1` first on many systems while the default
+/// listener binds `127.0.0.1`. Without this companion a client dialing
+/// `localhost` sends its QUIC Initial packets to a port where nothing is
+/// listening, which surfaces as a 20-second "QUIC handshake failed" timeout
+/// with no server-side log line.
+fn loopback_companion(bind: SocketAddr) -> Option<SocketAddr> {
+    // A port of 0 gets a different OS-assigned port per family; the caller
+    // cannot publish both, and tests rely on a single ephemeral endpoint.
+    if bind.port() == 0 {
+        return None;
+    }
+    match bind.ip() {
+        IpAddr::V4(ip) if ip.is_loopback() => Some(SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+            bind.port(),
+        )),
+        IpAddr::V6(ip) if ip.is_loopback() => Some(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            bind.port(),
+        )),
+        _ => None,
+    }
+}
+
 /// Run the listener on a fresh tokio runtime until Ctrl-C.
 pub fn run(options: ServeOptions) -> Result<ServeReport, ServeError> {
     let runtime = Runtime::new()?;
@@ -325,15 +351,33 @@ where
     }
 
     let identity = TlsIdentity::generate("localhost")?;
-    let server = ServerEndpointBuilder::new(options.bind_addr, identity).bind()?;
+    let mut bind_addrs = vec![options.bind_addr];
+    bind_addrs.extend(loopback_companion(options.bind_addr));
+    let primary = bind_addrs.remove(0);
+    let server = ServerEndpointBuilder::new(primary, identity).bind_addrs(bind_addrs.clone())?;
     let bound_addr = server.local_addr();
     if let Some(sender) = options.bound_tx {
         let _ = sender.send(bound_addr);
     }
+    for (addr, error) in server.skipped() {
+        eprintln!("warning: could not also listen on {addr}: {error}");
+    }
+    let listening = server
+        .local_addrs()
+        .map(|addr| addr.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     println!(
-        "serve listening on {bound_addr} (world {} / {})",
+        "serve listening on {listening} (world {} / {})",
         descriptor.name, descriptor.uuid
     );
+    if options.bind_addr.is_ipv4() && options.bind_addr.ip().is_unspecified() {
+        println!(
+            "note: {} is IPv4-only; use --bind [::]:{} to accept IPv6 clients (including a `localhost` that resolves to ::1)",
+            options.bind_addr,
+            options.bind_addr.port()
+        );
+    }
 
     let semaphore = Arc::new(Semaphore::new(options.max_connections.max(1)));
     let players = Arc::new(PlayerRegistry::new());
@@ -348,8 +392,21 @@ where
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
+            // Collect sessions as they finish so a failure is logged even when
+            // no further connection arrives.
+            result = sessions.join_next(), if !sessions.is_empty() => {
+                if let Some(result) = result {
+                    collect_session(result, &mut summaries, &mut errors);
+                }
+            }
             accepted = server.accept() => {
-                let accepted = accepted?;
+                let accepted = match accepted {
+                    Ok(accepted) => accepted,
+                    Err(error) => {
+                        eprintln!("QUIC handshake failed: {error}");
+                        continue;
+                    }
+                };
                 connections.retain(|connection| connection.close_reason().is_none());
                 let permit = match Arc::clone(&semaphore).try_acquire_owned() {
                     Ok(permit) => permit,
@@ -459,4 +516,41 @@ pub fn spawn(
     tokio::spawn(serve(options, async move {
         let _ = shutdown.await;
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+
+    use super::loopback_companion;
+
+    #[test]
+    fn loopback_listeners_cover_both_address_families() {
+        assert_eq!(
+            loopback_companion(SocketAddr::from((Ipv4Addr::LOCALHOST, 5520))),
+            Some(SocketAddr::from((Ipv6Addr::LOCALHOST, 5520)))
+        );
+        assert_eq!(
+            loopback_companion(SocketAddr::from((Ipv6Addr::LOCALHOST, 5520))),
+            Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 5520)))
+        );
+    }
+
+    #[test]
+    fn only_loopback_addresses_get_a_companion() {
+        assert_eq!(
+            loopback_companion(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+            None,
+            "an ephemeral port cannot be shared with a second family"
+        );
+        assert_eq!(
+            loopback_companion(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 5520))),
+            None,
+            "wildcard binds are left to the caller's --bind choice"
+        );
+        assert_eq!(
+            loopback_companion(SocketAddr::from(([192, 0, 2, 10], 5520))),
+            None
+        );
+    }
 }

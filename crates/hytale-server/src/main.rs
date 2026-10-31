@@ -350,7 +350,9 @@ struct ServeArgs {
     /// World-gen data folder (`World.json`).
     #[arg(long, default_value = "testdata/Default")]
     world_data: PathBuf,
-    /// QUIC bind address.
+    /// QUIC bind address. A loopback address also binds the other loopback
+    /// family on the same port, so `localhost` works whether it resolves to
+    /// `127.0.0.1` or `::1`. Use `[::]:PORT` for dual-stack on all interfaces.
     #[arg(long, default_value = "127.0.0.1:5520")]
     bind: std::net::SocketAddr,
     /// Worldgen worker count.

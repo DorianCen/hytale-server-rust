@@ -197,6 +197,14 @@ encoded in `testdata/golden/server/trace/v1-lifecycle.jsonl` /
   loading with `Packet ViewRadius (ID 32) is not valid on channel Default`.
 - The client handles the config asset burst and `UpdateTranslations` before
   `JoinWorld`; `JoinWorld` is processed in the `Playing` stage.
+- `localhost` resolves to `::1` first on many hosts. A server bound only to
+  `127.0.0.1`/`0.0.0.0` never sees the client's Initial packets and the client
+  reports a 20-second `QUIC handshake failed` with no server trace records.
+  `serve` now binds the other loopback family by default; a wildcard IPv4 bind
+  needs `--bind [::]:PORT` (or the client must dial `127.0.0.1`).
+- The initial chunk snapshot is generated before it is streamed, so a cold
+  world with a large `--view-radius` can exceed the client's load timeout.
+  Prefer radius 0-2 for the first join; a warmed world reconnects quickly.
 - The setup flow observed by the client is `AuthGrant` → `ServerAuthToken` →
   `RequiredAssets` → config asset handlers → `JoinWorld`.
 - A default online client expects the live Hytale session authority. The local

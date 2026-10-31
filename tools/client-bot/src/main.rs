@@ -5,7 +5,7 @@
 //! cargo run -p client-bot -- --dry-run
 //! ```
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -24,9 +24,9 @@ use tokio::time::timeout;
 #[derive(Debug, Parser)]
 #[command(name = "client-bot", version, about)]
 struct Cli {
-    /// Server address.
+    /// Server address (hostname or IP; resolved like the game client does).
     #[arg(long, default_value = "127.0.0.1:5520")]
-    host: SocketAddr,
+    host: String,
     /// SNI name used for the server certificate check.
     #[arg(long, default_value = "localhost")]
     server_name: String,
@@ -54,6 +54,10 @@ struct Cli {
     /// Run the dev/insecure Connect → Setup handshake, then receive chunks.
     #[arg(long)]
     dev_join: bool,
+    /// Send `ClientReady(readyForGameplay)` after the dev join, starting the
+    /// teleport/time flow (the game client always sends this).
+    #[arg(long)]
+    ready_for_gameplay: bool,
     /// Run the authenticated Connect → AuthGrant → setup flow, then chunks.
     #[arg(long)]
     auth_join: bool,
@@ -129,9 +133,22 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Resolve like the game client: the first address wins, which is `::1`
+    // before `127.0.0.1` for `localhost` on many systems.
+    let host = cli
+        .host
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| format!("{} did not resolve to an address", cli.host))?;
     let identity = TlsIdentity::generate("hytale-client-bot")?;
-    let endpoint = ClientEndpoint::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)), &identity)?;
-    let session = endpoint.connect(cli.host, &cli.server_name).await?;
+    // Bind the client socket to the same family as the server address; an
+    // IPv4-bound client endpoint cannot dial an IPv6 server.
+    let bind_addr = match host {
+        SocketAddr::V4(_) => SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
+        SocketAddr::V6(_) => SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)),
+    };
+    let endpoint = ClientEndpoint::bind(bind_addr, &identity)?;
+    let session = endpoint.connect(host, &cli.server_name).await?;
 
     if let Some(peer) = session.peer_identity() {
         println!("server certificate sha256: {}", peer.fingerprint_hex());
@@ -154,7 +171,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 disconnect_after: None,
                 keep_alive: false,
                 use_block_after_join: Vec::new(),
-                send_ready_for_gameplay: false,
+                send_ready_for_gameplay: cli.ready_for_gameplay,
                 place_block_after_join: None,
                 break_block_after_join: None,
             },

@@ -16,6 +16,8 @@ use crate::transport::TransportError;
 
 /// ALPN protocol identifier for Hytale protocol version 3.
 pub const ALPN_HYTALE_V3: &[u8] = b"hytale/3";
+/// ALPN protocol identifier for the previous Hytale protocol version.
+pub const ALPN_HYTALE_V2: &[u8] = b"hytale/2";
 
 /// Returns the rustls crypto provider used by this crate.
 ///

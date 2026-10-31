@@ -14,7 +14,7 @@ use rustls::client::danger::ServerCertVerifier;
 use rustls::server::danger::ClientCertVerifier;
 
 use crate::identity::PeerIdentity;
-use crate::tls::{crypto_provider, TlsIdentity, ALPN_HYTALE_V3};
+use crate::tls::{crypto_provider, TlsIdentity, ALPN_HYTALE_V2, ALPN_HYTALE_V3};
 use crate::verify::{accept_any_client_certificate, accept_any_server_certificate};
 
 /// Everything that can go wrong while building or running the transport.
@@ -32,6 +32,15 @@ pub enum TransportError {
     Connect(quinn::ConnectError),
     /// The QUIC handshake or the connection itself failed.
     Connection(quinn::ConnectionError),
+    /// An incoming QUIC handshake failed; carries the peer address so server
+    /// logs can distinguish unreachable-family/timeout failures from rejected
+    /// handshakes.
+    Handshake {
+        /// Address the handshake attempt came from.
+        remote: SocketAddr,
+        /// The underlying QUIC/TLS error.
+        source: Box<quinn::ConnectionError>,
+    },
     /// Opening or writing to a stream failed.
     Stream(quinn::ClosedStream),
     /// Writing to a stream failed.
@@ -55,6 +64,9 @@ impl fmt::Display for TransportError {
             Self::QuicConfig(error) => write!(f, "QUIC configuration failed: {error}"),
             Self::Connect(error) => write!(f, "could not connect: {error}"),
             Self::Connection(error) => write!(f, "connection failed: {error}"),
+            Self::Handshake { remote, source } => {
+                write!(f, "QUIC handshake with {remote} failed: {source}")
+            }
             Self::Stream(error) => write!(f, "stream is closed: {error}"),
             Self::Write(error) => write!(f, "stream write failed: {error}"),
             Self::Read(error) => write!(f, "stream read failed: {error}"),
@@ -76,6 +88,7 @@ impl std::error::Error for TransportError {
             Self::QuicConfig(error) => Some(error),
             Self::Connect(error) => Some(error),
             Self::Connection(error) => Some(error),
+            Self::Handshake { source, .. } => Some(source.as_ref()),
             Self::Stream(error) => Some(error),
             Self::Write(error) => Some(error),
             Self::Read(error) => Some(error),
@@ -185,7 +198,7 @@ impl ServerEndpointBuilder {
             bind_addr,
             identity,
             client_cert_verifier: accept_any_client_certificate(),
-            alpn_protocols: vec![ALPN_HYTALE_V3.to_vec()],
+            alpn_protocols: vec![ALPN_HYTALE_V3.to_vec(), ALPN_HYTALE_V2.to_vec()],
         }
     }
 
@@ -198,7 +211,8 @@ impl ServerEndpointBuilder {
         self
     }
 
-    /// Overrides the advertised ALPN protocols (default: `hytale/3`).
+    /// Overrides the advertised ALPN protocols (default: `hytale/3` and
+    /// `hytale/2`).
     pub fn with_alpn_protocols(mut self, protocols: impl IntoIterator<Item = Vec<u8>>) -> Self {
         self.alpn_protocols = protocols.into_iter().collect();
         self
@@ -206,25 +220,67 @@ impl ServerEndpointBuilder {
 
     /// Builds the TLS configuration and binds the UDP socket.
     pub fn bind(self) -> Result<ServerEndpoint, TransportError> {
+        let config = self.server_config()?;
+        bind_endpoint(config, self.bind_addr)
+    }
+
+    /// Binds the primary endpoint and additional addresses that share the same
+    /// TLS identity and configuration.
+    ///
+    /// The primary [`Self::new`] address must bind successfully. Every
+    /// companion address is best effort: a companion that cannot be bound
+    /// (for example an IPv6 loopback address on a host without IPv6) is
+    /// reported through [`ServerEndpoints::skipped`] and the remaining
+    /// endpoints keep serving.
+    ///
+    /// This is what makes `localhost` work for clients that resolve it to
+    /// `::1` while the server was asked to bind `127.0.0.1`, and vice versa.
+    pub fn bind_addrs(
+        self,
+        companions: impl IntoIterator<Item = SocketAddr>,
+    ) -> Result<ServerEndpoints, TransportError> {
+        let primary_addr = self.bind_addr;
+        let config = self.server_config()?;
+        let primary = bind_endpoint(config.clone(), primary_addr)?;
+        let mut endpoints = vec![primary];
+        let mut skipped = Vec::new();
+        for addr in companions {
+            if addr == primary_addr {
+                continue;
+            }
+            match bind_endpoint(config.clone(), addr) {
+                Ok(endpoint) => endpoints.push(endpoint),
+                Err(error) => skipped.push((addr, error)),
+            }
+        }
+        Ok(ServerEndpoints { endpoints, skipped })
+    }
+
+    fn server_config(&self) -> Result<quinn::ServerConfig, TransportError> {
         let mut tls = rustls::ServerConfig::builder_with_provider(crypto_provider())
             .with_safe_default_protocol_versions()?
-            .with_client_cert_verifier(self.client_cert_verifier)
+            .with_client_cert_verifier(Arc::clone(&self.client_cert_verifier))
             .with_single_cert(
                 self.identity.cert_chain().to_vec(),
                 self.identity.private_key().clone_key(),
             )?;
-        tls.alpn_protocols = self.alpn_protocols;
+        tls.alpn_protocols = self.alpn_protocols.clone();
 
         let quic = QuicServerConfig::try_from(tls)?;
-        let server_config = quinn::ServerConfig::with_crypto(Arc::new(quic));
-        let endpoint = quinn::Endpoint::server(server_config, self.bind_addr)?;
-        let local_addr = endpoint.local_addr()?;
-
-        Ok(ServerEndpoint {
-            endpoint,
-            local_addr,
-        })
+        Ok(quinn::ServerConfig::with_crypto(Arc::new(quic)))
     }
+}
+
+fn bind_endpoint(
+    config: quinn::ServerConfig,
+    addr: SocketAddr,
+) -> Result<ServerEndpoint, TransportError> {
+    let endpoint = quinn::Endpoint::server(config, addr)?;
+    let local_addr = endpoint.local_addr()?;
+    Ok(ServerEndpoint {
+        endpoint,
+        local_addr,
+    })
 }
 
 /// A bound QUIC server endpoint.
@@ -258,7 +314,11 @@ impl ServerEndpoint {
             .accept()
             .await
             .ok_or(TransportError::EndpointClosed)?;
-        let connection = incoming.await?;
+        let remote = incoming.remote_address();
+        let connection = incoming.await.map_err(|source| TransportError::Handshake {
+            remote,
+            source: Box::new(source),
+        })?;
         let peer_identity = PeerIdentity::from_connection(&connection)
             .ok_or(TransportError::MissingPeerIdentity)?;
 
@@ -276,6 +336,62 @@ impl ServerEndpoint {
     /// Closes the endpoint, refusing new connections.
     pub fn close(&self) {
         self.endpoint.close(0u32.into(), b"server shutdown");
+    }
+}
+
+/// Several bound server endpoints that share one TLS identity.
+///
+/// A UDP socket belongs to one address family, so a listener bound only to
+/// `127.0.0.1` cannot receive a client that resolved `localhost` to `::1`.
+/// [`ServerEndpointBuilder::bind_addrs`] wraps the primary endpoint plus
+/// best-effort companions (normally the other loopback family on the same
+/// port), and [`Self::accept`] waits on all of them.
+pub struct ServerEndpoints {
+    endpoints: Vec<ServerEndpoint>,
+    skipped: Vec<(SocketAddr, TransportError)>,
+}
+
+impl ServerEndpoints {
+    /// The primary endpoint address (the one passed to [`ServerEndpointBuilder::new`]).
+    pub fn local_addr(&self) -> SocketAddr {
+        self.endpoints[0].local_addr()
+    }
+
+    /// Every address that was bound successfully.
+    pub fn local_addrs(&self) -> impl Iterator<Item = SocketAddr> + '_ {
+        self.endpoints.iter().map(ServerEndpoint::local_addr)
+    }
+
+    /// Companion addresses that could not be bound, with the bind error.
+    ///
+    /// Callers should surface these as a warning; the listener still serves the
+    /// primary address and any companions that did bind.
+    pub fn skipped(&self) -> &[(SocketAddr, TransportError)] {
+        &self.skipped
+    }
+
+    /// Waits for the next connection on any endpoint.
+    ///
+    /// A handshake error on one endpoint is returned to the caller without
+    /// stopping the other endpoints.
+    pub async fn accept(&self) -> Result<AcceptedConnection, TransportError> {
+        if self.endpoints.len() == 1 {
+            return self.endpoints[0].accept().await;
+        }
+        let accepts = self
+            .endpoints
+            .iter()
+            .map(|endpoint| Box::pin(endpoint.accept()))
+            .collect::<Vec<_>>();
+        let (result, _, _) = futures_util::future::select_all(accepts).await;
+        result
+    }
+
+    /// Closes every endpoint, refusing new connections.
+    pub fn close(&self) {
+        for endpoint in &self.endpoints {
+            endpoint.close();
+        }
     }
 }
 

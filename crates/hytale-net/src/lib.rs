@@ -72,13 +72,13 @@ pub use frame_stream::{
     DEFAULT_COMPRESSION_LEVEL as FRAME_COMPRESSION_LEVEL,
 };
 pub use identity::PeerIdentity;
-pub use tls::{TlsIdentity, ALPN_HYTALE_V3};
+pub use tls::{TlsIdentity, ALPN_HYTALE_V2, ALPN_HYTALE_V3};
 pub use trace::{
     read_trace, write_trace, PacketTraceSink, TraceDirection, TraceFile, TraceHeader, TraceLine,
     TraceRecord, TraceRecorder, TraceSession, TraceStream, TRACE_FORMAT_VERSION,
 };
 pub use transport::{
     connect, AcceptedConnection, ClientEndpoint, ClientSession, ServerEndpoint,
-    ServerEndpointBuilder, TransportError,
+    ServerEndpointBuilder, ServerEndpoints, TransportError,
 };
 pub use verify::{AcceptAnyClientCertificate, AcceptAnyServerCertificate};

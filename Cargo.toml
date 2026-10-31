@@ -43,6 +43,7 @@ clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
 bytes = "1"
 bevy_ecs = "0.16"
+futures-util = "0.3"
 bson = "2"
 quinn = "0.11"
 rcgen = "0.13"

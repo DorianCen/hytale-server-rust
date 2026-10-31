@@ -8,6 +8,7 @@ license.workspace = true
 hytale-core = { path = "../hytale-core" }
 hytale-protocol = { path = "../hytale-protocol" }
 base64 = "0.22"
+futures-util = { workspace = true }
 quinn = { workspace = true }
 rcgen = { workspace = true }
 rustls = { workspace = true }
