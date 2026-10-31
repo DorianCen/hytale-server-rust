@@ -2120,3 +2120,21 @@ This file records phase-2 sessions only.
   - Chunk golden test passes; `--validate-assets` (50 stores, failures 0).
 - **Follow-up:** rerun the client; then add a real surface spawn (saved transform
   is still `(0,0,0)`) and confirm chunk rendering/`ClientTeleport`.
+
+---
+
+## Session 77 — Chunk screen stall, hybrid absent markers (2026-10-31)
+
+- **Goal:** unblock the client after the join channel/stage fixes.
+- **Evidence:** no crash or packet errors; the client waits for chunks and times
+  out. It requested a 128-block (4-chunk) view, and the server sent the 9x9
+  snapshot. Both payload-less `SetChunk` and `SetAbsentChunks`-only variants
+  stalled.
+- **Landed:** live chunk batches keep the raw `SetChunk`/`SetChunkEnvironments`
+  pair and additionally emit `SetAbsentChunks` for sections with no data. Raw
+  batches stay byte-identical to the Java dumper fixtures; regression
+  `client_batch_adds_absent_markers_for_data_less_sections`.
+- **Verified:** `./tools/test.sh fast` (1555 passed), chunk golden test, clippy,
+  fmt, `--validate-assets`.
+- **Follow-up:** rerun; if the stall remains, match Java's nearest-first sphere
+  ordering instead of the square column batch.

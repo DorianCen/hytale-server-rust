@@ -309,3 +309,17 @@ Fixed in this slice:
   sends it.
 - `spawn_entity_updates` always sends the default `Player` model when no saved
   model exists. Regression: `spawn_carries_a_default_model_for_a_new_player`.
+
+### Sixth run: chunk screen still stalls
+
+`bc5a6a9` removed the channel/stage/model errors, but the client still waits on
+the chunk screen and times out. The trace has the complete 9x9 snapshot and the
+client-declared `ViewRadius = 128` blocks (4 chunks). The two previous chunk
+encodings each stalled on their own:
+
+- payload-less `SetChunk` (27 bytes) for data-less sections, or
+- `SetAbsentChunks` instead of that `SetChunk`.
+
+The live batches now send **both** for data-less sections: the normal
+`SetChunk`/`SetChunkEnvironments` pair plus an explicit `SetAbsentChunks`. The
+raw batches remain unchanged for the Java dumper goldens.

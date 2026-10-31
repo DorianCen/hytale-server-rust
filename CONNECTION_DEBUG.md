@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-10-31 (fifth run)
+# Connection-debug session handoff — 2026-10-31 (sixth run)
 
 ## Objective
 
@@ -8,22 +8,16 @@ Hytale client.** The agent must never launch it.
 ## Current status
 
 - Authentication, setup, assets, world load and `JoinWorld` all succeed.
-- The client enters `StartJoiningWorld` and waits for chunks.
-- After ~32 s it processes the buffered setup packets and reports:
-  - `UpdateRecipes` received at `Playing` (only valid during `SettingUp`),
-  - `UpdateWorldMap` received on channel `Default` (expected `WorldMap`),
-  - fatal `Attempted to set character model without sending a model first`.
-- Causes and fixes:
-  - `UpdateWorldMap` needs a **second server-opened unidirectional stream**
-    (`WorldMap`), which the server never opened. Java opens `Chunks` then
-    `WorldMap`. Added `WorldMapStreamWriter` and routed every `UpdateWorldMap`
-    there.
-  - The join path re-sent `UpdateRecipes`; the Setup asset burst already sends
-    it. Removed the duplicate.
-  - The self-spawn `ModelUpdate` was null for a new player, then an Equipment
-    update followed. It now sends the default `Player` model.
-- The previous `SetAbsentChunks` fix is included; the fix set has **not yet been
-  confirmed by a rerun**.
+- The client enters `StartJoiningWorld`, waits on the chunk screen, receives no
+  further packets, and the QUIC connection times out after 30 s. No crash and no
+  channel/stage errors remain (only the non-fatal item-icon-atlas warning).
+- The client requested `ViewRadius = 128` blocks (4 chunks) and the server
+  streams the corresponding 9x9 columns.
+- The previous two attempts used either payload-less `SetChunk` (27 bytes) or
+  `SetAbsentChunks` **instead of** it; both stalled. The live batch now sends
+  **both**: the normal `SetChunk`/`SetChunkEnvironments` pair plus an explicit
+  `SetAbsentChunks` marker for every data-less section.
+- This hybrid has **not yet been confirmed by a rerun**.
 
 ## Evidence
 
@@ -198,6 +192,33 @@ Three independent join-path divergences from Java:
    was null. An `Equipment` update then arrived first, and the client threw
    "Attempted to set character model without sending a model first".
 
+Sixth run (`bc5a6a9`):
+
+```text
+/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_23-21-54_client.log
+```
+
+All previous errors are gone, but the client still sits on the chunk screen:
+
+```text
+GameInstance.StartJoiningWorld()
+ReceiveLoop: No packets received for 5.0s (total: 1862)   (repeated)
+Connection is closed after 1862 packets
+```
+
+The trace shows the full initial snapshot: 81 `SetColumn`, 395 `SetChunk`,
+395 `SetChunkEnvironments`, 415 `SetAbsentChunks`. `ViewRadius` from the client
+was decoded as `128` blocks (4 chunks), so 9x9 columns is the expected area.
+
+## Root cause (sixth run)
+
+Not yet proven. The client accepts both chunk forms (payload-less `SetChunk` in
+`2a2c217` and `SetAbsentChunks` in `bc5a6a9`) but does not finish. The current
+hypothesis is that the client needs the section to be *created* by
+`SetChunk`/`SetChunkEnvironments` **and** marked absent by `SetAbsentChunks`;
+both forms alone leave a "never-arriving" cell. The live batch now sends both
+for data-less sections.
+
 ## Fixes landed
 
 - `crates/hytale-assets/src/packets/mod.rs`
@@ -223,9 +244,10 @@ Three independent join-path divergences from Java:
     - `weather_fog_is_always_sent`
     - interaction dangling-id checks now allow the sentinel.
 - `crates/hytale-world/src/chunk/stream.rs`
-  - `initial_for_client` / `full_for_client` replace `SetChunk` with
-    `SetAbsentChunks` for sections whose `data` is `None`; the raw `initial` /
-    `full` batches stay byte-identical to the Java dumper fixtures.
+  - `initial_for_client` / `full_for_client` keep the raw
+    `SetChunk`/`SetChunkEnvironments` pair and additionally emit
+    `SetAbsentChunks` for sections whose `data` is `None`; the raw
+    `initial`/`full` batches stay byte-identical to the Java dumper fixtures.
   - Regression: `chunk::stream::tests::client_batches_mark_absent_sections`.
 - `crates/hytale-server/src/session.rs` / `world_thread.rs`
   - Send the world's `UpdateSunSettings` and `UpdatePostFxSettings` (Java
@@ -254,7 +276,7 @@ nodes found no cycles.
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.297s] 1555 tests run: 1555 passed, 24 skipped
+Summary [ 19.806s] 1555 tests run: 1555 passed, 24 skipped
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
 block_item_packets: 19 passed

@@ -101,9 +101,9 @@ impl ChunkPacketBatch {
 
     /// The initial set used by the live chunk stream.
     ///
-    /// Sections with no stored data are sent as `SetAbsentChunks`, like Java's
-    /// `ChunkTracker`. The raw serializer (`initial`) keeps the payload-less
-    /// `SetChunk` form for the Java dump fixtures.
+    /// Data-less sections also carry an explicit `SetAbsentChunks` marker, as
+    /// Java's `ChunkTracker` does; the payload-less `SetChunk` stays for the
+    /// client path that treats it as loaded.
     pub fn initial_for_client(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
         Self::build(column, false, true)
     }
@@ -118,26 +118,26 @@ impl ChunkPacketBatch {
         include_updates: bool,
         absent_packets: bool,
     ) -> Result<Self, ChunkStreamError> {
-        let mut packets = Vec::with_capacity(SECTION_COUNT * 3 + 2);
+        let mut packets = Vec::with_capacity(SECTION_COUNT * 4 + 2);
         push(&column.set_column_packet()?, &mut packets)?;
         if include_updates {
             push(&column.tintmap_packet(), &mut packets)?;
         }
         for section_y in 0..SECTION_COUNT as i32 {
             let chunk = column.set_chunk_packet(section_y)?;
-            if absent_packets && chunk.data.is_none() {
+            let absent = chunk.data.is_none();
+            push(&chunk, &mut packets)?;
+            push(
+                &column.set_chunk_environments_packet(section_y)?,
+                &mut packets,
+            )?;
+            if absent_packets && absent {
                 push(
                     &SetAbsentChunks {
                         x: column.x(),
                         z: column.z(),
                         ys: Some(vec![section_y]),
                     },
-                    &mut packets,
-                )?;
-            } else {
-                push(&chunk, &mut packets)?;
-                push(
-                    &column.set_chunk_environments_packet(section_y)?,
                     &mut packets,
                 )?;
             }
@@ -253,10 +253,10 @@ mod tests {
     }
 
     #[test]
-    fn client_batches_mark_absent_sections() {
+    fn client_batch_adds_absent_markers_for_data_less_sections() {
         let column = ChunkColumn::new(0, 0);
-        let initial = ChunkPacketBatch::initial_for_client(&column).expect("initial");
-        let absent: Vec<i32> = initial
+        let batch = ChunkPacketBatch::initial_for_client(&column).expect("client batch");
+        let absent: Vec<i32> = batch
             .packets
             .iter()
             .filter(|packet| packet.id == SetAbsentChunks::ID)
@@ -268,10 +268,19 @@ mod tests {
             })
             .collect();
         assert_eq!(absent, (0..SECTION_COUNT as i32).collect::<Vec<_>>());
-        assert!(initial
+        assert_eq!(
+            batch
+                .packets
+                .iter()
+                .filter(|packet| packet.id == SetChunk::ID)
+                .count(),
+            SECTION_COUNT
+        );
+        assert!(ChunkPacketBatch::initial(&column)
+            .expect("raw batch")
             .packets
             .iter()
-            .all(|packet| packet.id != SetChunk::ID));
+            .all(|packet| packet.id != SetAbsentChunks::ID));
     }
 
     #[test]
