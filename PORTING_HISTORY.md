@@ -2097,3 +2097,26 @@ This file records phase-2 sessions only.
   - `--validate-assets` (50 stores, failures 0).
 - **Follow-up:** rerun the client; add a real surface spawn (the saved transform
   is still `(0,0,0)`), then confirm `ClientTeleport` and gameplay.
+
+---
+
+## Session 76 — Release-client WorldMap channel and self-spawn model (2026-10-31)
+
+- **Goal:** fix the join errors reported after the chunk stream was corrected.
+- **Evidence:** the client waited on the loading screen, then processed buffered
+  setup packets and reported `UpdateWorldMap` on channel `Default` (expected
+  `WorldMap`), `UpdateRecipes` received at `Playing` (expected `SettingUp`), and
+  a fatal "Attempted to set character model without sending a model first".
+- **Landed:**
+  - Added `WorldMapStreamWriter`; the server now opens `Chunks` then `WorldMap`
+    server-initiated streams and routes every `UpdateWorldMap` to the latter.
+    Added a `WorldMap` trace stream.
+  - Removed the join-time duplicate `UpdateRecipes` (already in the Setup asset
+    burst).
+  - `spawn_entity_updates` always includes the default `Player` model for a new
+    player; new regression `spawn_carries_a_default_model_for_a_new_player`.
+- **Verified:**
+  - `./tools/test.sh fast` (1555 passed, 24 skipped), clippy and fmt.
+  - Chunk golden test passes; `--validate-assets` (50 stores, failures 0).
+- **Follow-up:** rerun the client; then add a real surface spawn (saved transform
+  is still `(0,0,0)`) and confirm chunk rendering/`ClientTeleport`.

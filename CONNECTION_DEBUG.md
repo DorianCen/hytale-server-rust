@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-10-31 (fourth run)
+# Connection-debug session handoff — 2026-10-31 (fifth run)
 
 ## Objective
 
@@ -7,19 +7,23 @@ Hytale client.** The agent must never launch it.
 
 ## Current status
 
-- Authentication, setup, assets, world load and `JoinWorld` all succeed now.
-- The client enters `GameInstance.StartJoiningWorld()` and waits for chunks.
-- The server streams 81 columns (810 `SetChunk`, 810
-  `SetChunkEnvironments`, 81 `SetColumn`), then the client stops receiving and
-  the QUIC connection times out after 30s.
-- Cause: sections with no stored data were sent as `SetChunk` with
-  `data = null`. Java's `ChunkTracker` marks those with `SetAbsentChunks`;
-  without it the client "sees a never-arriving neighbour and stalls meshing" and
-  never sends `ClientReady(readyForGameplay)`.
-- Fixed by emitting `SetAbsentChunks` for data-less sections in the live chunk
-  stream. Also restored Java's missing join packets: `UpdateSunSettings`,
-  `UpdatePostFxSettings`, and world-map settings before the chunk batch.
-- The fix has **not yet been confirmed by a rerun**.
+- Authentication, setup, assets, world load and `JoinWorld` all succeed.
+- The client enters `StartJoiningWorld` and waits for chunks.
+- After ~32 s it processes the buffered setup packets and reports:
+  - `UpdateRecipes` received at `Playing` (only valid during `SettingUp`),
+  - `UpdateWorldMap` received on channel `Default` (expected `WorldMap`),
+  - fatal `Attempted to set character model without sending a model first`.
+- Causes and fixes:
+  - `UpdateWorldMap` needs a **second server-opened unidirectional stream**
+    (`WorldMap`), which the server never opened. Java opens `Chunks` then
+    `WorldMap`. Added `WorldMapStreamWriter` and routed every `UpdateWorldMap`
+    there.
+  - The join path re-sent `UpdateRecipes`; the Setup asset burst already sends
+    it. Removed the duplicate.
+  - The self-spawn `ModelUpdate` was null for a new player, then an Equipment
+    update followed. It now sends the default `Player` model.
+- The previous `SetAbsentChunks` fix is included; the fix set has **not yet been
+  confirmed by a rerun**.
 
 ## Evidence
 
@@ -161,6 +165,39 @@ column's terrain top / bottom"). The client therefore never finished its chunk
 tracker, never sent `ClientReady(readyForGameplay)`, and the QUIC connection
 idled out after 30 s.
 
+Fifth run (after `SetAbsentChunks`):
+
+```text
+/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_23-08-54_client.log
+```
+
+The client still waits on the loading screen, then at 23:09:37 (32 s later)
+processes the buffered setup packets and reports:
+
+```text
+Exception when handling packet 60 UpdateRecipes: Received UpdateRecipes at
+Playing connection stage but expected it only during SettingUp.
+StreamReassembler: failed to deserialize packet on channel Default
+  Packet UpdateWorldMap (ID 241) is not valid on channel Default (expected WorldMap)
+A Equipment packet had been received on the local player
+Unhandled exception: Attempted to set character model without sending a model first
+```
+
+## Root cause (fifth run)
+
+Three independent join-path divergences from Java:
+
+1. `UpdateWorldMap` is a `WorldMap`-channel packet. Java opens **two**
+   server-initiated unidirectional streams at setup, `Chunks` then `WorldMap`;
+   the Rust server only opened `Chunks`, so `UpdateWorldMap` was written on the
+   default stream and rejected.
+2. `UpdateRecipes` is a Setup-stage asset packet (already sent in the config
+   burst). The join path sent it a second time after `JoinWorld`, which the
+   client rejects at `Playing`.
+3. A brand-new player has no saved `Model` component, so `ModelUpdate.model`
+   was null. An `Equipment` update then arrived first, and the client threw
+   "Attempted to set character model without sending a model first".
+
 ## Fixes landed
 
 - `crates/hytale-assets/src/packets/mod.rs`
@@ -195,6 +232,18 @@ idled out after 30 s.
     `onFinishPlayerJoining`) and move `UpdateWorldMapSettings` before the chunk
     snapshot.
   - `WorldThread::client_effects()` exposes the world config's `ClientEffects`.
+- `crates/hytale-net/src/chunk_stream.rs` / `trace.rs`
+  - Added `WorldMapStreamWriter` and a `WorldMap` trace stream. The server now
+    opens `Chunks` then `WorldMap` (Java order), and every `UpdateWorldMap`
+    write goes to the world-map stream.
+- `crates/hytale-server/src/session.rs`
+  - Removed the duplicate join-time `UpdateRecipes`; the Setup asset burst
+    already carries it.
+- `crates/hytale-server/src/players.rs`
+  - `spawn_entity_updates` always sends a `ModelUpdate` with the default
+    `Player` model when the saved appearance has none, so the following
+    Equipment update is accepted.
+  - Regression: `spawn_carries_a_default_model_for_a_new_player`.
 
 After the containment fix only 2 references remain unresolved (two root
 interaction names used inside an interaction array); they are sent as
@@ -205,7 +254,7 @@ nodes found no cycles.
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.665s] 1554 tests run: 1554 passed, 24 skipped
+Summary [ 19.297s] 1555 tests run: 1555 passed, 24 skipped
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
 block_item_packets: 19 passed
@@ -221,14 +270,14 @@ cargo fmt --all -- --check                              → clean
 ## What to do next
 
 1. Rerun the release client against this commit.
-2. It should finish chunk loading, send `ClientReady(readyForGameplay)`, and
-   receive `ClientTeleport`.
-3. If it still stalls, capture `target/trace/RealTest.jsonl` and the client log;
-   the trace now includes `SetAbsentChunks` and the sun/post-FX packets, so the
-   next gap can be compared against Java's join burst.
-4. Known follow-up: the saved player transform is still `(0, 0, 0)`; once the
-   client joins, add a real surface spawn (Java's spawn provider) so the player
-   does not start inside the ground.
+2. The client should finish chunk loading, send `ClientReady(readyForGameplay)`,
+   receive `ClientTeleport`, and show the world.
+3. If anything still fails, capture `target/trace/RealTest.jsonl`; world-map
+   packets now show `"stream":"world_map"` and chunk absent markers as
+   `SetAbsentChunks`.
+4. Known follow-up: the saved player transform is still `(0, 0, 0)`. Add a real
+   surface spawn (Java spawn provider) so the player does not start inside the
+   ground.
 5. Do not speculate about protocol mismatch; protocol is proven identical.
 
 ## Commands

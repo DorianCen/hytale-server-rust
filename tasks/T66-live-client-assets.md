@@ -288,3 +288,24 @@ Fixed in this slice:
 
 Known follow-up: the saved player transform is `(0, 0, 0)`. A real surface spawn
 (Java spawn provider) is still needed so the player does not start in the ground.
+
+### Fifth run: WorldMap channel and self-spawn model
+
+The client still waited on chunks, then processed the buffered setup packets
+after ~32 s and reported three divergences from Java:
+
+- `UpdateWorldMap` arrived on channel `Default` but is only valid on
+  `WorldMap`.
+- `UpdateRecipes` arrived at `Playing`; it is a Setup-stage asset packet.
+- `Attempted to set character model without sending a model first` because a
+  new player's `ModelUpdate.model` was null and an Equipment update followed.
+
+Fixed in this slice:
+
+- Added a second server-opened unidirectional stream (`Chunks` then `WorldMap`,
+  Java's order) via `WorldMapStreamWriter`; all `UpdateWorldMap` writes go
+  there, and the trace records `"stream":"world_map"`.
+- Removed the duplicate join-time `UpdateRecipes`; the config asset burst already
+  sends it.
+- `spawn_entity_updates` always sends the default `Player` model when no saved
+  model exists. Regression: `spawn_carries_a_default_model_for_a_new_player`.

@@ -49,6 +49,7 @@ fn the_committed_trace_fixture_is_registry_consistent() {
         match record.stream {
             TraceStream::Setup => assert_eq!(info.channel, NetworkChannel::Default),
             TraceStream::Chunks => assert_eq!(info.channel, NetworkChannel::Chunks),
+            TraceStream::WorldMap => assert_eq!(info.channel, NetworkChannel::WorldMap),
         }
         assert!(
             record.payload_sha256.is_empty() || record.payload_sha256.len() == 64,

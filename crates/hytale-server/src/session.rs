@@ -36,9 +36,9 @@ use hytale_interactions::{
 use hytale_inventory::{ItemStack, PlayerInventory, Section};
 use hytale_net::{
     ChunkStreamError, ChunkStreamWriter, FrameReader, FrameStreamError, FrameWriter, PeerIdentity,
-    TraceRecorder, TraceSession, TransportError,
+    TraceRecorder, TraceSession, TransportError, WorldMapStreamWriter,
 };
-use hytale_protocol::generated::assets::{UpdateRecipes, UpdateTranslations};
+use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
@@ -513,6 +513,7 @@ struct LiveGame<'a> {
     crafting: &'a mut CraftingKnowledge,
     revealed_markers: &'a mut BTreeSet<String>,
     map_chunks: &'a mut BTreeSet<(i32, i32)>,
+    world_map: &'a mut WorldMapStreamWriter,
     overflow: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -674,7 +675,7 @@ pub async fn serve_connection_with_registry(
         .await?;
         let player_stats_init =
             thread.ensure_player_gameplay(join.network_id, player_state.health)?;
-        let (mut game, mut chunks) = enter_game(
+        let (mut game, mut chunks, mut world_map) = enter_game(
             connection,
             &mut reader,
             &mut writer,
@@ -735,7 +736,7 @@ pub async fn serve_connection_with_registry(
         let (visible_markers, new_markers) =
             map_markers_for_player(thread, &revealed_markers, player_transform.position)?;
         if !visible_markers.is_empty() {
-            writer
+            world_map
                 .write_packet(
                     &UpdateWorldMap {
                         chunks: None,
@@ -748,7 +749,7 @@ pub async fn serve_connection_with_registry(
         }
         revealed_markers.extend(new_markers);
         if !join.player_markers.is_empty() {
-            writer
+            world_map
                 .write_packet(
                     &UpdateWorldMap {
                         chunks: None,
@@ -762,7 +763,7 @@ pub async fn serve_connection_with_registry(
         let mut map_chunks = BTreeSet::new();
         let (map_added, map_removed) = send_world_map_images(
             thread,
-            &mut writer,
+            &mut world_map,
             player_chunk,
             radius,
             &mut map_chunks,
@@ -800,6 +801,7 @@ pub async fn serve_connection_with_registry(
                 crafting: &mut crafting,
                 revealed_markers: &mut revealed_markers,
                 map_chunks: &mut map_chunks,
+                world_map: &mut world_map,
                 overflow: Arc::clone(&join.overflow),
             },
             options,
@@ -807,6 +809,7 @@ pub async fn serve_connection_with_registry(
         .await?;
         game.client_ready_for_gameplay |= game_loop.ready_for_gameplay;
         chunks.finish()?;
+        world_map.finish()?;
         stream.chunks += game_loop.chunks;
         stream.packets += game_loop.packets;
         stream.frames += game_loop.frames;
@@ -1442,7 +1445,7 @@ async fn enter_game(
     writer: &mut FrameWriter,
     start: EnterGame,
     options: &SessionOptions,
-) -> Result<(GameReport, ChunkStreamWriter), SessionError> {
+) -> Result<(GameReport, ChunkStreamWriter, WorldMapStreamWriter), SessionError> {
     let EnterGame {
         world_uuid,
         radius,
@@ -1461,8 +1464,10 @@ async fn enter_game(
         trace,
     } = start;
     let mut chunks = ChunkStreamWriter::open(connection).await?;
+    let mut world_map = WorldMapStreamWriter::open(connection).await?;
     if let Some(trace) = trace {
-        chunks = chunks.with_trace(trace as Arc<dyn hytale_net::PacketTraceSink>);
+        chunks = chunks.with_trace(trace.clone() as Arc<dyn hytale_net::PacketTraceSink>);
+        world_map = world_map.with_trace(trace as Arc<dyn hytale_net::PacketTraceSink>);
     }
     chunks
         .write_packet(&ClearChunks {}, options.chunk_compression_level)
@@ -1626,18 +1631,9 @@ async fn enter_game(
     game.active_slots = true;
 
     if !recipes.is_empty() {
-        let recipe_map = recipes.all();
+        // `UpdateRecipes` is a Setup-stage asset packet and was already sent in
+        // the config asset burst; the client rejects it at the Playing stage.
         let known_map = recipes.known_for(&crafting.learned, crafting.memories_level);
-        writer
-            .write_packet(
-                &UpdateRecipes {
-                    r#type: UpdateType::Init,
-                    recipes: Some(recipe_map.clone()),
-                    removed_recipes: None,
-                },
-                options.chunk_compression_level,
-            )
-            .await?;
         writer
             .write_packet(
                 &UpdateKnownRecipes {
@@ -1715,7 +1711,7 @@ async fn enter_game(
         )
         .await?;
     // This stream stays open for the chunk snapshot.
-    Ok((game, chunks))
+    Ok((game, chunks, world_map))
 }
 
 async fn send_player_list(
@@ -1867,7 +1863,7 @@ fn map_marker_from_component(
 
 async fn send_world_map_images(
     thread: &WorldThread,
-    writer: &mut FrameWriter,
+    writer: &mut WorldMapStreamWriter,
     center: (i32, i32),
     radius: u32,
     map_chunks: &mut BTreeSet<(i32, i32)>,
@@ -2751,6 +2747,7 @@ async fn run_game_loop(
         crafting,
         revealed_markers,
         map_chunks,
+        world_map,
         overflow,
     } = live;
     let mut report = GameLoopReport::default();
@@ -2845,8 +2842,14 @@ async fn run_game_loop(
         }
 
         while let Ok(message) = broadcasts.try_recv() {
-            players::write_message(writer, chunks, message, options.chunk_compression_level)
-                .await?;
+            players::write_message(
+                writer,
+                chunks,
+                world_map,
+                message,
+                options.chunk_compression_level,
+            )
+            .await?;
             report.player_messages += 1;
         }
 
@@ -3532,7 +3535,7 @@ async fn run_game_loop(
                     .filter(|marker| discovered.contains(&marker.id))
                     .collect();
                 if !added.is_empty() {
-                    writer
+                    world_map
                         .write_packet(
                             &UpdateWorldMap {
                                 chunks: None,
@@ -3548,7 +3551,7 @@ async fn run_game_loop(
             if last_map_view != (center, radius) {
                 let (added, removed) = send_world_map_images(
                     thread,
-                    writer,
+                    world_map,
                     center,
                     radius,
                     map_chunks,
@@ -4543,7 +4546,10 @@ mod tests {
         let packet = self_spawn_packet(1, transform(), &PlayerAppearance::default(), None);
         let updates = updates(&packet);
         match &updates[0] {
-            ComponentUpdate::ModelUpdate(update) => assert!(update.model.is_none()),
+            ComponentUpdate::ModelUpdate(update) => {
+                let model = update.model.as_ref().expect("default player model");
+                assert_eq!(model.asset_id.as_deref(), Some("Player"));
+            }
             other => panic!("expected ModelUpdate, got {other:?}"),
         }
         match &updates[1] {

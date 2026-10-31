@@ -66,7 +66,9 @@ pub mod trace;
 pub mod transport;
 pub mod verify;
 
-pub use chunk_stream::{ChunkFrame, ChunkStreamError, ChunkStreamReader, ChunkStreamWriter};
+pub use chunk_stream::{
+    ChunkFrame, ChunkStreamError, ChunkStreamReader, ChunkStreamWriter, WorldMapStreamWriter,
+};
 pub use frame_stream::{
     Frame, FrameReader, FrameStreamError, FrameWriter,
     DEFAULT_COMPRESSION_LEVEL as FRAME_COMPRESSION_LEVEL,

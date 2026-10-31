@@ -709,6 +709,11 @@ pub fn spawn_entity_updates(
     auth_skin: Option<PlayerSkin>,
 ) -> EntityUpdates {
     let skin = auth_skin.or_else(|| appearance.skin.as_ref().map(skin_packet));
+    // Java's player entity always carries a `ModelComponent`; the default model
+    // is `TempAssetIdUtil.DEFAULT_PLAYER_MODEL_NAME` ("Player"). Sending a null
+    // model and then an Equipment update makes the client throw
+    // "Attempted to set character model without sending a model first".
+    let model = appearance.model.clone().unwrap_or_default();
     let armor_ids = appearance
         .armor
         .iter()
@@ -721,7 +726,7 @@ pub fn spawn_entity_updates(
             removed: None,
             updates: Some(vec![
                 ComponentUpdate::ModelUpdate(ModelUpdate {
-                    model: appearance.model.as_ref().map(model_packet),
+                    model: Some(model_packet(&model)),
                     entity_scale: 1.0,
                 }),
                 ComponentUpdate::PlayerSkinUpdate(PlayerSkinUpdate { skin }),
@@ -1054,6 +1059,7 @@ fn skin_packet(skin: &PlayerSkinData) -> PlayerSkin {
 pub async fn write_message(
     writer: &mut hytale_net::FrameWriter,
     chunks: &mut hytale_net::ChunkStreamWriter,
+    world_map: &mut hytale_net::WorldMapStreamWriter,
     message: PlayerMessage,
     compression_level: i32,
 ) -> Result<(), PlayerMessageError> {
@@ -1084,7 +1090,7 @@ pub async fn write_message(
             chunks.write_packet(&update, compression_level).await?;
         }
         PlayerMessage::WorldMap(update) => {
-            writer.write_packet(&update, compression_level).await?;
+            world_map.write_packet(&update, compression_level).await?;
         }
     }
     Ok(())
@@ -1235,6 +1241,24 @@ mod tests {
             })
             .expect("saved skin");
         assert_eq!(skin, expected);
+    }
+
+    #[test]
+    fn spawn_carries_a_default_model_for_a_new_player() {
+        let updates =
+            spawn_entity_updates(1, transform(0.0, 0.0), &PlayerAppearance::default(), None);
+        let entity = &updates.updates.as_ref().expect("updates")[0];
+        let model = entity
+            .updates
+            .as_ref()
+            .expect("components")
+            .iter()
+            .find_map(|component| match component {
+                ComponentUpdate::ModelUpdate(update) => update.model.clone(),
+                _ => None,
+            })
+            .expect("model update");
+        assert_eq!(model.asset_id.as_deref(), Some("Player"));
     }
 
     #[test]

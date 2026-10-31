@@ -33,6 +33,8 @@ pub enum TraceStream {
     Setup,
     /// Server-opened unidirectional chunk stream.
     Chunks,
+    /// Server-opened unidirectional world-map stream.
+    WorldMap,
 }
 
 /// Packet direction relative to the server.

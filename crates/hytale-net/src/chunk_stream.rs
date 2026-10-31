@@ -120,6 +120,70 @@ impl ChunkStreamWriter {
     }
 }
 
+/// Writes world-map frames to the server-opened `WorldMap` unidirectional stream.
+///
+/// Java opens two server-initiated streams at setup: `Chunks` first, then
+/// `WorldMap`. `UpdateWorldMap` is only valid on the `WorldMap` channel, so it
+/// cannot ride the setup stream.
+pub struct WorldMapStreamWriter {
+    send: SendStream,
+    trace: Option<Arc<dyn PacketTraceSink>>,
+}
+
+impl WorldMapStreamWriter {
+    /// Open a new `WorldMap` stream on an established connection.
+    pub async fn open(connection: &Connection) -> Result<Self, TransportError> {
+        Ok(Self {
+            send: connection.open_uni().await?,
+            trace: None,
+        })
+    }
+
+    /// Attach a packet trace sink.
+    pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
+        self.trace = Some(trace);
+        self
+    }
+
+    /// Encode, compress (when required) and frame a packet.
+    pub async fn write_packet<T: Packet + Wire>(
+        &mut self,
+        packet: &T,
+        compression_level: i32,
+    ) -> Result<(), ChunkStreamError> {
+        let mut payload = Writer::new();
+        packet.encode(&mut payload)?;
+        let payload = if T::COMPRESSED {
+            compress_payload(&payload.into_inner(), compression_level)?
+        } else {
+            payload.into_inner()
+        };
+        let mut frame = Vec::with_capacity(payload.len() + 8);
+        encode_frame(T::ID, &payload, &mut frame)?;
+        self.write_frame(&frame).await?;
+        Ok(())
+    }
+
+    /// Write one complete frame (`[length][packet id][payload]`).
+    pub async fn write_frame(&mut self, frame: &[u8]) -> Result<(), TransportError> {
+        self.send.write_all(frame).await?;
+        trace_wire_frame(
+            &self.trace,
+            TraceStream::WorldMap,
+            TraceDirection::Outbound,
+            frame,
+        );
+        Ok(())
+    }
+
+    /// Finish the stream after the last frame.
+    pub fn finish(self) -> Result<(), TransportError> {
+        let mut send = self.send;
+        send.finish()?;
+        Ok(())
+    }
+}
+
 /// Reads chunk frames from a client-accepted unidirectional stream.
 pub struct ChunkStreamReader {
     recv: RecvStream,
