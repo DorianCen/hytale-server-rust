@@ -1752,3 +1752,46 @@ fn debug_block_preloads_carry_models_and_textures() {
         Some("BlockTextures/_Debug/Down.png")
     );
 }
+
+/// The release client dereferences `Weather.Fog` while cloning the weather
+/// store on `WorldLoadFinished`. Java always sends `NearFar(fogDistance[0],
+/// fogDistance[1])`, defaulting to `{-96, 1024}`, so every entry must carry it.
+#[test]
+fn weather_fog_is_always_sent() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded: UpdateWeathers = UpdateWeathers::decode(&mut Reader::new(
+        &packet(&packets, UpdateWeathers::ID).payload,
+    ))
+    .expect("decode weathers");
+    let weathers = decoded.weathers.expect("weather map");
+    assert_eq!(weathers.len(), registry.weathers.len());
+    for (id, weather) in &weathers {
+        let fog = weather
+            .fog
+            .as_ref()
+            .unwrap_or_else(|| panic!("weather {id} has no fog"));
+        assert!(fog.near.is_finite() && fog.far.is_finite());
+    }
+
+    let fog_of = |key: &str| {
+        let id = registry
+            .weathers
+            .id_of(key)
+            .unwrap_or_else(|| panic!("weather `{key}` id"));
+        weathers[&id].fog.clone().expect("fog")
+    };
+    // `Creative_Hub` has no `FogDistance` of its own and inherits
+    // `Forgotten_Temple`'s value.
+    let creative = fog_of("Creative_Hub");
+    assert_eq!((creative.near, creative.far), (-32.0, 512.0));
+    // An explicitly configured default.
+    let blood_moon = fog_of("Blood_Moon");
+    assert_eq!((blood_moon.near, blood_moon.far), (-96.0, 1024.0));
+    // A configured non-default range.
+    let temple = fog_of("Forgotten_Temple");
+    assert_eq!((temple.near, temple.far), (-32.0, 512.0));
+}

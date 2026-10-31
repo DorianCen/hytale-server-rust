@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-10-31 (second run)
+# Connection-debug session handoff — 2026-10-31 (third run)
 
 ## Objective
 
@@ -9,15 +9,15 @@ Hytale client.** The agent must never launch it.
 
 - The client authenticates, receives every config store, reaches `Playing`, and
   runs all world-load steps through `PrepareWorldMap`.
-- It then dies with a **native SIGSEGV**, not a managed exception.
-- The `Debug_Model` model-path warning is gone, so that fix was real but was not
-  the crash.
-- The crash is a runaway recursion in the client's interaction resolver. It was
-  triggered by the server encoding "no interaction" as id `0` instead of Java's
-  `AssetMapWithIndexes.NOT_FOUND` (`i32::MIN`).
-- Interaction id `0` is the preloaded `*Change_Active_Slot`, which has no
-  `Next`/`Failed`. The old payload therefore made node `0` point at itself and
-  the client followed the chain until the stack was exhausted.
+- The interaction-chain SIGSEGV is fixed: the client no longer crashes.
+- The third run now fails with a **managed NullReferenceException** while
+  handling packet `22 WorldLoadFinished`. The client disconnects itself.
+- The null is `Weather.Fog`: Java always sends
+  `NearFar(fogDistance[0], fogDistance[1])` (default `{-96, 1024}`), while the
+  Rust weather encoder sent `fog: None` for every weather. The client's weather
+  clone dereferences `Fog` unconditionally.
+- Fixed by encoding `Weather.Fog` from `FogDistance`, with Java's default. The
+  fix has **not yet been confirmed by a rerun**.
 
 ## Evidence
 
@@ -64,6 +64,28 @@ session error: connection handshake timed out
 The trace ends at `WorldLoadFinished`; the client crashed before sending
 `SetupFinalize`, so the server never enters the game stage.
 
+Third run (after the interaction fix):
+
+```text
+/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/Logs/2026-10-31_22-14-22_client.log
+```
+
+The client survives the load and then reports:
+
+```text
+ERROR|HytaleClient.Networking.PacketHandler|Exception when handling packet 22 WorldLoadFinished:
+  System.NullReferenceException
+   at HytaleClient!<BaseAddress>+0x9db009
+   at HytaleClient!<BaseAddress>+0x9d98c8
+   at HytaleClient!<BaseAddress>+0x5521eb
+   ...
+```
+
+`0x9db009` is `movss 0x8(%rdi)` with `rdi` loaded from element offset `+0xa0`.
+Disassembling the dispatcher shows the handler at `0x551da0` is the
+`UpdateWeathers` path (it clones the Weather store), and the `+0xa0` object is a
+24-byte `NearFar`-shaped object (`float Near`, `float Far`).
+
 ## Root cause
 
 Java sends `Integer.MIN_VALUE` for an absent interaction reference:
@@ -76,9 +98,28 @@ interaction id, every absent `Next`/`Failed` became "go to interaction 0".
 Interaction 0 has no `Next`, so its own encoded reference was `0` as well: a
 one-node cycle the client resolves recursively.
 
+## Root cause (third run)
+
+`Weather.Fog` was `null`. Java's `Weather.toPacket()` always assigns:
+
+```java
+packet.fog = new NearFar(fogDistance[0], fogDistance[1]);
+```
+
+with `DEFAULT_FOG_DISTANCE = {-96, 1024}`. The Rust encoder only filled
+`id`/`tagIndexes`/`stars`/`moons` and took `Weather::default()` for everything
+else, so every weather carried `fog: null`. The client clones the weather store
+on `WorldLoadFinished` and dereferences `Fog` without a null check.
+
+Note `Creative_Hub` has no `FogDistance` of its own but inherits
+`Forgotten_Temple` (`-32, 512`); the merged asset value is used.
+
 ## Fixes landed
 
 - `crates/hytale-assets/src/packets/mod.rs`
+  - `Weather.Fog` is now always populated from `FogDistance`, defaulting to
+    Java's `{-96, 1024}`.
+  - `Weather.ScreenEffect` is now forwarded as well.
   - Added `INTERACTION_NOT_FOUND` (`i32::MIN`) and used it for every interaction
     reference: `Next`, `Failed`, `Blocked`, `Click`/`Held`, the eight
     `MovementCondition` directions, `ForkInteractions`, ground/collision next,
@@ -94,8 +135,9 @@ one-node cycle the client resolves recursively.
 - Regressions:
   - `crates/hytale-assets/tests/interaction_packets.rs`
     - `absent_interaction_references_use_not_found`
-  - `crates/hytale-assets/tests/block_item_packets.rs` now allows the sentinel
-    while still rejecting dangling ids.
+  - `crates/hytale-assets/tests/block_item_packets.rs`
+    - `weather_fog_is_always_sent`
+    - interaction dangling-id checks now allow the sentinel.
 
 After the containment fix only 2 references remain unresolved (two root
 interaction names used inside an interaction array); they are sent as
@@ -106,10 +148,10 @@ nodes found no cycles.
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.611s] 1552 tests run: 1552 passed, 24 skipped
+Summary [ 19.453s] 1553 tests run: 1553 passed, 24 skipped
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
-block_item_packets: 18 passed
+block_item_packets: 19 passed
 interaction_packets: 1 passed
 (all other hytale-assets suites passed)
 
@@ -123,11 +165,13 @@ cargo fmt --all -- --check                              → clean
 1. Rerun the release client against this commit.
 2. If it passes `PrepareWorldMap`, the client should send `SetupFinalize`; then
    the server sends `ClearChunks` + `JoinWorld`. Report the next failing stage.
-3. If it crashes again, capture the new client log, `coredumpctl info <pid>`,
-   and the newest Sentry envelope. The next suspect is another asset id space
-   that still uses `0` for "none" (block/effect/sound/item ids) or a long-tail
-   interaction field listed below.
-4. Do not speculate about protocol mismatch; protocol is proven identical.
+3. If another `NullReferenceException` appears while handling
+   `WorldLoadFinished`, it is the same class of bug: a field Java always
+   populates that our encoder leaves `null`. The exception's innermost offset
+   plus a short disassembly of that method identifies the field.
+4. The client also logs (non-fatal) `Failed to prepare the item icon atlas` in
+   the third run. Track it down once the world join works.
+5. Do not speculate about protocol mismatch; protocol is proven identical.
 
 ## Commands
 

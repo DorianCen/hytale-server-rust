@@ -232,3 +232,32 @@ The client is never launched by the agent. After deploying this revision:
   the null from stack offsets.
 - If a store cannot be encoded yet, document the exact divergence and the
   client symptom rather than silently sending a placeholder.
+
+### Third run: `Weather.Fog` NullReferenceException
+
+After the interaction sentinel fix the client no longer crashes. It runs every
+`Prepare*` step and then throws a managed `NullReferenceException` while
+handling `WorldLoadFinished` (`HytaleClient+0x9db009`):
+
+```text
+movss 0x8(%rdi)
+```
+
+`rdi` is element field `+0xa0`; the element is the client's weather-store entry
+and the object is a 24-byte `NearFar` (`float Near`, `float Far`). Java's
+`Weather.toPacket()` always sets `packet.fog = new NearFar(fogDistance[0],
+fogDistance[1])` with `DEFAULT_FOG_DISTANCE = {-96, 1024}`. The Rust encoder
+used `Weather::default()` for everything except id/tags/stars/moons, so every
+weather had `fog: null`, and the client's clone dereferences it without a null
+check.
+
+Fixed in this slice:
+
+- `Weather.Fog` is populated from `FogDistance`, defaulting to `{-96, 1024}`.
+- `Weather.ScreenEffect` is forwarded too.
+- Regression: `block_item_packets::weather_fog_is_always_sent` (also checks the
+  inherited `Creative_Hub` value and a non-default `Forgotten_Temple` range).
+
+Remaining known issue from the same run: the client logs a non-fatal
+`Failed to prepare the item icon atlas; item icons are unavailable` warning.
+Investigate after the world join succeeds.

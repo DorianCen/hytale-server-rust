@@ -2043,3 +2043,30 @@ This file records phase-2 sessions only.
 - **Follow-up:** rerun the release client. If it still crashes, the next
   suspects are other id spaces that still use `0` for "none" and the long-tail
   interaction variants that still use the `Simple` base form.
+
+---
+
+## Session 74 — Release-client Weather.Fog NullReferenceException (2026-10-31)
+
+- **Goal:** fix the managed failure that replaced the interaction-chain SIGSEGV.
+- **Evidence:** the client ran every `Prepare*` step and then threw
+  `NullReferenceException` while handling `WorldLoadFinished`. The fault is
+  `movss 0x8(%rdi)` with `rdi` from element offset `+0xa0`; the element is a
+  weather-store entry and the null object is a 24-byte `NearFar` (two floats).
+- **Cause:** Java always sends `Weather.fog = NearFar(fogDistance[0],
+  fogDistance[1])` (default `{-96, 1024}`). The Rust encoder only filled
+  id/tags/stars/moons and left `fog: None` for every weather, so the client's
+  weather clone dereferenced null.
+- **Landed:**
+  - `Weather.Fog` is encoded from `FogDistance` with Java's default; the merged
+    asset value covers `Creative_Hub` inheriting `Forgotten_Temple`.
+  - `Weather.ScreenEffect` is forwarded.
+  - `block_item_packets::weather_fog_is_always_sent` regression.
+- **Verified:**
+  - `./tools/test.sh fast` (1553 passed, 24 skipped), clippy and fmt.
+  - `HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets` (19 `block_item_packets`
+    tests plus all other suites).
+  - `--validate-assets` (50 stores, failures 0).
+- **Follow-up:** rerun the release client. A further `NullReferenceException`
+  in this handler means another Java-always-populated field is still null.
+  Also investigate the non-fatal item icon atlas warning.

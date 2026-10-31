@@ -59,8 +59,8 @@ use hytale_protocol::generated::common::{
     ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LayerPlacement,
     LoopOption, Match, MaterialQuantity, MemoriesConditionInteraction, Model, ModelParticle,
     ModelVFX, ModifyInventoryInteraction, MovementConditionInteraction, MusicContainer,
-    MusicMarker, MusicSync, MusicTransition, MusicTransitionType, NotConnectedBlockRule, Opacity,
-    OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction,
+    MusicMarker, MusicSync, MusicTransition, MusicTransitionType, NearFar, NotConnectedBlockRule,
+    Opacity, OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction,
     Particle, ParticleAnimationFrame, ParticleAttractor, ParticleCollision,
     ParticleCollisionAction, ParticleCollisionBlockType, ParticleRotationInfluence,
     ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup, ParticleSystem,
@@ -1705,6 +1705,12 @@ impl AssetRegistry {
                     tag_indexes: tags.expanded(json.get("Tags")),
                     stars: text(json, "Stars"),
                     moons,
+                    screen_effect: text(json, "ScreenEffect"),
+                    // Java always sends `NearFar(fogDistance[0], fogDistance[1])`
+                    // with `DEFAULT_FOG_DISTANCE = {-96, 1024}`. The client's
+                    // Weather clone dereferences `Fog` unconditionally, so a
+                    // null here is a NullReferenceException on WorldLoadFinished.
+                    fog: Some(weather_fog(json.get("FogDistance"))),
                     ..Weather::default()
                 },
             );
@@ -1914,6 +1920,28 @@ fn text(json: &Value, name: &str) -> Option<String> {
 
 fn boolean(json: &Value, name: &str, fallback: bool) -> bool {
     json.get(name).and_then(Value::as_bool).unwrap_or(fallback)
+}
+
+/// Java `Weather.DEFAULT_FOG_DISTANCE`.
+const DEFAULT_FOG_DISTANCE: NearFar = NearFar {
+    near: -96.0,
+    far: 1024.0,
+};
+
+fn weather_fog(value: Option<&Value>) -> NearFar {
+    let Some(values) = value.and_then(Value::as_array) else {
+        return DEFAULT_FOG_DISTANCE;
+    };
+    NearFar {
+        near: values
+            .first()
+            .and_then(Value::as_f64)
+            .unwrap_or(DEFAULT_FOG_DISTANCE.near as f64) as f32,
+        far: values
+            .get(1)
+            .and_then(Value::as_f64)
+            .unwrap_or(DEFAULT_FOG_DISTANCE.far as f64) as f32,
+    }
 }
 
 fn connected_block_face_tags(value: Option<&Value>) -> Option<ConnectedBlockFaceTags> {
