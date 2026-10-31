@@ -130,10 +130,15 @@ Deferred to M6:
 - Singleplayer integration (client-spawned server, child sessions): deferred to
   M5/M6; the auth trait keeps the door open.
 - Hosting-provider external session mode: deferred unless a user needs it.
-- Live OAuth device/browser flow, session-service registration and JWKS refresh:
-  deferred. The current profile validates the same EdDSA JWT claims and
-  `cnf.x5t#S256` certificate binding against a locally configured Ed25519 key,
-  so the handshake and claim checks are real but the authority is local.
+- Live OAuth device flow, game-session creation and session-service JWKS:
+  implemented in `hytale-auth::live` (`--auth-mode authenticated`), including
+  `/game-session/new`, `/server-join/auth-grant`, `/server-join/auth-token`,
+  live EdDSA/JWKS validation and the `cnf.x5t#S256` client-certificate binding.
+  Still deferred: the browser PKCE flow, encrypted credential persistence,
+  automatic token-refresh scheduling, and hosting-provider external-session
+  mode. Until persistence lands, restarting the server requires a new device
+  authorization (or `HYTALE_SERVER_SESSION_TOKEN` +
+  `HYTALE_SERVER_IDENTITY_TOKEN`).
 
 ## 5. UI and client-facing extras
 

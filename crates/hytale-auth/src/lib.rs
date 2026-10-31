@@ -35,6 +35,8 @@
 
 #![deny(clippy::all)]
 
+pub mod live;
+
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -109,6 +111,9 @@ pub enum AuthError {
     /// The token is expired / not yet valid / issued in the future.
     #[error("JWT time validation failed: {0}")]
     Time(String),
+    /// A live Hytale service call failed or returned an invalid response.
+    #[error("session service failed: {0}")]
+    Service(String),
     /// Per-token time-to-live is not representable.
     #[error("invalid token lifetime: {0}")]
     InvalidLifetime(String),
@@ -129,17 +134,18 @@ pub struct Confirmation {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenClaims {
     /// Issuer (`iss`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "iss", default, skip_serializing_if = "Option::is_none")]
     pub issuer: Option<String>,
     /// Audience (`aud`).
     #[serde(
+        rename = "aud",
         default,
         deserialize_with = "de_first_string",
         skip_serializing_if = "Option::is_none"
     )]
     pub audience: Option<String>,
     /// Subject (`sub`), normally the player UUID.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "sub", default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
     /// Player username.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,16 +158,16 @@ pub struct TokenClaims {
     )]
     pub scope: Option<String>,
     /// Issued-at, seconds since Unix epoch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "iat", default, skip_serializing_if = "Option::is_none")]
     pub issued_at: Option<i64>,
     /// Expiry, seconds since Unix epoch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "exp", default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
     /// Not-before, seconds since Unix epoch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "nbf", default, skip_serializing_if = "Option::is_none")]
     pub not_before: Option<i64>,
     /// Certificate binding.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "cnf", default, skip_serializing_if = "Option::is_none")]
     pub confirmation: Option<Confirmation>,
     /// Local token purpose (`identity`, `access`, `grant`, `server`).
     #[serde(default, skip_serializing_if = "Option::is_none")]

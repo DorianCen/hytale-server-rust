@@ -260,9 +260,10 @@ Landed and green:
   `switch_session_world` performs the live registry/view/chunk-stream handoff.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
-- Dev/insecure and local-EdDSA authenticated join; common/config asset
-  streaming; Game transition; player list/self-spawn; time/gameplay packets;
-  teleport exchange; persistent chunk stream and movement-driven view updates.
+- Dev/insecure, local-EdDSA and live-session authenticated joins; common/config
+  asset streaming; Game transition; player list/self-spawn; time/gameplay
+  packets; teleport exchange; persistent chunk stream and movement-driven view
+  updates.
 
 ```sh
 ./tools/test.sh fast    # inner loop: unit + non-asset integration (~8–21 s here)

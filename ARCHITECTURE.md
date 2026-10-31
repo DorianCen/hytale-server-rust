@@ -579,17 +579,26 @@ not part of v1.
   certificate binding (`cnf.x5t#S256`) is the actual identity check.
 - Connection states: `Initial` → `Authentication` → `Setup` → `Game`.
   The exact packet order is part of the client contract and is covered by
-  packet-trace fixtures. `hytale-server::session` implements both the
-  development branch (`RequestInsecurePlayerOptions` → `InsecurePlayerOptions`
-  → `ConnectAccept`) and the local authenticated branch
-  (`Connect(identityToken)` → `AuthGrant` → `AuthToken` → `ServerAuthToken`).
-  Both converge on `WorldSettings`/`ServerInfo` → assets → `SetupFinalize`, then
-  `ClearChunks`/`JoinWorld`/`ClientReady` and the chunk stream.
+  packet-trace fixtures. `hytale-server::session` implements the development
+  branch (`RequestInsecurePlayerOptions` → `InsecurePlayerOptions` →
+  `ConnectAccept`), the local EdDSA branch and the **live authenticated**
+  branch (`Connect(identityToken)` → `AuthGrant` → `AuthToken` →
+  `ServerAuthToken`). All converge on `WorldSettings`/`ServerInfo` → assets →
+  `SetupFinalize`, then `ClearChunks`/`JoinWorld`/`ClientReady` and the chunk
+  stream.
 - Local authentication (`hytale-auth`): Ed25519 EdDSA JWTs with the Java claim
   names, issuer/audience/scope checks, clock skew and mandatory
   `cnf.x5t#S256` binding to the client certificate. The signing authority is
-  local (PKCS#8 key) so the flow works without the live session service; the
-  validator/issuer seam is isolated so OAuth/JWKS can replace it.
+  local (PKCS#8 key) so the flow works without the live session service.
+- Live authentication (`hytale-auth::live`, release clients): OAuth device
+  flow (`hytale-server` client, `openid offline auth:server`), `/game-session/new`
+  for the server session/identity tokens, `/server-join/auth-grant` and
+  `/server-join/auth-token` exchanges, live `/.well-known/jwks.json` Ed25519
+  validation and the server-certificate `x509Fingerprint` binding. The live
+  identity token is *not* audience/certificate bound (matching Java); the
+  access token requires both the server audience and the client certificate
+  fingerprint. `--auth-mode authenticated` selects it; external tokens can be
+  supplied with `HYTALE_SERVER_SESSION_TOKEN` / `HYTALE_SERVER_IDENTITY_TOKEN`.
 - Setup assets: common assets are streamed as `AssetInitialize` +
   `WorldLoadProgress` + `AssetPart` + `AssetFinalize` per asset (2,621,440-byte
   parts, matching Java `MAX_FRAME`), followed by

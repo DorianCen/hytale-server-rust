@@ -1190,6 +1190,19 @@ pub async fn auth_join(
     session: &ClientSession,
     options: &AuthJoinOptions,
 ) -> Result<AuthJoinReport, AuthJoinError> {
+    auth_join_with_tokens(session, options, None, None).await
+}
+
+/// Like [`auth_join`], but with caller-supplied identity/access tokens.
+///
+/// This is the live-session shape: the tokens are issued by Hytale (or by the
+/// test's session-service stub) rather than the local [`AuthService`].
+pub async fn auth_join_with_tokens(
+    session: &ClientSession,
+    options: &AuthJoinOptions,
+    identity_token: Option<String>,
+    access_token: Option<String>,
+) -> Result<AuthJoinReport, AuthJoinError> {
     let (send, recv) = session
         .connection()
         .open_bi()
@@ -1200,13 +1213,16 @@ pub async fn auth_join(
 
     let subject = options.uuid.to_string();
     let scopes = [SCOPE_CLIENT.to_string()];
-    let identity = options.auth.issue_identity_token(
-        &subject,
-        &options.username,
-        &scopes,
-        Some(&options.certificate_fingerprint),
-        300,
-    )?;
+    let identity = match identity_token {
+        Some(token) => token,
+        None => options.auth.issue_identity_token(
+            &subject,
+            &options.username,
+            &scopes,
+            Some(&options.certificate_fingerprint),
+            300,
+        )?,
+    };
     let connect = build_connect(
         DEFAULT_PROTOCOL_CRC,
         DEFAULT_PROTOCOL_BUILD,
@@ -1249,13 +1265,16 @@ pub async fn auth_join(
                     .ok_or(AuthJoinError::MissingPacket {
                         expected: "AuthGrant.authorizationGrant",
                     })?;
-                let access = options.auth.issue_access_token(
-                    &subject,
-                    &options.username,
-                    &scopes,
-                    Some(&options.certificate_fingerprint),
-                    300,
-                )?;
+                let access = match access_token.clone() {
+                    Some(token) => token,
+                    None => options.auth.issue_access_token(
+                        &subject,
+                        &options.username,
+                        &scopes,
+                        Some(&options.certificate_fingerprint),
+                        300,
+                    )?,
+                };
                 writer
                     .write_packet(
                         &AuthToken {

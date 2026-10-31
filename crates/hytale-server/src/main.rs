@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use hytale_auth::live::{LiveAuth, LiveAuthConfig};
 use hytale_auth::{AuthKey, AuthService};
 use hytale_server::GeneratorOptions;
 use hytale_server::{
@@ -313,7 +314,11 @@ struct ChunkServeArgs {
     /// Seconds to wait for the client's `ClientReady` after `JoinWorld`.
     #[arg(long, default_value_t = 30)]
     world_join_timeout: u64,
-    /// Authentication mode: `insecure` or `local`.
+    /// Authentication mode: `insecure`, `local` or `authenticated`.
+    ///
+    /// `authenticated` performs the live Hytale OAuth device flow (or uses
+    /// `HYTALE_SERVER_SESSION_TOKEN` + `HYTALE_SERVER_IDENTITY_TOKEN`) and is
+    /// required by release game clients.
     #[arg(long, default_value = "insecure")]
     auth_mode: String,
     /// Base64 PKCS#8 Ed25519 key for `--auth-mode local` (generated when absent).
@@ -649,8 +654,29 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
                 args.auth_audience.clone(),
             ))
         }
+        "authenticated" => {
+            let config = LiveAuthConfig::default();
+            let session_token = std::env::var("HYTALE_SERVER_SESSION_TOKEN").ok();
+            let identity_token = std::env::var("HYTALE_SERVER_IDENTITY_TOKEN").ok();
+            let live = match (session_token, identity_token) {
+                (Some(session_token), Some(identity_token)) => {
+                    println!("using Hytale session tokens from the environment");
+                    LiveAuth::from_tokens(config, session_token, identity_token)
+                }
+                _ => LiveAuth::from_device_flow(config),
+            };
+            match live {
+                Ok(live) => AuthMode::authenticated(live),
+                Err(error) => {
+                    eprintln!("live authentication failed: {error}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
         other => {
-            eprintln!("unknown --auth-mode `{other}` (expected `insecure` or `local`)");
+            eprintln!(
+                "unknown --auth-mode `{other}` (expected `insecure`, `local` or `authenticated`)"
+            );
             return ExitCode::FAILURE;
         }
     };

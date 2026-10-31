@@ -20,7 +20,9 @@ use tokio::time::{timeout, Instant};
 
 use crate::generation::GeneratorOptions;
 use crate::players::PlayerRegistry;
-use crate::session::{serve_connection_with_registry, SessionError, SessionOptions, SessionReport};
+use crate::session::{
+    serve_connection_with_registry, AuthMode, SessionError, SessionOptions, SessionReport,
+};
 use crate::universe_runtime::{
     PortalArrival, PortalTransferReport, UniverseRuntime, UniverseRuntimeError,
 };
@@ -351,6 +353,15 @@ where
     }
 
     let identity = TlsIdentity::generate("localhost")?;
+    if let AuthMode::Authenticated(live) = &options.session.auth {
+        // The session service binds the exchanged server access token to this
+        // certificate, which is the server half of the mTLS identity check.
+        live.set_certificate_fingerprint(identity.fingerprint_base64url());
+        println!(
+            "live authentication ready (server audience {})",
+            live.server_audience()
+        );
+    }
     let mut bind_addrs = vec![options.bind_addr];
     bind_addrs.extend(loopback_companion(options.bind_addr));
     let primary = bind_addrs.remove(0);

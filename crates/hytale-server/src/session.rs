@@ -24,6 +24,7 @@ use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use hytale_assets::{AssetPacket, CommonAssetInfo, CommonAssetRegistry, ConfigAssets};
+use hytale_auth::live::LiveAuth;
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
 use hytale_entities::movement::{MovementBounds, MovementRejection, MovementState};
 use hytale_interactions::{
@@ -117,6 +118,8 @@ pub enum AuthMode {
         /// Lifetime for tokens the server issues during the exchange.
         token_ttl_secs: i64,
     },
+    /// Live Hytale OAuth/session authority (release clients).
+    Authenticated(Arc<LiveAuth>),
 }
 
 impl AuthMode {
@@ -128,11 +131,17 @@ impl AuthMode {
         }
     }
 
+    /// A live Hytale session authority.
+    pub fn authenticated(live: Arc<LiveAuth>) -> Self {
+        Self::Authenticated(live)
+    }
+
     /// Short label for reports/logging.
     pub fn label(&self) -> &'static str {
         match self {
             Self::Insecure => "insecure",
             Self::Local { .. } => "local",
+            Self::Authenticated(_) => "authenticated",
         }
     }
 }
@@ -427,6 +436,9 @@ pub enum SessionError {
     /// The access token and identity token describe different players.
     #[error("authentication tokens describe different players")]
     TokenMismatch,
+    /// A live session-service call failed.
+    #[error("session-service authentication failed: {0}")]
+    AuthService(String),
     /// The client disconnected.
     #[error("client disconnected during setup")]
     Disconnected,
@@ -801,6 +813,47 @@ pub async fn serve_connection_with_registry(
     })
 }
 
+/// Decode the live identity token's `profile.skin` JSON into the protocol
+/// `PlayerSkin`. The token carries the same camelCase fields as
+/// `InsecurePlayerOptions.skin`; generated protocol types do not implement
+/// `Deserialize`, so map the known fields explicitly.
+fn live_skin(raw: &str) -> Option<PlayerSkin> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    // Java sometimes stores the skin as a JSON string inside the claim.
+    let value = match value {
+        serde_json::Value::String(text) => serde_json::from_str(&text).ok()?,
+        value => value,
+    };
+    let field = |name: &str| {
+        value
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    Some(PlayerSkin {
+        body_characteristic: field("bodyCharacteristic"),
+        underwear: field("underwear"),
+        face: field("face"),
+        eyes: field("eyes"),
+        ears: field("ears"),
+        mouth: field("mouth"),
+        facial_hair: field("facialHair"),
+        haircut: field("haircut"),
+        eyebrows: field("eyebrows"),
+        pants: field("pants"),
+        overpants: field("overpants"),
+        undertop: field("undertop"),
+        overtop: field("overtop"),
+        shoes: field("shoes"),
+        head_accessory: field("headAccessory"),
+        face_accessory: field("faceAccessory"),
+        ear_accessory: field("earAccessory"),
+        skin_feature: field("skinFeature"),
+        gloves: field("gloves"),
+        cape: field("cape"),
+    })
+}
+
 async fn perform_handshake(
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
@@ -971,6 +1024,142 @@ async fn perform_handshake(
                     skin: None,
                 },
                 "local",
+            )
+        }
+        AuthMode::Authenticated(live) => {
+            if connect.client_type == ClientType::Editor {
+                send_disconnect(writer, "editor connections are not supported").await?;
+                return Err(SessionError::UnexpectedPacket {
+                    packet_id: Connect::ID,
+                    state: "auth:editor",
+                });
+            }
+            let identity_token = connect
+                .identity_token
+                .clone()
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| {
+                    SessionError::Auth(hytale_auth::AuthError::InvalidClaim {
+                        claim: "identityToken",
+                        message: "server requires authentication".to_string(),
+                    })
+                })?;
+            let identity_claims = match live.validate_identity_token(&identity_token, SCOPE_CLIENT)
+            {
+                Ok(claims) => claims,
+                Err(error) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::Auth(error));
+                }
+            };
+            let subject = identity_claims.subject.clone();
+            let username = identity_claims.username.clone();
+            let uuid: Uuid = subject
+                .parse()
+                .map_err(|_| SessionError::InvalidUuid(subject.clone()))?;
+            let skin = identity_claims.skin.as_deref().and_then(live_skin);
+
+            let grant_live = Arc::clone(live);
+            let grant_identity = identity_token.clone();
+            let grant = match tokio::task::spawn_blocking(move || {
+                grant_live.request_player_auth_grant(&grant_identity)
+            })
+            .await
+            {
+                Ok(Ok(grant)) => grant,
+                Ok(Err(error)) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::Auth(error));
+                }
+                Err(error) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::AuthService(format!(
+                        "auth-grant task failed: {error}"
+                    )));
+                }
+            };
+            let server_identity = live.identity_token().ok_or_else(|| {
+                SessionError::AuthService("server identity token is missing".to_string())
+            })?;
+            writer
+                .write_packet(
+                    &AuthGrant {
+                        authorization_grant: Some(grant),
+                        server_identity_token: Some(server_identity),
+                    },
+                    DEFAULT_COMPRESSION_LEVEL,
+                )
+                .await?;
+
+            let auth_token: AuthToken = expect(reader, AuthToken::ID).await?;
+            let access_token = auth_token
+                .access_token
+                .clone()
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| {
+                    SessionError::Auth(hytale_auth::AuthError::InvalidClaim {
+                        claim: "accessToken",
+                        message: "missing access token".to_string(),
+                    })
+                })?;
+            let client_fingerprint = client_fingerprint
+                .ok_or_else(|| SessionError::Auth(hytale_auth::AuthError::CertificateBinding))?;
+            let access_claims = match live.validate_access_token(&access_token, client_fingerprint)
+            {
+                Ok(claims) => claims,
+                Err(error) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::Auth(error));
+                }
+            };
+            if access_claims.subject != subject || access_claims.username != username {
+                send_disconnect(writer, "authentication failed").await?;
+                return Err(SessionError::TokenMismatch);
+            }
+            let grant_token = auth_token
+                .server_authorization_grant
+                .clone()
+                .filter(|grant| !grant.is_empty())
+                .ok_or_else(|| {
+                    SessionError::Auth(hytale_auth::AuthError::InvalidClaim {
+                        claim: "serverAuthorizationGrant",
+                        message: "missing mutual-auth grant".to_string(),
+                    })
+                })?;
+            let exchange_live = Arc::clone(live);
+            let server_access = match tokio::task::spawn_blocking(move || {
+                exchange_live.exchange_player_grant(&grant_token)
+            })
+            .await
+            {
+                Ok(Ok(token)) => token,
+                Ok(Err(error)) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::Auth(error));
+                }
+                Err(error) => {
+                    send_disconnect(writer, "authentication failed").await?;
+                    return Err(SessionError::AuthService(format!(
+                        "auth-token task failed: {error}"
+                    )));
+                }
+            };
+            writer
+                .write_packet(
+                    &ServerAuthToken {
+                        server_access_token: Some(server_access),
+                        password_challenge: None,
+                    },
+                    DEFAULT_COMPRESSION_LEVEL,
+                )
+                .await?;
+            (
+                Identity {
+                    uuid,
+                    username,
+                    skin,
+                },
+                "authenticated",
             )
         }
     };

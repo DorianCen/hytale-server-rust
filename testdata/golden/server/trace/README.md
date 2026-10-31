@@ -73,10 +73,13 @@ A failed handshake that *does* reach the server now logs
 `QUIC handshake failed: QUIC handshake with <peer> failed: ...`, which names
 the TLS/ALPN error instead of timing out silently.
 
-> Auth note: the default online client uses the live Hytale session authority.
-> The current server's local EdDSA profile is for offline/dev verification; use
-> the dev/insecure client profile for a local handshake until the live session
-> adapter lands. This is an auth-authority limitation, not a packet-order one.
+> Auth note: a release client requires the live Hytale session authority. Start
+> the server with `--auth-mode authenticated`, approve the printed OAuth device
+> URL once, and the server will open its game session and accept the client's
+> `AuthGrant`/`ServerAuthToken` handshake. `--auth-mode insecure`/`local` only
+> works with a development client. You can skip the interactive flow by
+> supplying `HYTALE_SERVER_SESSION_TOKEN` and `HYTALE_SERVER_IDENTITY_TOKEN`
+> (and optionally `HYTALE_SERVER_AUDIENCE`) from an existing server session.
 
 ## Real-client observations encoded in the gate
 

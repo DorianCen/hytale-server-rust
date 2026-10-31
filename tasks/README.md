@@ -44,6 +44,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T59c](T59c-npc-combat-encounters.md) | Combat action graph and encounters | T59, T59b | low/medium | done (session 61) |
 | [T60](T60-builtin-module-runtime.md) | Builtin module runtime and selected modules | T58, T59 | low/medium | done (session 63) |
 | [T60b](T60b-followup-gameplay.md) | Player combat/stats, containers, crafting, encounters, portal/ECS | T60 | low | done (session 64) |
+| [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65) |
 | T61 | Editor/builder/machinima/voice/cosmetics scope | T60 | low | planned |
 | T62 | Security, fuzzing and rate limits | T48 | medium | planned |
 | T63 | Performance, memory and soak | T48 | medium | planned |
