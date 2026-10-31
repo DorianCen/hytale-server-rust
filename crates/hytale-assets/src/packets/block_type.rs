@@ -221,7 +221,10 @@ pub(crate) fn block_type_packet(
                     .get("IgnoreSupportWhenPlaced")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
-                interactions: None,
+                // Java always emits a map here (empty for blocks without
+                // interactions). A null map is copied by the client during
+                // `PrepareBlockTypes` and crashes at `WorldLoadFinished`.
+                interactions: Some(BTreeMap::new()),
                 states: None,
                 transition_to_tag: json
                     .get("TransitionToTag")

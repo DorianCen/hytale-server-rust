@@ -275,6 +275,11 @@ fn block_type_packet_matches_the_java_golden() {
         checked += 1;
 
         assert_eq!(block.item, expected.item, "{name}: item");
+        assert_eq!(
+            block.interactions.is_some(),
+            expected.interactions.is_some(),
+            "{name}: interactions presence"
+        );
         assert_eq!(block.unknown, expected.unknown, "{name}: unknown");
         assert_eq!(block.draw_type, expected.draw_type, "{name}: drawType");
         assert_eq!(block.material, expected.material, "{name}: material");
@@ -383,6 +388,10 @@ fn block_type_packet_matches_the_java_golden() {
         }
     }
     assert_eq!(checked, 6135);
+    assert!(
+        actual.values().all(|block| block.interactions.is_some()),
+        "every block must carry a non-null interactions map"
+    );
 
     // Representative blocks whose inherited assets are fully resolved match
     // every emitted field, including the ones skipped above.
