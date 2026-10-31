@@ -39,33 +39,35 @@ use hytale_protocol::generated::common::{
     AmbienceFXSoundPlay3D, AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule,
     AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig, BenchRequirement,
     BenchType, BlockSet, BlockTextures, BlockTypeConnectedBlockShape, CameraAxis, CameraNode,
-    CameraSettings, CollisionType, Color, ColorAlpha, ColorLight,
-    CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
-    ConnectedBlockFaceTags, ConnectedBlockMatchType, ConnectedBlockPattern, ConnectedBlockRule,
-    ConnectedBlockRuleSetAsset, ConnectedBlockShape, ConnectedBlockUpdateMode, CraftingRecipe,
-    CurveType, DestinationAlign, Direction, Edge, EffectDirection, EmitShape, EntityEffect,
-    EntityPart, EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent,
-    EntityUIType, EqualizerEffect, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, Fluid,
-    FluidDrawType, FluidParticle, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
-    InitialVelocity, Interaction, InteractionType, IntersectionHighlight, ItemAnimation,
-    ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration,
-    ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent,
-    ItemSoundSet, LayerPlacement, LoopOption, MaterialQuantity, Model, ModelParticle, ModelVFX,
-    MusicContainer, MusicMarker, MusicSync, MusicTransition, MusicTransitionType,
-    NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
-    OverlapBehavior as ProtocolOverlapBehavior, Particle, ParticleAnimationFrame,
-    ParticleAttractor, ParticleCollision, ParticleCollisionAction, ParticleCollisionBlockType,
-    ParticleRotationInfluence, ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup,
-    ParticleSystem, ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType,
-    ProjectileConfig, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
+    CameraSettings, ChargingDelay, ChargingInteraction, CollisionType, Color, ColorAlpha,
+    ColorLight, CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
+    ConditionInteraction, ConnectedBlockFaceTags, ConnectedBlockMatchType, ConnectedBlockPattern,
+    ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape, ConnectedBlockUpdateMode,
+    CraftingRecipe, CurveType, DamageEntityInteraction, DestinationAlign, Direction, Edge,
+    EffectDirection, EmitShape, EntityEffect, EntityPart, EntityStatEffects,
+    EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect,
+    FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, FailOnType, Fluid, FluidDrawType,
+    FluidParticle, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer, InitialVelocity,
+    Interaction, InteractionType, IntersectionHighlight, ItemAnimation, ItemCategory,
+    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
+    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
+    LayerPlacement, LoopOption, MaterialQuantity, Model, ModelParticle, ModelVFX, MusicContainer,
+    MusicMarker, MusicSync, MusicTransition, MusicTransitionType, NotConnectedBlockRule, Opacity,
+    OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction,
+    Particle, ParticleAnimationFrame, ParticleAttractor, ParticleCollision,
+    ParticleCollisionAction, ParticleCollisionBlockType, ParticleRotationInfluence,
+    ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup, ParticleSystem,
+    ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType, ProjectileConfig,
+    ProjectileInteraction, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
     Rangeb, Rangef, RepulsionConfig, ResourceType, ReverbEffect, RoofState, RootInteraction,
-    RotationMode, SegmentMusicContainer, SequenceMusicContainer, ShaderType,
-    ShapeConnectedBlockRule, ShelterType, SimpleInteraction, SingleTrackMusicContainer, Size,
-    SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade, Stinger,
-    StingerBinding, StingerShortLead, SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint,
+    RotationMode, SegmentMusicContainer, SelectInteraction, Selector, SequenceMusicContainer,
+    SerialInteraction, ShaderType, ShapeConnectedBlockRule, ShelterType, SimpleInteraction,
+    SingleTrackMusicContainer, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize,
+    StateBinding, StateDelta, StateFade, StatsConditionInteraction, Stinger, StingerBinding,
+    StingerShortLead, SubCategoryDefinition, SurfaceType, SwitchTo, SyncPoint,
     TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail, UVMotion,
     UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather,
-    WiggleWeights, WorldEnvironment,
+    WieldingInteraction, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -508,7 +510,7 @@ impl AssetRegistry {
                 store: "Interaction",
                 key: record.key.clone(),
             })?;
-            interactions.insert(id, simple_interaction(self, &record.key, &record.value));
+            interactions.insert(id, interaction_node(self, &record.key, &record.value));
         }
         let packet = UpdateInteractions {
             r#type: UpdateType::Init,
@@ -2178,10 +2180,27 @@ fn nested_interaction_index(
     }
 }
 
-fn simple_interaction(registry: &AssetRegistry, key: &str, json: &Value) -> Interaction {
-    Interaction::SimpleInteraction(SimpleInteraction {
-        // T66 currently streams the interaction ID graph; type-specific node
-        // payloads remain a follow-up.
+struct InteractionBase {
+    wait_for_data_from: WaitForDataFrom,
+    effects: Option<hytale_protocol::generated::common::InteractionEffects>,
+    horizontal_speed_multiplier: f32,
+    run_time: f32,
+    on_item_change_behavior: hytale_protocol::generated::common::InteractionItemChangeBehavior,
+    settings: Option<
+        BTreeMap<
+            hytale_protocol::generated::common::GameMode,
+            hytale_protocol::generated::common::InteractionSettings,
+        >,
+    >,
+    rules: hytale_protocol::generated::common::InteractionRules,
+    tags: Option<Vec<i32>>,
+    camera: Option<hytale_protocol::generated::common::InteractionCameraSettings>,
+    next: i32,
+    failed: i32,
+}
+
+fn interaction_base(registry: &AssetRegistry, key: &str, json: &Value) -> InteractionBase {
+    InteractionBase {
         wait_for_data_from: WaitForDataFrom::None,
         effects: None,
         horizontal_speed_multiplier: json
@@ -2196,7 +2215,284 @@ fn simple_interaction(registry: &AssetRegistry, key: &str, json: &Value) -> Inte
         camera: None,
         next: nested_interaction_index(registry, key, "Next", json.get("Next")),
         failed: nested_interaction_index(registry, key, "Failed", json.get("Failed")),
+    }
+}
+
+fn interaction_indices(
+    registry: &AssetRegistry,
+    key: &str,
+    _field: &str,
+    value: Option<&Value>,
+) -> Vec<i32> {
+    value
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .enumerate()
+                .map(|(index, value)| match value {
+                    Value::String(id) => registry.interactions.id_of(id).unwrap_or(0),
+                    Value::Object(_) => registry
+                        .interactions
+                        .id_of(&format!("*{key}_Interactions_{index}"))
+                        .unwrap_or(0),
+                    _ => 0,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn charging_delay(value: Option<&Value>) -> Option<ChargingDelay> {
+    let object = value?.as_object()?;
+    Some(ChargingDelay {
+        min_delay: map_number(object, "MinDelay") as f32,
+        max_delay: map_number(object, "MaxDelay") as f32,
+        max_total_delay: map_number(object, "MaxTotalDelay") as f32,
+        min_health: map_number(object, "MinHealth") as f32,
+        max_health: map_number(object, "MaxHealth") as f32,
     })
+}
+
+fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Interaction {
+    let base = interaction_base(registry, key, json);
+    match json.get("Type").and_then(Value::as_str).unwrap_or("Simple") {
+        "DamageEntity" => Interaction::DamageEntityInteraction(DamageEntityInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            blocked: 0,
+            damage_effects: None,
+            angled_damage: None,
+            targeted_damage: BTreeMap::new(),
+            entity_stats_on_hit: None,
+        }),
+        "Serial" => Interaction::SerialInteraction(SerialInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            serial_interactions: interaction_indices(
+                registry,
+                key,
+                "Interactions",
+                json.get("Interactions"),
+            ),
+        }),
+        "Selector" => Interaction::SelectInteraction(SelectInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            selector: Selector::default(),
+            ignore_owner: false,
+            hit_entity: 0,
+            hit_entity_rules: None,
+            fail_on: FailOnType::Neither,
+        }),
+        "StatsCondition" => Interaction::StatsConditionInteraction(StatsConditionInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            costs: json
+                .get("Costs")
+                .and_then(Value::as_object)
+                .map(|costs| {
+                    costs
+                        .iter()
+                        .filter_map(|(stat, amount)| {
+                            Some((registry.entity_stat_id(stat)?, amount.as_f64()? as f32))
+                        })
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .filter(|costs| !costs.is_empty()),
+            less_than: json
+                .get("LessThan")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            lenient: json
+                .get("Lenient")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            value_type: match json.get("ValueType").and_then(Value::as_str) {
+                Some("Absolute") => ValueType::Absolute,
+                _ => ValueType::Percent,
+            },
+            use_ability_cost: json
+                .get("UseAbilityCost")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        "Charging" => Interaction::ChargingInteraction(ChargingInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            failed: base.failed,
+            allow_indefinite_hold: json
+                .get("AllowIndefiniteHold")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            display_progress: json
+                .get("DisplayProgress")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            cancel_on_other_click: json
+                .get("CancelOnOtherClick")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            fail_on_damage: json
+                .get("FailOnDamage")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            mouse_sensitivity_adjustment_target: number(json, "MouseSensitivityAdjustmentTarget")
+                as f32,
+            mouse_sensitivity_adjustment_duration: number(
+                json,
+                "MouseSensitivityAdjustmentDuration",
+            ) as f32,
+            charged_next: None,
+            forks: None,
+            charging_delay: charging_delay(json.get("Delay")),
+        }),
+        "Wielding" => Interaction::WieldingInteraction(WieldingInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            failed: base.failed,
+            allow_indefinite_hold: false,
+            display_progress: false,
+            cancel_on_other_click: json
+                .get("CancelOnOtherClick")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            fail_on_damage: json
+                .get("FailOnDamage")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            mouse_sensitivity_adjustment_target: 0.0,
+            mouse_sensitivity_adjustment_duration: 0.0,
+            charged_next: None,
+            forks: None,
+            charging_delay: None,
+            blocked_effects: None,
+            has_modifiers: json.get("DamageModifiers").is_some(),
+            angled_wielding: None,
+        }),
+        "Parallel" => Interaction::ParallelInteraction(ParallelInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: interaction_indices(registry, key, "Interactions", json.get("Interactions")),
+        }),
+        "Condition" => Interaction::ConditionInteraction(ConditionInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            required_game_mode: None,
+            jumping: json.get("Jumping").and_then(Value::as_bool),
+            swimming: json.get("Swimming").and_then(Value::as_bool),
+            crouching: json.get("Crouching").and_then(Value::as_bool),
+            running: json.get("Running").and_then(Value::as_bool),
+            flying: json.get("Flying").and_then(Value::as_bool),
+            gliding: json.get("Gliding").and_then(Value::as_bool),
+        }),
+        "Projectile" => Interaction::ProjectileInteraction(ProjectileInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            config_id: json
+                .get("Config")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            ignore_pitch: json
+                .get("IgnorePitch")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            ignore_yaw: json
+                .get("IgnoreYaw")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            ignore_roll: json
+                .get("IgnoreRoll")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        _ => Interaction::SimpleInteraction(SimpleInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+        }),
+    }
 }
 
 fn root_interaction(registry: &AssetRegistry, key: &str, json: &Value) -> RootInteraction {

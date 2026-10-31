@@ -1470,9 +1470,20 @@ fn interaction_graph_is_materialized() {
     let interactions = decoded.interactions.expect("interaction map");
     assert_eq!(interactions.len(), registry.interactions.len());
     assert!(interactions.len() > 2000);
+    let mut simples = 0;
+    let mut damage = 0;
+    let mut serials = 0;
+    let mut selectors = 0;
+    let mut stats_conditions = 0;
+    let mut chargings = 0;
+    let mut wieldings = 0;
+    let mut parallels = 0;
+    let mut conditions = 0;
+    let mut projectiles = 0;
     for (index, interaction) in &interactions {
         match interaction {
             ProtocolInteraction::SimpleInteraction(simple) => {
+                simples += 1;
                 assert!(
                     interactions.contains_key(&simple.next),
                     "interaction {index} next {} is dangling",
@@ -1484,9 +1495,60 @@ fn interaction_graph_is_materialized() {
                     simple.failed
                 );
             }
-            _ => panic!("interaction {index} must use the base streaming form"),
+            ProtocolInteraction::DamageEntityInteraction(_) => damage += 1,
+            ProtocolInteraction::SerialInteraction(serial) => {
+                serials += 1;
+                assert!(!serial.serial_interactions.is_empty());
+                assert!(serial
+                    .serial_interactions
+                    .iter()
+                    .all(|next| interactions.contains_key(next)));
+            }
+            ProtocolInteraction::SelectInteraction(selector) => {
+                selectors += 1;
+                assert_eq!(
+                    selector.fail_on,
+                    hytale_protocol::generated::common::FailOnType::Neither
+                );
+            }
+            ProtocolInteraction::StatsConditionInteraction(_) => stats_conditions += 1,
+            ProtocolInteraction::ChargingInteraction(charging) => {
+                chargings += 1;
+                assert!(charging.mouse_sensitivity_adjustment_target >= 0.0);
+            }
+            ProtocolInteraction::WieldingInteraction(wielding) => {
+                wieldings += 1;
+                assert!(wielding.has_modifiers || !wielding.has_modifiers);
+            }
+            ProtocolInteraction::ParallelInteraction(parallel) => {
+                parallels += 1;
+                assert!(!parallel.next.is_empty());
+                assert!(parallel
+                    .next
+                    .iter()
+                    .all(|next| interactions.contains_key(next)));
+            }
+            ProtocolInteraction::ConditionInteraction(_) => conditions += 1,
+            ProtocolInteraction::ProjectileInteraction(projectile) => {
+                projectiles += 1;
+                assert!(projectile.config_id.is_some());
+            }
+            other => panic!("interaction {index} has an unexpected variant: {other:?}"),
         }
     }
+    assert!(simples > 300, "simple: {simples}");
+    assert!(damage >= 140, "damage: {damage}");
+    assert!(serials >= 100, "serial: {serials}");
+    assert!(selectors >= 70, "selector: {selectors}");
+    assert!(
+        stats_conditions >= 60,
+        "stats conditions: {stats_conditions}"
+    );
+    assert!(chargings >= 25, "charging: {chargings}");
+    assert!(wieldings >= 25, "wielding: {wieldings}");
+    assert!(parallels >= 25, "parallel: {parallels}");
+    assert!(conditions >= 25, "conditions: {conditions}");
+    assert!(projectiles >= 20, "projectiles: {projectiles}");
 
     let roots: UpdateRootInteractions = UpdateRootInteractions::decode(&mut Reader::new(
         &packet(&packets, UpdateRootInteractions::ID).payload,
