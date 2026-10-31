@@ -35,20 +35,23 @@ This is an asset-packet completeness task, not an auth task.
     `FieldcraftCategory`, `ReverbEffect`, `EqualizerEffect`, `BeamConfig`,
     `HitboxCollisionConfig`, `RepulsionConfig`, `AbilityKeyword`, `Trail`,
     `ModelVFX`, `EntityUIComponent`, `BlockSet`, `ParticleSystem`,
-    `ParticleSpawner`, `MusicTransition`;
+    `ParticleSpawner`, `MusicTransition`, `ConnectedBlockRuleSet`;
   - the two particle packets are byte-identical to the Java goldens
     (`ParticleSystem` 791 systems, `ParticleSpawner` 2439 spawners), covering
     particles, animation frames, attractors, collision, UV motion and the
     spawner-group tree;
   - `MusicTransition` carries the preloaded `EMPTY` rule plus the five authored
     transitions, expands `From`/`To` containers to indices, and encodes sync
-    points, fades and computed specificity.
+    points, fades and computed specificity;
+  - `ConnectedBlockRuleSet` carries all three rule sets, including shapes
+    inherited from `SimplePipe`, templated shape metadata, rotation groups and
+    the face-tag/shape/And/Or/Not rule tree.
 - Still pending real-client verification: release client
   `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
   placeholders are:
   - `Interaction`, `RootInteraction`, `UnarmedInteraction` (full action graph);
-  - `MusicContainer`, `ConnectedBlockRuleSet`, `Stinger`, `Recipes`
-    (polymorphic/asset-specific trees).
+  - `MusicContainer`, `Stinger`, `Recipes` (polymorphic/asset-specific
+    trees).
 - `ModelAsset` has no packet generator; verify whether the missing
   `Debug_Model` model is a common-asset issue before changing packets.
 
@@ -96,6 +99,8 @@ This is an asset-packet completeness task, not an auth task.
   every spawner has a particle definition.
 - `music_transitions_are_materialized` checks the `EMPTY` preload, the five
   authored rules, container-index expansion, sync/fade fields and specificity.
+- `connected_block_rule_sets_are_materialized` checks the three rule sets,
+  inherited shapes, templated output and expanded rotation groups.
 - `crates/hytale-assets` (all tests) passes with `HYTALE_TEST_ASSETS=1`.
 
 ## User-run real-client smoke

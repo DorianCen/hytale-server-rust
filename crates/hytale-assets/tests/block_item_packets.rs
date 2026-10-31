@@ -25,8 +25,8 @@ use hytale_protocol::generated::assets::{
     UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    BlockNeighbor, BlockType, DestinationAlign, FadeCurve, RequiredBlockFaceSupport, SyncPoint,
-    UpdateType,
+    BlockNeighbor, BlockType, ConnectedBlockShape, ConnectedBlockUpdateMode, DestinationAlign,
+    FadeCurve, RequiredBlockFaceSupport, SyncPoint, UpdateType,
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::io::Reader;
@@ -1032,4 +1032,75 @@ fn music_transitions_are_materialized() {
     );
     assert_eq!(transition.priority, 40);
     assert_eq!(transition.specificity, 8);
+}
+
+/// T66: connected-block rule sets carry their shapes and patterns, including
+/// the shapes inherited from `SimplePipe`.
+#[test]
+fn connected_block_rule_sets_are_materialized() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded: UpdateConnectedBlockRuleSets = UpdateConnectedBlockRuleSets::decode(
+        &mut Reader::new(&packet(&packets, UpdateConnectedBlockRuleSets::ID).payload),
+    )
+    .expect("decode connected block rule sets");
+    assert_eq!(decoded.r#type, UpdateType::Init);
+    let rule_sets = decoded.rule_sets.expect("rule set map");
+    assert_eq!(rule_sets.len(), registry.connected_block_rule_sets.len());
+    assert_eq!(rule_sets.len(), 3);
+
+    let simple = rule_sets.get("SimplePipe").expect("SimplePipe");
+    assert_eq!(simple.id, "SimplePipe");
+    assert_eq!(
+        simple.update_mode,
+        ConnectedBlockUpdateMode::UpdatePlaceUpdate
+    );
+    let shapes = simple.shapes.as_ref().expect("SimplePipe shapes");
+    assert_eq!(shapes.len(), 2);
+    match shapes.get("Straight").expect("Straight shape") {
+        ConnectedBlockShape::TemplatedConnectedBlockShape(shape) => {
+            assert_eq!(shape.template_id.as_deref(), Some("Straight"));
+            assert_eq!(
+                shape
+                    .face_tags
+                    .as_ref()
+                    .and_then(|tags| tags.up.as_ref())
+                    .map(Vec::len),
+                Some(1)
+            );
+        }
+        other => panic!("Straight should be templated, got {other:?}"),
+    }
+    let patterns = simple.patterns.as_ref().expect("SimplePipe patterns");
+    assert_eq!(patterns.len(), 2);
+    assert_eq!(patterns[0].output_shape_id, "Straight");
+    assert_eq!(
+        patterns[0].rotations.as_deref(),
+        Some(&[0, 8, 4, 5, 6, 7][..])
+    );
+    assert!(patterns[0].rule.is_some());
+    assert_eq!(patterns[1].output_shape_id, "Corner");
+
+    let metal = rule_sets.get("MetalSimplePipe").expect("MetalSimplePipe");
+    let metal_shapes = metal.shapes.as_ref().expect("Metal shapes");
+    assert!(metal_shapes.contains_key("Straight"));
+    assert!(metal_shapes.contains_key("Corner"));
+    assert!(metal_shapes.contains_key("Chimney"));
+    assert_eq!(metal.patterns.as_ref().map(Vec::len), Some(2));
+
+    let large = rule_sets
+        .get("LargeMetalSimplePipe")
+        .expect("LargeMetalSimplePipe");
+    let large_shapes = large.shapes.as_ref().expect("Large shapes");
+    assert!(large_shapes.contains_key("Mouthpiece"));
+    match large_shapes.get("Corner").expect("Large Corner") {
+        ConnectedBlockShape::TemplatedConnectedBlockShape(shape) => {
+            assert_eq!(shape.relative_rotation_index, 8);
+            assert_eq!(shape.template_id.as_deref(), Some("Corner"));
+        }
+        other => panic!("Large Corner should be templated, got {other:?}"),
+    }
 }

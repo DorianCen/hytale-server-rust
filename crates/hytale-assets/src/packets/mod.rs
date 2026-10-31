@@ -34,24 +34,29 @@ use hytale_protocol::generated::assets::{
     UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    AbilityKeyword, BarBeatDuration, BeamConfig, BlockSet, BlockTextures, CameraAxis, CameraNode,
-    CameraSettings, CollisionType, Color, ColorAlpha, ColorLight,
-    CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent, CurveType,
-    DestinationAlign, Direction, Edge, EffectDirection, EmitShape, EntityEffect, EntityPart,
-    EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType,
-    EqualizerEffect, FXRenderMode, FadeCurve, Fluid, FluidDrawType, FluidParticle, Hitbox,
+    AbilityKeyword, AndConnectedBlockRule, BarBeatDuration, BeamConfig, BlockSet, BlockTextures,
+    BlockTypeConnectedBlockShape, CameraAxis, CameraNode, CameraSettings, CollisionType, Color,
+    ColorAlpha, ColorLight, CombatTextEntityUIAnimationEventType,
+    CombatTextEntityUIComponentAnimationEvent, ConnectedBlockFaceTags, ConnectedBlockMatchType,
+    ConnectedBlockPattern, ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape,
+    ConnectedBlockUpdateMode, CurveType, DestinationAlign, Direction, Edge, EffectDirection,
+    EmitShape, EntityEffect, EntityPart, EntityStatEffects, EntityStatResetBehavior,
+    EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect, FXRenderMode,
+    FaceTagConnectedBlockRule, FadeCurve, Fluid, FluidDrawType, FluidParticle, Hitbox,
     HitboxCollisionConfig, InitialVelocity, IntersectionHighlight, ItemAnimation, ItemCategory,
     ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
     ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
-    LoopOption, Model, ModelParticle, ModelVFX, MusicSync, MusicTransition, Opacity,
-    OverlapBehavior as ProtocolOverlapBehavior, Particle, ParticleAnimationFrame,
-    ParticleAttractor, ParticleCollision, ParticleCollisionAction, ParticleCollisionBlockType,
-    ParticleRotationInfluence, ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup,
-    ParticleSystem, ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType,
-    ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangef, RepulsionConfig, ResourceType,
-    ReverbEffect, RotationMode, ShaderType, Size, SoftParticle, SoundCategory, SoundSet,
-    SubCategoryDefinition, SwitchTo, SyncPoint, Trail, UVMotion, UVMotionCurveType, UpdateType,
-    ValueType, Vector2i, Weather, WiggleWeights, WorldEnvironment,
+    LoopOption, Model, ModelParticle, ModelVFX, MusicSync, MusicTransition, NotConnectedBlockRule,
+    Opacity, OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, Particle,
+    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
+    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
+    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
+    PhysicsConfig, PhysicsType, ProjectileConfig, Range, RangeVector2f, RangeVector3f, Rangef,
+    RepulsionConfig, ResourceType, ReverbEffect, RotationMode, ShaderType, ShapeConnectedBlockRule,
+    Size, SoftParticle, SoundCategory, SoundSet, SubCategoryDefinition, SwitchTo, SyncPoint,
+    TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, Trail, UVMotion,
+    UVMotionCurveType, UpdateType, ValueType, Vector2i, Vector3i, Weather, WiggleWeights,
+    WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -350,13 +355,7 @@ impl AssetRegistry {
                     },
                 )?,
                 self.audio_state_packet()?,
-                empty_packet(
-                    "ConnectedBlockRuleSets",
-                    &UpdateConnectedBlockRuleSets {
-                        rule_sets: Some(BTreeMap::new()),
-                        ..Default::default()
-                    },
-                )?,
+                self.connected_block_rule_sets_packet(&tags)?,
                 self.music_transitions_packet()?,
                 empty_packet(
                     "Stingers",
@@ -543,6 +542,23 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateConnectedBlockRuleSets` (id 90) from the
+    /// `ConnectedBlockRuleSet` store.
+    pub fn connected_block_rule_sets_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
+        let mut rule_sets = BTreeMap::new();
+        for record in self.connected_block_rule_sets.iter() {
+            rule_sets.insert(
+                record.key.clone(),
+                connected_block_rule_set(self, tags, &record.key, &record.value),
+            );
+        }
+        let packet = UpdateConnectedBlockRuleSets {
+            r#type: UpdateType::Init,
+            rule_sets: Some(rule_sets),
+        };
+        AssetPacket::encode("ConnectedBlockRuleSet", &packet)
     }
 
     /// `UpdateMusicTransitions` (id 91) from the `MusicTransition` store.
@@ -1807,6 +1823,266 @@ fn text(json: &Value, name: &str) -> Option<String> {
 
 fn boolean(json: &Value, name: &str, fallback: bool) -> bool {
     json.get(name).and_then(Value::as_bool).unwrap_or(fallback)
+}
+
+fn connected_block_face_tags(value: Option<&Value>) -> Option<ConnectedBlockFaceTags> {
+    let object = value?.as_object()?;
+    let tags = |name: &str| -> Option<Vec<String>> {
+        let values = object.get(name)?.as_array()?;
+        let values: Vec<String> = values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned)
+            .collect();
+        (!values.is_empty()).then_some(values)
+    };
+    let face_tags = ConnectedBlockFaceTags {
+        north: tags("North"),
+        east: tags("East"),
+        south: tags("South"),
+        west: tags("West"),
+        up: tags("Up"),
+        down: tags("Down"),
+    };
+    (face_tags.north.is_some()
+        || face_tags.east.is_some()
+        || face_tags.south.is_some()
+        || face_tags.west.is_some()
+        || face_tags.up.is_some()
+        || face_tags.down.is_some())
+    .then_some(face_tags)
+}
+
+fn rotation_index(value: Option<&Value>) -> i32 {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return 0;
+    };
+    let axis = |name: &str| -> i32 {
+        match object.get(name).and_then(Value::as_str) {
+            Some("Ninety") => 1,
+            Some("OneEighty") => 2,
+            Some("TwoSeventy") => 3,
+            _ => 0,
+        }
+    };
+    axis("Roll") * 16 + axis("Pitch") * 4 + axis("Yaw")
+}
+
+fn rotation_group(value: Option<&Value>) -> Vec<i32> {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return vec![0];
+    };
+    let axis = |name: &str| -> Vec<i32> {
+        match object.get(name).and_then(Value::as_str) {
+            Some("All") => vec![0, 1, 2, 3],
+            Some("Ninety") => vec![1],
+            Some("OneEighty") => vec![2],
+            Some("TwoSeventy") => vec![3],
+            _ => vec![0],
+        }
+    };
+    let mut rotations = Vec::new();
+    for yaw in axis("Yaw") {
+        for pitch in axis("Pitch") {
+            for roll in axis("Roll") {
+                let index = roll * 16 + pitch * 4 + yaw;
+                if !rotations.contains(&index) {
+                    rotations.push(index);
+                }
+            }
+        }
+    }
+    rotations
+}
+
+fn connected_block_shape(
+    registry: &AssetRegistry,
+    tags: &TagRegistry,
+    value: &Value,
+) -> Option<ConnectedBlockShape> {
+    let object = value.as_object()?;
+    let face_tags = connected_block_face_tags(object.get("FaceTags"));
+    let relative_rotation_index = rotation_index(object.get("RelativeRotation"));
+    Some(match object.get("Type").and_then(Value::as_str)? {
+        "Templated" => {
+            ConnectedBlockShape::TemplatedConnectedBlockShape(TemplatedConnectedBlockShape {
+                face_tags,
+                relative_rotation_index,
+                template_id: object
+                    .get("TemplateId")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+            })
+        }
+        "BlockType" => {
+            let block_id = object
+                .get("Block")
+                .and_then(Value::as_str)
+                .and_then(|block| registry.block_types.id_of(block))
+                .unwrap_or(0);
+            ConnectedBlockShape::BlockTypeConnectedBlockShape(BlockTypeConnectedBlockShape {
+                face_tags,
+                relative_rotation_index,
+                block_id,
+            })
+        }
+        "TagPattern" => {
+            let pattern_value = object.get("TagPattern")?;
+            let pattern = if let Some(pattern_key) = pattern_value.as_str() {
+                registry
+                    .tag_patterns
+                    .get(pattern_key)
+                    .map(|record| record.value.pattern.clone())?
+            } else {
+                crate::registry::parse_tag_pattern(pattern_value).ok()?
+            };
+            ConnectedBlockShape::TagPatternConnectedBlockShape(TagPatternConnectedBlockShape {
+                face_tags,
+                relative_rotation_index,
+                tag_pattern: Some(tag_pattern::encode_node(&pattern, tags).ok()?),
+            })
+        }
+        _ => return None,
+    })
+}
+
+fn vector3i(value: Option<&Value>) -> Vector3i {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return Vector3i::default();
+    };
+    Vector3i {
+        x: object.get("X").and_then(Value::as_i64).unwrap_or(0) as i32,
+        y: object.get("Y").and_then(Value::as_i64).unwrap_or(0) as i32,
+        z: object.get("Z").and_then(Value::as_i64).unwrap_or(0) as i32,
+    }
+}
+
+fn connected_block_rule(value: &Value) -> Option<ConnectedBlockRule> {
+    let object = value.as_object()?;
+    Some(match object.get("Type").and_then(Value::as_str)? {
+        "FaceTag" => ConnectedBlockRule::FaceTagConnectedBlockRule(FaceTagConnectedBlockRule {
+            position_offset: vector3i(object.get("PositionOffset")),
+            face_tags: connected_block_face_tags(object.get("FaceTags")),
+            match_type: match object.get("MatchType").and_then(Value::as_str) {
+                Some("All") => ConnectedBlockMatchType::All,
+                _ => ConnectedBlockMatchType::Any,
+            },
+        }),
+        "And" => ConnectedBlockRule::AndConnectedBlockRule(AndConnectedBlockRule {
+            rules: object
+                .get("Rules")
+                .and_then(Value::as_array)
+                .map(|rules| {
+                    rules
+                        .iter()
+                        .filter_map(connected_block_rule)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|rules| !rules.is_empty()),
+        }),
+        "Or" => ConnectedBlockRule::OrConnectedBlockRule(OrConnectedBlockRule {
+            rules: object
+                .get("Rules")
+                .and_then(Value::as_array)
+                .map(|rules| {
+                    rules
+                        .iter()
+                        .filter_map(connected_block_rule)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|rules| !rules.is_empty()),
+        }),
+        "Not" => {
+            let rule = object.get("Rule").and_then(connected_block_rule)?;
+            ConnectedBlockRule::NotConnectedBlockRule(Box::new(NotConnectedBlockRule {
+                rule: Box::new(rule),
+            }))
+        }
+        "Shape" => ConnectedBlockRule::ShapeConnectedBlockRule(ShapeConnectedBlockRule {
+            position_offset: vector3i(object.get("PositionOffset")),
+            shape_id: object
+                .get("ShapeId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            allowed_rotations: object
+                .get("AllowedRotations")
+                .map(|rotations| rotation_group(Some(rotations)))
+                .filter(|rotations| !rotations.is_empty()),
+        }),
+        _ => return None,
+    })
+}
+
+fn connected_block_pattern(value: &Value) -> Option<ConnectedBlockPattern> {
+    let object = value.as_object()?;
+    let mut rotations = Vec::new();
+    for group in object
+        .get("RotationTransforms")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for index in rotation_group(Some(group)) {
+            if !rotations.contains(&index) {
+                rotations.push(index);
+            }
+        }
+    }
+    Some(ConnectedBlockPattern {
+        rule: object.get("Rule").and_then(connected_block_rule),
+        rotations: (!rotations.is_empty()).then_some(rotations),
+        transform_rules_with_orientation: object
+            .get("TransformRulesWithOrientation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        output_shape_id: object
+            .get("Output")
+            .and_then(|output| output.get("ShapeId"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    })
+}
+
+fn connected_block_rule_set(
+    registry: &AssetRegistry,
+    tags: &TagRegistry,
+    key: &str,
+    json: &Value,
+) -> ConnectedBlockRuleSetAsset {
+    let shapes = json
+        .get("Shapes")
+        .and_then(Value::as_object)
+        .map(|shapes| {
+            shapes
+                .iter()
+                .filter_map(|(name, shape)| {
+                    Some((name.clone(), connected_block_shape(registry, tags, shape)?))
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let patterns = json
+        .get("Patterns")
+        .and_then(Value::as_array)
+        .map(|patterns| {
+            patterns
+                .iter()
+                .filter_map(connected_block_pattern)
+                .collect::<Vec<_>>()
+        })
+        .filter(|patterns| !patterns.is_empty());
+    ConnectedBlockRuleSetAsset {
+        id: key.to_string(),
+        update_mode: match json.get("UpdateMode").and_then(Value::as_str) {
+            Some("PlaceUpdate") => ConnectedBlockUpdateMode::PlaceUpdate,
+            Some("IgnoreUpdates") => ConnectedBlockUpdateMode::IgnoreUpdates,
+            _ => ConnectedBlockUpdateMode::UpdatePlaceUpdate,
+        },
+        shapes: Some(shapes),
+        patterns,
+    }
 }
 
 fn bar_beat_duration(value: Option<&Value>) -> Option<BarBeatDuration> {

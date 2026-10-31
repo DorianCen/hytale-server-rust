@@ -36,7 +36,7 @@ pub(crate) fn tag_pattern_packet(
     AssetPacket::encode("TagPattern", &packet)
 }
 
-fn encode_node(node: &TagPatternNode, tags: &TagRegistry) -> Result<TagPattern> {
+pub(crate) fn encode_node(node: &TagPatternNode, tags: &TagRegistry) -> Result<TagPattern> {
     Ok(match node {
         TagPatternNode::Equals { tag } => TagPattern {
             r#type: TagPatternType::Equals,

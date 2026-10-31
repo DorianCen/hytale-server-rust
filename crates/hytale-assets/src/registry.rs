@@ -37,7 +37,7 @@ use serde_json::{json, Value};
 use crate::gameplay::GameplayConfigAsset;
 use crate::movement::MovementConfigAsset;
 use crate::pack::{AssetError, AssetPack, ParentProvider};
-use crate::parent::{MergeHook, ParentResolver};
+use crate::parent::{merge_shallow, MergeHook, ParentResolver};
 
 /// How a store maps keys to numeric ids.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -382,6 +382,12 @@ const MUSIC_TRANSITION: StoreSpec = StoreSpec {
     name: "MusicTransition",
     path: "Server/Audio/MusicTransitions",
     map: MapKind::IndexedLookupTable,
+};
+
+const CONNECTED_BLOCK_RULE_SET: StoreSpec = StoreSpec {
+    name: "ConnectedBlockRuleSet",
+    path: "Server/Item/ConnectedBlockRuleSets",
+    map: MapKind::Default,
 };
 
 /// One loaded asset with its assigned id and provenance.
@@ -939,6 +945,8 @@ pub struct AssetRegistry {
     pub particle_spawners: AssetCollection<Value>,
     /// `MusicTransition` (`Server/Audio/MusicTransitions`).
     pub music_transitions: AssetCollection<Value>,
+    /// `ConnectedBlockRuleSet` (`Server/Item/ConnectedBlockRuleSets`).
+    pub connected_block_rule_sets: AssetCollection<Value>,
 }
 
 impl AssetRegistry {
@@ -1049,6 +1057,7 @@ impl AssetRegistry {
             particle_systems: AssetCollection::empty(),
             particle_spawners: AssetCollection::empty(),
             music_transitions: AssetCollection::empty(),
+            connected_block_rule_sets: AssetCollection::empty(),
         })
     }
 
@@ -1099,6 +1108,12 @@ impl AssetRegistry {
             &MUSIC_TRANSITION,
             music_transition_preloads(),
             parse_key_asset,
+        )?;
+        registry.connected_block_rule_sets = load_default_store_with(
+            pack,
+            &CONNECTED_BLOCK_RULE_SET,
+            Vec::new(),
+            MergeHook::Custom(merge_connected_block_rule_set),
         )?;
         registry.audio_categories = load_indexed_store(
             pack,
@@ -2297,7 +2312,7 @@ fn java_hash_map_capacity(size: usize) -> u32 {
     capacity
 }
 
-fn parse_tag_pattern(value: &Value) -> Result<TagPatternNode, String> {
+pub(crate) fn parse_tag_pattern(value: &Value) -> Result<TagPatternNode, String> {
     let object = value
         .as_object()
         .ok_or_else(|| "TagPattern must be an object".to_string())?;
@@ -2349,6 +2364,35 @@ fn parse_tag_pattern(value: &Value) -> Result<TagPatternNode, String> {
 
 /// Java `BlockSoundSet` merges the inherited `SoundEvents` map
 /// (`MapUtil.combineUnmodifiable`) instead of replacing it wholesale.
+/// Java merges `Shapes` maps from parent and child (`appendInherited` with a
+/// `MapCodec`), while all other fields follow the shallow asset rule.
+fn merge_connected_block_rule_set(parent: &mut Value, child: Value) {
+    let Value::Object(mut child) = child else {
+        *parent = child;
+        return;
+    };
+    let child_shapes = child.remove("Shapes");
+    *parent = merge_shallow(parent.take(), Value::Object(child));
+    let Some(child_shapes) = child_shapes else {
+        return;
+    };
+    let Some(parent_object) = parent.as_object_mut() else {
+        *parent = child_shapes;
+        return;
+    };
+    let entry = parent_object
+        .entry("Shapes")
+        .or_insert_with(|| Value::Object(Default::default()));
+    match (entry.as_object_mut(), child_shapes) {
+        (Some(shapes), Value::Object(child_shapes)) => {
+            for (key, value) in child_shapes {
+                shapes.insert(key, value);
+            }
+        }
+        (_, child_shapes) => *entry = child_shapes,
+    }
+}
+
 fn merge_block_sound_set(parent: &mut Value, child: Value) {
     let parent_events = parent
         .get("SoundEvents")
