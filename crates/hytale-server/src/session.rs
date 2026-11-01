@@ -42,10 +42,10 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    BenchType, DisconnectType, FormattedMessage, GameMode, InstantData, MapChunk, MapMarker,
-    MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings, MovementStates,
-    PlayerSkin, PongType, Position as ProtocolPosition, Transform as ProtocolTransform, UpdateType,
-    WindowAction,
+    BenchType, DisconnectType, FormattedMessage, GameMode, HudComponent, InstantData, MapChunk,
+    MapMarker, MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings,
+    MovementStates, PlayerSkin, PongType, Position as ProtocolPosition,
+    Transform as ProtocolTransform, UpdateType, WindowAction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -55,7 +55,7 @@ use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::Page;
 use hytale_protocol::generated::interface_::UpdateKnownRecipes;
 use hytale_protocol::generated::interface_::{
-    AddToServerPlayerList, ServerInfo, SetPage, UpdateBossBar,
+    AddToServerPlayerList, ServerInfo, SetPage, UpdateBossBar, UpdateVisibleHudComponents,
 };
 use hytale_protocol::generated::inventory::{
     DropItemStack, MoveItemStack, SetActiveSlot, UpdatePlayerInventory,
@@ -707,6 +707,17 @@ pub async fn serve_connection_with_registry(
                 .await?;
             game.player_stats = true;
         }
+        // Java `PlayerHudManagerSystems.InitializeSystem` sends the default
+        // visible HUD components when the player entity is added. Send them
+        // after the stat map so the HUD can resolve every stat index.
+        writer
+            .write_packet(
+                &UpdateVisibleHudComponents {
+                    visible_components: Some(default_hud_components()),
+                },
+                options.chunk_compression_level,
+            )
+            .await?;
 
         let mut stream = send_view_registered(
             thread,
@@ -1742,6 +1753,35 @@ async fn send_player_list(
     Ok(())
 }
 
+/// Java `HudManager.DEFAULT_HUD_COMPONENTS`.
+fn default_hud_components() -> Vec<HudComponent> {
+    vec![
+        HudComponent::UtilitySlotSelector,
+        HudComponent::BlockVariantSelector,
+        HudComponent::StatusIcons,
+        HudComponent::Hotbar,
+        HudComponent::Chat,
+        HudComponent::Notifications,
+        HudComponent::KillFeed,
+        HudComponent::InputBindings,
+        HudComponent::Reticle,
+        HudComponent::Compass,
+        HudComponent::Speedometer,
+        HudComponent::ObjectivePanel,
+        HudComponent::PortalPanel,
+        HudComponent::EventTitle,
+        HudComponent::Stamina,
+        HudComponent::AmmoIndicator,
+        HudComponent::Health,
+        HudComponent::Mana,
+        HudComponent::Oxygen,
+        HudComponent::BuilderToolsLegend,
+        HudComponent::Sleep,
+        HudComponent::Abilities,
+        HudComponent::BossBar,
+    ]
+}
+
 fn self_spawn_packet(
     network_id: i32,
     transform: PlayerTransform,
@@ -2702,6 +2742,16 @@ pub async fn switch_session_world(
                 world_uuid: packet_uuid,
                 min_section_y: Some(0),
                 max_section_y: Some(9),
+            },
+            compression_level,
+        )
+        .await?;
+    // Java resets the HUD on a world switch and the player-add system sends the
+    // default component set again.
+    writer
+        .write_packet(
+            &UpdateVisibleHudComponents {
+                visible_components: Some(default_hud_components()),
             },
             compression_level,
         )

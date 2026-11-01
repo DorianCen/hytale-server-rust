@@ -2186,3 +2186,30 @@ This file records phase-2 sessions only.
   loopback join, clippy, fmt, `--validate-assets`.
 - **Follow-up:** rerun the client; if it still stalls, use `ts_ms` to compare
   the ready/JoinWorld timing and check whether the client reads the tail.
+
+---
+
+## Session 80 — Live join works; fix the 30 s stall, spawn and HUD (2026-11-01)
+
+- **Goal:** the eighth-run pacing fix let the client join; now keep it connected
+  and make the spawn/HUD usable.
+- **Evidence:** the ninth-run client entered `InGame` and rendered terrain, then
+  froze at `total: 3202` packets and timed out 30 s later. The server trace had
+  a 33.4 s gap before the first `UpdateTime`; instrumentation showed
+  `tick_npc_spawns` (23.3 s) and `tick_spawn_markers` (6.6 s) loading catalogs
+  lazily on the first game-loop tick.
+- **Landed:**
+  - Preload NPC/marker/beacon catalogs at world boot.
+  - Load role/marker/beacon catalogs with one `AssetPack::read_many` call; the
+    preload dropped from 32.2 s to 0.28 s and loopback joins from ~150 s to
+    ~45 s.
+  - Resolve a surface spawn when the saved transform is absent or inside
+    terrain.
+  - Send `UpdateVisibleHudComponents(DEFAULT_HUD_COMPONENTS)` after the stat
+    map, matching Java `PlayerHudManagerSystems`.
+  - Add live `session accepted`/`session ended` server logs.
+- **Verified:** fast tier (1555), ignored `auth_join`, `dev_join`,
+  `portal_session`, dev-server + `client-bot --observe 35` (no packet gap,
+  `ClientTeleport`, HUD packet), clippy, fmt, `--validate-assets`.
+- **Follow-up:** confirm the HUD and surface spawn with the release client;
+  per-join player identity and a real spawn provider remain.

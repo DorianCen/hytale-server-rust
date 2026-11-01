@@ -331,17 +331,22 @@ fn load_catalog<T>(
     parse: impl Fn(String, Value) -> Result<T, SpawnSpecialError>,
 ) -> Result<BTreeMap<String, T>, SpawnSpecialError> {
     let mut catalog = BTreeMap::new();
-    for path in pack.list()? {
-        if !path.starts_with(prefix) || !path.ends_with(".json") {
-            continue;
-        }
+    let paths: Vec<String> = pack
+        .list()?
+        .into_iter()
+        .filter(|path| path.starts_with(prefix) && path.ends_with(".json"))
+        .collect();
+    // One zip open for the whole catalog: `read` reopens the 3.7 GB pack per
+    // file and dominates world boot.
+    let contents = pack.read_many(&paths)?;
+    for (path, bytes) in paths.into_iter().zip(contents) {
         let key = path
             .rsplit('/')
             .next()
             .and_then(|name| name.strip_suffix(".json"))
             .ok_or_else(|| SpawnSpecialError::InvalidPath(path.clone()))?
             .to_string();
-        let raw: Value = serde_json::from_slice(&pack.read(&path)?)?;
+        let raw: Value = serde_json::from_slice(&bytes)?;
         catalog.insert(key.clone(), parse(key, raw)?);
     }
     Ok(catalog)

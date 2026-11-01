@@ -85,6 +85,9 @@ struct Cli {
     /// Seconds to wait for a reply before exiting successfully.
     #[arg(long, default_value_t = 5)]
     timeout: u64,
+    /// Seconds to keep observing the game stream after the dev join.
+    #[arg(long, default_value_t = 0)]
+    observe: u64,
 }
 
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
@@ -167,7 +170,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 skin: None,
                 movement_after_join: None,
                 movement_after_edits: None,
-                observe_after_join: None,
+                observe_after_join: (cli.observe > 0).then(|| Duration::from_secs(cli.observe)),
                 disconnect_after: None,
                 keep_alive: false,
                 use_block_after_join: Vec::new(),

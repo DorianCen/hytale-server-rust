@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (eighth run)
+# Connection-debug session handoff — 2026-11-01 (ninth run)
 
 ## Objective
 
@@ -7,21 +7,27 @@ Hytale client.** The agent must never launch it.
 
 ## Current status
 
-- Authentication, setup, assets, world load and `JoinWorld` all succeed.
-- Seventh run (`bff4877`) confirmed the first-join flags are now correct
-  (`ProcessJoinWorldPacket: FadeInOut is False`, no `ClearChunks`), but the
-  client still stalls on the chunk screen.
-- Eighth run fixes the remaining divergence: the whole 9x9 snapshot was sent in
-  one burst. The client read 1862 of the 2229 outbound packets and then stopped
-  reading; the missing 367 packets are the tail of the chunk burst. That is the
-  client's bounded chunk queue filling up: it waits for the still-buffered
-  columns while the stream reader is blocked on the full queue.
-- Java's `ChunkTracker` sends at most `MAX_SECTIONS_PER_TICK` (40) sections per
-  30 TPS world tick. The Rust snapshot now paces four columns (40 sections) per
-  33 ms tick. This fix has **not yet been confirmed by a client rerun**.
-- The two `All rendered chunks were discarded.` warnings also occur in the
-  seventh run *before* `Received JoinWorldPacket`; they are part of the client's
-  world-preparation/teardown path, not the chunk rejection.
+- **The client now joins successfully.** The eighth run (`6053350`) fixed the
+  chunk-screen stall by pacing the snapshot.
+- Ninth run (`2026-11-01_10-10-25_client.log`) loaded the world, entered
+  `InGame`, and showed terrain. Three follow-up problems were found:
+  1. The player spawned at `(0, 0, 0)`, inside the terrain.
+  2. No HUD was visible.
+  3. The client disconnected after ~30 s with no server packets, although the
+     server process stayed up.
+- Root cause of the 30 s disconnect: the first game-loop tick blocked for ~30 s
+  on lazily loaded NPC catalogs (`tick_npc_spawns` 23.3 s,
+  `tick_spawn_markers` 6.6 s). The client's `ClientReady(ready_for_gameplay)`,
+  `RequestNoClip` and movement packets sat unread until after the QUIC idle
+  timeout. The catalogs are now preloaded at world boot; the preload itself was
+  then reduced from ~32 s to ~0.3 s by reading each catalog with a single zip
+  open (`AssetPack::read_many`) instead of reopening the 3.7 GB pack per file.
+- The HUD was missing because Java's
+  `PlayerHudManagerSystems.InitializeSystem` sends
+  `UpdateVisibleHudComponents(DEFAULT_HUD_COMPONENTS)` when the player entity is
+  added; the Rust server never sent it. It now does, after the stat map.
+- The spawn is now resolved one block above the highest non-air block of the
+  spawn column when the saved transform is absent or inside terrain.
 
 ## Evidence
 
@@ -262,6 +268,24 @@ fresh join as a world transition, rendered the incoming chunks, then discarded
 them when it entered the new world. Its chunk tracker was left waiting for
 sections that the server had already sent once and never resent.
 
+## Root cause (ninth run)
+
+The client log freezes at `total: 3202` packets after `GameInstance.OnWorldJoined`.
+The server trace shows a 33.4 s gap between the last chunk/world-map packet and
+the first `UpdateTime`, then it reads the buffered `RequestNoClip` and 70
+`ClientMovement` packets at once. Instrumenting the game loop showed:
+
+```text
+[join-diag] tick_npc_spawns took 23.298948378s
+[join-diag] tick_spawn_markers took 6.583950597s
+```
+
+Both commands load their catalogs lazily on first use. `RoleCatalog::load`,
+`SpawnMarkerCatalog::load` and `BeaconCatalog::load` called `AssetPack::read` per
+file, reopening the 3.7 GB zip each time. They now collect the paths and call
+`read_many`, which opens the archive once; the whole preload dropped from 32.2 s
+to 0.28 s.
+
 ## Root cause (eighth run)
 
 The client's packet counter freezes at 1862 while the trace contains 2229
@@ -278,6 +302,19 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
 
 ## Fixes landed
 
+- `crates/hytale-server/src/world_thread.rs`
+  - Preload `RoleCatalog`, `WorldSpawnCatalog`, `SpawnMarkerCatalog` and
+    `BeaconCatalog` at world boot instead of on the first game-loop tick.
+  - Resolve a surface spawn (highest non-air block + 1) when the saved transform
+    is absent or inside terrain.
+- `crates/hytale-npc/src/role.rs` / `spawn_special.rs`
+  - Load catalogs with one `AssetPack::read_many` call instead of reopening the
+    zip for every JSON file.
+- `crates/hytale-server/src/session.rs`
+  - Send Java's default `UpdateVisibleHudComponents` after the player stat map.
+- `crates/hytale-server/src/serve.rs`
+  - Log `session accepted from ...` and a per-session end summary while the
+    server is running.
 - `crates/hytale-server/src/chunk_streamer.rs`
   - Initial snapshots are paced at four columns per 33 ms, matching Java's
     `MAX_SECTIONS_PER_TICK` budget. Incremental `ChunkLoaded` sends are still
@@ -350,11 +387,12 @@ nodes found no cycles.
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.561s] 1555 tests run: 1555 passed, 24 skipped
+Summary [ 19.552s] 1555 tests run: 1555 passed, 24 skipped
 
-cargo test -p client-bot --test auth_join -- --ignored        → 2 passed
-cargo test -p client-bot --test dev_join -- --ignored         → 1 passed
-cargo test -p client-bot --test portal_session -- --ignored   → 1 passed
+cargo test -p client-bot --test auth_join -- --ignored        → 2 passed (46 s)
+(dev server + client-bot --observe 35: 35 UpdateTime, HUD packet, ClientTeleport, no gap)
+cargo test -p client-bot --test dev_join -- --ignored         → 1 passed (42 s)
+cargo test -p client-bot --test portal_session -- --ignored   → 1 passed (85 s)
 (pacing keeps these loopback joins green)
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
@@ -370,17 +408,18 @@ cargo fmt --all -- --check                              → clean
 
 ## What to do next
 
-1. Rerun the release client against this commit. The paced stream should let
-   the client drain its chunk queue, send `ClientReady(readyForGameplay)`,
-   receive `ClientTeleport`, and show the world.
-2. If anything still fails, capture `target/trace/RealTest.jsonl`; records now
-   include `ts_ms`, so server writes can be matched against the client log
-   timestamps. World-map packets show `"stream":"world_map"` and data-less
-   sections appear as `SetAbsentChunks`.
-3. Known follow-up: the saved player transform is still `(0, 0, 0)`. Add a real
-   surface spawn (Java spawn provider) so the player does not start inside the
-   ground.
-4. Do not speculate about protocol mismatch; protocol is proven identical.
+1. Rerun the release client against this commit. It should join, spawn on the
+   surface, show the HUD, and stay connected past 30 s.
+2. If the HUD is still missing or the stat warnings persist, capture the client
+   log; the next suspect is the order of the player `EntityStatsUpdate` versus
+   the self-spawn `EquipmentUpdate`.
+3. If anything still fails, capture `target/trace/RealTest.jsonl`; records
+   include `ts_ms` for client/server timing correlation.
+4. Known follow-up: the server is single-player and joins the world's stored
+   player, not necessarily the authenticated UUID. Per-join player identity and
+   a real Java `SpawnProvider` (including `Global`/`FitToHeightMap`) are still
+   future work.
+5. Do not speculate about protocol mismatch; protocol is proven identical.
 
 ## Commands
 

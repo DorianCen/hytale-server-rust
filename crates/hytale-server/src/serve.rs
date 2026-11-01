@@ -443,6 +443,10 @@ where
                 let session = session_options.clone();
                 let players = Arc::clone(&players);
                 let connection = accepted.connection().clone();
+                println!(
+                    "session accepted from {}",
+                    connection.remote_address()
+                );
                 connections.push(connection.clone());
                 let close_timeout = options.close_timeout;
                 sessions.spawn(async move {
@@ -514,7 +518,20 @@ fn collect_session(
     errors: &mut Vec<String>,
 ) {
     match result {
-        Ok(Ok(report)) => summaries.push(SessionSummary::from(&report)),
+        Ok(Ok(report)) => {
+            println!(
+                "session {} ended: chunks={} unloaded={} disconnected={} idle_timeout={} rate_limited={} queue_overflow={} movement={}",
+                report.username,
+                report.stream.chunks + report.game_loop.chunks,
+                report.stream.unloaded + report.game_loop.unloaded,
+                report.game_loop.disconnected,
+                report.game_loop.idle_timeout,
+                report.game_loop.rate_limited,
+                report.game_loop.queue_overflow,
+                report.game_loop.movement_packets,
+            );
+            summaries.push(SessionSummary::from(&report));
+        }
         Ok(Err(error)) => {
             eprintln!("session error: {error}");
             errors.push(error.to_string());

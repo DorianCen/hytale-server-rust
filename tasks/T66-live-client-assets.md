@@ -343,3 +343,13 @@ queue overflowed, so the game thread waited for columns still buffered behind
 the full queue. Java sends at most 40 sections per 30 TPS tick; the snapshot now
 sends four columns per 33 ms. Trace records gained `ts_ms` for future timing
 correlation.
+
+### Ninth run: joined, then 30 s stall, no HUD, buried spawn
+
+The client joined and rendered terrain, then froze at 3202 packets. The first
+game-loop tick blocked for ~30 s loading NPC catalogs lazily; the client's
+ready/movement packets went unread until its QUIC idle timeout. Catalogs are now
+preloaded at boot and loaded with a single zip open (`read_many`), taking ~0.3 s
+instead of 32 s. The server also sends the default
+`UpdateVisibleHudComponents` and resolves a surface spawn when the saved
+transform is absent or inside terrain.

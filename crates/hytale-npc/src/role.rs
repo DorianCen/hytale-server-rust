@@ -154,17 +154,21 @@ impl RoleCatalog {
     /// and the duplicate is reported by [`Self::duplicates`].
     pub fn load(pack: &AssetPack) -> Result<Self, RoleError> {
         let mut catalog = Self::default();
-        for path in pack.list()? {
-            if !path.starts_with("Server/NPC/Roles/") || !path.ends_with(".json") {
-                continue;
-            }
+        let paths: Vec<String> = pack
+            .list()?
+            .into_iter()
+            .filter(|path| path.starts_with("Server/NPC/Roles/") && path.ends_with(".json"))
+            .collect();
+        // One zip open for the whole catalog: `read` reopens the 3.7 GB pack per
+        // file and dominates world boot.
+        let contents = pack.read_many(&paths)?;
+        for (path, bytes) in paths.into_iter().zip(contents) {
             let key = path
                 .rsplit('/')
                 .next()
                 .and_then(|name| name.strip_suffix(".json"))
                 .ok_or_else(|| RoleError::InvalidPath(path.clone()))?
                 .to_string();
-            let bytes = pack.read(&path)?;
             let raw: Value = serde_json::from_slice(&bytes)?;
             if let Some(previous) = catalog.roles.get(&key) {
                 catalog

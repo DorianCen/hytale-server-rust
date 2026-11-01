@@ -49,7 +49,9 @@ use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::collision::{BlockCollisionTable, Vec3, WorldCollision};
 use hytale_world::crafting::RecipeCatalog;
-use hytale_world::player_data::{PlayerAppearance, PlayerDataError, PlayerTransform};
+use hytale_world::player_data::{
+    PlayerAppearance, PlayerDataError, PlayerTransform, Position, Rotation,
+};
 use hytale_world::prefab::{paste_prefab, PrefabPasteReport};
 use hytale_world::runtime::{
     transform, BlockComponent, RuntimeEntity, RuntimeEntityId, RuntimeEntityKind,
@@ -2939,6 +2941,8 @@ fn run(
             interactions,
             mut roles,
             mut spawns,
+            mut spawn_marker_catalog,
+            mut beacon_catalog,
             mut block_sets,
             damage_causes,
             mut npcs,
@@ -2968,8 +2972,7 @@ fn run(
             let persisted_spawn_state = load_spawn_controller_state(&save);
             let (mut spawn_markers, mut beacons, mut persisted_suppressors) =
                 restore_spawn_controllers(&persisted_spawn_state);
-            let mut spawn_marker_catalog: Option<SpawnMarkerCatalog> = None;
-            let mut beacon_catalog: Option<BeaconCatalog> = None;
+            // Preloaded during `start()`; keep the locals for the command loop.
             let mut spawn_suppression = if persisted_suppressors.is_empty() {
                 None
             } else {
@@ -5424,6 +5427,8 @@ struct Started {
     interactions: Arc<InteractionCatalog>,
     roles: Option<RoleCatalog>,
     spawns: Option<WorldSpawnCatalog>,
+    spawn_marker_catalog: Option<SpawnMarkerCatalog>,
+    beacon_catalog: Option<BeaconCatalog>,
     block_sets: Option<BlockSetCatalog>,
     damage_causes: DamageCauses,
     npcs: NpcEcs,
@@ -5478,10 +5483,47 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
             })
         }
     };
-    let (player, player_created) = save.load_or_create_player(player_uuid)?;
-    let player_transform = player.transform();
+    let (mut player, player_created) = save.load_or_create_player(player_uuid)?;
+    let mut player_transform = player.transform();
     let mut player_appearance = player.appearance();
     player_appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
+
+    // Java resolves the world's `SpawnProvider` before adding a player. Our
+    // generated universes have no provider, so a new (or legacy `(0,0,0)`)
+    // player would otherwise start inside the terrain. Load the spawn column,
+    // then place the player one block above its highest non-air block.
+    let spawn_hint = player_transform.unwrap_or_else(|| {
+        PlayerTransform::new(
+            Position {
+                x: 0.5,
+                y: 0.0,
+                z: 0.5,
+            },
+            Rotation {
+                pitch: 0.0,
+                yaw: 0.0,
+                roll: 0.0,
+            },
+        )
+    });
+    let spawn_x = spawn_hint.position.x.floor() as i32;
+    let spawn_z = spawn_hint.position.z.floor() as i32;
+    let spawn_chunk = (
+        block_to_chunk(spawn_hint.position.x),
+        block_to_chunk(spawn_hint.position.z),
+    );
+    if save.world().chunk(spawn_chunk.0, spawn_chunk.1).is_none() {
+        let column = generator.generate(save.config().seed as i32, spawn_chunk.0, spawn_chunk.1)?;
+        save.world_mut().insert_chunk(column);
+    }
+    let spawn_block_y = spawn_hint.position.y.floor() as i32;
+    let needs_surface =
+        player_transform.is_none() || save.world().get_block(spawn_x, spawn_block_y, spawn_z) != 0;
+    if needs_surface {
+        let surface = surface_spawn(save.world(), spawn_x, spawn_z);
+        player.set_transform(surface);
+        player_transform = Some(surface);
+    }
     save.save_player(player_uuid, &player)?;
 
     // The gameplay config id comes from `config.json`; a missing asset (or a
@@ -5601,6 +5643,25 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         }
     }
     let view = ChunkView::new(player_chunk.0, player_chunk.1, options.view_radius);
+    // NPC/marker/beacon catalogs are otherwise loaded lazily by the first
+    // `TickNpcSpawns`/`TickSpawnMarkers`/`TickBeacons` command. That first tick
+    // runs inside a joining session and can block the session for tens of
+    // seconds, long enough for the client's QUIC idle timeout. Pay the cost at
+    // world boot instead.
+    let mut roles = roles;
+    let started = Instant::now();
+    load_npc_roles(&mut roles, &options.generator.assets_pack).map_err(WorldThreadError::Thread)?;
+    let mut spawns = None;
+    load_spawn_catalog(&mut spawns, &options.generator.assets_root)
+        .map_err(WorldThreadError::Thread)?;
+    let mut spawn_marker_catalog = None;
+    load_spawn_marker_catalog(&mut spawn_marker_catalog, &options.generator.assets_pack)
+        .map_err(WorldThreadError::Thread)?;
+    let mut beacon_catalog = None;
+    load_beacon_catalog(&mut beacon_catalog, &options.generator.assets_pack)
+        .map_err(WorldThreadError::Thread)?;
+    eprintln!("preloaded NPC catalogs in {:?}", started.elapsed());
+
     let plan = view.plan(save.world().loaded_chunk_coordinates());
     let pending = VecDeque::from(plan.loads.clone());
     let start = WorldStartReport {
@@ -5633,7 +5694,9 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         config_assets,
         interactions,
         roles,
-        spawns: None,
+        spawns,
+        spawn_marker_catalog,
+        beacon_catalog,
         block_sets: None,
         damage_causes,
         npcs,
@@ -5761,6 +5824,29 @@ fn chunk_packets(save: &WorldSave, x: i32, z: i32, full: bool) -> Result<ChunkPa
         ChunkPacketBatch::initial_for_client(column)
     }
     .map_err(|error| error.to_string())
+}
+
+/// Place a player one block above the highest non-air block in a column.
+fn surface_spawn(world: &hytale_world::world::World, x: i32, z: i32) -> PlayerTransform {
+    let mut top = 0;
+    for y in (0..hytale_world::chunk::SECTION_COUNT as i32 * 32).rev() {
+        if world.get_block(x, y, z) != 0 {
+            top = y;
+            break;
+        }
+    }
+    PlayerTransform::new(
+        Position {
+            x: f64::from(x) + 0.5,
+            y: f64::from(top + 1),
+            z: f64::from(z) + 0.5,
+        },
+        Rotation {
+            pitch: 0.0,
+            yaw: 0.0,
+            roll: 0.0,
+        },
+    )
 }
 
 fn load_chunk(
