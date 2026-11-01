@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (ninth run)
+# Connection-debug session handoff — 2026-11-01 (tenth run)
 
 ## Objective
 
@@ -27,7 +27,16 @@ Hytale client.** The agent must never launch it.
   `UpdateVisibleHudComponents(DEFAULT_HUD_COMPONENTS)` when the player entity is
   added; the Rust server never sent it. It now does, after the stat map.
 - The spawn is now resolved one block above the highest non-air block of the
-  spawn column when the saved transform is absent or inside terrain.
+  spawn column when the saved transform is absent or inside terrain. The
+  ninth-run client still spawned inside the ground because the surface fix only
+  ran for the world-boot player; `player_snapshot` now applies it to the
+  **authenticated** player on every join.
+- The client sends no `MouseInteraction` packets while embedded in terrain, and
+  its local collision blocks movement. Surface spawn should unblock both. It
+  also receives an empty inventory, so number-key item switching has nothing to
+  select; middle-mouse pick-block needs a valid block target.
+- Server-side commands are still not implemented: `ChatMessage` is ignored and
+  no `CommandTreeSync` is sent. This is a separate feature from the join path.
 
 ## Evidence
 
@@ -306,7 +315,8 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
   - Preload `RoleCatalog`, `WorldSpawnCatalog`, `SpawnMarkerCatalog` and
     `BeaconCatalog` at world boot instead of on the first game-loop tick.
   - Resolve a surface spawn (highest non-air block + 1) when the saved transform
-    is absent or inside terrain.
+    is absent or inside terrain, for the world-boot player and for every
+    authenticated `player_snapshot` join.
 - `crates/hytale-npc/src/role.rs` / `spawn_special.rs`
   - Load catalogs with one `AssetPack::read_many` call instead of reopening the
     zip for every JSON file.

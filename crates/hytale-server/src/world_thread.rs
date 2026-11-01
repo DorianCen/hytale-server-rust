@@ -6527,10 +6527,10 @@ fn player_snapshot(
     generator: &WorldGenerator,
     uuid: WorldUuid,
 ) -> Result<PlayerSnapshot, String> {
-    let (player, _created) = save
+    let (mut player, _created) = save
         .load_or_create_player(uuid)
         .map_err(|error| error.to_string())?;
-    let transform = player.transform().unwrap_or_else(|| {
+    let mut transform = player.transform().unwrap_or_else(|| {
         PlayerTransform::new(
             hytale_world::player_data::Position {
                 x: 0.0,
@@ -6544,6 +6544,26 @@ fn player_snapshot(
             },
         )
     });
+    // A saved `(0,0,0)` (or any transform inside terrain) would leave the
+    // player stuck in the ground with no movement or interaction raycast.
+    // Resolve the surface for every join, not only the world-boot player.
+    let block_x = transform.position.x.floor() as i32;
+    let block_y = transform.position.y.floor() as i32;
+    let block_z = transform.position.z.floor() as i32;
+    let chunk_x = block_to_chunk(transform.position.x);
+    let chunk_z = block_to_chunk(transform.position.z);
+    if save.world().chunk(chunk_x, chunk_z).is_none() {
+        let column = generator
+            .generate(save.config().seed as i32, chunk_x, chunk_z)
+            .map_err(|error| error.to_string())?;
+        save.world_mut().insert_chunk(column);
+    }
+    if save.world().get_block(block_x, block_y, block_z) != 0 {
+        transform = surface_spawn(save.world(), block_x, block_z);
+        player.set_transform(transform);
+        save.save_player(uuid, &player)
+            .map_err(|error| error.to_string())?;
+    }
     let mut appearance = player.appearance();
     appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
     let inventory = player.inventory().map_err(|error| error.to_string())?;

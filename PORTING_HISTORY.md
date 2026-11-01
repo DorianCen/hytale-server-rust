@@ -2213,3 +2213,21 @@ This file records phase-2 sessions only.
   `ClientTeleport`, HUD packet), clippy, fmt, `--validate-assets`.
 - **Follow-up:** confirm the HUD and surface spawn with the release client;
   per-join player identity and a real spawn provider remain.
+
+---
+
+## Session 81 — Per-join surface spawn (2026-11-01)
+
+- **Goal:** the tenth-run client joined and showed the HUD but was still buried
+  at `(0,0,0)`, so movement and block interactions did nothing.
+- **Evidence:** the server trace had 579 `ClientMovement` and zero
+  `MouseInteraction` packets. The authenticated player's saved transform was
+  still `(0,0,0)`; the previous surface-spawn fix only ran for the world-boot
+  player.
+- **Landed:** `player_snapshot` now loads/generates the spawn column and applies
+  the surface spawn when the saved transform is inside a block, for every join.
+- **Verified:** fast tier (1555), clippy, `--validate-assets`; dev-server bot
+  join writes the surface transform `(0.5, 108, 0.5)`.
+- **Follow-up:** confirm movement and block interactions with the release
+  client. Commands (`CommandTreeSync` + `ChatMessage` handling) are still
+  unimplemented; the inventory is empty, so item switching needs items.
