@@ -210,6 +210,8 @@ pub struct PlayerSkinData {
 pub struct PlayerAppearance {
     /// Saved model reference (`Model` component), if any.
     pub model: Option<PlayerModelReference>,
+    /// Full protocol model packet (Java `Model.toPacket`), when the asset was loaded.
+    pub model_packet: Option<hytale_protocol::generated::common::Model>,
     /// Saved skin (`PlayerSkin` component), if any.
     pub skin: Option<PlayerSkinData>,
     /// Armor item ids by `ItemArmorSlot` (Head, Chest, Hands, Legs).

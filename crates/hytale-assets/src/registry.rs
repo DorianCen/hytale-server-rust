@@ -32,7 +32,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use hytale_protocol::generated::common::{
-    BlockMaterial, BlockNeighbor, DrawType, InteractionType, Opacity,
+    Animation, AnimationSet, BlockMaterial, BlockNeighbor, DrawType, Hitbox, InteractionType,
+    Model, Opacity, Rangef,
 };
 use serde_json::{json, Value};
 
@@ -994,6 +995,8 @@ pub struct AssetRegistry {
     pub root_interactions: AssetCollection<Value>,
     /// `UnarmedInteractions.Empty` mapping (`InteractionType` -> root key).
     pub unarmed_interactions: BTreeMap<InteractionType, String>,
+    /// Full `Server/Models/Human/Player.json` packet for the default model.
+    pub player_model: Option<Model>,
 }
 
 impl AssetRegistry {
@@ -1111,6 +1114,7 @@ impl AssetRegistry {
             interactions: AssetCollection::empty(),
             root_interactions: AssetCollection::empty(),
             unarmed_interactions: BTreeMap::new(),
+            player_model: None,
         })
     }
 
@@ -1172,6 +1176,7 @@ impl AssetRegistry {
         let (root_interactions, unarmed_interactions) = load_root_interactions(pack)?;
         registry.root_interactions = root_interactions;
         registry.unarmed_interactions = unarmed_interactions;
+        registry.player_model = Some(load_player_model(pack)?);
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -1393,6 +1398,125 @@ fn load_interactions(pack: &AssetPack) -> Result<AssetCollection<Value>, AssetEr
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
     AssetCollection::new(INTERACTION.name, records)
+}
+
+/// Load the default player model as the full protocol packet Java sends.
+///
+/// Java `Model.toPacket` copies `Path`, `Texture`, `EyeHeight`, animation sets
+/// and the hitbox. Sending only `assetId` leaves the client with no eye offset
+/// (camera at foot level) and no animation sets.
+fn load_player_model(pack: &AssetPack) -> Result<Model, AssetError> {
+    let bytes = pack.read("Server/Models/Human/Player.json")?;
+    let json: Value = serde_json::from_slice(&bytes).map_err(|source| AssetError::Json {
+        key: "Server/Models/Human/Player.json".to_string(),
+        source,
+    })?;
+    Ok(model_from_json("Player", &json))
+}
+
+fn model_from_json(key: &str, json: &Value) -> Model {
+    let number = |name: &str| {
+        json.get(name)
+            .and_then(Value::as_f64)
+            .map(|value| value as f32)
+    };
+    let animation_sets = json
+        .get("AnimationSets")
+        .and_then(Value::as_object)
+        .map(|sets| {
+            sets.iter()
+                .map(|(set_id, set)| {
+                    let animations = set
+                        .get("Animations")
+                        .and_then(Value::as_array)
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|item| {
+                                    let name = item.get("Animation").and_then(Value::as_str)?;
+                                    Some(Animation {
+                                        name: Some(name.to_string()),
+                                        speed: item
+                                            .get("Speed")
+                                            .and_then(Value::as_f64)
+                                            .unwrap_or(1.0)
+                                            as f32,
+                                        blending_duration: item
+                                            .get("BlendingDuration")
+                                            .and_then(Value::as_f64)
+                                            .unwrap_or(0.0)
+                                            as f32,
+                                        looping: item
+                                            .get("Looping")
+                                            .and_then(Value::as_bool)
+                                            .unwrap_or(false),
+                                        weight: item
+                                            .get("Weight")
+                                            .and_then(Value::as_f64)
+                                            .unwrap_or(1.0)
+                                            as f32,
+                                        footstep_intervals: item
+                                            .get("FootstepIntervals")
+                                            .and_then(Value::as_array)
+                                            .map(|values| {
+                                                values
+                                                    .iter()
+                                                    .filter_map(Value::as_i64)
+                                                    .map(|value| value as i32)
+                                                    .collect()
+                                            })
+                                            .unwrap_or_default(),
+                                        sound_event_index: 0,
+                                        passive_loop_count: 0,
+                                    })
+                                })
+                                .collect()
+                        });
+                    (
+                        set_id.clone(),
+                        AnimationSet {
+                            id: Some(set_id.clone()),
+                            animations,
+                            next_animation_delay: Some(Rangef {
+                                min: 2.0,
+                                max: 10.0,
+                            }),
+                        },
+                    )
+                })
+                .collect()
+        });
+    let hitbox = json.get("HitBox").and_then(|hitbox| {
+        let min = hitbox.get("Min")?;
+        let max = hitbox.get("Max")?;
+        Some(Hitbox {
+            min_x: min.get("X")?.as_f64()? as f32,
+            min_y: min.get("Y")?.as_f64()? as f32,
+            min_z: min.get("Z")?.as_f64()? as f32,
+            max_x: max.get("X")?.as_f64()? as f32,
+            max_y: max.get("Y")?.as_f64()? as f32,
+            max_z: max.get("Z")?.as_f64()? as f32,
+        })
+    });
+    Model {
+        asset_id: Some(key.to_string()),
+        path: json
+            .get("Model")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        texture: json
+            .get("Texture")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        scale: number("Scale").unwrap_or(1.0),
+        eye_height: number("EyeHeight").unwrap_or(0.0),
+        crouch_offset: number("CrouchOffset").unwrap_or(0.0),
+        sitting_offset: number("SittingOffset").unwrap_or(0.0),
+        sleeping_offset: number("SleepingOffset").unwrap_or(0.0),
+        animation_sets,
+        hitbox,
+        ..Model::default()
+    }
 }
 
 /// Load `RootInteraction` files plus the inline roots of

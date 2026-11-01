@@ -5490,6 +5490,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let (mut player, player_created) = save.load_or_create_player(player_uuid)?;
     let mut player_transform = player.transform();
     let mut player_appearance = player.appearance();
+    player_appearance.model_packet = generator.assets().player_model.clone();
     player_appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
 
     // Java resolves the world's `SpawnProvider` before adding a player. Our
@@ -6617,6 +6618,7 @@ fn player_snapshot(
             .map_err(|error| error.to_string())?;
     }
     let mut appearance = player.appearance();
+    appearance.model_packet = generator.assets().player_model.clone();
     appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
     let inventory = player.inventory().map_err(|error| error.to_string())?;
     Ok(PlayerSnapshot {

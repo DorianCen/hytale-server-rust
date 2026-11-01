@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (eleventh run)
+# Connection-debug session handoff — 2026-11-01 (twelfth run)
 
 ## Objective
 
@@ -45,6 +45,14 @@ Hytale client.** The agent must never launch it.
   **"packet rate limit exceeded"**. Movement corrections are now rate-limited
   to 10/s, and the default inbound limits were raised to 2048/s with a 4096
   burst.
+- The eleventh run joined and could move, but the camera sat at foot level and
+  the client logged `No animation with id StepRun on entity with model ` (empty
+  model). The self-spawn `ModelUpdate` only carried `assetId`; Java's
+  `Model.toPacket` also sends `path`, `texture`, `eyeHeight`, the animation sets
+  and the hitbox. Without them the client has no eye offset or animation sets,
+  so the camera stays at the entity origin and the interaction raycast starts
+  at the feet (which also breaks block targeting). The full
+  `Server/Models/Human/Player.json` packet is now sent.
 - The empty-hand interaction chain was incomplete: `UpdateUnarmedInteractions`
   only carried `SwapFrom`. Java's `UnarmedInteractions.Empty` also defines
   `Primary`, `Use`, `Pick` and `Ability3`; without them the client never starts
@@ -380,6 +388,10 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
   - Load `Server/Item/Unarmed/Interactions/Empty.json`, register its inline
     `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
     and map every type in `UpdateUnarmedInteractions` to its root index.
+  - Load `Server/Models/Human/Player.json` as the full protocol `Model`
+    (`path`, `texture`, `eyeHeight`, offsets, animation sets, hitbox) and attach
+    it to `PlayerAppearance`. Regression:
+    `default_player_model_carries_eye_height_and_animations`.
 - `crates/hytale-assets/src/registry.rs`
   - Inline objects in `Interactions` arrays are registered as contained
     interaction assets at any nesting depth, matching Java's
@@ -488,6 +500,10 @@ ids, channels, order and payload hashes.
   - Load `Server/Item/Unarmed/Interactions/Empty.json`, register its inline
     `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
     and map every type in `UpdateUnarmedInteractions` to its root index.
+  - Load `Server/Models/Human/Player.json` as the full protocol `Model`
+    (`path`, `texture`, `eyeHeight`, offsets, animation sets, hitbox) and attach
+    it to `PlayerAppearance`. Regression:
+    `default_player_model_carries_eye_height_and_animations`.
 - `crates/hytale-assets/src/registry.rs` — contained interaction registration
 - `crates/hytale-assets/tests/interaction_packets.rs` — new sentinel/self-loop
   regression
@@ -497,6 +513,10 @@ ids, channels, order and payload hashes.
   - Load `Server/Item/Unarmed/Interactions/Empty.json`, register its inline
     `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
     and map every type in `UpdateUnarmedInteractions` to its root index.
+  - Load `Server/Models/Human/Player.json` as the full protocol `Model`
+    (`path`, `texture`, `eyeHeight`, offsets, animation sets, hitbox) and attach
+    it to `PlayerAppearance`. Regression:
+    `default_player_model_carries_eye_height_and_animations`.
 - `crates/hytale-assets/src/registry.rs` — block preloads and translations
 - `crates/hytale-server/src/session.rs` — auth/setup/asset burst
 - `tasks/T66-live-client-assets.md` — current T66 status

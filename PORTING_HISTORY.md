@@ -2269,3 +2269,23 @@ This file records phase-2 sessions only.
 - **Verified:** fast tier (1555), clippy, `--validate-assets`; dev-server bot
   resolves the real universe spawn to a flat `(-1, 111, -1)`.
 - **Follow-up:** rerun the client; commands and starter items remain.
+
+---
+
+## Session 84 — Full player model packet (2026-11-01)
+
+- **Goal:** the eleventh run joined and moved, but the camera was at foot level
+  and block interactions still did nothing.
+- **Evidence:** the client logged `No animation with id StepRun on entity with
+  model ` (empty model). The self-spawn `ModelUpdate` only carried `assetId`;
+  Java `Model.toPacket` also sends `Path`, `Texture`, `EyeHeight`, offsets,
+  animation sets and the hitbox. Without the eye height the camera stays at the
+  entity origin, and the interaction raycast starts at the feet.
+- **Landed:** load `Server/Models/Human/Player.json` into the asset registry as
+  a full protocol `Model`, attach it to `PlayerAppearance`, and use it for the
+  self/remote spawn `ModelUpdate`.
+- **Verified:** new asset regression checks `path`, `eyeHeight`, hitbox and the
+  `StepRun` animation set; fast tier (1556), ignored `auth_join`, `dev_join`,
+  `portal_session`, clippy, `--validate-assets`.
+- **Follow-up:** confirm the eye-level camera and block breaking with the
+  release client; commands remain.

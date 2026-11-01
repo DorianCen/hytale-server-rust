@@ -370,3 +370,11 @@ flat column with a two-block air gap. The client then sent 1505 movement
 packets and received 1281 teleport corrections until the server disconnected it
 for `packet rate limit exceeded`; corrections are now throttled to 10/s and the
 default inbound limits raised to 2048/s / 4096 burst.
+
+### Twelfth run: full player model
+
+The camera sat at foot level and the client logged an empty model. The
+self-spawn `ModelUpdate` only sent `assetId`; Java's `Model.toPacket` also sends
+the model path, texture, eye height, animation sets and hitbox. The server now
+loads `Server/Models/Human/Player.json` and sends the full packet, restoring the
+eye-level camera, animations and interaction raycast.

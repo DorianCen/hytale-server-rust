@@ -95,3 +95,20 @@ fn entity_stat_and_effect_packets_decode_and_carry_the_store() {
         .values()
         .any(|weather| weather.id.as_deref() == Some("Blood_Moon")));
 }
+
+#[test]
+fn default_player_model_carries_eye_height_and_animations() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open the pack");
+    let registry = AssetRegistry::load_phase2(&pack).expect("load phase 2");
+    let model = registry.player_model.expect("default player model");
+    assert_eq!(model.asset_id.as_deref(), Some("Player"));
+    assert_eq!(model.path.as_deref(), Some("Characters/Player.blockymodel"));
+    assert!(model.eye_height > 0.0, "eye height drives the camera");
+    assert!(model.hitbox.is_some());
+    let animation_sets = model.animation_sets.expect("animation sets");
+    assert!(animation_sets.contains_key("StepRun"));
+}

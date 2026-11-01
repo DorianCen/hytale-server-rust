@@ -4667,6 +4667,7 @@ mod tests {
             ],
             right_hand: Some("Weapon_Longsword_Adamantite".to_string()),
             left_hand: Some("Potion_Health".to_string()),
+            model_packet: None,
         };
         let packet = self_spawn_packet(1, transform(), &appearance, None);
         let updates = updates(&packet);

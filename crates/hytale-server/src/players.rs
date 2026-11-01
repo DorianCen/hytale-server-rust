@@ -714,6 +714,10 @@ pub fn spawn_entity_updates(
     // model and then an Equipment update makes the client throw
     // "Attempted to set character model without sending a model first".
     let model = appearance.model.clone().unwrap_or_default();
+    let model_update = appearance
+        .model_packet
+        .clone()
+        .unwrap_or_else(|| model_packet(&model));
     let armor_ids = appearance
         .armor
         .iter()
@@ -726,7 +730,7 @@ pub fn spawn_entity_updates(
             removed: None,
             updates: Some(vec![
                 ComponentUpdate::ModelUpdate(ModelUpdate {
-                    model: Some(model_packet(&model)),
+                    model: Some(model_update),
                     entity_scale: 1.0,
                 }),
                 ComponentUpdate::PlayerSkinUpdate(PlayerSkinUpdate { skin }),
