@@ -69,6 +69,10 @@ pub struct TraceRecord {
     pub payload_len: usize,
     /// Lowercase hex SHA-256 of the wire payload.
     pub payload_sha256: String,
+    /// Unix wall-clock time in milliseconds when the frame crossed the stream
+    /// boundary. Zero for traces written before this field existed.
+    #[serde(default)]
+    pub ts_ms: u64,
 }
 
 /// Trace file header.
@@ -225,6 +229,9 @@ impl PacketTraceSink for TraceSession {
             channel: info.map(|info| channel_name(info.channel)),
             payload_len: payload.len(),
             payload_sha256: sha256_hex(payload),
+            ts_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis() as u64),
         });
         let mut file = self.recorder.file.lock().expect("trace recorder poisoned");
         let _ = write_line(&mut file, &record);

@@ -335,3 +335,11 @@ discarded.`) right after `JoinWorld`, because the server sent `ClearChunks` and
 Fixed in `crates/hytale-server/src/session.rs`. World switches still clear
 chunks but no longer request a fade. `client-bot` now accepts the `Chunks`
 stream after `ClientReady`, and `dev_join` reads the `WorldMap` stream directly.
+
+### Eighth run: pace the snapshot
+
+The client read 1862 of 2229 outbound packets and stopped mid-burst: its chunk
+queue overflowed, so the game thread waited for columns still buffered behind
+the full queue. Java sends at most 40 sections per 30 TPS tick; the snapshot now
+sends four columns per 33 ms. Trace records gained `ts_ms` for future timing
+correlation.

@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (seventh run)
+# Connection-debug session handoff — 2026-11-01 (eighth run)
 
 ## Objective
 
@@ -8,16 +8,20 @@ Hytale client.** The agent must never launch it.
 ## Current status
 
 - Authentication, setup, assets, world load and `JoinWorld` all succeed.
-- Sixth run (`d1fe31b`) still stalled on the chunk screen even with both
-  `SetChunk` and `SetAbsentChunks` for data-less sections.
-- Seventh run fixes the actual blocker: a fresh join is not a world transition.
-  Java `Universe` calls `world.addPlayer(playerRef, null, false, false)`, so the
-  first `JoinWorld` has `clearWorld = false` and `fadeInOut = false`, and no
-  `ClearChunks` is sent. The Rust server sent `ClearChunks` plus
-  `clearWorld = true`, `fadeInOut = true`; the client therefore discarded the
-  chunk stream it had just rendered ("All rendered chunks were discarded.") and
-  waited for chunks that would never be resent.
-- The fix has **not yet been confirmed by a client rerun**.
+- Seventh run (`bff4877`) confirmed the first-join flags are now correct
+  (`ProcessJoinWorldPacket: FadeInOut is False`, no `ClearChunks`), but the
+  client still stalls on the chunk screen.
+- Eighth run fixes the remaining divergence: the whole 9x9 snapshot was sent in
+  one burst. The client read 1862 of the 2229 outbound packets and then stopped
+  reading; the missing 367 packets are the tail of the chunk burst. That is the
+  client's bounded chunk queue filling up: it waits for the still-buffered
+  columns while the stream reader is blocked on the full queue.
+- Java's `ChunkTracker` sends at most `MAX_SECTIONS_PER_TICK` (40) sections per
+  30 TPS world tick. The Rust snapshot now paces four columns (40 sections) per
+  33 ms tick. This fix has **not yet been confirmed by a client rerun**.
+- The two `All rendered chunks were discarded.` warnings also occur in the
+  seventh run *before* `Received JoinWorldPacket`; they are part of the client's
+  world-preparation/teardown path, not the chunk rejection.
 
 ## Evidence
 
@@ -258,8 +262,29 @@ fresh join as a world transition, rendered the incoming chunks, then discarded
 them when it entered the new world. Its chunk tracker was left waiting for
 sections that the server had already sent once and never resent.
 
+## Root cause (eighth run)
+
+The client's packet counter freezes at 1862 while the trace contains 2229
+outbound packets. The 1862nd outbound packet is `seq 1867`, in the middle of the
+chunk burst; the remaining 14 columns (about 364 packets) plus the world-map
+updates and `UpdateTime` packets were never read. The client's chunk queue is
+bounded, and the single-burst snapshot overruns it: the game thread waits for
+columns that are still sitting behind the full queue, so the stream reader
+never resumes.
+
+Java avoids this by pacing: `ChunkTracker.MAX_SECTIONS_PER_TICK = 40`, sent once
+per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
+40/tick). A non-cubic column has 10 sections, so four columns per 33 ms.
+
 ## Fixes landed
 
+- `crates/hytale-server/src/chunk_streamer.rs`
+  - Initial snapshots are paced at four columns per 33 ms, matching Java's
+    `MAX_SECTIONS_PER_TICK` budget. Incremental `ChunkLoaded` sends are still
+    immediate.
+- `crates/hytale-net/src/trace.rs`
+  - Trace packet records now carry `ts_ms` (Unix milliseconds) so future runs
+    can correlate server writes with client log timestamps.
 - `crates/hytale-server/src/session.rs`
   - Fresh joins send `JoinWorld { clear_world: false, fade_in_out: false }` and
     no `ClearChunks`, matching Java `Universe.addPlayer(..., false, false)`.
@@ -330,6 +355,7 @@ Summary [ 19.561s] 1555 tests run: 1555 passed, 24 skipped
 cargo test -p client-bot --test auth_join -- --ignored        → 2 passed
 cargo test -p client-bot --test dev_join -- --ignored         → 1 passed
 cargo test -p client-bot --test portal_session -- --ignored   → 1 passed
+(pacing keeps these loopback joins green)
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
 block_item_packets: 19 passed
@@ -344,13 +370,13 @@ cargo fmt --all -- --check                              → clean
 
 ## What to do next
 
-1. Rerun the release client against this commit. The client should keep the
-   chunks it receives, finish the chunk tracker, send
-   `ClientReady(readyForGameplay)`, receive `ClientTeleport`, and show the
-   world.
-2. If anything still fails, capture `target/trace/RealTest.jsonl`; world-map
-   packets now show `"stream":"world_map"` and chunk absent markers as
-   `SetAbsentChunks`.
+1. Rerun the release client against this commit. The paced stream should let
+   the client drain its chunk queue, send `ClientReady(readyForGameplay)`,
+   receive `ClientTeleport`, and show the world.
+2. If anything still fails, capture `target/trace/RealTest.jsonl`; records now
+   include `ts_ms`, so server writes can be matched against the client log
+   timestamps. World-map packets show `"stream":"world_map"` and data-less
+   sections appear as `SetAbsentChunks`.
 3. Known follow-up: the saved player transform is still `(0, 0, 0)`. Add a real
    surface spawn (Java spawn provider) so the player does not start inside the
    ground.

@@ -6,6 +6,7 @@
 //! same loop with `WorldEvent::ChunkLoaded`.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use hytale_net::{ChunkStreamWriter, TransportError};
 use hytale_world::chunk::stream::{
@@ -74,6 +75,13 @@ pub async fn send_view(
     .await
 }
 
+/// Java `ChunkTracker.MAX_SECTIONS_PER_TICK`.
+const SECTIONS_PER_TICK: usize = 40;
+/// Sections in one non-cubic column (`ChunkUtil.HEIGHT_SECTIONS`).
+const SECTIONS_PER_COLUMN: usize = 10;
+/// One world tick; Java's `ChunkTracker` sends its budget once per 30 TPS tick.
+const CHUNK_TICK: Duration = Duration::from_millis(33);
+
 /// Send the initial snapshot for a view already registered with
 /// [`WorldThread::add_view`]/[`WorldThread::update_view`].
 ///
@@ -103,11 +111,22 @@ pub async fn send_view_registered(
     let loaded: BTreeSet<(i32, i32)> = thread.loaded_chunks()?.into_iter().collect();
     let view = ChunkView::new(center_x, center_z, radius);
     let desired = view.plan([]).loads;
+    // Java throttles section sends to `MAX_SECTIONS_PER_TICK` per world tick.
+    // Sending the whole view in one burst overruns the client's chunk queue:
+    // it stops reading the stream mid-view and then waits forever for the
+    // columns still buffered behind the queue.
+    let columns_per_tick = (SECTIONS_PER_TICK / SECTIONS_PER_COLUMN).max(1);
+    let mut columns_this_tick = 0;
     for (x, z) in desired {
         if !loaded.contains(&(x, z)) {
             continue;
         }
         send_chunk(thread, writer, x, z, compression_level, &mut report).await?;
+        columns_this_tick += 1;
+        if columns_this_tick >= columns_per_tick {
+            tokio::time::sleep(CHUNK_TICK).await;
+            columns_this_tick = 0;
+        }
     }
     Ok(report)
 }

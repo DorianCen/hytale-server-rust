@@ -2168,3 +2168,21 @@ This file records phase-2 sessions only.
   `--validate-assets`.
 - **Follow-up:** rerun the release client; then add a real surface spawn and
   confirm `ClientTeleport` and movement.
+
+---
+
+## Session 79 — Pace the initial chunk snapshot like Java (2026-11-01)
+
+- **Goal:** the seventh run confirmed the first-join flags but still stalled.
+- **Evidence:** the client froze at 1862 packets while the server trace had 2229
+  outbound packets. The 1862nd packet is mid-burst (`seq 1867`); the last 14
+  columns, world-map updates and `UpdateTime` were never read. The client's
+  bounded chunk queue was overrun by the single-burst snapshot.
+- **Landed:**
+  - `chunk_streamer::send_view_registered` sends four columns (40 sections) per
+    33 ms, matching Java `ChunkTracker.MAX_SECTIONS_PER_TICK`.
+  - Trace packet records carry `ts_ms` for client/server correlation.
+- **Verified:** `./tools/test.sh fast` (1555 passed), ignored `auth_join`
+  loopback join, clippy, fmt, `--validate-assets`.
+- **Follow-up:** rerun the client; if it still stalls, use `ts_ms` to compare
+  the ready/JoinWorld timing and check whether the client reads the tail.
