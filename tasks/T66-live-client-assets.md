@@ -408,3 +408,19 @@ packet carried an empty `interactions` map. Java `Item.processConfig` merges the
 item's own interactions with the unarmed maps for `PlayerAnimationsId` and the
 default `Empty`. The item encoder now performs that merge and also emits
 `CarryInteractions`, `CarryHudInputBindings` and `InteractionVars`.
+
+### Seventeenth run: builder tool args array
+
+The client still aborted its item cache at `Block_Spawner_Block`. A field-level
+diff against the Java golden showed `BuilderToolState.args` was null; Java
+`BuilderTool.toPacket` always sends the array (empty when the tool has none),
+and the client's item/icon preparation dereferences it. Builder tools now
+always send `args: Some([])`.
+
+### Live-client debugging notes
+
+The launcher strips `LD_PRELOAD` but forwards `LD_AUDIT`. A debug-only audit
+library in `UserData/nre-hook.so` catches the managed null check at
+`HytaleClient+0x6f3e45`, logs the faulting arguments and the offending map to
+`UserData/nre-hook.log`, and forwards all other faults to the runtime. Remove
+it (and `createdump-tool/`, `run-hooked.sh`) once the client is stable.

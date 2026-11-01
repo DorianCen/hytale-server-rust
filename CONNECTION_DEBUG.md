@@ -491,7 +491,7 @@ nodes found no cycles.
 
 ```text
 ./tools/test.sh fast
-Summary [ 19.552s] 1555 tests run: 1555 passed, 24 skipped
+Summary [ 21.819s] 1560 tests run: 1560 passed, 24 skipped
 
 cargo test -p client-bot --test auth_join -- --ignored        → 2 passed (49 s)
 (dev server + client-bot --observe 35: 35 UpdateTime, HUD packet, ClientTeleport, no gap)
@@ -500,7 +500,7 @@ cargo test -p client-bot --test portal_session -- --ignored   → 1 passed (93 s
 (pacing keeps these loopback joins green)
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets
-block_item_packets: 19 passed
+block_item_packets: 22 passed
 interaction_packets: 1 passed
 (all other hytale-assets suites passed)
 
@@ -512,18 +512,46 @@ cargo fmt --all -- --check                              → clean
 
 ## What to do next
 
-1. Rerun the release client against this commit. It should join, spawn on the
-   surface, show the HUD, and stay connected past 30 s.
-2. If the HUD is still missing or the stat warnings persist, capture the client
-   log; the next suspect is the order of the player `EntityStatsUpdate` versus
-   the self-spawn `EquipmentUpdate`.
-3. If anything still fails, capture `target/trace/RealTest.jsonl`; records
-   include `ts_ms` for client/server timing correlation.
-4. Known follow-up: the server is single-player and joins the world's stored
+1. **Restart the server with the new binary.** The running `hytale-server`
+   process does not pick up a rebuild; the 17th run was still served by the
+   previous process. Start it with:
+   `./target/release/hytale-server serve --universe target/universe --world RealTest --auth-mode authenticated --trace target/trace/RealTest.jsonl`
+2. Rerun the release client against this commit. It should join, spawn on the
+   surface, show the HUD, stay connected, and show interaction hints when aiming
+   at blocks (crystal, mushroom, grass).
+3. If it still crashes, run the client with the `LD_AUDIT` hook (see below) and
+   read `nre-hook.log`; it prints the faulting method arguments, the target
+   block/item name, and the map that returned null.
+4. Capture `target/trace/RealTest.jsonl`; records include `ts_ms` for
+   client/server timing correlation.
+5. Known follow-up: the server is single-player and joins the world's stored
    player, not necessarily the authenticated UUID. Per-join player identity and
    a real Java `SpawnProvider` (including `Global`/`FitToHeightMap`) are still
-   future work.
-5. Do not speculate about protocol mismatch; protocol is proven identical.
+   future work. Commands (`CommandTreeSync`, `ChatMessage`) remain unimplemented.
+6. Do not speculate about protocol mismatch; protocol is proven identical.
+
+## Live-client debugging with the LD_AUDIT hook
+
+The launcher strips `LD_PRELOAD` from the client environment but forwards
+`LD_AUDIT`. A debug-only audit library is installed at
+`~/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/nre-hook.so`; it
+stays the newest `SIGSEGV` handler, forwards benign faults to the NativeAOT
+runtime, and for `HytaleClient+0x6f3e45` (the managed null check) logs the
+registers, the managed strings in `R14`/`R15`, and the offending dictionary to
+`~/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/nre-hook.log`, then
+exits.
+
+```bash
+flatpak run \
+  --env=LD_AUDIT=/home/chome/.var/app/com.hypixel.HytaleLauncher/data/Hytale/UserData/nre-hook.so \
+  com.hypixel.HytaleLauncher
+```
+
+Remove `nre-hook.so`, `nre-hook.log`, `createdump-tool/` and `run-hooked.sh`
+from `UserData` once the live client is stable. The launcher also supplies
+`HYTALE_IDENTITY_TOKEN`/`HYTALE_SESSION_TOKEN`; a direct `HytaleClient` launch
+cannot use multiplayer services without the launcher's loopback session, so do
+not use the direct-launch path for gameplay verification.
 
 ## Commands
 
