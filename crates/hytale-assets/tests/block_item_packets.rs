@@ -1840,3 +1840,69 @@ fn crystal_block_types_carry_their_interactions() {
         }
     }
 }
+
+/// Java `Item.processConfig` merges the item's own `Interactions`, the unarmed
+/// interactions for its `PlayerAnimationsId`, and the default `Empty` map.
+/// Missing that merge left block items without their primary/pick roots and
+/// made the client abort its item cache while preparing them.
+#[test]
+fn items_merge_unarmed_interactions_like_java() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let items: UpdateItems =
+        UpdateItems::decode(&mut Reader::new(&packet(&packets, UpdateItems::ID).payload))
+            .expect("decode items");
+    let items = items.items.expect("item map");
+    let roots: UpdateRootInteractions = UpdateRootInteractions::decode(&mut Reader::new(
+        &packet(&packets, UpdateRootInteractions::ID).payload,
+    ))
+    .expect("decode root interactions");
+    let roots = roots.interactions.expect("root interaction map");
+
+    // `Block_Spawner_Block` has no own `Interactions`; Java fills the Block
+    // unarmed map (Primary/Secondary) and the default Empty map.
+    let spawner = &items["Block_Spawner_Block"];
+    let interactions = spawner.interactions.as_ref().expect("interactions map");
+    for interaction_type in [
+        InteractionType::Primary,
+        InteractionType::Secondary,
+        InteractionType::Ability3,
+        InteractionType::Use,
+        InteractionType::Pick,
+        InteractionType::SwapFrom,
+    ] {
+        assert!(
+            interactions.contains_key(&interaction_type),
+            "Block_Spawner_Block is missing {interaction_type:?}"
+        );
+    }
+
+    // The crystal's own Secondary interaction wins over the unarmed fallback.
+    let crystal = &items["Rock_Crystal_Yellow_Small"];
+    let secondary = crystal
+        .interactions
+        .as_ref()
+        .expect("crystal interactions")
+        .get(&InteractionType::Secondary)
+        .expect("crystal Secondary");
+    assert_eq!(
+        registry.root_interactions.id_of("Lantern_Yellow"),
+        Some(*secondary)
+    );
+
+    // Every item interaction reference must resolve to a root interaction.
+    for (key, item) in &items {
+        let Some(interactions) = &item.interactions else {
+            continue;
+        };
+        for (interaction_type, root) in interactions {
+            assert!(
+                *root == INTERACTION_NOT_FOUND || roots.contains_key(root),
+                "item {key} {interaction_type:?} references missing root {root}"
+            );
+        }
+    }
+}

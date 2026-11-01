@@ -24,7 +24,9 @@ use hytale_protocol::generated::common::{
 use hytale_protocol::generated::wire::{Vector2f, Vector3f};
 use serde_json::Value;
 
-use crate::packets::{color, color_light, model_particles, AssetPacket, Result, TagRegistry};
+use crate::packets::{
+    color, color_light, model_particles, AssetPacket, Result, TagRegistry, INTERACTION_NOT_FOUND,
+};
 use crate::registry::AssetRegistry;
 
 /// Java `Item.UNKNOWN_TEXTURE`.
@@ -107,6 +109,8 @@ fn item_base(
             .unwrap_or(0)
     };
 
+    let player_animations = player_animations_id(registry, key);
+
     let mut max_stack = integer(json, "MaxStack").unwrap_or(-1);
     if max_stack == -1 {
         // Java `Item.processConfig`.
@@ -132,7 +136,7 @@ fn item_base(
         scale: number(json, "Scale").unwrap_or(1.0) as f32,
         texture: Some(string(json, "Texture").unwrap_or_else(|| UNKNOWN_ITEM_TEXTURE.to_string())),
         animation: string(json, "Animation"),
-        player_animations_id: Some(player_animations_id(registry, key)),
+        player_animations_id: Some(player_animations.clone()),
         use_player_animations: boolean(json, "UsePlayerAnimations", false),
         max_stack,
         reticle_index,
@@ -163,13 +167,14 @@ fn item_base(
         durability: number(json, "MaxDurability").unwrap_or(0.0),
         sound_event_index: 0,
         item_sound_set_index,
-        // Java always sends the interaction maps, empty when the item has no
-        // entries. Interaction ids are not resolved until `RootInteraction` is
-        // streamed.
-        interactions: Some(BTreeMap::new()),
-        carry_interactions: Some(BTreeMap::new()),
-        carry_hud_input_bindings: Some(BTreeMap::new()),
-        interaction_vars: Some(BTreeMap::new()),
+        // Java `Item.processConfig` merges the item's own `Interactions`, the
+        // `PlayerAnimationsId` unarmed map, and the default `Empty` unarmed map.
+        // Missing that merge leaves block items without their primary/pick
+        // roots and makes the client abort its item cache while preparing them.
+        interactions: Some(item_interactions(registry, json, &player_animations)),
+        carry_interactions: Some(item_root_map(registry, json.get("CarryInteractions"))),
+        carry_hud_input_bindings: Some(item_hud_bindings(json.get("CarryHudInputBindings"))),
+        interaction_vars: Some(item_interaction_vars(registry, json.get("InteractionVars"))),
         interaction_config: Some(interaction_config(json)),
         dropped_item_animation: string(json, "DroppedItemAnimation"),
         // Java materializes this list for every item; the client dereferences
@@ -964,6 +969,98 @@ fn priorities(value: Option<&Value>) -> Option<BTreeMap<InteractionType, Interac
         priorities.insert(interaction, priority);
     }
     (!priorities.is_empty()).then_some(priorities)
+}
+
+/// Map an item `Interactions`/`CarryInteractions`/`InteractionVars` object to
+/// root-interaction indices (Java `RootInteraction.getRootInteractionIdOrUnknown`).
+fn item_root_map(
+    registry: &AssetRegistry,
+    value: Option<&Value>,
+) -> BTreeMap<InteractionType, i32> {
+    let mut map = BTreeMap::new();
+    let Some(entries) = value.and_then(Value::as_object) else {
+        return map;
+    };
+    for (type_name, value) in entries {
+        let Some(interaction_type) = interaction_type(type_name) else {
+            continue;
+        };
+        let Some(root) = value.as_str() else {
+            continue;
+        };
+        map.insert(
+            interaction_type,
+            registry
+                .root_interactions
+                .id_of(root)
+                .unwrap_or(INTERACTION_NOT_FOUND),
+        );
+    }
+    map
+}
+
+/// Java `Item.processConfig`: the item's own `Interactions`, then the unarmed
+/// interactions for its `PlayerAnimationsId`, then the default `Empty` map.
+/// `putIfAbsent` semantics: earlier entries win.
+fn item_interactions(
+    registry: &AssetRegistry,
+    json: &Value,
+    player_animations: &str,
+) -> BTreeMap<InteractionType, i32> {
+    let mut interactions = item_root_map(registry, json.get("Interactions"));
+    for id in [player_animations, "Empty"] {
+        let Some(unarmed) = registry.unarmed_interactions_by_id.get(id) else {
+            continue;
+        };
+        for (interaction_type, root) in unarmed {
+            interactions.entry(*interaction_type).or_insert_with(|| {
+                registry
+                    .root_interactions
+                    .id_of(root)
+                    .unwrap_or(INTERACTION_NOT_FOUND)
+            });
+        }
+    }
+    interactions
+}
+
+/// `InteractionVars` is a plain `string` -> root-interaction map.
+fn item_interaction_vars(registry: &AssetRegistry, value: Option<&Value>) -> BTreeMap<String, i32> {
+    let mut map = BTreeMap::new();
+    let Some(entries) = value.and_then(Value::as_object) else {
+        return map;
+    };
+    for (name, value) in entries {
+        let Some(root) = value.as_str() else {
+            continue;
+        };
+        map.insert(
+            name.clone(),
+            registry
+                .root_interactions
+                .id_of(root)
+                .unwrap_or(INTERACTION_NOT_FOUND),
+        );
+    }
+    map
+}
+
+/// `CarryHudInputBindings` is a plain `InteractionType` -> string map.
+fn item_hud_bindings(value: Option<&Value>) -> BTreeMap<InteractionType, String> {
+    let mut map = BTreeMap::new();
+    let Some(entries) = value.and_then(Value::as_object) else {
+        return map;
+    };
+    for (type_name, value) in entries {
+        let Some(interaction_type) = interaction_type(type_name) else {
+            continue;
+        };
+        let Some(binding) = value.as_str() else {
+            continue;
+        };
+        map.insert(interaction_type, binding.to_string());
+    }
+    map
 }
 
 fn interaction_type(name: &str) -> Option<InteractionType> {

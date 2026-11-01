@@ -400,3 +400,11 @@ The client crashed while looking at crystals. The crystal item declares
 empty `interactions` map, so the client's crosshair lookup dereferenced a null
 root. The block type builder now maps the containing item's interactions to
 root-interaction indices.
+
+### Sixteenth run: item interaction merge
+
+The client aborted its per-world item cache at `Block_Spawner_Block`, whose
+packet carried an empty `interactions` map. Java `Item.processConfig` merges the
+item's own interactions with the unarmed maps for `PlayerAnimationsId` and the
+default `Empty`. The item encoder now performs that merge and also emits
+`CarryInteractions`, `CarryHudInputBindings` and `InteractionVars`.

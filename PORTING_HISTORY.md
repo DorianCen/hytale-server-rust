@@ -2337,3 +2337,23 @@ This file records phase-2 sessions only.
 - **Verified:** new regression `crystal_block_types_carry_their_interactions`;
   block/asset suites (20 tests), fast tier (1558), clippy, `--validate-assets`.
 - **Follow-up:** rerun near crystals; commands and first-person hand remain.
+
+---
+
+## Session 88 — Item interaction merge (2026-11-01)
+
+- **Goal:** the client crashed while aiming at blocks after the world loaded.
+- **Evidence:** an `LD_AUDIT` hook captured the exact null check. The client
+  looked up the targeted block name in its per-world item map; the map had
+  stopped at `Block_Spawner_Block`, whose item packet carried an empty
+  `interactions` map.
+- **Root cause:** Java `Item.processConfig` merges the item's own `Interactions`
+  with the unarmed interactions for the item's `PlayerAnimationsId` (`Block`,
+  `Item`) and the default `Empty` map. The Rust encoder emitted an empty map, so
+  the client aborted its item cache at the first block item and every later
+  item lookup returned null.
+- **Landed:** the registry keeps every `UnarmedInteractions` asset keyed by id;
+  the item encoder applies Java's `putIfAbsent` merge and emits
+  `CarryInteractions`, `CarryHudInputBindings` and `InteractionVars`.
+- **Verified:** fast tier (1559), block/item goldens (21), clippy,
+  `--validate-assets`.

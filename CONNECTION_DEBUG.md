@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (fifteenth run)
+# Connection-debug session handoff — 2026-11-01 (sixteenth run)
 
 ## Objective
 
@@ -85,6 +85,17 @@ Hytale client.** The agent must never launch it.
   block-break, use or pick interactions. The registry now loads the inline roots
   from `Server/Item/Unarmed/Interactions/Empty.json` and the packet maps every
   type to its root-interaction index.
+- The sixteenth run still crashed while aiming at a block. A debug-only
+  `LD_AUDIT` hook (the launcher strips `LD_PRELOAD`) caught the exact null check
+  and showed the client looking up the targeted block's name
+  (`Plant_Crop_Mushroom_Cap_White`) in its per-world item map. That map stopped
+  at `Block_Spawner_Block`, the first item whose `interactions` map was empty.
+  Java's `Item.processConfig` merges the item's own `Interactions`, the unarmed
+  map for its `PlayerAnimationsId` (e.g. `Block`), and the default `Empty` map.
+  The item packet hardcoded an empty map, so the client aborted its item cache
+  at that item and every later lookup (interaction hints, item names) returned
+  null. The item builder now performs the same merge (and emits
+  `CarryInteractions`, `CarryHudInputBindings` and `InteractionVars`).
 - Server-side commands are still not implemented: `ChatMessage` is ignored and
   no `CommandTreeSync` is sent. This is a separate feature from the join path.
 
@@ -424,6 +435,10 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
   - Map each block type's containing-item `Interactions` to root-interaction
     indices instead of emitting an empty map. Regression:
     `crystal_block_types_carry_their_interactions`.
+  - Merge each item's own `Interactions` with the unarmed maps for its
+    `PlayerAnimationsId` and the default `Empty`, and emit
+    `CarryInteractions`/`CarryHudInputBindings`/`InteractionVars`. Regression:
+    `items_merge_unarmed_interactions_like_java`.
 - `crates/hytale-assets/src/registry.rs`
   - Inline objects in `Interactions` arrays are registered as contained
     interaction assets at any nesting depth, matching Java's
@@ -540,6 +555,10 @@ ids, channels, order and payload hashes.
   - Map each block type's containing-item `Interactions` to root-interaction
     indices instead of emitting an empty map. Regression:
     `crystal_block_types_carry_their_interactions`.
+  - Merge each item's own `Interactions` with the unarmed maps for its
+    `PlayerAnimationsId` and the default `Empty`, and emit
+    `CarryInteractions`/`CarryHudInputBindings`/`InteractionVars`. Regression:
+    `items_merge_unarmed_interactions_like_java`.
 - `crates/hytale-assets/src/registry.rs` — contained interaction registration
 - `crates/hytale-assets/tests/interaction_packets.rs` — new sentinel/self-loop
   regression
@@ -557,6 +576,10 @@ ids, channels, order and payload hashes.
   - Map each block type's containing-item `Interactions` to root-interaction
     indices instead of emitting an empty map. Regression:
     `crystal_block_types_carry_their_interactions`.
+  - Merge each item's own `Interactions` with the unarmed maps for its
+    `PlayerAnimationsId` and the default `Empty`, and emit
+    `CarryInteractions`/`CarryHudInputBindings`/`InteractionVars`. Regression:
+    `items_merge_unarmed_interactions_like_java`.
 - `crates/hytale-assets/src/registry.rs` — block preloads and translations
 - `crates/hytale-server/src/session.rs` — auth/setup/asset burst
 - `tasks/T66-live-client-assets.md` — current T66 status

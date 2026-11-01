@@ -996,6 +996,10 @@ pub struct AssetRegistry {
     pub root_interactions: AssetCollection<Value>,
     /// `UnarmedInteractions.Empty` mapping (`InteractionType` -> root key).
     pub unarmed_interactions: BTreeMap<InteractionType, String>,
+    /// Every `UnarmedInteractions` asset keyed by id (`Block`, `Empty`, `Item`),
+    /// each mapping `InteractionType` -> root key. Java `Item.processConfig`
+    /// merges the item's own `PlayerAnimationsId` map and then `Empty`.
+    pub unarmed_interactions_by_id: UnarmedInteractionsById,
     /// Full `Server/Models/Human/Player.json` packet for the default model.
     pub player_model: Option<Model>,
 }
@@ -1115,6 +1119,7 @@ impl AssetRegistry {
             interactions: AssetCollection::empty(),
             root_interactions: AssetCollection::empty(),
             unarmed_interactions: BTreeMap::new(),
+            unarmed_interactions_by_id: BTreeMap::new(),
             player_model: None,
         })
     }
@@ -1174,9 +1179,11 @@ impl AssetRegistry {
             load_indexed_store(pack, &STINGER, stinger_preloads(), parse_key_asset)?;
         registry.recipes = load_default_store(pack, &RECIPE, Vec::new())?;
         registry.interactions = load_interactions(pack)?;
-        let (root_interactions, unarmed_interactions) = load_root_interactions(pack)?;
+        let (root_interactions, unarmed_interactions, unarmed_by_id) =
+            load_root_interactions(pack)?;
         registry.root_interactions = root_interactions;
         registry.unarmed_interactions = unarmed_interactions;
+        registry.unarmed_interactions_by_id = unarmed_by_id;
         registry.player_model = Some(load_player_model(pack)?);
         registry.audio_categories = load_indexed_store(
             pack,
@@ -1607,41 +1614,54 @@ fn detail_box_from_json(value: &Value) -> Option<DetailBox> {
 /// asset. The packet generator then maps every `InteractionType` of the
 /// `Empty` asset to that root's index. Without these roots the client receives
 /// only `SwapFrom` and cannot run primary/use/pick with an empty hand.
-fn load_root_interactions(
-    pack: &AssetPack,
-) -> Result<(AssetCollection<Value>, BTreeMap<InteractionType, String>), AssetError> {
+/// `UnarmedInteractions` assets keyed by id, each mapping an interaction type to
+/// the root-interaction asset key.
+type UnarmedInteractionsById = BTreeMap<String, BTreeMap<InteractionType, String>>;
+
+/// Loaded `RootInteraction` collection, the default unarmed map, and every
+/// unarmed asset keyed by id.
+type RootInteractionLoad = (
+    AssetCollection<Value>,
+    BTreeMap<InteractionType, String>,
+    UnarmedInteractionsById,
+);
+
+fn load_root_interactions(pack: &AssetPack) -> Result<RootInteractionLoad, AssetError> {
     let mut preloaded = preloaded_assets_with(root_interaction_preloads());
     let mut loaded: HashSet<String> = preloaded
         .iter()
         .map(|asset| asset.key.to_ascii_lowercase())
         .collect();
     let mut files = read_store_files(pack, ROOT_INTERACTION.path)?;
-    let mut unarmed = BTreeMap::new();
+    let mut by_id: UnarmedInteractionsById = BTreeMap::new();
     for asset in read_store_files(pack, UNARMED_INTERACTION_PATH)? {
         let Some(entries) = asset.value.get("Interactions").and_then(Value::as_object) else {
             continue;
         };
+        let unarmed = by_id.entry(asset.key.clone()).or_default();
         for (type_name, value) in entries {
             let Some(interaction_type) = interaction_type(type_name) else {
                 continue;
             };
             if let Some(reference) = value.as_str() {
-                if asset.key == "Empty" {
-                    unarmed.insert(interaction_type, reference.to_string());
-                }
+                unarmed.insert(interaction_type, reference.to_string());
                 continue;
             }
             if !value.is_object() {
                 continue;
             }
             let key = format!("*{}_{type_name}", asset.key);
-            if asset.key == "Empty" {
-                unarmed.insert(interaction_type, key.clone());
-            }
+            unarmed.insert(interaction_type, key.clone());
             files.push(contained_interaction(key, &asset.source, value.clone()));
         }
     }
-    unarmed.insert(InteractionType::SwapFrom, "*Default_Swap".to_string());
+    // Java registers the default swap root on the default unarmed asset.
+    by_id
+        .entry("Empty".to_string())
+        .or_default()
+        .entry(InteractionType::SwapFrom)
+        .or_insert_with(|| "*Default_Swap".to_string());
+    let unarmed = by_id.get("Empty").cloned().unwrap_or_default();
     let files = apply_preload_replacements(&mut preloaded, files);
     let ordered = assign_phase(
         files,
@@ -1674,6 +1694,7 @@ fn load_root_interactions(
     Ok((
         AssetCollection::new(ROOT_INTERACTION.name, records)?,
         unarmed,
+        by_id,
     ))
 }
 
