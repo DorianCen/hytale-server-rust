@@ -109,6 +109,17 @@ fn default_player_model_carries_eye_height_and_animations() {
     assert_eq!(model.path.as_deref(), Some("Characters/Player.blockymodel"));
     assert!(model.eye_height > 0.0, "eye height drives the camera");
     assert!(model.hitbox.is_some());
+    let camera = model.camera.expect("first-person camera offset");
+    let offset = camera.position_offset.expect("camera position offset");
+    assert!(offset.z > 0.0, "first-person camera sits behind the eyes");
+    assert!(model
+        .detail_boxes
+        .as_ref()
+        .is_some_and(|boxes| { boxes.contains_key("Head") && boxes.contains_key("Body") }));
+    assert!(model
+        .attachments
+        .as_ref()
+        .is_some_and(|items| !items.is_empty()));
     let animation_sets = model.animation_sets.expect("animation sets");
     assert!(animation_sets.contains_key("StepRun"));
 }

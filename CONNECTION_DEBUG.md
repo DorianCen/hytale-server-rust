@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (twelfth run)
+# Connection-debug session handoff — 2026-11-01 (thirteenth run)
 
 ## Objective
 
@@ -53,6 +53,15 @@ Hytale client.** The agent must never launch it.
   so the camera stays at the entity origin and the interaction raycast starts
   at the feet (which also breaks block targeting). The full
   `Server/Models/Human/Player.json` packet is now sent.
+- The twelfth run still had no first-person hand and crashed with a
+  `TargetInvocationException` wrapping a client `NullReferenceException` when
+  the player tried to hit a block. The model packet was still missing the
+  model's `Camera` (first-person offset), `DetailBoxes`, `DefaultAttachments`
+  and gradients. Those are now included too. The crash address
+  (`0x6f3e45`) is in the client's reflection-invoked interaction/rendering
+  path; the missing camera/attachment data is the leading suspect.
+- No `MouseInteraction` packets reached the server before the crash, so the
+  failure is client-side before the interaction is sent.
 - The empty-hand interaction chain was incomplete: `UpdateUnarmedInteractions`
   only carried `SwapFrom`. Java's `UnarmedInteractions.Empty` also defines
   `Primary`, `Use`, `Pick` and `Ability3`; without them the client never starts
@@ -389,8 +398,9 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
     `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
     and map every type in `UpdateUnarmedInteractions` to its root index.
   - Load `Server/Models/Human/Player.json` as the full protocol `Model`
-    (`path`, `texture`, `eyeHeight`, offsets, animation sets, hitbox) and attach
-    it to `PlayerAppearance`. Regression:
+    (`path`, `texture`, gradients, eye/crouch/sit/sleep offsets, animation
+    sets, attachments, hitbox, first-person camera, detail boxes) and attach it
+    to `PlayerAppearance`. Regression:
     `default_player_model_carries_eye_height_and_animations`.
 - `crates/hytale-assets/src/registry.rs`
   - Inline objects in `Interactions` arrays are registered as contained
@@ -501,8 +511,9 @@ ids, channels, order and payload hashes.
     `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
     and map every type in `UpdateUnarmedInteractions` to its root index.
   - Load `Server/Models/Human/Player.json` as the full protocol `Model`
-    (`path`, `texture`, `eyeHeight`, offsets, animation sets, hitbox) and attach
-    it to `PlayerAppearance`. Regression:
+    (`path`, `texture`, gradients, eye/crouch/sit/sleep offsets, animation
+    sets, attachments, hitbox, first-person camera, detail boxes) and attach it
+    to `PlayerAppearance`. Regression:
     `default_player_model_carries_eye_height_and_animations`.
 - `crates/hytale-assets/src/registry.rs` — contained interaction registration
 - `crates/hytale-assets/tests/interaction_packets.rs` — new sentinel/self-loop
@@ -514,8 +525,9 @@ ids, channels, order and payload hashes.
     `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
     and map every type in `UpdateUnarmedInteractions` to its root index.
   - Load `Server/Models/Human/Player.json` as the full protocol `Model`
-    (`path`, `texture`, `eyeHeight`, offsets, animation sets, hitbox) and attach
-    it to `PlayerAppearance`. Regression:
+    (`path`, `texture`, gradients, eye/crouch/sit/sleep offsets, animation
+    sets, attachments, hitbox, first-person camera, detail boxes) and attach it
+    to `PlayerAppearance`. Regression:
     `default_player_model_carries_eye_height_and_animations`.
 - `crates/hytale-assets/src/registry.rs` — block preloads and translations
 - `crates/hytale-server/src/session.rs` — auth/setup/asset burst

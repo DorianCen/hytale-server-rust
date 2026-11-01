@@ -378,3 +378,10 @@ self-spawn `ModelUpdate` only sent `assetId`; Java's `Model.toPacket` also sends
 the model path, texture, eye height, animation sets and hitbox. The server now
 loads `Server/Models/Human/Player.json` and sends the full packet, restoring the
 eye-level camera, animations and interaction raycast.
+
+### Thirteenth run: first-person hand and crash
+
+The client still had no first-person hand and crashed on a block hit
+(`TargetInvocationException` → NRE at `0x6f3e45`); no `MouseInteraction` reached
+the server. The model packet now also carries the first-person `Camera` offset,
+`DetailBoxes`, `DefaultAttachments` and gradients.

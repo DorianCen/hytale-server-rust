@@ -32,9 +32,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use hytale_protocol::generated::common::{
-    Animation, AnimationSet, BlockMaterial, BlockNeighbor, DrawType, Hitbox, InteractionType,
-    Model, Opacity, Rangef,
+    Animation, AnimationSet, BlockMaterial, BlockNeighbor, CameraSettings, DetailBox, DrawType,
+    Hitbox, InteractionType, Model, ModelAttachment, Opacity, Rangef,
 };
+use hytale_protocol::generated::wire::Vector3f;
 use serde_json::{json, Value};
 
 use crate::gameplay::GameplayConfigAsset;
@@ -1486,18 +1487,56 @@ fn model_from_json(key: &str, json: &Value) -> Model {
                 })
                 .collect()
         });
-    let hitbox = json.get("HitBox").and_then(|hitbox| {
-        let min = hitbox.get("Min")?;
-        let max = hitbox.get("Max")?;
-        Some(Hitbox {
-            min_x: min.get("X")?.as_f64()? as f32,
-            min_y: min.get("Y")?.as_f64()? as f32,
-            min_z: min.get("Z")?.as_f64()? as f32,
-            max_x: max.get("X")?.as_f64()? as f32,
-            max_y: max.get("Y")?.as_f64()? as f32,
-            max_z: max.get("Z")?.as_f64()? as f32,
+    let hitbox = json.get("HitBox").and_then(hitbox_from_json);
+    let camera = json.get("Camera").and_then(|camera| {
+        let offset = camera.get("PositionOffset")?;
+        Some(CameraSettings {
+            position_offset: Some(vector3f(offset)),
+            yaw: None,
+            pitch: None,
         })
     });
+    let detail_boxes = json
+        .get("DetailBoxes")
+        .and_then(Value::as_object)
+        .map(|boxes| {
+            boxes
+                .iter()
+                .map(|(key, entries)| {
+                    let entries = entries
+                        .as_array()
+                        .map(|items| items.iter().filter_map(detail_box_from_json).collect())
+                        .unwrap_or_default();
+                    (key.clone(), entries)
+                })
+                .collect()
+        });
+    let attachments = json
+        .get("DefaultAttachments")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| ModelAttachment {
+                    model: item
+                        .get("Model")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    texture: item
+                        .get("Texture")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    gradient_set: item
+                        .get("GradientSet")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    gradient_id: item
+                        .get("GradientId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                })
+                .collect()
+        });
     Model {
         asset_id: Some(key.to_string()),
         path: json
@@ -1508,15 +1547,56 @@ fn model_from_json(key: &str, json: &Value) -> Model {
             .get("Texture")
             .and_then(Value::as_str)
             .map(str::to_string),
+        gradient_set: json
+            .get("GradientSet")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        gradient_id: json
+            .get("GradientId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         scale: number("Scale").unwrap_or(1.0),
         eye_height: number("EyeHeight").unwrap_or(0.0),
         crouch_offset: number("CrouchOffset").unwrap_or(0.0),
         sitting_offset: number("SittingOffset").unwrap_or(0.0),
         sleeping_offset: number("SleepingOffset").unwrap_or(0.0),
         animation_sets,
+        attachments,
         hitbox,
+        camera,
+        detail_boxes,
         ..Model::default()
     }
+}
+
+fn vector3f(value: &Value) -> Vector3f {
+    Vector3f {
+        x: value.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        y: value.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+        z: value.get("Z").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+    }
+}
+
+fn hitbox_from_json(hitbox: &Value) -> Option<Hitbox> {
+    let min = hitbox.get("Min")?;
+    let max = hitbox.get("Max")?;
+    Some(Hitbox {
+        min_x: min.get("X")?.as_f64()? as f32,
+        min_y: min.get("Y")?.as_f64()? as f32,
+        min_z: min.get("Z")?.as_f64()? as f32,
+        max_x: max.get("X")?.as_f64()? as f32,
+        max_y: max.get("Y")?.as_f64()? as f32,
+        max_z: max.get("Z")?.as_f64()? as f32,
+    })
+}
+
+fn detail_box_from_json(value: &Value) -> Option<DetailBox> {
+    let offset = value.get("Offset")?;
+    let hitbox = value.get("Box")?;
+    Some(DetailBox {
+        offset: vector3f(offset),
+        r#box: hitbox_from_json(hitbox),
+    })
 }
 
 /// Load `RootInteraction` files plus the inline roots of

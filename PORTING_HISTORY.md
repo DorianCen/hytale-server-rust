@@ -2289,3 +2289,20 @@ This file records phase-2 sessions only.
   `portal_session`, clippy, `--validate-assets`.
 - **Follow-up:** confirm the eye-level camera and block breaking with the
   release client; commands remain.
+
+---
+
+## Session 85 — Complete model attachments and camera (2026-11-01)
+
+- **Goal:** the twelfth run still showed no first-person hand and crashed on a
+  block hit.
+- **Evidence:** the client log ends in a `TargetInvocationException` wrapping a
+  `NullReferenceException` at `0x6f3e45`; no `MouseInteraction` reached the
+  server. The model packet still omitted `Camera` (first-person offset),
+  `DetailBoxes`, `DefaultAttachments` and gradients.
+- **Landed:** map and send those remaining `Player.json` fields.
+- **Verified:** the asset regression asserts the camera offset, head/body detail
+  boxes, default attachments, hitbox and `StepRun`; fast tier (1556), clippy,
+  `--validate-assets`.
+- **Follow-up:** rerun; if the client still crashes, symbolicate `0x6f3e45`
+  from the Sentry event or the hydrated dump.

@@ -32,13 +32,14 @@ fn assets_available() -> bool {
     repo_root().join("Assets/Assets.zip").is_file()
 }
 
-fn load_packets() -> Vec<AssetPacket> {
+fn load_packets() -> (Vec<AssetPacket>, AssetRegistry) {
     let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open the pack");
     let registry = AssetRegistry::load_phase2(&pack).expect("load phase 2");
-    registry
+    let packets = registry
         .config_assets()
         .expect("encode config assets")
-        .packets
+        .packets;
+    (packets, registry)
 }
 
 fn decode<T: Packet + Wire>(packets: &[AssetPacket]) -> T {
@@ -55,7 +56,7 @@ fn absent_interaction_references_use_not_found() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
         return;
     }
-    let packets = load_packets();
+    let (packets, registry) = load_packets();
     let interactions: UpdateInteractions = decode(&packets);
     let interactions = interactions.interactions.expect("interaction map");
 
@@ -94,6 +95,13 @@ fn absent_interaction_references_use_not_found() {
                 "root interaction {id} references missing interaction slot {reference}"
             );
         }
+    }
+
+    for key in ["Unarmed_Attack", "UseBlock", "BreakBlock", "UseEntity"] {
+        assert!(
+            registry.interactions.id_of(key).is_some(),
+            "empty-hand chain references missing interaction `{key}`"
+        );
     }
 
     let unarmed: UpdateUnarmedInteractions = decode(&packets);
