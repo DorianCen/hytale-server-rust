@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (fourteenth run)
+# Connection-debug session handoff — 2026-11-01 (fifteenth run)
 
 ## Objective
 
@@ -71,6 +71,14 @@ Hytale client.** The agent must never launch it.
   late/empty. The self-spawn now follows Java
   `PlayerSystems.sendPlayerSelf` order (Model, Skin, Equipment, Transform,
   effects, stats) and adds a default `MovementStates` component.
+- The fourteenth run crashed while the player **looked at and approached
+  crystals**. The trace shows new chunk batches arriving just before the crash;
+  the client was rendering a crystal block. The block type packet's
+  `interactions` map was hardcoded empty. Java's crystal item has
+  `Interactions.Secondary = "Lantern_Yellow"`; the client's crosshair raycast
+  looks that root up from the block type and dereferenced a null root. The
+  builder now maps the containing item's `Interactions` to root-interaction
+  indices.
 - The empty-hand interaction chain was incomplete: `UpdateUnarmedInteractions`
   only carried `SwapFrom`. Java's `UnarmedInteractions.Empty` also defines
   `Primary`, `Use`, `Pick` and `Ability3`; without them the client never starts
@@ -413,6 +421,9 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
     sets, attachments, hitbox, first-person camera, detail boxes) and attach it
     to `PlayerAppearance`. Regression:
     `default_player_model_carries_eye_height_and_animations`.
+  - Map each block type's containing-item `Interactions` to root-interaction
+    indices instead of emitting an empty map. Regression:
+    `crystal_block_types_carry_their_interactions`.
 - `crates/hytale-assets/src/registry.rs`
   - Inline objects in `Interactions` arrays are registered as contained
     interaction assets at any nesting depth, matching Java's
@@ -526,6 +537,9 @@ ids, channels, order and payload hashes.
     sets, attachments, hitbox, first-person camera, detail boxes) and attach it
     to `PlayerAppearance`. Regression:
     `default_player_model_carries_eye_height_and_animations`.
+  - Map each block type's containing-item `Interactions` to root-interaction
+    indices instead of emitting an empty map. Regression:
+    `crystal_block_types_carry_their_interactions`.
 - `crates/hytale-assets/src/registry.rs` — contained interaction registration
 - `crates/hytale-assets/tests/interaction_packets.rs` — new sentinel/self-loop
   regression
@@ -540,6 +554,9 @@ ids, channels, order and payload hashes.
     sets, attachments, hitbox, first-person camera, detail boxes) and attach it
     to `PlayerAppearance`. Regression:
     `default_player_model_carries_eye_height_and_animations`.
+  - Map each block type's containing-item `Interactions` to root-interaction
+    indices instead of emitting an empty map. Regression:
+    `crystal_block_types_carry_their_interactions`.
 - `crates/hytale-assets/src/registry.rs` — block preloads and translations
 - `crates/hytale-server/src/session.rs` — auth/setup/asset burst
 - `tasks/T66-live-client-assets.md` — current T66 status

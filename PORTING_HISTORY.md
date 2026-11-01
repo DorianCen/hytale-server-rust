@@ -2322,3 +2322,18 @@ This file records phase-2 sessions only.
   `auth_join` (the bot decodes the extended self-spawn).
 - **Follow-up:** rerun the client. If it still crashes, capture the Sentry event
   payload or a core dump with `ulimit -c unlimited`.
+
+---
+
+## Session 87 — Block type interactions for the crosshair (2026-11-01)
+
+- **Goal:** the client crashed while looking at/approaching crystals.
+- **Evidence:** new chunk batches arrived just before the crash; the crystal
+  item has `Interactions.Secondary = "Lantern_Yellow"`, but the block type
+  packet emitted an empty `interactions` map. The client's crosshair raycast
+  looked up a null root.
+- **Landed:** resolve the containing item's `Interactions` and map each type to
+  its root-interaction index in `UpdateBlockTypes`.
+- **Verified:** new regression `crystal_block_types_carry_their_interactions`;
+  block/asset suites (20 tests), fast tier (1558), clippy, `--validate-assets`.
+- **Follow-up:** rerun near crystals; commands and first-person hand remain.

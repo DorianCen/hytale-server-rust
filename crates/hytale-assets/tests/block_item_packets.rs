@@ -1795,3 +1795,48 @@ fn weather_fog_is_always_sent() {
     let temple = fog_of("Forgotten_Temple");
     assert_eq!((temple.near, temple.far), (-32.0, 512.0));
 }
+
+#[test]
+fn crystal_block_types_carry_their_interactions() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let types: UpdateBlockTypes = UpdateBlockTypes::decode(&mut Reader::new(
+        &packet(&packets, UpdateBlockTypes::ID).payload,
+    ))
+    .expect("decode block types");
+    let types = types.block_types.expect("block type map");
+    let crystal_id = registry
+        .block_types
+        .id_of("Rock_Crystal_Yellow_Small")
+        .expect("crystal block id");
+    let crystal = &types[&crystal_id];
+    let interactions = crystal.interactions.as_ref().expect("interactions map");
+    let secondary = interactions
+        .get(&InteractionType::Secondary)
+        .expect("crystal Secondary interaction");
+    assert_ne!(*secondary, INTERACTION_NOT_FOUND);
+    assert_eq!(
+        registry.root_interactions.id_of("Lantern_Yellow"),
+        Some(*secondary)
+    );
+
+    let roots: UpdateRootInteractions = UpdateRootInteractions::decode(&mut Reader::new(
+        &packet(&packets, UpdateRootInteractions::ID).payload,
+    ))
+    .expect("decode root interactions");
+    let roots = roots.interactions.expect("root interaction map");
+    for (block_id, block) in &types {
+        let Some(interactions) = &block.interactions else {
+            continue;
+        };
+        for (interaction_type, root) in interactions {
+            assert!(
+                *root == INTERACTION_NOT_FOUND || roots.contains_key(root),
+                "block {block_id} {interaction_type:?} references missing root {root}"
+            );
+        }
+    }
+}

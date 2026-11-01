@@ -392,3 +392,11 @@ The client still crashed after moving. The self-spawn now carries the
 `EntityStatsUpdate` (before Equipment) and a default `MovementStatesUpdate`;
 the separate late stat packet was removed. This targets the empty stat map
 warnings and the local movement/animation state machine.
+
+### Fifteenth run: crystal crosshair crash
+
+The client crashed while looking at crystals. The crystal item declares
+`Interactions.Secondary = "Lantern_Yellow"`, but `UpdateBlockTypes` emitted an
+empty `interactions` map, so the client's crosshair lookup dereferenced a null
+root. The block type builder now maps the containing item's interactions to
+root-interaction indices.

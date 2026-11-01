@@ -15,16 +15,16 @@ use hytale_protocol::generated::common::{
     BlockGathering, BlockMaterial, BlockMovementSettings, BlockNeighbor,
     BlockPlacementRotationMode, BlockPlacementSettings, BlockPreviewVisibility,
     BlockSupportsRequiredForType, BlockTextures, BlockType, ConditionalBlockSound, DrawType,
-    Harvesting, MaterialQuantity, ModelTexture, RailConfig, RailPoint, RandomRotation,
-    RequiredBlockFaceSupport, Rotation, ShadingMode, SoftBlock, SupportMatch, Tint, UpdateType,
-    VariantRotation, Vector3i,
+    Harvesting, InteractionType, MaterialQuantity, ModelTexture, RailConfig, RailPoint,
+    RandomRotation, RequiredBlockFaceSupport, Rotation, ShadingMode, SoftBlock, SupportMatch, Tint,
+    UpdateType, VariantRotation, Vector3i,
 };
 use hytale_protocol::generated::wire::Vector3f;
 use serde_json::Value;
 
 use crate::packets::{
     block_textures, color, color_light, invalid, model_particles, next_id, shader_effects,
-    AssetPacket, AssetPacketError, Result, TagRegistry, UNKNOWN_TEXTURE,
+    AssetPacket, AssetPacketError, Result, TagRegistry, INTERACTION_NOT_FOUND, UNKNOWN_TEXTURE,
 };
 use crate::registry::{AssetRegistry, Face};
 
@@ -222,10 +222,15 @@ pub(crate) fn block_type_packet(
                     .get("IgnoreSupportWhenPlaced")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
-                // Java always emits a map here (empty for blocks without
-                // interactions). A null map is copied by the client during
-                // `PrepareBlockTypes` and crashes at `WorldLoadFinished`.
-                interactions: Some(BTreeMap::new()),
+                // Java maps the block's `Interactions` to root-interaction
+                // indices. A crystal's `Secondary` interaction is looked up by
+                // the client's crosshair raycast; an empty map leaves the
+                // client with a null root when it looks at the block.
+                interactions: Some(block_interactions(
+                    registry,
+                    record.value.container_item.as_deref(),
+                    json,
+                )),
                 conditional_sounds: conditional_sounds(registry, json.get("ConditionalSounds"))?,
                 states: states(registry, key, id, json),
                 transition_to_tag: json
@@ -939,5 +944,60 @@ fn filler(value: Option<&Value>) -> Option<Vec<Vector3i>> {
                 z: entry.get("Z").and_then(Value::as_i64).unwrap_or(0) as i32,
             })
             .collect()
+    })
+}
+
+/// Map a block type's `Interactions` to root-interaction indices.
+fn block_interactions(
+    registry: &AssetRegistry,
+    container_item: Option<&str>,
+    json: &Value,
+) -> BTreeMap<InteractionType, i32> {
+    let mut interactions = BTreeMap::new();
+    // `BlockType.Interactions` lives on the containing item document, not on
+    // the `BlockType` sub-object.
+    let entries = json
+        .get("Interactions")
+        .and_then(Value::as_object)
+        .or_else(|| {
+            container_item
+                .and_then(|item| registry.items.get(item))
+                .and_then(|record| record.value.get("Interactions"))
+                .and_then(Value::as_object)
+        });
+    let Some(entries) = entries else {
+        return interactions;
+    };
+    for (type_name, value) in entries {
+        let Some(interaction_type) = interaction_type(type_name) else {
+            continue;
+        };
+        let root = value
+            .as_str()
+            .and_then(|key| registry.root_interactions.id_of(key))
+            .unwrap_or(INTERACTION_NOT_FOUND);
+        interactions.insert(interaction_type, root);
+    }
+    interactions
+}
+
+fn interaction_type(name: &str) -> Option<InteractionType> {
+    Some(match name {
+        "Primary" => InteractionType::Primary,
+        "Secondary" => InteractionType::Secondary,
+        "Ability1" => InteractionType::Ability1,
+        "Ability2" => InteractionType::Ability2,
+        "Ability3" => InteractionType::Ability3,
+        "Ability4" => InteractionType::Ability4,
+        "Use" => InteractionType::Use,
+        "Pick" => InteractionType::Pick,
+        "Pickup" => InteractionType::Pickup,
+        "CollisionEnter" => InteractionType::CollisionEnter,
+        "CollisionLeave" => InteractionType::CollisionLeave,
+        "Collision" => InteractionType::Collision,
+        "EntityStatEffect" => InteractionType::EntityStatEffect,
+        "SwapTo" => InteractionType::SwapTo,
+        "SwapFrom" => InteractionType::SwapFrom,
+        _ => return None,
     })
 }
