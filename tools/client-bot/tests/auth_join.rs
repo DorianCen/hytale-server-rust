@@ -213,7 +213,7 @@ async fn the_bot_authenticates_streams_assets_and_reaches_game() {
         report
             .view_update_chunks
             .iter()
-            .any(|packet| matches!(packet, ChunkPacketSummary::Unload { x: 0, z: 0 })),
+            .any(|packet| matches!(packet, ChunkPacketSummary::Unload { .. })),
         "expected the old chunk to unload: {:?}",
         report.view_update_chunks
     );

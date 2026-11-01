@@ -394,10 +394,10 @@ struct ServeArgs {
     #[arg(long, default_value_t = 16)]
     max_view_radius: u32,
     /// Maximum inbound client packets per second.
-    #[arg(long, default_value_t = 512)]
+    #[arg(long, default_value_t = 2048)]
     max_packets_per_second: u32,
     /// Inbound packet burst before the rate limiter disconnects.
-    #[arg(long, default_value_t = 1024)]
+    #[arg(long, default_value_t = 4096)]
     packet_burst: u32,
     /// Maximum inbound packet payload bytes.
     #[arg(long, default_value_t = 4194304)]
@@ -834,6 +834,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs, builtin: BuiltinRuntime) -> Exi
             world_uuid: args.uuid,
             player_uuid: args.player_uuid,
             view_radius: args.view_radius,
+            spawn_search: true,
             chunks_per_tick: args.chunks_per_tick,
             builtin,
         },

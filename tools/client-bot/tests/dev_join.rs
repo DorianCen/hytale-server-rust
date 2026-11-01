@@ -56,7 +56,7 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     }
 
     let save_dir = temp_dir("join");
-    let (thread, _start) = WorldThread::spawn(WorldThreadOptions::with_defaults(
+    let mut world_options = WorldThreadOptions::with_defaults(
         GeneratorOptions {
             assets_pack: repo_root().join("Assets/Assets.zip"),
             assets_root: repo_root().join("Assets/extracted"),
@@ -64,8 +64,11 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
             workers: 1,
         },
         save_dir.clone(),
-    ))
-    .expect("world thread");
+    );
+    // The prefab is placed relative to the origin; keep the raw spawn so the
+    // entity-view assertions stay deterministic.
+    world_options.spawn_search = false;
+    let (thread, _start) = WorldThread::spawn(world_options).expect("world thread");
     thread
         .place_prefab("Hunt.Generic.Site", 4, 200, 4, 0)
         .expect("place the hunt site prefab");

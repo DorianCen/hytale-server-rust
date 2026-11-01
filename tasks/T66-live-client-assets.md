@@ -361,3 +361,12 @@ spawn only ran for the world-boot player; `player_snapshot` now applies it per
 join. The empty hand also had no `Primary`/`Use`/`Pick` roots because
 `UpdateUnarmedInteractions` only sent `SwapFrom`; the registry now loads
 `Unarmed/Interactions/Empty.json` and maps all its interaction types.
+
+### Eleventh run: cliff spawn and correction flood
+
+The origin column is a one-block ledge (neighbour heights 107/110/111), so the
+player could not move. The spawn resolver now searches a 3x3 chunk area for a
+flat column with a two-block air gap. The client then sent 1505 movement
+packets and received 1281 teleport corrections until the server disconnected it
+for `packet rate limit exceeded`; corrections are now throttled to 10/s and the
+default inbound limits raised to 2048/s / 4096 burst.

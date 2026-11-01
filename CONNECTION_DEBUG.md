@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (tenth run)
+# Connection-debug session handoff — 2026-11-01 (eleventh run)
 
 ## Objective
 
@@ -35,6 +35,16 @@ Hytale client.** The agent must never launch it.
   its local collision blocks movement. Surface spawn should unblock both. It
   also receives an empty inventory, so number-key item switching has nothing to
   select; middle-mouse pick-block needs a valid block target.
+- The tenth run exposed that the origin column is a **one-block ledge at a
+  cliff**: heights around `(0,0)` are `0,0,107,110,111` (x = -2..2). Picking the
+  highest block of that column left the player unable to move. The spawn
+  resolver now loads a 3x3 chunk area and picks the nearest column with a
+  two-block air gap and neighbours within one block of its ground height.
+- The tenth run then disconnected with 1505 `ClientMovement` and 1281
+  `ClientTeleport` packets. The trace's `ServerDisconnect` hash decodes to
+  **"packet rate limit exceeded"**. Movement corrections are now rate-limited
+  to 10/s, and the default inbound limits were raised to 2048/s with a 4096
+  burst.
 - The empty-hand interaction chain was incomplete: `UpdateUnarmedInteractions`
   only carried `SwapFrom`. Java's `UnarmedInteractions.Empty` also defines
   `Primary`, `Use`, `Pick` and `Ability3`; without them the client never starts
@@ -320,9 +330,16 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
 - `crates/hytale-server/src/world_thread.rs`
   - Preload `RoleCatalog`, `WorldSpawnCatalog`, `SpawnMarkerCatalog` and
     `BeaconCatalog` at world boot instead of on the first game-loop tick.
-  - Resolve a surface spawn (highest non-air block + 1) when the saved transform
-    is absent or inside terrain, for the world-boot player and for every
-    authenticated `player_snapshot` join.
+  - Resolve a safe surface spawn near the origin: load a 3x3 chunk area and pick
+    the nearest column with a two-block air gap and flat-enough neighbours.
+    Applied to the world-boot player and to every authenticated join near the
+    spawn.
+- `crates/hytale-server/src/session.rs`
+  - Rate-limit movement corrections to at most one per 100 ms and ignore
+    sub-0.05-block differences, so a stuck client cannot trigger a teleport
+    flood.
+- `crates/hytale-server/src/main.rs`
+  - Raise the default inbound limits to 2048 packets/s and a 4096 burst.
 - `crates/hytale-npc/src/role.rs` / `spawn_special.rs`
   - Load catalogs with one `AssetPack::read_many` call instead of reopening the
     zip for every JSON file.
@@ -409,10 +426,10 @@ nodes found no cycles.
 ./tools/test.sh fast
 Summary [ 19.552s] 1555 tests run: 1555 passed, 24 skipped
 
-cargo test -p client-bot --test auth_join -- --ignored        → 2 passed (46 s)
+cargo test -p client-bot --test auth_join -- --ignored        → 2 passed (49 s)
 (dev server + client-bot --observe 35: 35 UpdateTime, HUD packet, ClientTeleport, no gap)
-cargo test -p client-bot --test dev_join -- --ignored         → 1 passed (42 s)
-cargo test -p client-bot --test portal_session -- --ignored   → 1 passed (85 s)
+cargo test -p client-bot --test dev_join -- --ignored         → 1 passed (45 s)
+cargo test -p client-bot --test portal_session -- --ignored   → 1 passed (93 s)
 (pacing keeps these loopback joins green)
 
 HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets

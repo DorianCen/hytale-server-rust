@@ -2250,3 +2250,22 @@ This file records phase-2 sessions only.
   `UpdateUnarmedInteractions` grew from 17 to 37 bytes.
 - **Follow-up:** confirm movement/block edits with the release client; commands
   (`CommandTreeSync` + `ChatMessage`) and starter items remain.
+
+---
+
+## Session 83 — Flat spawn, correction throttle (2026-11-01)
+
+- **Goal:** the tenth run spawned near the surface but the client was stuck and
+  the server disconnected it.
+- **Evidence:** the origin column is a one-block ledge at a cliff (neighbouring
+  ground heights 107/110/111). The trace had 1505 `ClientMovement` and 1281
+  `ClientTeleport` packets; the `ServerDisconnect` payload hash decodes to
+  `packet rate limit exceeded`.
+- **Landed:**
+  - Spawn search loads a 3x3 chunk area and picks the nearest column with a
+    two-block air gap and neighbours within ±1 block.
+  - Movement corrections are throttled to 10/s with a 0.05-block threshold.
+  - Default inbound limits raised to 2048/s and a 4096 burst.
+- **Verified:** fast tier (1555), clippy, `--validate-assets`; dev-server bot
+  resolves the real universe spawn to a flat `(-1, 111, -1)`.
+- **Follow-up:** rerun the client; commands and starter items remain.

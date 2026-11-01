@@ -169,6 +169,7 @@ impl UniverseRuntime {
             world_uuid: Some(descriptor.uuid.to_string()),
             player_uuid: None,
             view_radius: self.view_radius,
+            spawn_search: true,
             chunks_per_tick: self.chunks_per_tick,
             builtin: self.builtin,
         };

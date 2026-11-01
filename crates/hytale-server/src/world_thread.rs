@@ -101,6 +101,8 @@ pub struct WorldThreadOptions {
     pub player_uuid: Option<String>,
     /// Initial view radius around the player chunk.
     pub view_radius: u32,
+    /// Search for a flat spawn near the origin instead of using the raw column.
+    pub spawn_search: bool,
     /// Maximum chunks loaded/generated per `Tick`.
     pub chunks_per_tick: usize,
     /// Enabled builtin modules.
@@ -118,6 +120,7 @@ impl WorldThreadOptions {
             world_uuid: None,
             player_uuid: None,
             view_radius: 0,
+            spawn_search: true,
             chunks_per_tick: 1,
             builtin: hytale_builtin::BuiltinRuntime::compiled(),
         }
@@ -5290,7 +5293,8 @@ fn run(
                         let _ = reply.send(Ok(player_transform));
                     }
                     Command::PlayerSnapshot { uuid, reply } => {
-                        let result = player_snapshot(&mut save, &generator, uuid);
+                        let result =
+                            player_snapshot(&mut save, &generator, uuid, options.spawn_search);
                         let _ = reply.send(result);
                     }
                     Command::PlayerDocument { uuid, reply } => {
@@ -5506,21 +5510,10 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
             },
         )
     });
-    let spawn_x = spawn_hint.position.x.floor() as i32;
-    let spawn_z = spawn_hint.position.z.floor() as i32;
-    let spawn_chunk = (
-        block_to_chunk(spawn_hint.position.x),
-        block_to_chunk(spawn_hint.position.z),
-    );
-    if save.world().chunk(spawn_chunk.0, spawn_chunk.1).is_none() {
-        let column = generator.generate(save.config().seed as i32, spawn_chunk.0, spawn_chunk.1)?;
-        save.world_mut().insert_chunk(column);
-    }
-    let spawn_block_y = spawn_hint.position.y.floor() as i32;
-    let needs_surface =
-        player_transform.is_none() || save.world().get_block(spawn_x, spawn_block_y, spawn_z) != 0;
-    if needs_surface {
-        let surface = surface_spawn(save.world(), spawn_x, spawn_z);
+    let near_origin = spawn_hint.position.x.abs() <= 8.0 && spawn_hint.position.z.abs() <= 8.0;
+    if player_transform.is_none() || near_origin {
+        let surface =
+            resolve_spawn(&mut save, &generator, spawn_hint).map_err(WorldThreadError::Thread)?;
         player.set_transform(surface);
         player_transform = Some(surface);
     }
@@ -5826,27 +5819,95 @@ fn chunk_packets(save: &WorldSave, x: i32, z: i32, full: bool) -> Result<ChunkPa
     .map_err(|error| error.to_string())
 }
 
-/// Place a player one block above the highest non-air block in a column.
-fn surface_spawn(world: &hytale_world::world::World, x: i32, z: i32) -> PlayerTransform {
-    let mut top = 0;
+/// Highest non-air block in a column, or 0 for a void/unloaded column.
+fn highest_non_air(world: &hytale_world::world::World, x: i32, z: i32) -> i32 {
     for y in (0..hytale_world::chunk::SECTION_COUNT as i32 * 32).rev() {
         if world.get_block(x, y, z) != 0 {
-            top = y;
-            break;
+            return y;
         }
     }
-    PlayerTransform::new(
+    0
+}
+
+/// Whether a column has a two-block air gap and flat-enough neighbours for a
+/// player hitbox. Returns the ground height.
+fn flat_spawn_height(world: &hytale_world::world::World, x: i32, z: i32) -> Option<i32> {
+    let top = highest_non_air(world, x, z);
+    if top <= 0 || world.get_block(x, top + 1, z) != 0 || world.get_block(x, top + 2, z) != 0 {
+        return None;
+    }
+    for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+        let neighbour = highest_non_air(world, x + dx, z + dz);
+        if neighbour <= 0 || (neighbour - top).abs() > 1 {
+            return None;
+        }
+    }
+    Some(top)
+}
+
+/// Resolve a safe surface spawn near `hint`.
+///
+/// A column's top block can be a one-block ledge at a cliff edge (seed 0 at the
+/// origin is exactly that), which leaves the client unable to move. Load a 3x3
+/// chunk area, then pick the nearest column with a two-block air gap and
+/// flat-enough neighbours.
+fn resolve_spawn(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    hint: PlayerTransform,
+) -> Result<PlayerTransform, String> {
+    let seed = save.config().seed as i32;
+    let base_x = hint.position.x.floor() as i32;
+    let base_z = hint.position.z.floor() as i32;
+    let base_chunk = (
+        block_to_chunk(hint.position.x),
+        block_to_chunk(hint.position.z),
+    );
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            let cx = base_chunk.0 + dx;
+            let cz = base_chunk.1 + dz;
+            if save.world().chunk(cx, cz).is_none() {
+                let column = generator
+                    .generate(seed, cx, cz)
+                    .map_err(|error| error.to_string())?;
+                save.world_mut().insert_chunk(column);
+            }
+        }
+    }
+
+    let mut chosen = None;
+    'search: for radius in 0..=16i32 {
+        for dz in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx.abs().max(dz.abs()) != radius {
+                    continue;
+                }
+                let x = base_x + dx;
+                let z = base_z + dz;
+                if let Some(top) = flat_spawn_height(save.world(), x, z) {
+                    chosen = Some((x, top, z));
+                    break 'search;
+                }
+            }
+        }
+    }
+    let (x, top, z) = chosen.unwrap_or_else(|| {
+        let top = highest_non_air(save.world(), base_x, base_z).max(0);
+        (base_x, top, base_z)
+    });
+    eprintln!(
+        "[spawn] resolved ({x}, {}, {z}) near ({base_x}, {base_z})",
+        top + 1
+    );
+    Ok(PlayerTransform::new(
         Position {
             x: f64::from(x) + 0.5,
             y: f64::from(top + 1),
             z: f64::from(z) + 0.5,
         },
-        Rotation {
-            pitch: 0.0,
-            yaw: 0.0,
-            roll: 0.0,
-        },
-    )
+        hint.rotation,
+    ))
 }
 
 fn load_chunk(
@@ -6526,6 +6587,7 @@ fn player_snapshot(
     save: &mut WorldSave,
     generator: &WorldGenerator,
     uuid: WorldUuid,
+    spawn_search: bool,
 ) -> Result<PlayerSnapshot, String> {
     let (mut player, _created) = save
         .load_or_create_player(uuid)
@@ -6544,22 +6606,12 @@ fn player_snapshot(
             },
         )
     });
-    // A saved `(0,0,0)` (or any transform inside terrain) would leave the
-    // player stuck in the ground with no movement or interaction raycast.
-    // Resolve the surface for every join, not only the world-boot player.
-    let block_x = transform.position.x.floor() as i32;
-    let block_y = transform.position.y.floor() as i32;
-    let block_z = transform.position.z.floor() as i32;
-    let chunk_x = block_to_chunk(transform.position.x);
-    let chunk_z = block_to_chunk(transform.position.z);
-    if save.world().chunk(chunk_x, chunk_z).is_none() {
-        let column = generator
-            .generate(save.config().seed as i32, chunk_x, chunk_z)
-            .map_err(|error| error.to_string())?;
-        save.world_mut().insert_chunk(column);
-    }
-    if save.world().get_block(block_x, block_y, block_z) != 0 {
-        transform = surface_spawn(save.world(), block_x, block_z);
+    // A saved `(0,0,0)`, a transform inside terrain, or the cliff-edge spawn
+    // near the origin leaves the client stuck with no movement. Resolve a flat
+    // surface spot for every join near the world spawn (and for new players).
+    let near_origin = transform.position.x.abs() <= 8.0 && transform.position.z.abs() <= 8.0;
+    if spawn_search && (near_origin || _created) {
+        transform = resolve_spawn(save, generator, transform)?;
         player.set_transform(transform);
         save.save_player(uuid, &player)
             .map_err(|error| error.to_string())?;

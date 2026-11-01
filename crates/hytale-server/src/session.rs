@@ -2814,6 +2814,7 @@ async fn run_game_loop(
     let mut last_time_paused = world_time.time_paused;
     let mut teleport_sent = false;
     let mut movement_teleport_id = 1i8;
+    let mut last_movement_correction: Option<std::time::Instant> = None;
     // Registry view center follows the player's chunk even before the client
     // acknowledges the teleport (the chunk view itself still waits for the ack).
     let mut registry_center = center;
@@ -3213,13 +3214,31 @@ async fn run_game_loop(
                                             y: resolution.position.y,
                                             z: resolution.position.z,
                                         };
-                                        send_client_teleport_correction(
-                                            writer,
-                                            *transform,
-                                            &mut movement_teleport_id,
-                                            options,
-                                        )
-                                        .await?;
+                                        // Do not answer every movement packet with a
+                                        // teleport: a client stuck against terrain can
+                                        // send hundreds per second, and the resulting
+                                        // correction flood trips the inbound rate limit.
+                                        // At most ten corrections per second keep the
+                                        // client in sync without the storm.
+                                        let correction_due =
+                                            last_movement_correction.is_none_or(|last| {
+                                                last.elapsed() >= Duration::from_millis(100)
+                                            });
+                                        let moved = (resolution.position.x - target.x)
+                                            .abs()
+                                            .max((resolution.position.y - target.y).abs())
+                                            .max((resolution.position.z - target.z).abs());
+                                        if correction_due && moved > 0.05 {
+                                            send_client_teleport_correction(
+                                                writer,
+                                                *transform,
+                                                &mut movement_teleport_id,
+                                                options,
+                                            )
+                                            .await?;
+                                            last_movement_correction =
+                                                Some(std::time::Instant::now());
+                                        }
                                     } else {
                                         transform.position = hytale_world::player_data::Position {
                                             x: target.x,
