@@ -97,14 +97,30 @@ fn absent_interaction_references_use_not_found() {
     }
 
     let unarmed: UpdateUnarmedInteractions = decode(&packets);
-    let swap = unarmed
-        .interactions
-        .expect("unarmed map")
-        .get(&InteractionType::SwapFrom)
-        .copied()
-        .expect("SwapFrom binding");
-    assert!(
-        swap == INTERACTION_NOT_FOUND || roots.contains_key(&swap),
-        "unarmed SwapFrom references missing root interaction slot {swap}"
-    );
+    let unarmed = unarmed.interactions.expect("unarmed map");
+    for (interaction_type, root) in &unarmed {
+        assert!(
+            *root == INTERACTION_NOT_FOUND || roots.contains_key(root),
+            "unarmed {interaction_type:?} references missing root interaction slot {root}"
+        );
+    }
+    // Java's `UnarmedInteractions.Empty` defines the empty-hand primary/use/pick
+    // chains; without them the client never sends block-break or pick
+    // interactions. `SwapFrom` is the codec-added default.
+    for interaction_type in [
+        InteractionType::Primary,
+        InteractionType::Use,
+        InteractionType::Pick,
+        InteractionType::Ability3,
+        InteractionType::SwapFrom,
+    ] {
+        let root = unarmed
+            .get(&interaction_type)
+            .unwrap_or_else(|| panic!("unarmed map is missing {interaction_type:?}"));
+        assert_ne!(
+            *root, INTERACTION_NOT_FOUND,
+            "unarmed {interaction_type:?} did not resolve to a root interaction"
+        );
+    }
+    assert_eq!(unarmed.get(&InteractionType::SwapFrom), Some(&0));
 }

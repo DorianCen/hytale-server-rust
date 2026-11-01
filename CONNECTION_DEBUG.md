@@ -35,6 +35,12 @@ Hytale client.** The agent must never launch it.
   its local collision blocks movement. Surface spawn should unblock both. It
   also receives an empty inventory, so number-key item switching has nothing to
   select; middle-mouse pick-block needs a valid block target.
+- The empty-hand interaction chain was incomplete: `UpdateUnarmedInteractions`
+  only carried `SwapFrom`. Java's `UnarmedInteractions.Empty` also defines
+  `Primary`, `Use`, `Pick` and `Ability3`; without them the client never starts
+  block-break, use or pick interactions. The registry now loads the inline roots
+  from `Server/Item/Unarmed/Interactions/Empty.json` and the packet maps every
+  type to its root-interaction index.
 - Server-side commands are still not implemented: `ChatMessage` is ignored and
   no `CommandTreeSync` is sent. This is a separate feature from the join path.
 
@@ -353,6 +359,10 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
     `SwapFrom` binding.
   - `DamageEntity.Blocked` and the `MovementCondition` directions are now
     resolved from JSON instead of being hardcoded to `0`.
+- `crates/hytale-assets/src/registry.rs` / `packets/mod.rs`
+  - Load `Server/Item/Unarmed/Interactions/Empty.json`, register its inline
+    `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
+    and map every type in `UpdateUnarmedInteractions` to its root index.
 - `crates/hytale-assets/src/registry.rs`
   - Inline objects in `Interactions` arrays are registered as contained
     interaction assets at any nesting depth, matching Java's
@@ -457,11 +467,19 @@ ids, channels, order and payload hashes.
 
 - `crates/hytale-assets/src/packets/mod.rs` — interaction encoders and
   `INTERACTION_NOT_FOUND`
+- `crates/hytale-assets/src/registry.rs` / `packets/mod.rs`
+  - Load `Server/Item/Unarmed/Interactions/Empty.json`, register its inline
+    `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
+    and map every type in `UpdateUnarmedInteractions` to its root index.
 - `crates/hytale-assets/src/registry.rs` — contained interaction registration
 - `crates/hytale-assets/tests/interaction_packets.rs` — new sentinel/self-loop
   regression
 - `crates/hytale-assets/tests/block_item_packets.rs` — interaction graph
   materialization
+- `crates/hytale-assets/src/registry.rs` / `packets/mod.rs`
+  - Load `Server/Item/Unarmed/Interactions/Empty.json`, register its inline
+    `Primary`/`Use`/`Pick`/`Ability3` roots (and their contained interactions),
+    and map every type in `UpdateUnarmedInteractions` to its root index.
 - `crates/hytale-assets/src/registry.rs` — block preloads and translations
 - `crates/hytale-server/src/session.rs` — auth/setup/asset burst
 - `tasks/T66-live-client-assets.md` — current T66 status

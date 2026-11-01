@@ -53,25 +53,24 @@ use hytale_protocol::generated::common::{
     EqualizerEffect, ExtrudePlaceBlockInteraction, FXRenderMode, FaceTagConnectedBlockRule,
     FadeCurve, FailOnType, FirstClickInteraction, Fluid, FluidDrawType, FluidParticle,
     GroundedConditionInteraction, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
-    InitialVelocity, Interaction, InteractionCooldown, InteractionTarget, InteractionType,
-    IntersectionHighlight, ItemAnimation, ItemCategory, ItemGridInfoDisplayMode,
-    ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality, ItemReticle,
-    ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet, LayerPlacement,
-    LoopOption, Match, MaterialQuantity, MemoriesConditionInteraction, Model, ModelParticle,
-    ModelVFX, ModifyInventoryInteraction, MovementConditionInteraction, MusicContainer,
-    MusicMarker, MusicSync, MusicTransition, MusicTransitionType, NearFar, NotConnectedBlockRule,
-    Opacity, OrConnectedBlockRule, OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction,
-    Particle, ParticleAnimationFrame, ParticleAttractor, ParticleCollision,
-    ParticleCollisionAction, ParticleCollisionBlockType, ParticleRotationInfluence,
-    ParticleScaleRatioConstraint, ParticleSpawner, ParticleSpawnerGroup, ParticleSystem,
-    ParticleUVOption, PhysicalMaterial, PhysicsConfig, PhysicsType, PickBlockInteraction,
-    PlaceBlockInteraction, ProjectileConfig, ProjectileInteraction, RandomMode,
-    RandomMusicContainer, Range, RangeVector2f, RangeVector3f, Rangeb, Rangef,
-    RemoveEntityInteraction, RepeatInteraction, ReplaceInteraction, RepulsionConfig, ResourceType,
-    ReverbEffect, RoofState, RootInteraction, RotationMode, SegmentMusicContainer,
-    SelectInteraction, Selector, SequenceMusicContainer, SerialInteraction, ShaderType,
-    ShapeConnectedBlockRule, ShelterType, SimpleInteraction, SingleTrackMusicContainer, Size,
-    SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade,
+    InitialVelocity, Interaction, InteractionCooldown, InteractionTarget, IntersectionHighlight,
+    ItemAnimation, ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations,
+    ItemPullbackConfiguration, ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig,
+    ItemSoundEvent, ItemSoundSet, LayerPlacement, LoopOption, Match, MaterialQuantity,
+    MemoriesConditionInteraction, Model, ModelParticle, ModelVFX, ModifyInventoryInteraction,
+    MovementConditionInteraction, MusicContainer, MusicMarker, MusicSync, MusicTransition,
+    MusicTransitionType, NearFar, NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
+    OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction, Particle,
+    ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
+    ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
+    ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
+    PhysicsConfig, PhysicsType, PickBlockInteraction, PlaceBlockInteraction, ProjectileConfig,
+    ProjectileInteraction, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
+    Rangeb, Rangef, RemoveEntityInteraction, RepeatInteraction, ReplaceInteraction,
+    RepulsionConfig, ResourceType, ReverbEffect, RoofState, RootInteraction, RotationMode,
+    SegmentMusicContainer, SelectInteraction, Selector, SequenceMusicContainer, SerialInteraction,
+    ShaderType, ShapeConnectedBlockRule, ShelterType, SimpleInteraction, SingleTrackMusicContainer,
+    Size, SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade,
     StatsConditionInteraction, Stinger, StingerBinding, StingerShortLead, SubCategoryDefinition,
     SurfaceDrawPlaceBlockInteraction, SurfaceType, SwitchTo, SyncPoint,
     TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail,
@@ -548,15 +547,22 @@ impl AssetRegistry {
         AssetPacket::encode("RootInteraction", &packet)
     }
 
-    /// `UpdateUnarmedInteractions` (id 63) from the built-in default root.
+    /// `UpdateUnarmedInteractions` (id 63) from the `Empty` unarmed asset.
+    ///
+    /// Java maps every `InteractionType` of
+    /// `UnarmedInteractions.DEFAULT_UNARMED_ID` to its root-interaction index.
+    /// Sending only `SwapFrom` leaves an empty hand with no primary/use/pick
+    /// chain, so the client never sends block-break or pick interactions.
     pub fn unarmed_interactions_packet(&self) -> Result<AssetPacket> {
         let mut interactions = BTreeMap::new();
-        interactions.insert(
-            InteractionType::SwapFrom,
-            self.root_interactions
-                .id_of("*Default_Swap")
-                .unwrap_or(INTERACTION_NOT_FOUND),
-        );
+        for (interaction_type, root_key) in &self.unarmed_interactions {
+            interactions.insert(
+                *interaction_type,
+                self.root_interactions
+                    .id_of(root_key)
+                    .unwrap_or(INTERACTION_NOT_FOUND),
+            );
+        }
         let packet = UpdateUnarmedInteractions {
             r#type: UpdateType::Init,
             interactions: Some(interactions),

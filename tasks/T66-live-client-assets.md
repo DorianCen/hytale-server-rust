@@ -353,3 +353,11 @@ preloaded at boot and loaded with a single zip open (`read_many`), taking ~0.3 s
 instead of 32 s. The server also sends the default
 `UpdateVisibleHudComponents` and resolves a surface spawn when the saved
 transform is absent or inside terrain.
+
+### Tenth run: spawn, movement, empty-hand interactions
+
+The authenticated player's saved `(0,0,0)` was still used because the surface
+spawn only ran for the world-boot player; `player_snapshot` now applies it per
+join. The empty hand also had no `Primary`/`Use`/`Pick` roots because
+`UpdateUnarmedInteractions` only sent `SwapFrom`; the registry now loads
+`Unarmed/Interactions/Empty.json` and maps all its interaction types.

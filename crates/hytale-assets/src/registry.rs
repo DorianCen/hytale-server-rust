@@ -29,9 +29,11 @@
 //! the standalone `Server/Item/Block/Blocks` assets is the port's own order.
 //! The registry is never re-derived from a golden dump at runtime.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use hytale_protocol::generated::common::{BlockMaterial, BlockNeighbor, DrawType, Opacity};
+use hytale_protocol::generated::common::{
+    BlockMaterial, BlockNeighbor, DrawType, InteractionType, Opacity,
+};
 use serde_json::{json, Value};
 
 use crate::gameplay::GameplayConfigAsset;
@@ -413,6 +415,8 @@ const INTERACTION: StoreSpec = StoreSpec {
     path: "Server/Item/Interactions",
     map: MapKind::IndexedLookupTable,
 };
+
+const UNARMED_INTERACTION_PATH: &str = "Server/Item/Unarmed/Interactions";
 
 const ROOT_INTERACTION: StoreSpec = StoreSpec {
     name: "RootInteraction",
@@ -985,8 +989,11 @@ pub struct AssetRegistry {
     pub recipes: AssetCollection<Value>,
     /// `Interaction` store (`Server/Item/Interactions`).
     pub interactions: AssetCollection<Value>,
-    /// `RootInteraction` store (`Server/Item/RootInteractions`).
+    /// `RootInteraction` store (`Server/Item/RootInteractions` plus the inline
+    /// roots of the default `UnarmedInteractions.Empty` asset).
     pub root_interactions: AssetCollection<Value>,
+    /// `UnarmedInteractions.Empty` mapping (`InteractionType` -> root key).
+    pub unarmed_interactions: BTreeMap<InteractionType, String>,
 }
 
 impl AssetRegistry {
@@ -1103,6 +1110,7 @@ impl AssetRegistry {
             recipes: AssetCollection::empty(),
             interactions: AssetCollection::empty(),
             root_interactions: AssetCollection::empty(),
+            unarmed_interactions: BTreeMap::new(),
         })
     }
 
@@ -1161,12 +1169,9 @@ impl AssetRegistry {
             load_indexed_store(pack, &STINGER, stinger_preloads(), parse_key_asset)?;
         registry.recipes = load_default_store(pack, &RECIPE, Vec::new())?;
         registry.interactions = load_interactions(pack)?;
-        registry.root_interactions = load_indexed_store(
-            pack,
-            &ROOT_INTERACTION,
-            root_interaction_preloads(),
-            parse_key_asset,
-        )?;
+        let (root_interactions, unarmed_interactions) = load_root_interactions(pack)?;
+        registry.root_interactions = root_interactions;
+        registry.unarmed_interactions = unarmed_interactions;
         registry.audio_categories = load_indexed_store(
             pack,
             &AUDIO_CATEGORY,
@@ -1390,6 +1395,105 @@ fn load_interactions(pack: &AssetPack) -> Result<AssetCollection<Value>, AssetEr
     AssetCollection::new(INTERACTION.name, records)
 }
 
+/// Load `RootInteraction` files plus the inline roots of
+/// `UnarmedInteractions.Empty`.
+///
+/// Java's `UnarmedInteractions.CODEC` uses `RootInteraction.CHILD_ASSET_CODEC`,
+/// which registers each inline `Interactions` value as a root interaction
+/// asset. The packet generator then maps every `InteractionType` of the
+/// `Empty` asset to that root's index. Without these roots the client receives
+/// only `SwapFrom` and cannot run primary/use/pick with an empty hand.
+fn load_root_interactions(
+    pack: &AssetPack,
+) -> Result<(AssetCollection<Value>, BTreeMap<InteractionType, String>), AssetError> {
+    let mut preloaded = preloaded_assets_with(root_interaction_preloads());
+    let mut loaded: HashSet<String> = preloaded
+        .iter()
+        .map(|asset| asset.key.to_ascii_lowercase())
+        .collect();
+    let mut files = read_store_files(pack, ROOT_INTERACTION.path)?;
+    let mut unarmed = BTreeMap::new();
+    for asset in read_store_files(pack, UNARMED_INTERACTION_PATH)? {
+        let Some(entries) = asset.value.get("Interactions").and_then(Value::as_object) else {
+            continue;
+        };
+        for (type_name, value) in entries {
+            let Some(interaction_type) = interaction_type(type_name) else {
+                continue;
+            };
+            if let Some(reference) = value.as_str() {
+                if asset.key == "Empty" {
+                    unarmed.insert(interaction_type, reference.to_string());
+                }
+                continue;
+            }
+            if !value.is_object() {
+                continue;
+            }
+            let key = format!("*{}_{type_name}", asset.key);
+            if asset.key == "Empty" {
+                unarmed.insert(interaction_type, key.clone());
+            }
+            files.push(contained_interaction(key, &asset.source, value.clone()));
+        }
+    }
+    unarmed.insert(InteractionType::SwapFrom, "*Default_Swap".to_string());
+    let files = apply_preload_replacements(&mut preloaded, files);
+    let ordered = assign_phase(
+        files,
+        &mut loaded,
+        MissingParentPolicy::Error,
+        ROOT_INTERACTION.name,
+    )?;
+    let mut all = preloaded;
+    all.extend(ordered);
+    let resolved = resolve_assets(all, ROOT_INTERACTION.name, MergeHook::Shallow)?;
+    let records = resolved
+        .into_iter()
+        .enumerate()
+        .map(|(index, asset)| {
+            let id = i32::try_from(index).map_err(|_| AssetError::InvalidAsset {
+                store: ROOT_INTERACTION.name.to_string(),
+                key: asset.raw.key.clone(),
+                message: "asset id exceeds i32".to_string(),
+            })?;
+            Ok(AssetRecord {
+                key: asset.raw.key,
+                id: Some(id),
+                parent: asset.raw.parent,
+                source: asset.raw.source,
+                preloaded: asset.raw.preloaded,
+                value: asset.merged,
+            })
+        })
+        .collect::<Result<Vec<_>, AssetError>>()?;
+    Ok((
+        AssetCollection::new(ROOT_INTERACTION.name, records)?,
+        unarmed,
+    ))
+}
+
+fn interaction_type(name: &str) -> Option<InteractionType> {
+    Some(match name {
+        "Primary" => InteractionType::Primary,
+        "Secondary" => InteractionType::Secondary,
+        "Ability1" => InteractionType::Ability1,
+        "Ability2" => InteractionType::Ability2,
+        "Ability3" => InteractionType::Ability3,
+        "Ability4" => InteractionType::Ability4,
+        "Use" => InteractionType::Use,
+        "Pick" => InteractionType::Pick,
+        "Pickup" => InteractionType::Pickup,
+        "CollisionEnter" => InteractionType::CollisionEnter,
+        "CollisionLeave" => InteractionType::CollisionLeave,
+        "Collision" => InteractionType::Collision,
+        "EntityStatEffect" => InteractionType::EntityStatEffect,
+        "SwapTo" => InteractionType::SwapTo,
+        "SwapFrom" => InteractionType::SwapFrom,
+        _ => return None,
+    })
+}
+
 fn load_contained_interactions(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetError> {
     let mut out = Vec::new();
     for asset in read_store_files(pack, INTERACTION.path)? {
@@ -1404,6 +1508,23 @@ fn load_contained_interactions(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetE
                 continue;
             }
             let key = format!("*{}_Interactions_{index}", asset.key);
+            out.push(contained_interaction(
+                key.clone(),
+                &asset.source,
+                child.clone(),
+            ));
+            extract_inline_interactions(&key, child, &asset.source, &mut out);
+        }
+    }
+    for asset in read_store_files(pack, UNARMED_INTERACTION_PATH)? {
+        let Some(entries) = asset.value.get("Interactions").and_then(Value::as_object) else {
+            continue;
+        };
+        for (type_name, child) in entries {
+            if !child.is_object() {
+                continue;
+            }
+            let key = format!("*{}_{type_name}", asset.key);
             out.push(contained_interaction(
                 key.clone(),
                 &asset.source,

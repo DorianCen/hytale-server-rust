@@ -2231,3 +2231,22 @@ This file records phase-2 sessions only.
 - **Follow-up:** confirm movement and block interactions with the release
   client. Commands (`CommandTreeSync` + `ChatMessage` handling) are still
   unimplemented; the inventory is empty, so item switching needs items.
+
+---
+
+## Session 82 — Empty-hand interactions (2026-11-01)
+
+- **Goal:** after the surface-spawn fix, the client still sent no
+  `MouseInteraction` packets, so block breaking/use/pick did nothing.
+- **Root cause:** `UpdateUnarmedInteractions` only carried `SwapFrom`. Java's
+  `UnarmedInteractions.Empty` asset also defines `Primary`, `Use`, `Pick` and
+  `Ability3` (inline root interactions), which the client uses when no item is
+  held.
+- **Landed:** load `Server/Item/Unarmed/Interactions/Empty.json`, register its
+  inline roots and contained interactions in the root-interaction store, and map
+  every type to its root index in `UpdateUnarmedInteractions`.
+- **Verified:** `interaction_packets` now asserts all five types and valid root
+  references; `block_item_packets` (19 tests), fast tier (1555), clippy.
+  `UpdateUnarmedInteractions` grew from 17 to 37 bytes.
+- **Follow-up:** confirm movement/block edits with the release client; commands
+  (`CommandTreeSync` + `ChatMessage`) and starter items remain.
