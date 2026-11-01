@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (thirteenth run)
+# Connection-debug session handoff — 2026-11-01 (fourteenth run)
 
 ## Objective
 
@@ -62,6 +62,15 @@ Hytale client.** The agent must never launch it.
   path; the missing camera/attachment data is the leading suspect.
 - No `MouseInteraction` packets reached the server before the crash, so the
   failure is client-side before the interaction is sent.
+- The thirteenth run crashed again after moving for ~1.3 s, with the same
+  stack. The server sent no packet immediately before the crash (only the
+  initial `ClientTeleport` and `UpdateTime`), so the failure is local to the
+  client's movement/animation/stat code. The self-spawn was still missing the
+  `MovementStates`, `EntityEffects` and `EntityStats` components; the client's
+  stat map warnings (`No EntityStatValue found`) show those were applied
+  late/empty. The self-spawn now follows Java
+  `PlayerSystems.sendPlayerSelf` order (Model, Skin, Equipment, Transform,
+  effects, stats) and adds a default `MovementStates` component.
 - The empty-hand interaction chain was incomplete: `UpdateUnarmedInteractions`
   only carried `SwapFrom`. Java's `UnarmedInteractions.Empty` also defines
   `Primary`, `Use`, `Pick` and `Ability3`; without them the client never starts
@@ -355,6 +364,8 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
   - Rate-limit movement corrections to at most one per 100 ms and ignore
     sub-0.05-block differences, so a stuck client cannot trigger a teleport
     flood.
+  - Include the player `EntityEffectsUpdate`, `EntityStatsUpdate` (last, like
+    Java) and a default `MovementStatesUpdate` in the self-spawn `EntityUpdates`.
 - `crates/hytale-server/src/main.rs`
   - Raise the default inbound limits to 2048 packets/s and a 4096 burst.
 - `crates/hytale-npc/src/role.rs` / `spawn_special.rs`

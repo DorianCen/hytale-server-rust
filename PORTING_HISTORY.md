@@ -2306,3 +2306,19 @@ This file records phase-2 sessions only.
   `--validate-assets`.
 - **Follow-up:** rerun; if the client still crashes, symbolicate `0x6f3e45`
   from the Sentry event or the hydrated dump.
+
+---
+
+## Session 86 — Stats and movement states in the self-spawn (2026-11-01)
+
+- **Goal:** the client crashed after moving ~1.3 s with the same NRE.
+- **Evidence:** the server sent no packet immediately before the crash; the
+  client's stat map logged `No EntityStatValue found` for all 13 indices. The
+  self-spawn `EntityUpdates` lacked `MovementStates` and `EntityStats`.
+- **Landed:** build the self-spawn with the stat map first (before Equipment)
+  and append a default `MovementStatesUpdate`. Removed the late standalone stat
+  packet.
+- **Verified:** fast tier (1556), clippy, `--validate-assets`, ignored
+  `auth_join` (the bot decodes the extended self-spawn).
+- **Follow-up:** rerun the client. If it still crashes, capture the Sentry event
+  payload or a core dump with `ulimit -c unlimited`.

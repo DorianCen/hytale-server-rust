@@ -385,3 +385,10 @@ The client still had no first-person hand and crashed on a block hit
 (`TargetInvocationException` → NRE at `0x6f3e45`); no `MouseInteraction` reached
 the server. The model packet now also carries the first-person `Camera` offset,
 `DetailBoxes`, `DefaultAttachments` and gradients.
+
+### Fourteenth run: self-spawn stats and movement states
+
+The client still crashed after moving. The self-spawn now carries the
+`EntityStatsUpdate` (before Equipment) and a default `MovementStatesUpdate`;
+the separate late stat packet was removed. This targets the empty stat map
+warnings and the local movement/animation state machine.

@@ -42,9 +42,10 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    BenchType, DisconnectType, FormattedMessage, GameMode, HudComponent, InstantData, MapChunk,
-    MapMarker, MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings,
-    MovementStates, PlayerSkin, PongType, Position as ProtocolPosition,
+    BenchType, ComponentUpdate, DisconnectType, EntityEffectsUpdate, EntityStatUpdate,
+    EntityStatsUpdate, FormattedMessage, GameMode, HudComponent, InstantData, MapChunk, MapMarker,
+    MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings, MovementStates,
+    MovementStatesUpdate, PlayerSkin, PongType, Position as ProtocolPosition,
     Transform as ProtocolTransform, UpdateType, WindowAction,
 };
 use hytale_protocol::generated::connection::{
@@ -492,6 +493,7 @@ struct EnterGame {
     inventory: PlayerInventory,
     recipes: Arc<RecipeCatalog>,
     crafting: CraftingKnowledge,
+    player_stats_init: Vec<(i32, EntityStatUpdate)>,
     trace: Option<Arc<TraceSession>>,
 }
 
@@ -694,19 +696,13 @@ pub async fn serve_connection_with_registry(
                 inventory: inventory.clone(),
                 recipes: Arc::clone(&recipes),
                 crafting: crafting.clone(),
+                player_stats_init,
                 trace,
             },
             options,
         )
         .await?;
         game.player_list = true;
-        if !player_stats_init.is_empty() {
-            let packet = PlayerGameplay::entity_updates(join.network_id, player_stats_init);
-            writer
-                .write_packet(&packet, options.chunk_compression_level)
-                .await?;
-            game.player_stats = true;
-        }
         // Java `PlayerHudManagerSystems.InitializeSystem` sends the default
         // visible HUD components when the player entity is added. Send them
         // after the stat map so the HUD can resolve every stat index.
@@ -1472,6 +1468,7 @@ async fn enter_game(
         inventory,
         recipes,
         crafting,
+        player_stats_init,
         trace,
     } = start;
     let mut chunks = ChunkStreamWriter::open(connection).await?;
@@ -1617,11 +1614,18 @@ async fn enter_game(
         .await?;
     writer
         .write_packet(
-            &self_spawn_packet(network_id, player_transform, &appearance, skin),
+            &self_spawn_packet(
+                network_id,
+                player_transform,
+                &appearance,
+                skin,
+                &player_stats_init,
+            ),
             options.chunk_compression_level,
         )
         .await?;
     game.self_spawn = true;
+    game.player_stats = !player_stats_init.is_empty();
 
     // Java `PlayerSystems` sends the full inventory and the three active-slot
     // selections after the self spawn.
@@ -1787,8 +1791,38 @@ fn self_spawn_packet(
     transform: PlayerTransform,
     appearance: &PlayerAppearance,
     auth_skin: Option<PlayerSkin>,
+    player_stats_init: &[(i32, EntityStatUpdate)],
 ) -> EntityUpdates {
-    players::spawn_entity_updates(network_id, transform, appearance, auth_skin)
+    let mut packet = players::spawn_entity_updates(network_id, transform, appearance, auth_skin);
+    let components = packet
+        .updates
+        .as_mut()
+        .and_then(|updates| updates.get_mut(0))
+        .and_then(|update| update.updates.as_mut())
+        .expect("self spawn always carries components");
+    // Java `PlayerSystems.sendPlayerSelf` order: ... Transform, EntityEffects,
+    // EntityStats. The local movement/animation code also needs MovementStates.
+    components.push(ComponentUpdate::MovementStatesUpdate(
+        MovementStatesUpdate {
+            movement_states: MovementStates::default(),
+        },
+    ));
+    components.push(ComponentUpdate::EntityEffectsUpdate(EntityEffectsUpdate {
+        entity_effect_updates: Vec::new(),
+    }));
+    if !player_stats_init.is_empty() {
+        let mut entity_stat_updates = BTreeMap::new();
+        for (index, update) in player_stats_init {
+            entity_stat_updates
+                .entry(*index)
+                .or_insert_with(Vec::new)
+                .push(update.clone());
+        }
+        components.push(ComponentUpdate::EntityStatsUpdate(EntityStatsUpdate {
+            entity_stat_updates,
+        }));
+    }
+    packet
 }
 
 async fn send_inventory(
@@ -4614,8 +4648,36 @@ mod tests {
     }
 
     #[test]
+    fn self_spawn_carries_stats_effects_and_movement_states() {
+        let stats = vec![(
+            0,
+            EntityStatUpdate {
+                op: hytale_protocol::generated::common::EntityStatOp::Init,
+                value: 100.0,
+                ..EntityStatUpdate::default()
+            },
+        )];
+        let packet = self_spawn_packet(1, transform(), &PlayerAppearance::default(), None, &stats);
+        let updates = updates(&packet);
+        assert!(matches!(updates[0], ComponentUpdate::ModelUpdate(_)));
+        assert!(matches!(updates[1], ComponentUpdate::PlayerSkinUpdate(_)));
+        assert!(matches!(updates[2], ComponentUpdate::EquipmentUpdate(_)));
+        assert!(matches!(updates[3], ComponentUpdate::TransformUpdate(_)));
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, ComponentUpdate::MovementStatesUpdate(_))));
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, ComponentUpdate::EntityEffectsUpdate(_))));
+        assert!(matches!(
+            updates.last().expect("stats last"),
+            ComponentUpdate::EntityStatsUpdate(_)
+        ));
+    }
+
+    #[test]
     fn empty_save_uses_java_empty_equipment_defaults() {
-        let packet = self_spawn_packet(1, transform(), &PlayerAppearance::default(), None);
+        let packet = self_spawn_packet(1, transform(), &PlayerAppearance::default(), None, &[]);
         let updates = updates(&packet);
         match &updates[0] {
             ComponentUpdate::ModelUpdate(update) => {
@@ -4669,7 +4731,7 @@ mod tests {
             left_hand: Some("Potion_Health".to_string()),
             model_packet: None,
         };
-        let packet = self_spawn_packet(1, transform(), &appearance, None);
+        let packet = self_spawn_packet(1, transform(), &appearance, None, &[]);
         let updates = updates(&packet);
 
         match &updates[0] {
@@ -4722,7 +4784,7 @@ mod tests {
             face: Some("AuthFace".to_string()),
             ..PlayerSkin::default()
         };
-        let packet = self_spawn_packet(1, transform(), &appearance, Some(auth_skin));
+        let packet = self_spawn_packet(1, transform(), &appearance, Some(auth_skin), &[]);
         match &updates(&packet)[1] {
             ComponentUpdate::PlayerSkinUpdate(update) => {
                 assert_eq!(
