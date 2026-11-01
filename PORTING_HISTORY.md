@@ -2357,3 +2357,17 @@ This file records phase-2 sessions only.
   `CarryInteractions`, `CarryHudInputBindings` and `InteractionVars`.
 - **Verified:** fast tier (1559), block/item goldens (21), clippy,
   `--validate-assets`.
+
+---
+
+## Session 89 — Builder tool args array (2026-11-01)
+
+- **Goal:** the client still aborted its item cache at `Block_Spawner_Block`.
+- **Evidence:** a field-level diff against the Java golden showed one remaining
+  structural difference on builder tools: `BuilderToolState.args` was null.
+- **Root cause:** Java `BuilderTool.toPacket` always sends the args array (empty
+  when the tool has none); the client's item/icon preparation dereferences it
+  and aborts the whole item cache when it is null.
+- **Landed:** builder tools always send `args: Some([])`.
+- **Verified:** fast tier (1560), block/item goldens (22), clippy,
+  `--validate-assets`.

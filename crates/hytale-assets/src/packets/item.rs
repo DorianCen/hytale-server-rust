@@ -502,7 +502,10 @@ fn builder_tool_data(value: Option<&Value>) -> Option<BuilderToolState> {
             .get("IsBrush")
             .and_then(Value::as_bool)
             .unwrap_or(false),
-        args: None,
+        // Java `BuilderTool.toPacket` always sends the args array, empty when
+        // the tool has none. A null array makes the client's item/icon
+        // preparation dereference null and abort the whole item cache.
+        args: Some(Vec::new()),
     })
 }
 

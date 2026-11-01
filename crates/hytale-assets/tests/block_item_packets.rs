@@ -1906,3 +1906,31 @@ fn items_merge_unarmed_interactions_like_java() {
         }
     }
 }
+
+/// Java `BuilderTool.toPacket` always sends the args array (empty when the
+/// tool has none). A null array made the client's item/icon preparation
+/// dereference null and abort its whole item cache.
+#[test]
+fn builder_tools_always_send_their_args_array() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (_, packets) = load();
+    let items: UpdateItems =
+        UpdateItems::decode(&mut Reader::new(&packet(&packets, UpdateItems::ID).payload))
+            .expect("decode items");
+    let items = items.items.expect("item map");
+    let mut tools = 0;
+    for (key, item) in &items {
+        let Some(tool) = &item.builder_tool_data else {
+            continue;
+        };
+        tools += 1;
+        assert!(
+            tool.args.is_some(),
+            "{key}: builder tool args must be a (possibly empty) array"
+        );
+    }
+    assert!(tools > 0, "expected builder tools in the item packet");
+}

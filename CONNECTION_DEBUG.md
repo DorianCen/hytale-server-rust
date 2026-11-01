@@ -1,4 +1,4 @@
-# Connection-debug session handoff — 2026-11-01 (sixteenth run)
+# Connection-debug session handoff — 2026-11-01 (seventeenth run)
 
 ## Objective
 
@@ -96,6 +96,12 @@ Hytale client.** The agent must never launch it.
   at that item and every later lookup (interaction hints, item names) returned
   null. The item builder now performs the same merge (and emits
   `CarryInteractions`, `CarryHudInputBindings` and `InteractionVars`).
+- The seventeenth run still stopped at the same item. A full field diff against
+  the Java golden showed one remaining structural difference on builder tools:
+  `BuilderToolState.args` was null. Java `BuilderTool.toPacket` always sends the
+  array (empty when the tool has none); the client's item/icon preparation
+  dereferences it and aborts the whole item cache when it is null. Builder tools
+  now always carry `args: Some([])`.
 - Server-side commands are still not implemented: `ChatMessage` is ignored and
   no `CommandTreeSync` is sent. This is a separate feature from the join path.
 
@@ -439,6 +445,8 @@ per 30 TPS world tick (local connections allow 2560 sections/s, still capped at
     `PlayerAnimationsId` and the default `Empty`, and emit
     `CarryInteractions`/`CarryHudInputBindings`/`InteractionVars`. Regression:
     `items_merge_unarmed_interactions_like_java`.
+  - Always send `BuilderToolState.args` as an array (empty when the tool has
+    none). Regression: `builder_tools_always_send_their_args_array`.
 - `crates/hytale-assets/src/registry.rs`
   - Inline objects in `Interactions` arrays are registered as contained
     interaction assets at any nesting depth, matching Java's
