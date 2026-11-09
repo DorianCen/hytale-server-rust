@@ -107,6 +107,7 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
     let report = dev_join(
         &session,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid: Uuid::new(1, 2),
             username: "TestBot".to_string(),
             view_radius_chunks: 0,

@@ -1276,6 +1276,8 @@ name = "hytale-commands"
 version = "0.1.0"
 dependencies = [
  "hytale-core",
+ "hytale-protocol",
+ "thiserror",
 ]
 
 [[package]]

@@ -142,6 +142,7 @@ async fn door_use_toggles_the_block_state() {
     let report = dev_join(
         &client,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid,
             username: "DoorBot".to_string(),
             view_radius_chunks: 0,
@@ -311,6 +312,7 @@ async fn container_use_opens_a_window_and_map_image() {
     let report = dev_join(
         &client,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid,
             username: "ContainerBot".to_string(),
             view_radius_chunks: 0,

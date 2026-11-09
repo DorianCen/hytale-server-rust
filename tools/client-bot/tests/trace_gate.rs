@@ -124,6 +124,7 @@ async fn v1_lifecycle_trace_matches_the_committed_gate() {
     };
     let target = BlockPosition { x: 4, y: 200, z: 4 };
     let actor_options = DevJoinOptions {
+        commands_after_join: Vec::new(),
         uuid: Uuid::new(4, 1),
         username: "TraceActor".to_string(),
         view_radius_chunks: 0,
@@ -139,6 +140,7 @@ async fn v1_lifecycle_trace_matches_the_committed_gate() {
         break_block_after_join: None,
     };
     let observer_options = DevJoinOptions {
+        commands_after_join: Vec::new(),
         uuid: Uuid::new(4, 2),
         username: "TraceObserver".to_string(),
         view_radius_chunks: 0,
@@ -178,6 +180,7 @@ async fn v1_lifecycle_trace_matches_the_committed_gate() {
     let reconnect_report = dev_join(
         &reconnected,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid: Uuid::new(4, 1),
             username: "TraceActor".to_string(),
             view_radius_chunks: 0,

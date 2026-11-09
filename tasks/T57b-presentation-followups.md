@@ -1,6 +1,6 @@
 # T57b — Presentation follow-ups
 
-**Status:** in progress (session 49)
+**Status:** done (session 49; residual presentation gaps deferred)
 **Package:** `hytale-assets`, `hytale-server`, `tools/client-bot`
 **Depends on:** T57
 **Agent fit:** low/medium
@@ -135,14 +135,14 @@ the T59 producer work.
 - `GameReport`/`GameLoopReport` expose `map_chunks`, `map_chunks_unloaded`,
   `windows_opened` and `windows_closed`.
 
-**Remaining T57b gaps:** bench-specific crafting windows/page data stay with
-the builtin Crafting module (T60); container `MoveItemStack` transactions and
-window distance validation remain gameplay work. Map images refresh on view
-changes rather than on every block edit, and the image generator follows the
-Java palette/silhouette contract but is not byte-identical (documented in
-`GOLDEN_DATA.md`). Particles/sounds and weather presentation remain with
-T59/T60; the T57b stat/effect/projectile/weather config packets and item
-metadata are already landed.
+**Residual gaps (deferred):** T60b closed bench-specific crafting windows and
+container `MoveItemStack` transactions after this packet. Still open and left
+with the owning systems: window distance validation, map-image refresh on block
+edits instead of only on view changes, and byte-identical map images (the
+generator follows the Java palette/silhouette contract; see `GOLDEN_DATA.md`).
+Particles/sounds and full weather presentation remain with T59/T60 and later.
+The T57b stat/effect/projectile/weather config packets and item metadata are
+landed.
 
 ## Ownership split
 

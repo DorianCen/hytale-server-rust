@@ -2371,3 +2371,103 @@ This file records phase-2 sessions only.
 - **Landed:** builder tools always send `args: Some([])`.
 - **Verified:** fast tier (1560), block/item goldens (22), clippy,
   `--validate-assets`.
+
+---
+
+## Session 90 — Interaction protocol-variant audit (2026-11-09)
+
+- **Goal:** close T66's remaining interaction-encoding gap by auditing every
+  asset `Type` against Java's `Interaction.generatePacket()` result.
+- **Evidence:** the pack has 84 interaction `Type` values once inline root/
+  unarmed/contained nodes are included. Rust handled 36; the rest fell back to
+  `SimpleInteraction`, but Java emits `SimpleBlockInteraction` for block-derived
+  nodes and dedicated packets for `Chaining`, `ChainFlag`, `CooldownCondition`,
+  `ResetCooldown`, `BuilderTool`, `PlaceModeSelect`, `DragEraseBlock` and
+  `CarryPlaceBlock`.
+- **Landed:**
+  - `interaction_node` now emits `SimpleBlockInteraction` (with
+    `UseLatestTarget`) for the 23 Java block-derived `Type` values, including
+    `Door`, `OpenContainer`, `OpenProcessingBench`, `Seating`, `SpawnNPC`,
+    `UseWateringCan`, `FertilizeSoil` and `PortalReturn`.
+  - New typed bodies for `Chaining`, `ChainFlag`, `CooldownCondition`,
+    `ResetCooldown`, `BuilderTool`, `PlaceModeSelect`, `DragEraseBlock` and
+    `CarryPlaceBlock` (the last reuses `PlaceBlockInteraction` with block id
+    `-1` and no held-item removal, matching Java).
+  - Contained-asset extraction now registers `Chaining.Next` array elements and
+    `Chaining.Flags` map values as `*<parent>_Next_<index>` /
+    `*<parent>_Flags_<flag>`, plus single-child fields (`Click`, `Held`,
+    `Blocked`, movement directions, force ground/collision and place-mode
+    branches) with Java's generated keys.
+- **Regression coverage:**
+  - `interaction_packets::interactions_use_the_java_protocol_variant` asserts
+    the protocol type id for every encoded interaction `Type` and fails on a new
+    unmapped type.
+  - `interaction_packets::chaining_and_block_fallbacks_resolve_their_children`
+    checks `Chaining` next/flag references, `UseLatestTarget`, the
+    `CarryPlaceBlock` sentinel and the `DragEraseBlock` variant.
+  - `block_item_packets::interaction_graph_is_materialized` now accepts the
+    `-1` carry sentinel for `PlaceBlockInteraction`.
+- **Verified:** `HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets` (all suites),
+  `./tools/test.sh fast` (1,562 passed, 24 skipped), clippy and fmt.
+- **Follow-up:** T66 still needs the non-fatal item-icon-atlas investigation
+  (only if it reproduces) and a user-run release-client smoke; T67 commands is
+  next after T66 closes.
+
+---
+
+## Session 91 — T67 command framework and in-game commands (2026-11-09)
+
+- **Goal:** replace the empty `hytale-commands` stub, decode `ChatMessage`
+  command lines, send `CommandTreeSync`, and land the first built-in commands.
+- **Landed:**
+  - `hytale-commands`: tokenizer (quotes/escapes), registry with aliases, argument
+    specs, sender/permission model, `CommandInvocation`/`CommandEffect` seam and
+    `CommandTreeSync` construction.
+  - Built-ins: `help`, `tp`, `give`, `gamemode`, `save`, `stop`, `whereami`,
+    `whoami`, `who`, `kill`, `respawn`, `time`, `version`.
+  - Session integration: the command tree is written after the join HUD (Java
+    `GamePacketHandler.registered0`); `ChatMessage` with a leading `/` is decoded
+    and dispatched in the game loop; `ServerMessage` carries replies.
+  - Effects: authoritative teleport + view/registry update, item give with
+    inventory resync and held-item broadcast, game-mode packet, damage/respawn,
+    player+world save, and a listener shutdown signal for `/stop`.
+  - `PlayerRegistry::usernames` for `/who` and command context.
+  - `client-bot` sends commands after join and records `CommandTreeSync`,
+    `ServerMessage` and teleports; new ignored `commands` loopback covers
+    `/help`, `/tp`, `/give` and `/save`.
+- **Verified:**
+  - `cargo test -p hytale-commands` (14 tests), `cargo test -p hytale-server
+    --lib` (45 tests), `cargo test -p client-bot --test commands -- --ignored`.
+  - `./tools/test.sh fast` (1,576 passed, 25 skipped), clippy and fmt.
+  - `cargo run -q -p hytale-server -- --validate-assets` still reports 0
+    failures.
+- **Follow-ups:** console stdin sender, real permissions/op groups, plain-chat
+  broadcast/formatting, player-name `tp`/`give` targets, `kick`, `world`,
+  `maxplayers`, `maxviewradius`, and the advanced Java command set. The trace
+  gate's block-edit fixture assertion was already failing independently of this
+  session (the spawn/movement target no longer reaches the block); regenerate it
+  after that scenario is fixed.
+
+---
+
+## Session 92 — T66 item-icon atlas audit (2026-11-10)
+
+- **Goal:** close T66's remaining item-icon-atlas warning with a data-driven
+  audit instead of waiting for another client run.
+- **Evidence:** the warning was `Failed to prepare the item icon atlas; item
+  icons are unavailable`. The client builds the atlas from each item's `Icon`
+  path and the streamed `CommonAssetsIndex`; there is no separate icon packet.
+- **Audit result:** the encoded `UpdateItems` map has 4,008 items. 4,007 carry
+  an `icon` and every path resolves in `CommonAssetsIndex`. The only item
+  without an icon is the preloaded `Unknown`; Java's `Item.bin` also sends
+  `Unknown` with `icon = null` (it uses the model/texture fallback).
+- **Landed:** new regression
+  `block_item_packets::item_icons_resolve_in_common_assets` asserts every item
+  icon resolves in the common index and that only `Unknown` is icon-less, plus
+  a golden check that Java's `Unknown` is icon-less too.
+- **Verified:** `HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets` (all suites),
+  `./tools/test.sh fast` (1,577 passed, 25 skipped), clippy and fmt. No
+  server-side icon gap remains.
+- **Follow-up:** the only open T66 item is the user-run release-client smoke
+  (the agent cannot launch the client). If the warning persists, capture the
+  client log and the exact missing icon name from the atlas builder.

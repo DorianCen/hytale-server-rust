@@ -1773,6 +1773,62 @@ fn extract_inline_interactions(root: &str, value: &Value, source: &str, out: &mu
         out.push(contained_interaction(key.clone(), source, child.clone()));
         extract_inline_interactions(&key, child, source, out);
     }
+    // Other interaction nodes use single `CHILD_ASSET_CODEC` object fields.
+    // Java's `ContainedAssetCodec` names the child `*<parent>_<field>`.
+    for field in [
+        "Click",
+        "Held",
+        "Blocked",
+        "GroundNext",
+        "CollisionNext",
+        "Forward",
+        "Back",
+        "Left",
+        "Right",
+        "ForwardLeft",
+        "ForwardRight",
+        "BackLeft",
+        "BackRight",
+        "DefaultInteractions",
+        "ReplaceInteractions",
+        "RetypeInteractions",
+        "ExtrudeInteractions",
+        "SurfaceDrawInteractions",
+        "FastPlaceInteractions",
+    ] {
+        let Some(child) = value.get(field).filter(|child| child.is_object()) else {
+            continue;
+        };
+        let key = format!("*{root}_{field}");
+        out.push(contained_interaction(key.clone(), source, child.clone()));
+        extract_inline_interactions(&key, child, source, out);
+    }
+    // `ChainingInteraction` uses `CHILD_ASSET_CODEC` arrays/maps for `Next` and
+    // `Flags`. Java's `AssetExtraInfo.generateKey()` names the contained assets
+    // `*<parent>_Next_<index>` and `*<parent>_Flags_<flag>`. Register them so the
+    // encoded chaining references resolve instead of falling back to NOT_FOUND.
+    if value.get("Type").and_then(Value::as_str) == Some("Chaining") {
+        if let Some(children) = value.get("Next").and_then(Value::as_array) {
+            for (index, child) in children.iter().enumerate() {
+                if !child.is_object() {
+                    continue;
+                }
+                let key = format!("*{root}_Next_{index}");
+                out.push(contained_interaction(key.clone(), source, child.clone()));
+                extract_inline_interactions(&key, child, source, out);
+            }
+        }
+        if let Some(flags) = value.get("Flags").and_then(Value::as_object) {
+            for (flag, child) in flags {
+                if !child.is_object() {
+                    continue;
+                }
+                let key = format!("*{root}_Flags_{flag}");
+                out.push(contained_interaction(key.clone(), source, child.clone()));
+                extract_inline_interactions(&key, child, source, out);
+            }
+        }
+    }
     // Java's `CHILD_ASSET_CODEC_ARRAY` registers every inline element of an
     // `Interactions` array as a contained asset at any nesting depth. Without
     // these ids the encoder falls back to `NOT_FOUND` and the client cannot

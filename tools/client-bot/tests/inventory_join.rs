@@ -151,6 +151,7 @@ async fn held_block_is_consumed_and_restored_on_reconnect() {
     let first_report = dev_join(
         &first,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid,
             username: "InventoryBot".to_string(),
             view_radius_chunks: 0,
@@ -208,6 +209,7 @@ async fn held_block_is_consumed_and_restored_on_reconnect() {
     let second_report = dev_join(
         &second,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid,
             username: "InventoryBot".to_string(),
             view_radius_chunks: 0,

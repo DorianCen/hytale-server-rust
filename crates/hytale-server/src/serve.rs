@@ -8,6 +8,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -349,6 +350,11 @@ where
     }
 
     let mut session_options = options.session.clone();
+    let stop_signal = session_options
+        .stop_signal
+        .clone()
+        .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+    session_options.stop_signal = Some(Arc::clone(&stop_signal));
     let runtime = Arc::new(Mutex::new(runtime));
     session_options.portal_router = Some(Arc::new(PortalRouter::new(Arc::clone(&runtime))));
     if let Some(path) = &options.trace_path {
@@ -409,9 +415,17 @@ where
     let mut connections: Vec<quinn::Connection> = Vec::new();
 
     let mut shutdown = Box::pin(shutdown);
+    let mut stop_poll = tokio::time::interval(Duration::from_millis(100));
+    stop_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
+            _ = stop_poll.tick() => {
+                if stop_signal.load(Ordering::Relaxed) {
+                    println!("command shutdown requested");
+                    break;
+                }
+            }
             // Collect sessions as they finish so a failure is logged even when
             // no further connection arrives.
             result = sessions.join_next(), if !sessions.is_empty() => {

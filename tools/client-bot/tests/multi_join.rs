@@ -108,6 +108,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
     };
     let first_block = BlockPosition { x: 4, y: 200, z: 4 };
     let first_options = DevJoinOptions {
+        commands_after_join: Vec::new(),
         uuid: Uuid::new(1, 1),
         username: "FirstBot".to_string(),
         view_radius_chunks: 0,
@@ -123,6 +124,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         break_block_after_join: None,
     };
     let second_options = DevJoinOptions {
+        commands_after_join: Vec::new(),
         uuid: Uuid::new(1, 2),
         username: "SecondBot".to_string(),
         view_radius_chunks: 0,
@@ -279,6 +281,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
     let reconnect_report = dev_join(
         &reconnected,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid: Uuid::new(1, 1),
             username: "FirstBot".to_string(),
             view_radius_chunks: 0,
@@ -346,6 +349,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
     let third_report = dev_join(
         &third,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid: Uuid::new(1, 3),
             username: "ThirdBot".to_string(),
             view_radius_chunks: 0,
@@ -473,6 +477,7 @@ async fn an_idle_session_is_torn_down_and_the_listener_keeps_accepting() {
     let idle_report = dev_join(
         &idle,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid: Uuid::new(3, 1),
             username: "IdleBot".to_string(),
             view_radius_chunks: 0,
@@ -506,6 +511,7 @@ async fn an_idle_session_is_torn_down_and_the_listener_keeps_accepting() {
     let active_report = dev_join(
         &active,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid: Uuid::new(3, 2),
             username: "ActiveBot".to_string(),
             view_radius_chunks: 0,

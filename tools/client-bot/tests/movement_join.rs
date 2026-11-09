@@ -96,6 +96,7 @@ async fn a_wall_correction_is_sent_but_a_free_walk_is_not() {
     let report = dev_join(
         &session,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid: Uuid::new(7, 1),
             username: "MovementBot".to_string(),
             view_radius_chunks: 0,

@@ -26,10 +26,15 @@ and stays connected. Protocol compatibility is proven, not assumed: the client
 and the Rust server use the same protocol CRC (`-386561135`, `3908406161`
 unsigned) and build number (`258`).
 
-The remaining live-client work is **asset-packet completeness** (task T66):
-some item/interaction data was still missing or null, which made the client
-abort its item cache and crash when aiming at blocks. The latest fixes are
-committed; a final real-client verification run is pending.
+The remaining live-client work is **a final smoke run** after code-side T66
+completion. Sessions 71–92 closed the join path through surface spawn,
+movement, player model, stats, block/item interactions and the full interaction
+variant audit; every encoded item icon now resolves through the streamed
+common-asset index, and the sole icon-less `Unknown` item matches Java. A
+real-client verification run is still pending. Basic in-game
+commands are now implemented (`help`, `tp`, `give`, `gamemode`, `save`, `stop`,
+`who`, ...); [T67](tasks/T67-commands.md) tracks the remaining console,
+permission, chat and advanced-command work.
 
 ### Milestones
 
@@ -40,8 +45,8 @@ committed; a final real-client verification run is pending.
 | M2 | Asset foundation: P0/P1 stores, child stores, goldens, `--validate-assets` | Done |
 | M3 | Runtime, persistent universe and world lifecycle | Done |
 | M4 | v1 client join, multiplayer tracking and block edits | Done |
-| M5 | Core gameplay parity: inventory, interactions, movement, fluids, stats, weather, projectiles, prefabs, UI basics | Done at task level; T57b presentation follow-ups in progress |
-| M6 | Builtins and NPCs: AI/pathfinding, spawning, combat, encounters, modules | Done; T66 live-client asset completeness in progress |
+| M5 | Core gameplay parity: inventory, interactions, movement, fluids, stats, weather, projectiles, prefabs, UI basics | Done; T57b closed, residual presentation gaps deferred |
+| M6 | Builtins and NPCs: AI/pathfinding, spawning, combat, encounters, modules | Done; T66 live-client asset completeness in progress; T67 commands in progress |
 | M7 | Security/fuzzing, performance/soak, packaging, plugin and mod API | Done |
 
 ### Implemented and covered by tests
@@ -64,7 +69,7 @@ committed; a final real-client verification run is pending.
 - **Tooling** — a scripted `client-bot`, protocol/asset dumpers, Java golden
   comparison, test tiers, security/perf gates and reproducible release archives.
 
-At the time of writing, the local gates are **1,560 fast-tier tests**, **22
+At the time of writing, the local gates are **1,577 fast-tier tests**, **22
 block/item golden tests**, a clean
 `cargo clippy --workspace --all-targets -- -D warnings`, and
 `--validate-assets` reporting **0 failures**.
@@ -77,12 +82,14 @@ block/item golden tests**, a clean
   pack (`Assets.zip` or an extracted tree) from a Hytale installation you own.
   The pack is several GB and is git-ignored.
 - **Live-client parity is still being closed.** World load, spawn and movement
-  are verified. Item/interaction asset completeness (T66) is the current focus;
-  the newest fixes still need a release-client run. First-person hand rendering
-  and in-client block breaking are not yet confirmed.
-- **Commands are not implemented.** `ChatMessage` is ignored and no
-  `CommandTreeSync` is sent, so `/help`, `/tp`, `/give` and similar commands do
-  not work yet.
+  are verified. T66's item/interaction asset work is code-side complete; the
+  remaining gate is a release-client smoke run. First-person hand rendering and
+  in-client block breaking are not yet confirmed.
+- **Commands are basic.** `ChatMessage` command lines and `CommandTreeSync` now
+  work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`, `whereami`,
+  `whoami`, `who`, `kill`, `respawn`, `time` and `version`. Console stdin, real
+  permissions/op groups, plain-chat broadcast, player-name targets and the
+  advanced command set remain under [T67](tasks/T67-commands.md).
 - **One stored player identity.** The join currently uses the world's stored
   player record rather than necessarily the authenticated UUID. Per-join
   identity and the full Java `SpawnProvider` behavior remain future work.

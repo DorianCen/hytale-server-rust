@@ -35,7 +35,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T55](T55-projectiles-traversal.md) | Projectiles and traversal | T51, T53 | low/medium | done (session 45) |
 | [T56](T56-prefab-runtime-entities.md) | Prefab spawner and runtime entities | T45, T50 | low/medium | done (session 46) |
 | [T57](T57-ui-block-health-presentation.md) | UI basics and block-health presentation | T46, T53 | low/medium | done (session 47) |
-| [T57b](T57b-presentation-followups.md) | Presentation follow-ups | T57 | low/medium | in progress (session 49) |
+| [T57b](T57b-presentation-followups.md) | Presentation follow-ups | T57 | low/medium | done (session 49; residual presentation gaps deferred) |
 | [T58](T58-npc-core.md) | NPC core: AI, pathfinding, flocking | T48, T57b | low/medium | done (session 50) |
 | [T58b](T58b-npc-builder-expressions.md) | NPC builder expressions and resolved archetypes | T58 | medium | done (session 50) |
 | [T58c](T58c-npc-world-grid-group.md) | NPC world grid and group steering | T58, T58b | medium | done (session 50) |
@@ -45,16 +45,20 @@ context. The main agent owns sequencing and shared-file edits.
 | [T60](T60-builtin-module-runtime.md) | Builtin module runtime and selected modules | T58, T59 | low/medium | done (session 63) |
 | [T60b](T60b-followup-gameplay.md) | Player combat/stats, containers, crafting, encounters, portal/ECS | T60 | low | done (session 64) |
 | [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65; asset follow-up T66) |
-| [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | in progress (session 70; real-client smoke pending) |
+| [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | in progress (session 92; code-side complete, real-client smoke pending) |
+| [T67](T67-commands.md) | Command framework and in-game commands | T42, T48 | medium | in progress (session 91; core framework and built-ins) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
 | [T63](T63-performance-memory-soak.md) | Performance, memory and soak | T48 | medium | done (session 68) |
 | T64 | [Packaging, docs and plugin/mod API](T64-packaging-docs-plugin-api.md) | T60 | medium | done (session 69) |
 
-Task files for T43–T66 are created when their milestone starts; the milestone
+Task files for T43–T67 are created when their milestone starts; the milestone
 scope is in [`../plan.md`](../plan.md). T65 closed live authentication; its
-real-client asset follow-up is T66 (in progress; session 70 landed the item,
-block and twenty-four store encoders, user-run client smoke still pending). T61 records the
+real-client asset follow-up is T66, code-side complete with only the user-run
+smoke pending. Sessions 70–92 landed the item/block encoders, the release-client
+join fixes, the full interaction variant audit and the item-icon/common-asset
+audit; every encoded item icon resolves and the sole icon-less `Unknown` item
+matches Java. T61 records the
 editor/builder/machinima/voice/cosmetics scope: only cosmetic appearance
 passthrough is in scope, editor clients are refused in every auth mode, and
 `builtin/HytaleGenerator` stays a separate engine project. T62 lands the
@@ -74,9 +78,10 @@ persisted runtime entity store; T57 lands block-health replication, runtime enti
 world-map basics. T57b is the M5 presentation follow-up: partial-hit block
 interaction, entity lifecycle/metadata, the stat/effect/projectile/weather
 config packets, map images/discovery and the minimal HUD/window packets. Its
-second slice lands chunk map images and container windows; bench crafting
-windows, container transactions and particle/weather presentation remain
-T59/T60. T58
+second slice lands chunk map images and container windows; T60b later closes
+bench crafting windows and container transactions. T57b is done; residual
+map-image refresh/byte-parity, window distance validation and particle/audio/
+weather presentation gaps are deferred with the owning systems. T58
 (NPC core) starts M6 after T57b; its first slice lands the role/flock catalogs,
 Java direction tables, block-grid A*, path following, pursue/evade/rotate
 steering and view-cone perception; T58b resolves the builder expression subset
@@ -106,7 +111,13 @@ encounter and weather modules do no world-thread work. T60b closes the first
 gameplay follow-up slice: player health/stat replication, container
 `MoveItemStack` transactions, bench windows and recipe delivery, encounter
 spawn/particle/sound execution, portal/instance catalog plans and the NPC
-builder/ECS storage seam.
+builder/ECS storage seam. T67 (in progress, session 91) replaces the empty
+`hytale-commands` stub with the tokenizer/registry/permission/dispatch
+framework, inbound `ChatMessage` handling, `CommandTreeSync` and the core
+built-ins (`help`, `tp`, `give`, `gamemode`, `save`, `stop`, `who`, ...). The
+ignored `client-bot` commands loopback covers the command round trip; console
+stdin, permissions/op groups, chat broadcast and player-name targets remain
+follow-ups.
 
 ## Rules
 

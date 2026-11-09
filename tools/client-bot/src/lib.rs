@@ -34,7 +34,8 @@ use hytale_protocol::generated::connection::{
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::{
-    AddToServerPlayerList, RemoveFromServerPlayerList, SetPage,
+    AddToServerPlayerList, ChatMessage, CommandTreeSync, RemoveFromServerPlayerList, ServerMessage,
+    SetPage,
 };
 use hytale_protocol::generated::inventory::{SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
@@ -323,6 +324,8 @@ pub struct DevJoinOptions {
     /// Send `ClientReady(readyForGameplay)` after the snapshot so the server
     /// starts the teleport/time flow.
     pub send_ready_for_gameplay: bool,
+    /// Chat command lines (`/help`, `/tp ...`) sent after the join.
+    pub commands_after_join: Vec<String>,
 }
 
 /// World-join state observed by the bot.
@@ -513,6 +516,10 @@ pub struct PlayerObservation {
     pub pages: Vec<Page>,
     /// Authoritative `ClientTeleport` corrections received from the server.
     pub teleports: Vec<Position>,
+    /// `CommandTreeSync` sent after the join.
+    pub command_tree: Option<CommandTreeSync>,
+    /// `ServerMessage.rawText` values received after the join.
+    pub server_messages: Vec<String>,
 }
 
 /// Errors from the dev join.
@@ -680,6 +687,16 @@ pub async fn dev_join(
             )
             .await?;
     }
+    for command in &options.commands_after_join {
+        writer
+            .write_packet(
+                &ChatMessage {
+                    message: Some(command.clone()),
+                },
+                3,
+            )
+            .await?;
+    }
     let disconnect_at = options
         .disconnect_after
         .map(|after| tokio::time::Instant::now() + after);
@@ -798,6 +815,15 @@ async fn observe_players(
                         let packet: ClientTeleport = frame.decode()?;
                         if let Some(position) = packet.model_transform.position {
                             observation.teleports.push(position);
+                        }
+                    }
+                    CommandTreeSync::ID => {
+                        observation.command_tree = Some(frame.decode()?);
+                    }
+                    ServerMessage::ID => {
+                        let packet: ServerMessage = frame.decode()?;
+                        if let Some(message) = packet.message.and_then(|message| message.raw_text) {
+                            observation.server_messages.push(message);
                         }
                     }
                     UpdateMovementSettings::ID => {

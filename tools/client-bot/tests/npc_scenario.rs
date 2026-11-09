@@ -168,6 +168,7 @@ async fn bot_observes_npc_spawn_chase_and_despawn() {
     let report = dev_join(
         &client,
         &DevJoinOptions {
+            commands_after_join: Vec::new(),
             uuid,
             username: "NpcBot".to_string(),
             view_radius_chunks: 0,

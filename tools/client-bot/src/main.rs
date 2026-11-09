@@ -161,6 +161,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         let report = dev_join(
             &session,
             &DevJoinOptions {
+                commands_after_join: Vec::new(),
                 uuid: Uuid::new(
                     0x1234_5678_1234_5678u64 as i64,
                     0x9abc_def0_1234_5678u64 as i64,

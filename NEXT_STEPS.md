@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 64)
+# Next steps — CoreServer rewrite, phase 2 (session 91)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -25,6 +25,18 @@ adds player health/stat replication, container transactions, bench windows and
 recipes, encounter action execution, portal/instance plans and the NPC
 builder/ECS seam. Per-entity stat packets use Java's stat-index map and
 encounter target actions update live NPC state.
+
+**Later sessions:** **T65** landed live OAuth/session-service authentication;
+**T66** is still in progress (config-asset completeness plus the release-client
+join fixes in sessions 71–90); **T62**–**T64** landed the security/fuzz gate,
+the performance/soak baseline and packaging/docs. Sessions 71–90 debugged the
+real release client end to end: version comparison, Debug_Model/translations,
+interaction `NOT_FOUND`, weather fog, chunk absence/pacing/flags, the WorldMap
+stream, surface spawn, full player model/camera, stats/movement states, block
+and item interaction merges, and builder-tool args. **T57b** is closed with
+residual presentation gaps deferred. **T67** (in progress) adds the command
+framework and core in-game commands; the parser/registry/tree, `ChatMessage`
+dispatch and the first built-ins are landed (session 91).
 
 ## Current state
 
@@ -163,7 +175,7 @@ Landed and green:
   ignored dev-join loopback verifies the marker and three prefab entity spawns.
   Map chunk images, discovery/reveal, dynamic entity transforms and the
   remaining presentation packets are T57b.
-- T57b (in progress, session 49): the M5 presentation follow-up now encodes
+- T57b (done, session 49): the M5 presentation follow-up now encodes
   `UpdateEntityStatTypes` (72), `UpdateEntityEffects` (51),
   `UpdateProjectileConfigs` (85) and `UpdateWeathers` (47) in the 21-packet
   cached config burst, carries the full item stack payload
@@ -174,11 +186,11 @@ Landed and green:
   block markers are revealed/persisted. Session 49 adds 96×96 palette map
   images for the loaded view with `UpdateWorldMap.chunks` load/unload diffs,
   and persisted block-container inventories with the
-  `SetPage(Bench)`/`OpenWindow(Container)`/`CloseWindow` round trip. Still
-  open: bench crafting windows (Crafting follow-up), container item
-  transactions, map refresh on block edits and particle/weather presentation.
-  Producers landed with T58/T59/T60; T57b should land before M5 is declared
-  fully closed.
+  `SetPage(Bench)`/`OpenWindow(Container)`/`CloseWindow` round trip. T60b later
+  closed bench crafting windows and container `MoveItemStack` transactions.
+  Residual gaps deferred with their owning systems: window distance
+  validation, map refresh on block edits, byte-identical map images and
+  particle/audio/weather presentation. M5 is closed.
 - T58 (done, session 50): the new `hytale-npc` crate loads the real
   `Server/NPC/Roles` documents (1,147 unique keys) and all 8 `Server/NPC/Flocks`
   definitions, selects range/weighted flock sizes with injected RNG, filters
@@ -258,6 +270,27 @@ Landed and green:
   world thread; Walk/Fly/Dive controllers execute their speed/vertical limits. `UniverseRuntime::open_portal_instance` creates/selects the
   target instance world, `transfer_player_document` moves the saved player, and
   `switch_session_world` performs the live registry/view/chunk-stream handoff.
+- T65 (done): live OAuth device flow, `/game-session/new`,
+  `/server-join/auth-grant`/`auth-token`, EdDSA/JWKS validation and the
+  `cnf.x5t#S256` client-certificate binding. Credential persistence, token
+  refresh scheduling, browser PKCE and external-session mode remain.
+- T66 (in progress, code-side complete): real config-asset encoders for items,
+  blocks and the remaining stores; sessions 71–92 closed the release-client
+  `WorldLoadFinished`/join path through surface spawn, movement, model, stats,
+  block/item interactions, the complete interaction variant audit and the
+  item-icon/common-asset audit. Every encoded icon resolves and only Java's
+  `Unknown` item lacks one. A user-run release-client smoke test remains.
+- T62–T64 (done): inbound payload/rate/view/queue ceilings and fuzz/audit gates;
+  boot/assets/tick/chunk/save performance and 1,000-cycle soak baseline; release
+  archive, systemd docs and the Rust-native plugin/asset-mod API.
+- T57b (done, session 49): chunk map images, container/bench windows, runtime
+  entity lifecycle and the remaining config packets; residual map-image,
+  window-distance and particle/audio/weather presentation gaps are deferred.
+- T67 (in progress, session 91): command framework, `ChatMessage` handling,
+  `CommandTreeSync`, permission-filtered trees and the core built-ins (`help`,
+  `tp`, `give`, `gamemode`, `save`, `stop`, `who`, ...). Teleports/inventory/
+  save/kill/respawn effects are wired through the session; console stdin, real
+  permissions, plain-chat broadcast and player-name targets remain.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure, local-EdDSA and live-session authenticated joins; common/config
@@ -299,7 +332,13 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    (session 62), and T59c's combat action graph plus encounter evaluator/world
    commands are landed (session 61). T59 is complete. T60 lands the builtin
    module runtime and selected block/weather/NPC modules (session 63); T60b
-   lands the first gameplay follow-up slice (session 64).
+   lands the first gameplay follow-up slice (session 64). T61 records the
+   editor/builder/machinima scope decision, T62–T64 close the security,
+   performance and packaging gates, and T65 closes live authentication. T66 is
+   the only open milestone task (real-client config-asset completeness and
+   smoke verification). T67 (in progress, session 91) adds commands; its core
+   framework and first built-ins are landed, with console/permission/chat
+   follow-ups remaining.
 
 ## Try it
 

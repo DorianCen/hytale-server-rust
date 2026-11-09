@@ -558,6 +558,17 @@ impl PlayerRegistry {
             .collect()
     }
 
+    /// Every connected player's username, in network-id order.
+    pub fn usernames(&self) -> Vec<String> {
+        self.inner
+            .lock()
+            .expect("player registry poisoned")
+            .players
+            .values()
+            .map(|player| player.username.clone())
+            .collect()
+    }
+
     /// Number of registered players.
     pub fn len(&self) -> usize {
         self.inner

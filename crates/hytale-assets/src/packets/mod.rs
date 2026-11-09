@@ -39,44 +39,47 @@ use hytale_protocol::generated::common::{
     AmbienceFXSoundPlay3D, AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule,
     ApplyEffectInteraction, ApplyForceInteraction, AudioCategoryDuckingRule, BarBeatDuration,
     BarBeatPosition, BeamConfig, BenchRequirement, BenchType, BlockConditionInteraction, BlockSet,
-    BlockTextures, BlockTypeConnectedBlockShape, BreakBlockInteraction, CameraAxis, CameraNode,
-    CameraSettings, ChangeActiveSlotInteraction, ChangeBlockInteraction, ChangeStatBehaviour,
+    BlockTextures, BlockTypeConnectedBlockShape, BreakBlockInteraction, BuilderToolInteraction,
+    CameraAxis, CameraNode, CameraSettings, ChainFlagInteraction, ChainingInteraction,
+    ChangeActiveSlotInteraction, ChangeBlockInteraction, ChangeStatBehaviour,
     ChangeStatInteraction, ChangeStateInteraction, ChargingDelay, ChargingInteraction,
     ClearEntityEffectInteraction, CollisionType, Color, ColorAlpha, ColorLight,
     CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
     ComparisonOperator, ConditionInteraction, ConnectedBlockFaceTags, ConnectedBlockMatchType,
     ConnectedBlockPattern, ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape,
-    ConnectedBlockUpdateMode, CraftingRecipe, CurveType, DamageEntityInteraction, DestinationAlign,
-    Direction, DragPlaceBlockInteraction, DurabilityConditionInteraction, Edge,
-    EffectConditionInteraction, EffectDirection, EmitShape, EntityEffect, EntityPart,
-    EntityStatEffects, EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType,
-    EqualizerEffect, ExtrudePlaceBlockInteraction, FXRenderMode, FaceTagConnectedBlockRule,
-    FadeCurve, FailOnType, FirstClickInteraction, Fluid, FluidDrawType, FluidParticle,
-    GroundedConditionInteraction, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
-    InitialVelocity, Interaction, InteractionCooldown, InteractionTarget, IntersectionHighlight,
-    ItemAnimation, ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations,
-    ItemPullbackConfiguration, ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig,
-    ItemSoundEvent, ItemSoundSet, LayerPlacement, LoopOption, Match, MaterialQuantity,
-    MemoriesConditionInteraction, Model, ModelParticle, ModelVFX, ModifyInventoryInteraction,
-    MovementConditionInteraction, MusicContainer, MusicMarker, MusicSync, MusicTransition,
-    MusicTransitionType, NearFar, NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
+    ConnectedBlockUpdateMode, CooldownConditionInteraction, CraftingRecipe, CurveType,
+    DamageEntityInteraction, DestinationAlign, Direction, DragEraseBlockInteraction,
+    DragPlaceBlockInteraction, DurabilityConditionInteraction, Edge, EffectConditionInteraction,
+    EffectDirection, EmitShape, EntityEffect, EntityPart, EntityStatEffects,
+    EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect,
+    ExtrudePlaceBlockInteraction, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, FailOnType,
+    FirstClickInteraction, Fluid, FluidDrawType, FluidParticle, GroundedConditionInteraction,
+    Hitbox, HitboxCollisionConfig, HorizontalMusicContainer, InitialVelocity, Interaction,
+    InteractionCooldown, InteractionTarget, IntersectionHighlight, ItemAnimation, ItemCategory,
+    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
+    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
+    LayerPlacement, LoopOption, Match, MaterialQuantity, MemoriesConditionInteraction, Model,
+    ModelParticle, ModelVFX, ModifyInventoryInteraction, MovementConditionInteraction,
+    MusicContainer, MusicMarker, MusicSync, MusicTransition, MusicTransitionType, NearFar,
+    NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
     OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction, Particle,
     ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
     ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
     ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
-    PhysicsConfig, PhysicsType, PickBlockInteraction, PlaceBlockInteraction, ProjectileConfig,
-    ProjectileInteraction, RandomMode, RandomMusicContainer, Range, RangeVector2f, RangeVector3f,
-    Rangeb, Rangef, RemoveEntityInteraction, RepeatInteraction, ReplaceInteraction,
-    RepulsionConfig, ResourceType, ReverbEffect, RoofState, RootInteraction, RotationMode,
+    PhysicsConfig, PhysicsType, PickBlockInteraction, PlaceBlockInteraction,
+    PlaceModeSelectInteraction, ProjectileConfig, ProjectileInteraction, RandomMode,
+    RandomMusicContainer, Range, RangeVector2f, RangeVector3f, Rangeb, Rangef,
+    RemoveEntityInteraction, RepeatInteraction, ReplaceInteraction, RepulsionConfig,
+    ResetCooldownInteraction, ResourceType, ReverbEffect, RoofState, RootInteraction, RotationMode,
     SegmentMusicContainer, SelectInteraction, Selector, SequenceMusicContainer, SerialInteraction,
-    ShaderType, ShapeConnectedBlockRule, ShelterType, SimpleInteraction, SingleTrackMusicContainer,
-    Size, SoftParticle, SoundCategory, SoundSet, SpaceSize, StateBinding, StateDelta, StateFade,
-    StatsConditionInteraction, Stinger, StingerBinding, StingerShortLead, SubCategoryDefinition,
-    SurfaceDrawPlaceBlockInteraction, SurfaceType, SwitchTo, SyncPoint,
-    TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail,
-    TriggerCooldownInteraction, UVMotion, UVMotionCurveType, UpdateType, UseBlockInteraction,
-    UseEntityInteraction, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather,
-    WieldingInteraction, WiggleWeights, WorldEnvironment,
+    ShaderType, ShapeConnectedBlockRule, ShelterType, SimpleBlockInteraction, SimpleInteraction,
+    SingleTrackMusicContainer, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize,
+    StateBinding, StateDelta, StateFade, StatsConditionInteraction, Stinger, StingerBinding,
+    StingerShortLead, SubCategoryDefinition, SurfaceDrawPlaceBlockInteraction, SurfaceType,
+    SwitchTo, SyncPoint, TagPatternConnectedBlockShape, TemplatedConnectedBlockShape,
+    TempoSettings, Trail, TriggerCooldownInteraction, UVMotion, UVMotionCurveType, UpdateType,
+    UseBlockInteraction, UseEntityInteraction, ValueType, Vector2i, Vector3i, WaitForDataFrom,
+    Weather, WieldingInteraction, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -2366,9 +2369,122 @@ fn charging_delay(value: Option<&Value>) -> Option<ChargingDelay> {
     })
 }
 
+/// Java interaction types whose `generatePacket()` returns
+/// `com.hypixel.hytale.protocol.SimpleBlockInteraction`.
+///
+/// Block-derived interactions that do not override `generatePacket()` inherit
+/// `SimpleBlockInteraction.generatePacket()`. Sending `SimpleInteraction`
+/// instead drops the `UseLatestTarget` flag and uses the wrong protocol type id.
+/// List derived from the `Interaction.CODEC` registrations in
+/// `CoreServer/.../InteractionModule.java` and the builtin plugin registries.
+fn is_simple_block_type(name: &str) -> bool {
+    matches!(
+        name,
+        "AddItem"
+            | "Bed"
+            | "CanBreakRespawnPoint"
+            | "CarryBlock"
+            | "ChangeFarmingStage"
+            | "CycleBlockGroup"
+            | "Door"
+            | "FertilizeSoil"
+            | "HarvestCrop"
+            | "LaunchPad"
+            | "OpenBenchPage"
+            | "OpenContainer"
+            | "OpenProcessingBench"
+            | "PlaceFluid"
+            | "Portal"
+            | "PortalReturn"
+            | "Seating"
+            | "SpawnMinecart"
+            | "SpawnNPC"
+            | "TeleportConfigInstance"
+            | "UseCaptureCrate"
+            | "UseCoop"
+            | "UseWateringCan"
+    )
+}
+
+fn simple_block_from_base(base: InteractionBase, json: &Value) -> SimpleBlockInteraction {
+    SimpleBlockInteraction {
+        wait_for_data_from: base.wait_for_data_from,
+        effects: base.effects,
+        horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+        run_time: base.run_time,
+        on_item_change_behavior: base.on_item_change_behavior,
+        settings: base.settings,
+        rules: base.rules,
+        tags: base.tags,
+        camera: base.camera,
+        next: base.next,
+        failed: base.failed,
+        use_latest_target: json
+            .get("UseLatestTarget")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+/// Resolve a `ChainingInteraction.Next` array. Inline objects are registered as
+/// contained interaction assets by `load_contained_interactions` with Java's
+/// generated key `*<parent>_Next_<index>`.
+fn chaining_next(registry: &AssetRegistry, key: &str, value: Option<&Value>) -> Vec<i32> {
+    value
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .enumerate()
+                .map(|(index, value)| match value {
+                    Value::String(id) => registry
+                        .interactions
+                        .id_of(id)
+                        .unwrap_or(INTERACTION_NOT_FOUND),
+                    Value::Object(_) => registry
+                        .interactions
+                        .id_of(&format!("*{key}_Next_{index}"))
+                        .unwrap_or(INTERACTION_NOT_FOUND),
+                    _ => INTERACTION_NOT_FOUND,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Resolve a `ChainingInteraction.Flags` map. Inline objects use Java's generated
+/// key `*<parent>_Flags_<flag>`; string values are direct interaction ids.
+fn chaining_flags(
+    registry: &AssetRegistry,
+    key: &str,
+    value: Option<&Value>,
+) -> Option<BTreeMap<String, i32>> {
+    let flags = value?.as_object()?;
+    Some(
+        flags
+            .iter()
+            .map(|(flag, value)| {
+                let id = match value {
+                    Value::String(id) => registry
+                        .interactions
+                        .id_of(id)
+                        .unwrap_or(INTERACTION_NOT_FOUND),
+                    Value::Object(_) => registry
+                        .interactions
+                        .id_of(&format!("*{key}_Flags_{flag}"))
+                        .unwrap_or(INTERACTION_NOT_FOUND),
+                    _ => INTERACTION_NOT_FOUND,
+                };
+                (flag.clone(), id)
+            })
+            .collect(),
+    )
+}
+
 fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Interaction {
     let base = interaction_base(registry, key, json);
-    match json.get("Type").and_then(Value::as_str).unwrap_or("Simple") {
+    let node_type = json.get("Type").and_then(Value::as_str).unwrap_or("Simple");
+    match node_type {
         "DamageEntity" => Interaction::DamageEntityInteraction(DamageEntityInteraction {
             wait_for_data_from: base.wait_for_data_from,
             effects: base.effects,
@@ -2542,6 +2658,67 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             camera: base.camera,
             next: interaction_indices(registry, key, "Interactions", json.get("Interactions")),
         }),
+        "Chaining" => Interaction::ChainingInteraction(ChainingInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            chain_id: json
+                .get("ChainId")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            chaining_allowance: number(json, "ChainingAllowance") as f32,
+            chaining_next: chaining_next(registry, key, json.get("Next")),
+            flags: chaining_flags(registry, key, json.get("Flags")),
+        }),
+        "ChainFlag" => Interaction::ChainFlagInteraction(ChainFlagInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            chain_id: json
+                .get("ChainId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            flag: json
+                .get("Flag")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        }),
+        "CooldownCondition" => {
+            Interaction::CooldownConditionInteraction(CooldownConditionInteraction {
+                wait_for_data_from: base.wait_for_data_from,
+                effects: base.effects,
+                horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+                run_time: base.run_time,
+                on_item_change_behavior: base.on_item_change_behavior,
+                settings: base.settings,
+                rules: base.rules,
+                tags: base.tags,
+                camera: base.camera,
+                next: base.next,
+                failed: base.failed,
+                cooldown_id: json
+                    .get("Id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+        }
         "Condition" => Interaction::ConditionInteraction(ConditionInteraction {
             wait_for_data_from: base.wait_for_data_from,
             effects: base.effects,
@@ -2668,6 +2845,88 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             next: base.next,
             failed: base.failed,
             entity_target: interaction_target(json.get("Entity")),
+        }),
+        "BuilderTool" => Interaction::BuilderToolInteraction(BuilderToolInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+        }),
+        "PlaceModeSelect" => Interaction::PlaceModeSelectInteraction(PlaceModeSelectInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            default_interactions: nested_interaction_index(
+                registry,
+                key,
+                "DefaultInteractions",
+                json.get("DefaultInteractions"),
+            ),
+            replace_interactions: nested_interaction_index(
+                registry,
+                key,
+                "ReplaceInteractions",
+                json.get("ReplaceInteractions"),
+            ),
+            retype_interactions: nested_interaction_index(
+                registry,
+                key,
+                "RetypeInteractions",
+                json.get("RetypeInteractions"),
+            ),
+            extrude_interactions: nested_interaction_index(
+                registry,
+                key,
+                "ExtrudeInteractions",
+                json.get("ExtrudeInteractions"),
+            ),
+            surface_draw_interactions: nested_interaction_index(
+                registry,
+                key,
+                "SurfaceDrawInteractions",
+                json.get("SurfaceDrawInteractions"),
+            ),
+            fast_place_interactions: nested_interaction_index(
+                registry,
+                key,
+                "FastPlaceInteractions",
+                json.get("FastPlaceInteractions"),
+            ),
+        }),
+        // Java `CarryPlaceBlockInteraction` reuses the `PlaceBlockInteraction`
+        // packet with a `-1` block id and no held-item consumption.
+        "CarryPlaceBlock" => Interaction::PlaceBlockInteraction(PlaceBlockInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            block_id: -1,
+            remove_item_in_hand: false,
+            quick_replace: false,
+            quick_retype: false,
+            no_physics: false,
         }),
         "PlaceBlock" => Interaction::PlaceBlockInteraction(PlaceBlockInteraction {
             wait_for_data_from: base.wait_for_data_from,
@@ -3149,6 +3408,35 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 .and_then(Value::as_i64)
                 .unwrap_or(0) as i32,
         }),
+        // Java `DragEraseBlockInteraction` extends `DragPlaceBlockInteraction`
+        // and uses the same packet fields with a distinct protocol type id.
+        "DragEraseBlock" => Interaction::DragEraseBlockInteraction(DragEraseBlockInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            fork_interactions: nested_interaction_index(
+                registry,
+                key,
+                "ForkInteractions",
+                json.get("ForkInteractions"),
+            ),
+            max_blocks_per_tick: json
+                .get("MaxBlocksPerTick")
+                .and_then(Value::as_i64)
+                .unwrap_or(0) as i32,
+            max_blocks_per_gesture: json
+                .get("MaxBlocksPerGesture")
+                .and_then(Value::as_i64)
+                .unwrap_or(0) as i32,
+        }),
         "ExtrudePlaceBlock" => {
             Interaction::ExtrudePlaceBlockInteraction(ExtrudePlaceBlockInteraction {
                 wait_for_data_from: base.wait_for_data_from,
@@ -3223,6 +3511,20 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned),
         }),
+        "ResetCooldown" => Interaction::ResetCooldownInteraction(ResetCooldownInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            cooldown: interaction_cooldown(json.get("Cooldown")),
+        }),
         "ChangeActiveSlot" => {
             Interaction::ChangeActiveSlotInteraction(ChangeActiveSlotInteraction {
                 wait_for_data_from: base.wait_for_data_from,
@@ -3236,6 +3538,9 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 camera: base.camera,
                 target_slot: json.get("TargetSlot").and_then(Value::as_i64).unwrap_or(0) as i32,
             })
+        }
+        _ if is_simple_block_type(node_type) => {
+            Interaction::SimpleBlockInteraction(simple_block_from_base(base, json))
         }
         _ => Interaction::SimpleInteraction(SimpleInteraction {
             wait_for_data_from: base.wait_for_data_from,

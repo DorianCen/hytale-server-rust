@@ -94,6 +94,7 @@ async fn a_connected_player_arrives_in_goblin_breach_after_the_handoff() {
         dev_join(
             &client,
             &DevJoinOptions {
+                commands_after_join: Vec::new(),
                 uuid: player_uuid,
                 username: "PortalBot".to_string(),
                 view_radius_chunks: 0,

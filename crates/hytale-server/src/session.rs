@@ -20,6 +20,7 @@
 //! local.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
@@ -28,6 +29,7 @@ use hytale_assets::{
 };
 use hytale_auth::live::LiveAuth;
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
+use hytale_commands::{CommandContext, CommandEffect, CommandRegistry, CommandSender};
 use hytale_entities::movement::{MovementBounds, MovementRejection, MovementState};
 use hytale_interactions::{
     execute_root, state_from_block_key, BlockInteractions, ExecutionContext, InteractionCatalog,
@@ -42,7 +44,7 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    BenchType, ComponentUpdate, DisconnectType, EntityEffectsUpdate, EntityStatUpdate,
+    BenchType, ChatType, ComponentUpdate, DisconnectType, EntityEffectsUpdate, EntityStatUpdate,
     EntityStatsUpdate, FormattedMessage, GameMode, HudComponent, InstantData, MapChunk, MapMarker,
     MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings, MovementStates,
     MovementStatesUpdate, PlayerSkin, PongType, Position as ProtocolPosition,
@@ -56,7 +58,8 @@ use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::Page;
 use hytale_protocol::generated::interface_::UpdateKnownRecipes;
 use hytale_protocol::generated::interface_::{
-    AddToServerPlayerList, ServerInfo, SetPage, UpdateBossBar, UpdateVisibleHudComponents,
+    AddToServerPlayerList, ChatMessage, CommandTreeSync, ServerInfo, ServerMessage, SetPage,
+    UpdateBossBar, UpdateVisibleHudComponents,
 };
 use hytale_protocol::generated::inventory::{
     DropItemStack, MoveItemStack, SetActiveSlot, UpdatePlayerInventory,
@@ -182,6 +185,8 @@ pub struct SessionOptions {
     pub portal_router: Option<Arc<crate::serve::PortalRouter>>,
     /// Test/gameplay hook: transfer this portal immediately after the join.
     pub portal_on_join: Option<String>,
+    /// Listener shutdown signal set by `/stop` (listener-provided).
+    pub stop_signal: Option<Arc<AtomicBool>>,
 }
 
 impl Default for SessionOptions {
@@ -201,6 +206,7 @@ impl Default for SessionOptions {
             trace: None,
             portal_router: None,
             portal_on_join: None,
+            stop_signal: None,
         }
     }
 }
@@ -338,6 +344,8 @@ pub struct GameLoopReport {
     pub weather_updates: usize,
     /// `UpdateTimeSettings` packets written after a pause-state change.
     pub time_settings_updates: usize,
+    /// Command lines handled from `ChatMessage`.
+    pub commands: usize,
     /// Queued player list/entity packets written during the loop.
     pub player_messages: usize,
     /// Block edits applied to the world.
@@ -505,6 +513,8 @@ struct LiveGame<'a> {
     weather: Option<i32>,
     network_id: i32,
     player_uuid: WorldUuid,
+    username: String,
+    commands: Arc<CommandRegistry>,
     players: Arc<PlayerRegistry>,
     broadcasts: mpsc::Receiver<PlayerMessage>,
     view: ViewId,
@@ -632,6 +642,8 @@ pub async fn serve_connection_with_registry(
     let client_effects = thread.client_effects()?;
     let movement_settings = thread.movement_settings()?;
     let skin = handshake.skin.clone();
+    let username = handshake.username.clone();
+    let commands = Arc::new(CommandRegistry::builtin());
     let world_uuid: Uuid = start
         .world_uuid
         .parse()
@@ -713,6 +725,16 @@ pub async fn serve_connection_with_registry(
                 },
                 options.chunk_compression_level,
             )
+            .await?;
+
+        // Java `GamePacketHandler.registered0` sends the command tree when the
+        // playing handler is installed, before chunk tracking starts.
+        // No permission provider is wired yet; the authenticated player is the
+        // server operator for this first command-framework slice.
+        let command_sender = CommandSender::player(username.clone()).operator();
+        let command_tree: CommandTreeSync = commands.tree(&command_sender);
+        writer
+            .write_packet(&command_tree, options.chunk_compression_level)
             .await?;
 
         let mut stream = send_view_registered(
@@ -798,6 +820,8 @@ pub async fn serve_connection_with_registry(
                 weather,
                 network_id: join.network_id,
                 player_uuid,
+                username: username.clone(),
+                commands: Arc::clone(&commands),
                 players: Arc::clone(&players),
                 broadcasts: message_rx,
                 view: view_id,
@@ -1835,6 +1859,26 @@ async fn send_inventory(
     Ok(())
 }
 
+async fn send_server_message(
+    writer: &mut FrameWriter,
+    message: &str,
+    options: &SessionOptions,
+) -> Result<(), SessionError> {
+    writer
+        .write_packet(
+            &ServerMessage {
+                r#type: ChatType::Chat,
+                message: Some(FormattedMessage {
+                    raw_text: Some(message.to_string()),
+                    ..FormattedMessage::default()
+                }),
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
 fn chunk_view_contains(
     center: (i32, i32),
     radius: u32,
@@ -2824,6 +2868,8 @@ async fn run_game_loop(
         mut weather,
         network_id,
         player_uuid,
+        username,
+        commands,
         players,
         broadcasts,
         mut view,
@@ -3388,6 +3434,192 @@ async fn run_game_loop(
                             }
                             BlockInteractionOutcome::Rejected => {
                                 report.block_edit_rejections += 1;
+                            }
+                        }
+                    }
+                    ChatMessage::ID => {
+                        let packet: ChatMessage = frame.decode()?;
+                        let Some(message) = packet.message else {
+                            continue;
+                        };
+                        let Some(line) = message.strip_prefix('/') else {
+                            // Plain chat is not broadcast yet; commands own the
+                            // first command-framework slice.
+                            continue;
+                        };
+                        let sender = CommandSender::player(username.clone()).operator();
+                        let context = CommandContext {
+                            position: [
+                                transform.position.x,
+                                transform.position.y,
+                                transform.position.z,
+                            ],
+                            players: players.usernames(),
+                            game_time_seconds: Some(world_time.game_time_seconds),
+                            time_paused: Some(world_time.time_paused),
+                        };
+                        report.commands += 1;
+                        match commands.execute(line, &sender, &context) {
+                            Ok(output) => {
+                                for message in output.messages {
+                                    send_server_message(writer, &message, options).await?;
+                                }
+                                for effect in output.effects {
+                                    match effect {
+                                        CommandEffect::Teleport { x, y, z } => {
+                                            transform.position =
+                                                hytale_world::player_data::Position { x, y, z };
+                                            players.update_transform(network_id, *transform);
+                                            send_client_teleport_correction(
+                                                writer,
+                                                *transform,
+                                                &mut movement_teleport_id,
+                                                options,
+                                            )
+                                            .await?;
+                                            let next = (block_to_chunk(x), block_to_chunk(z));
+                                            if next != registry_center {
+                                                players.update_view(network_id, next, radius);
+                                                registry_center = next;
+                                            }
+                                            if next != center && report.teleport_acked {
+                                                active_thread
+                                                    .update_view(view, next.0, next.1, radius)?;
+                                                center = next;
+                                                report.view_changes += 1;
+                                            }
+                                            send_server_message(
+                                                writer,
+                                                &format!("Teleported to {x:.1}, {y:.1}, {z:.1}"),
+                                                options,
+                                            )
+                                            .await?;
+                                        }
+                                        CommandEffect::GiveItem { item_id, quantity } => {
+                                            let assets = active_thread.asset_registry()?;
+                                            let rules = AssetItemRules::new(&assets);
+                                            match ItemStack::new(item_id.clone(), quantity, &rules)
+                                            {
+                                                Ok(stack) => {
+                                                    if let Some(remainder) =
+                                                        inventory.pickup(stack, &rules)
+                                                    {
+                                                        send_server_message(
+                                                            writer,
+                                                            &format!(
+                                                                "Inventory full; {} x{} left over",
+                                                                remainder.item_id,
+                                                                remainder.quantity
+                                                            ),
+                                                            options,
+                                                        )
+                                                        .await?;
+                                                    } else {
+                                                        send_server_message(
+                                                            writer,
+                                                            &format!("Gave {item_id} x{quantity}"),
+                                                            options,
+                                                        )
+                                                        .await?;
+                                                    }
+                                                    send_inventory(
+                                                        writer,
+                                                        inventory,
+                                                        options.chunk_compression_level,
+                                                    )
+                                                    .await?;
+                                                    report.inventory_updates += 1;
+                                                    broadcast_held_items(
+                                                        &players, network_id, inventory,
+                                                    );
+                                                }
+                                                Err(error) => {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "Cannot give `{item_id}`: {error}"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            }
+                                        }
+                                        CommandEffect::SetGameMode { mode } => {
+                                            let game_mode = if mode == "creative" {
+                                                GameMode::Creative
+                                            } else {
+                                                GameMode::Adventure
+                                            };
+                                            writer
+                                                .write_packet(
+                                                    &SetGameMode { game_mode },
+                                                    options.chunk_compression_level,
+                                                )
+                                                .await?;
+                                            send_server_message(
+                                                writer,
+                                                &format!("Game mode set to {mode}"),
+                                                options,
+                                            )
+                                            .await?;
+                                        }
+                                        CommandEffect::Kill => {
+                                            active_thread.damage_player(
+                                                network_id,
+                                                1_000_000.0,
+                                                "command",
+                                            )?;
+                                            send_server_message(writer, "Killed", options).await?;
+                                        }
+                                        CommandEffect::Respawn => {
+                                            active_thread.respawn_player(network_id)?;
+                                            send_server_message(writer, "Respawned", options)
+                                                .await?;
+                                        }
+                                        CommandEffect::SaveWorld => {
+                                            active_thread.save_player_state(
+                                                player_uuid,
+                                                *transform,
+                                                inventory.clone(),
+                                            )?;
+                                            if let Some(health) =
+                                                active_thread.player_health(network_id)?
+                                            {
+                                                active_thread
+                                                    .save_player_health(player_uuid, health)?;
+                                            }
+                                            let dirty = active_thread.save()?;
+                                            send_server_message(
+                                                writer,
+                                                &format!("Saved world ({dirty} dirty chunk(s))"),
+                                                options,
+                                            )
+                                            .await?;
+                                        }
+                                        CommandEffect::StopServer => {
+                                            if let Some(signal) = &options.stop_signal {
+                                                signal.store(true, Ordering::Relaxed);
+                                                send_server_message(
+                                                    writer,
+                                                    "Server shutdown requested",
+                                                    options,
+                                                )
+                                                .await?;
+                                            } else {
+                                                send_server_message(
+                                                    writer,
+                                                    "Server shutdown is not available in this mode",
+                                                    options,
+                                                )
+                                                .await?;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                send_server_message(writer, &error.to_string(), options).await?;
                             }
                         }
                     }

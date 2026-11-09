@@ -50,6 +50,227 @@ fn decode<T: Packet + Wire>(packets: &[AssetPacket]) -> T {
     T::decode(&mut Reader::new(&packet.payload)).expect("decode packet")
 }
 
+/// Protocol type id selected by Java's `Interaction.generatePacket()` for each
+/// asset `Type`. Keep this aligned with the Java codec registrations; an
+/// unknown type fails the audit instead of silently falling back.
+fn java_protocol_type_id(type_name: &str) -> u32 {
+    match type_name {
+        "AddItem"
+        | "Bed"
+        | "CanBreakRespawnPoint"
+        | "CarryBlock"
+        | "ChangeFarmingStage"
+        | "CycleBlockGroup"
+        | "Door"
+        | "FertilizeSoil"
+        | "HarvestCrop"
+        | "LaunchPad"
+        | "OpenBenchPage"
+        | "OpenContainer"
+        | "OpenProcessingBench"
+        | "PlaceFluid"
+        | "Portal"
+        | "PortalReturn"
+        | "Seating"
+        | "SpawnMinecart"
+        | "SpawnNPC"
+        | "TeleportConfigInstance"
+        | "UseCaptureCrate"
+        | "UseCoop"
+        | "UseWateringCan" => 0,
+        "Simple"
+        | "CameraShake"
+        | "CarryDroppedBlock"
+        | "ChangeStatWithModifier"
+        | "ClearCarriedBlock"
+        | "ContextualUseNPC"
+        | "DestroyBlock"
+        | "Explode"
+        | "GameFlagCondition"
+        | "GrantAbilityCharges"
+        | "Interrupt"
+        | "LaunchAbilityProjectile"
+        | "LaunchProjectile"
+        | "OpenCustomUI"
+        | "PlacementCountCondition"
+        | "PullEntityAbility"
+        | "RefillContainer"
+        | "RevealMapMarkersInView"
+        | "SendBeacon"
+        | "SendMessage"
+        | "SignalNearbyVolumes"
+        | "SpawnAbilityEntity"
+        | "SpawnDeployableFromRaycast"
+        | "SpawnPrefab"
+        | "SpawnTriggerVolume"
+        | "SplitAbilityProjectile"
+        | "StatsConditionWithModifier"
+        | "TeleportInstance"
+        | "TriggerAbilityFX"
+        | "TriggerSpawnMarkers" => 1,
+        "PlaceBlock" | "CarryPlaceBlock" => 2,
+        "BreakBlock" => 3,
+        "PickBlock" => 4,
+        "UseBlock" => 5,
+        "UseEntity" => 6,
+        "BuilderTool" => 7,
+        "ModifyInventory" => 8,
+        "Charging" => 9,
+        "Wielding" => 10,
+        "Chaining" => 11,
+        "Condition" => 12,
+        "StatsCondition" => 13,
+        "BlockCondition" => 14,
+        "Replace" => 15,
+        "ChangeBlock" => 16,
+        "ChangeState" => 17,
+        "FirstClick" => 18,
+        "Selector" => 20,
+        "DamageEntity" => 21,
+        "Repeat" => 22,
+        "Parallel" => 23,
+        "ChangeActiveSlot" => 24,
+        "EffectCondition" => 25,
+        "ApplyForce" => 26,
+        "ApplyEffect" => 27,
+        "ClearEntityEffect" => 28,
+        "Serial" => 29,
+        "ChangeStat" => 30,
+        "MovementCondition" => 31,
+        "Projectile" => 32,
+        "RemoveEntity" => 33,
+        "ResetCooldown" => 34,
+        "TriggerCooldown" => 35,
+        "CooldownCondition" => 36,
+        "ChainFlag" => 37,
+        "MemoriesCondition" => 43,
+        "DurabilityCondition" => 45,
+        "DragPlaceBlock" => 46,
+        "ExtrudePlaceBlock" => 47,
+        "SurfaceDrawPlaceBlock" => 48,
+        "PlaceModeSelect" => 49,
+        "DragEraseBlock" => 50,
+        "GroundedCondition" => 51,
+        other => panic!("unmapped interaction Type `{other}`; extend the Java audit"),
+    }
+}
+
+#[test]
+fn interactions_use_the_java_protocol_variant() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (packets, registry) = load_packets();
+    let interactions: UpdateInteractions = decode(&packets);
+    let interactions = interactions.interactions.expect("interaction map");
+
+    let mut checked = 0usize;
+    for record in registry.interactions.iter() {
+        let Some(id) = record.id else {
+            continue;
+        };
+        let type_name = record
+            .value
+            .get("Type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Simple");
+        let actual = interactions
+            .get(&id)
+            .unwrap_or_else(|| panic!("missing encoded interaction `{}`", record.key));
+        assert_eq!(
+            actual.type_id(),
+            java_protocol_type_id(type_name),
+            "`{}` (`{type_name}`) uses the wrong protocol variant",
+            record.key
+        );
+        checked += 1;
+    }
+    assert!(checked > 1_600, "only checked {checked} interactions");
+}
+
+#[test]
+fn chaining_and_block_fallbacks_resolve_their_children() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (packets, registry) = load_packets();
+    let interactions: UpdateInteractions = decode(&packets);
+    let interactions = interactions.interactions.expect("interaction map");
+
+    let id_of = |key: &str| {
+        registry
+            .interactions
+            .id_of(key)
+            .unwrap_or_else(|| panic!("missing interaction `{key}`"))
+    };
+
+    // `Chaining.Next` arrays and `Flags` maps contain inline children. Java
+    // registers them as `*<parent>_Next_<index>` / `*<parent>_Flags_<flag>`.
+    match interactions
+        .get(&id_of("Debug_Combo_Primary"))
+        .expect("chaining interaction")
+    {
+        ProtocolInteraction::ChainingInteraction(node) => {
+            assert_eq!(node.chain_id.as_deref(), Some("Debug_Combo"));
+            assert_eq!(node.chaining_allowance, 0.8);
+            assert_eq!(node.chaining_next.len(), 3);
+            for next in &node.chaining_next {
+                assert!(
+                    interactions.contains_key(next),
+                    "chaining Next references missing interaction {next}"
+                );
+            }
+            let flags = node.flags.as_ref().expect("chaining flags");
+            assert!(flags.contains_key("Special_Second"));
+            for flag in flags.values() {
+                assert!(
+                    interactions.contains_key(flag),
+                    "chaining flag references missing interaction {flag}"
+                );
+            }
+        }
+        other => panic!("expected ChainingInteraction, got {other:?}"),
+    }
+
+    // Block-derived interactions without their own packet body use
+    // `SimpleBlockInteraction`, including `UseLatestTarget`.
+    match interactions
+        .get(&id_of("Watering_Can_Use"))
+        .expect("watering can interaction")
+    {
+        ProtocolInteraction::SimpleBlockInteraction(node) => {
+            assert!(node.use_latest_target);
+        }
+        other => panic!("expected SimpleBlockInteraction, got {other:?}"),
+    }
+    assert!(matches!(
+        interactions.get(&id_of("Door")),
+        Some(ProtocolInteraction::SimpleBlockInteraction(_))
+    ));
+
+    // `CarryPlaceBlockInteraction` reuses `PlaceBlockInteraction` with a `-1`
+    // block id and no held-item removal.
+    match interactions
+        .get(&id_of("Carry_Place_Block"))
+        .expect("carry place interaction")
+    {
+        ProtocolInteraction::PlaceBlockInteraction(node) => {
+            assert_eq!(node.block_id, -1);
+            assert!(!node.remove_item_in_hand);
+        }
+        other => panic!("expected PlaceBlockInteraction, got {other:?}"),
+    }
+
+    // `DragEraseBlockInteraction` extends `DragPlaceBlockInteraction` in Java
+    // but has its own protocol type id.
+    assert!(matches!(
+        interactions.get(&id_of("Creative_Eraser_Drag")),
+        Some(ProtocolInteraction::DragEraseBlockInteraction(_))
+    ));
+}
+
 #[test]
 fn absent_interaction_references_use_not_found() {
     if !assets_available() {

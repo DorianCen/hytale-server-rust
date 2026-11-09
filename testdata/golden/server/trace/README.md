@@ -57,6 +57,27 @@ asset or protocol bodies.
    representative per packet type/session, hashes blank for time/entity/list
    payloads) and update the gate.
 
+### T66 real-client smoke checklist
+
+The code-side T66 gate is green; the remaining step needs a release client. On
+a successful run the trace and client log should show all of:
+
+- the client reaches `Playing`, receives the full config burst and `JoinWorld`
+  without a `WorldLoadFinished` exception;
+- the initial chunk snapshot includes `SetColumn`, `SetChunk`,
+  `SetChunkEnvironments` and `SetAbsentChunks` for empty sections;
+- the server sends `UpdateVisibleHudComponents`, `CommandTreeSync`, a self
+  `EntityUpdates` with model/stats/movement states and `ClientTeleport`;
+- inbound `ClientMovement` is answered without disconnect/correction floods;
+- a right/left click produces inbound `MouseInteraction` and the matching
+  outbound `ServerSetBlock`;
+- the client log has no `Failed to prepare the item icon atlas` warning. If it
+  does, capture the full warning and the item it names; session 92 verified every
+  non-`Unknown` icon resolves in `CommonAssetsIndex`.
+
+Send the trace plus the client log lines around `WorldLoadFinished`, `JoinWorld`
+and any asset warning.
+
 ### If the client reports "QUIC handshake failed"
 
 A 20-second failure with no server-side log line means the client's UDP packets

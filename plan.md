@@ -860,7 +860,7 @@ block health/breaking presentation.
 
 ### T57b — Presentation follow-ups
 
-**Status:** in progress (session 49)
+**Status:** done (session 49; residual presentation gaps deferred)
 **Package:** `hytale-assets`, `hytale-server`, `tools/client-bot`
 **Depends on:** T57
 **Agent fit:** low/medium
@@ -879,9 +879,10 @@ existing v1/T56/T57 gates stay green.
 **Landed (session 49):** chunk world-map images with join/view-change load and
 unload, plus persisted block-container inventories and the
 `SetPage(Bench)`/`OpenWindow(Container)`/`CloseWindow` window round trip.
-Bench-specific crafting windows stay with the builtin Crafting module
-(follow-up);
-container item transactions and map refresh on block edits are follow-ups.
+T60b later closed the bench crafting windows and container `MoveItemStack`
+transactions. Residual gaps are deferred with their owning systems: window
+distance validation, map-image refresh on block edits, byte-identical map
+images, and particle/audio/weather presentation.
 
 **Follow-ups:** full UI framework, editor/builder tools, machinima and
 multi-server map state stay T61/later.
@@ -1046,7 +1047,7 @@ a separate engine project; `worldgen-hytale` remains the classic
 ### T66 — Live-client config-asset completeness (follow-up)
 
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`, docs
-**Status:** in progress (session 70; real-client verification pending)
+**Status:** in progress (sessions 70–92; code-side complete, real-client smoke pending)
 **Goal:** encode the remaining Java config-asset stores and non-null fields so
 a release client passes `WorldLoadFinished`. See
 [`tasks/T66-live-client-assets.md`](tasks/T66-live-client-assets.md).
@@ -1060,9 +1061,48 @@ Recipes, Interaction, RootInteraction and UnarmedInteraction packets replace
 their empty placeholders; the particle packets are byte-identical to the Java
 goldens. Interaction bodies are type-specific for 35 node types; remaining server-only
   interactions map to the base form as in Java. Golden presence tests cover the item/block
-trees and the new store map counts. The release client still needs a user-run
-smoke test; root-interaction/music-container/ambience trees remain placeholders
-because their encoders are large polymorphic surfaces not yet ported.
+trees and the new store map counts. Sessions 71–90 then fixed the release-client
+join path: Debug_Model preloads/translations, interaction `NOT_FOUND`
+sentinels, weather fog, absent chunk markers, the WorldMap stream, fresh-join
+flags, snapshot pacing, boot-catalog preload, surface spawn, the full player
+model, self-spawn stats/movement states, block-type and item interaction
+merges, and builder-tool args. Session 90 completed the interaction variant
+audit: every `Type` in the pack now emits Java's protocol variant, including
+the `SimpleBlockInteraction` fallback and the `Chaining`/`ChainFlag`/
+`CooldownCondition`/`ResetCooldown`/`BuilderTool`/`PlaceModeSelect`/
+`DragEraseBlock`/`CarryPlaceBlock` bodies, with contained-child extraction for
+the new inline nodes. Session 92 audited the item-icon-atlas warning: every
+encoded icon resolves through `CommonAssetsIndex`, and the sole icon-less
+`Unknown` item matches Java. The release client still needs a user-run smoke
+test; no server-side asset gap is known.
+
+### T67 — Command framework and in-game commands (follow-up)
+
+**Status:** in progress (session 91)
+**Package:** `hytale-commands`, `hytale-server`, `hytale-core`,
+`tools/client-bot`
+**Depends on:** T42, T48
+**Agent fit:** medium
+**Goal:** replace the empty `hytale-commands` stub with the Java command
+framework, wire inbound `ChatMessage` and outbound `CommandTreeSync`, and land
+the core console/in-game built-ins so `/help`, `/tp`, `/give`, `/save` and
+`/stop` work. See [`tasks/T67-commands.md`](tasks/T67-commands.md).
+**Scope:** registry/tokenizer/parser/suggestions, sender and permission
+abstractions, world-thread dispatch, console commands, the core built-ins and a
+`client-bot` command round trip. The full Java debug/editor/cosmetics command
+set and the complete permissions provider stay follow-ups.
+
+**Landed (session 91):** `hytale-commands` now provides the tokenizer,
+registry/aliases, argument specs, sender/permission model, `CommandEffect`
+application seam and `CommandTreeSync` builder. The live session answers
+`ChatMessage` command lines and sends the tree after the join HUD (`GamePacketHandler.registered0`).
+Built-ins `help`, `tp`, `give`, `gamemode`, `save`, `stop`, `whereami`,
+`whoami`, `who`, `kill`, `respawn`, `time` and `version` work; teleports are
+authoritative, `/give` resyncs the inventory, `/save` persists the player and
+world, and `/stop` signals the listener. `client-bot` sends commands and records
+the tree/messages/teleports; the ignored `commands` test covers the round trip.
+Remaining: console stdin, real permissions/op groups, plain-chat broadcast,
+player-name targets and `kick`/`world`/`maxplayers`/`maxviewradius`.
 
 ---
 

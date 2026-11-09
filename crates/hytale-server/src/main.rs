@@ -721,6 +721,7 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
         trace: None,
         portal_router: None,
         portal_on_join: None,
+        stop_signal: None,
     };
     let options = ServeOptions {
         universe_root: args.universe,
@@ -858,6 +859,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs, builtin: BuiltinRuntime) -> Exi
             trace: None,
             portal_router: None,
             portal_on_join: None,
+            stop_signal: None,
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };

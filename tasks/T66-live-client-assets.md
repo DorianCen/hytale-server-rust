@@ -1,6 +1,6 @@
 # T66 — Live-client config-asset completeness
 
-**Status:** in progress (session 70; real-client verification pending)
+**Status:** in progress (sessions 70–92; code-side complete, real-client smoke pending)
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`, docs
 **Depends on:** T35, T39, T60b, T65
 **Agent fit:** medium (Java generator reading + golden comparison; iterative
@@ -61,7 +61,7 @@ This is an asset-packet completeness task, not an auth task.
     outputs, primary outputs, bench requirements, knowledge gates, time and
     memories level;
   - `Interaction`, `RootInteraction` and `UnarmedInteraction` stream the full
-    ID graph: 2805 interaction nodes, 732 roots (including the `*Default_Swap`
+    ID graph: 5848 interaction nodes, 736 roots (including the `*Default_Swap`
     preload), inline `Next`/`Failed` children, root interaction lists and the
     `SwapFrom` default. Interaction bodies are type-specific for the ten most
     common nodes (`Simple`, `DamageEntity`, `Serial`, `Selector`,
@@ -75,14 +75,23 @@ This is an asset-packet completeness task, not an auth task.
     `SurfaceDrawPlaceBlock`, `Replace`, `ChangeActiveSlot`); the remaining
     server-only long-tail node types map to the base form, matching Java's
     `SimpleInstantInteraction` packets.
-- Still pending real-client verification: release client
-  `WorldLoadFinished` null (16:22 run). The code-side gaps still sent as
-  placeholders are:
-  - type-specific bodies for the remaining interaction node types (the ten
-    most common are encoded; the long tail still uses the base form).
+- Sessions 71–90 fixed the follow-on release-client failures: version
+  comparison, Debug_Model/translations, interaction `NOT_FOUND`, weather fog,
+  absent chunk markers/pacing/fresh-join flags, the WorldMap stream, surface
+  spawn, the full player model/camera, stats/movement states, block-type and
+  item interaction merges, builder-tool `args`, and the interaction variant
+  audit. Session 90 encodes every protocol variant present in the pack,
+  including `Chaining`, `ChainFlag`, `CooldownCondition`, `ResetCooldown`,
+  `BuilderTool`, `PlaceModeSelect`, `DragEraseBlock`, `CarryPlaceBlock` and the
+  `SimpleBlockInteraction` fallback for block-derived nodes. Session 92 audited
+  the non-fatal item-icon-atlas warning: every encoded item icon resolves
+  through the streamed `CommonAssetsIndex`, and the only item without an icon is
+  the preloaded `Unknown`, which Java also sends without an icon. No server-side
+  icon gap remains. Still open:
+  - a user-run release-client smoke test (the agent cannot launch the client).
 
-- `ModelAsset` has no packet generator; verify whether the missing
-  `Debug_Model` model is a common-asset issue before changing packets.
+- `ModelAsset` has no packet generator; `Debug_Model` was verified as a preload
+  with its model/texture in the common assets rather than a protocol packet.
 
 ## Deliverables
 
@@ -137,8 +146,8 @@ This is an asset-packet completeness task, not an auth task.
   children, stinger container indices and inline `AmbienceFX` music.
 - `recipes_are_materialized` checks all 410 standalone recipes and the
   salvage/flower recipe fields end to end.
-- `interaction_graph_is_materialized` checks the 2805-node interaction map,
-  732 roots, no dangling `next`/`failed`/root indices, the default unarmed
+- `interaction_graph_is_materialized` checks the 5848-node interaction map,
+  736 roots, no dangling `next`/`failed`/root indices, the default unarmed
   root and the chain-hook root. It also counts and validates the typed bodies,
   including `Serial`/`Parallel` children, `Projectile.Config`, `Select` fail
   mode, `Repeat`, `TriggerCooldown`, `PlaceBlock`, `ModifyInventory`,
@@ -416,6 +425,24 @@ diff against the Java golden showed `BuilderToolState.args` was null; Java
 `BuilderTool.toPacket` always sends the array (empty when the tool has none),
 and the client's item/icon preparation dereferences it. Builder tools now
 always send `args: Some([])`.
+
+### Session 92: item-icon-atlas audit
+
+The remaining non-fatal warning was `Failed to prepare the item icon atlas;
+item icons are unavailable`. The atlas is built from each item's `Icon` path and
+the streamed `CommonAssetsIndex`; the server does not send a separate icon
+packet. A data audit of the encoded `UpdateItems` map found:
+
+- 4,008 items encoded;
+- 4,007 have an `icon` and every path resolves in `CommonAssetsIndex`;
+- the only item without an icon is the preloaded `Unknown`, and the Java golden
+  (`Item.bin`) also sends `Unknown` with `icon = null` (its model/texture are the
+  `Items/CreativeTools/EditorTool.blockymodel` and `Items/Unknown.png` fallback).
+
+Regression: `block_item_packets::item_icons_resolve_in_common_assets` asserts
+every icon path resolves and that only `Unknown` lacks an icon, matching Java.
+There is no server-side icon gap left; re-run the client smoke and capture the
+warning only if it still appears.
 
 ### Live-client debugging notes
 

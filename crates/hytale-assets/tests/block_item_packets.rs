@@ -728,6 +728,54 @@ fn item_packet_has_java_key_coverage() {
     assert_eq!(extra.len(), registry.items.len() - golden.len());
 }
 
+/// T66: every item icon path the client receives must resolve through the
+/// streamed common-asset index. A missing icon aborts the client's whole icon
+/// atlas preparation (`Failed to prepare the item icon atlas`).
+#[test]
+fn item_icons_resolve_in_common_assets() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open the pack");
+    let registry = AssetRegistry::load_phase2(&pack).expect("load phase 2");
+    let config = registry.config_assets().expect("encode config assets");
+    let decoded = UpdateItems::decode(&mut Reader::new(
+        &packet(&config.packets, UpdateItems::ID).payload,
+    ))
+    .expect("decode items");
+    let actual = decoded.items.expect("item map");
+    let common = hytale_assets::CommonAssetRegistry::load(&pack).expect("common assets");
+
+    let mut missing_icon = Vec::new();
+    let mut unresolved_icon = Vec::new();
+    for (key, item) in &actual {
+        match item.icon.as_deref() {
+            Some(icon) if common.get_by_name(icon).is_none() => {
+                unresolved_icon.push((key.clone(), icon.to_string()));
+            }
+            Some(_) => {}
+            None => missing_icon.push(key.clone()),
+        }
+    }
+    assert!(
+        unresolved_icon.is_empty(),
+        "item icons missing from the common asset index: {unresolved_icon:?}"
+    );
+    // Java `Item.UNKNOWN` also has no icon; the client renders the default
+    // texture for it. Every other item must carry an atlas icon.
+    assert_eq!(missing_icon, ["Unknown"], "items without an icon");
+    let golden_items: UpdateItems = golden("Item");
+    assert!(
+        golden_items
+            .items
+            .expect("golden item map")
+            .get("Unknown")
+            .is_some_and(|item| item.icon.is_none()),
+        "Java's Unknown item unexpectedly carries an icon"
+    );
+}
+
 /// T66: previously-empty stores now carry the real asset data instead of a
 /// placeholder map. Counts are derived from the same registry the packets are
 /// built from, so the gate fails if a loader regression empties one.
@@ -1569,7 +1617,13 @@ fn interaction_graph_is_materialized() {
             ProtocolInteraction::RemoveEntityInteraction(_) => remove_entities += 1,
             ProtocolInteraction::PlaceBlockInteraction(place) => {
                 place_blocks += 1;
-                assert!(place.block_id >= 0);
+                // `CarryPlaceBlockInteraction` uses `-1` to mean "the carried
+                // block" instead of a block type id.
+                assert!(
+                    place.block_id >= -1,
+                    "place block id {} is neither a block id nor the carry sentinel",
+                    place.block_id
+                );
             }
             ProtocolInteraction::TriggerCooldownInteraction(trigger) => {
                 trigger_cooldowns += 1;
