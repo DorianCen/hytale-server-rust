@@ -1047,7 +1047,7 @@ a separate engine project; `worldgen-hytale` remains the classic
 ### T66 — Live-client config-asset completeness (follow-up)
 
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`, docs
-**Status:** in progress (sessions 70–92; code-side complete, real-client smoke pending)
+**Status:** done (sessions 70–93; release-client join, break/drop/pickup and placement verified)
 **Goal:** encode the remaining Java config-asset stores and non-null fields so
 a release client passes `WorldLoadFinished`. See
 [`tasks/T66-live-client-assets.md`](tasks/T66-live-client-assets.md).
@@ -1073,8 +1073,13 @@ the `SimpleBlockInteraction` fallback and the `Chaining`/`ChainFlag`/
 `DragEraseBlock`/`CarryPlaceBlock` bodies, with contained-child extraction for
 the new inline nodes. Session 92 audited the item-icon-atlas warning: every
 encoded icon resolves through `CommonAssetsIndex`, and the sole icon-less
-`Unknown` item matches Java. The release client still needs a user-run smoke
-test; no server-side asset gap is known.
+`Unknown` item matches Java. Session 93 completed the live interaction loop:
+nullable interaction arrays, root references and inline roots, block drop
+lists, F-key/auto pickup, item-entity scale, ability-slot/rune-bag inventory
+sections, the `UpdateBlockGroups` store (the `0x753cb5` crash), and placement
+chains whose targets live in `interactionData`/forks with authoritative
+`placedBlockId` reconciliation in the chain acks. The user-run release client
+now joins, moves, breaks blocks, picks up drops and places blocks.
 
 ### T67 — Command framework and in-game commands (follow-up)
 

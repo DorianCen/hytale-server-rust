@@ -622,13 +622,57 @@ ids, channels, order and payload hashes.
 - `PORTING_HISTORY.md` — Session 73 entry
 - `JAVA_VERSION_DIFF.md` — 0.7.2 vs 0.7.5 comparison
 
-## Remaining T66 gaps
+## T66c: block groups and placement-chain reconciliation (session 93)
 
-- Confirm this interaction-sentinel fix with the release client; T66 is **not
-  complete** until the client remains in `Playing` through world load, spawn,
-  movement and a block edit.
-- Long-tail interaction variants still use the `Simple` base form: `Chaining`,
-  the `MemoriesCondition` `Next` map, the `Charging`/`Wielding` next maps,
-  `PlaceModeSelect`, `ChangeActiveSlot` details and similar.
-- Other asset id spaces still encode "missing" as `0`; Java uses
-  `NOT_FOUND`/`-1` for several of them, so the same class of bug may appear next.
+The final release-client blockers were asset-store and interaction-chain state,
+not protocol framing.
+
+1. **`0x753cb5` on the first saved block item.** The core showed the crashing
+   lookup key was `"Soil_Dirt"` and the null object was the client's
+   block-group store. Java loads `Server/Item/Groups` and sends
+   `UpdateBlockGroups` (packet 78); the Rust registry neither loaded nor sent
+   it. `BlockGroup.findItemGroup` walks the store for every block item, even
+   when the item belongs to no group. The registry now loads the 43 groups and
+   `config_assets` emits the packet; `--validate-assets` checks 43 groups /
+   4,016 bytes.
+2. **Placement target location.** Release-client placement chains put the
+   target cell in `interactionData[*].blockPosition` and may be forked. The
+   server now resolves `data.blockPosition` first, then operation data, and
+   accepts forked block chains. If a client sends the clicked face, the
+   normal/face-adjacent cell is a fallback after trying the packet cell.
+3. **Invisible placed blocks / teleport corrections.** The client's local
+   placement prediction failed (`placedBlockId = 0`), and the server echoed
+   that state and ignored fork updates. The client rolled back to air while
+   the server kept the solid block. The server now stamps the authoritative
+   placed position/block id into both the initial and follow-up
+   `SyncInteractionChains` acks, acknowledges fork updates with their
+   `forkedId`, and only then relies on `ServerSetBlock` for rendering.
+4. **Join ordering.** Saved equipment is held until after the initial chunk
+   snapshot, `UpdatePlayerInventory` includes ability-slot/rune-bag sections,
+   and `SetBlockPlacementOverride(false)` follows the active-slot packets.
+   Auto-pickup has a two-second post-`ClientReady` grace.
+
+Files: `crates/hytale-assets/src/registry.rs`,
+`crates/hytale-assets/src/packets/mod.rs`,
+`crates/hytale-assets/src/packets/block_type.rs`,
+`crates/hytale-server/src/session.rs`,
+`crates/hytale-server/src/players.rs`,
+`crates/hytale-server/src/world_thread.rs`,
+`crates/hytale-server/src/drop_lists.rs`.
+
+## Remaining post-T66 gaps
+
+- T66 is complete; the client joins, moves, breaks, drops, picks up and places.
+- Long-tail interaction variants still use base forms where the client does not
+  need them (chaining/memories/charging/wielding next maps, place-mode and
+  change-active-slot details).
+- Block placement fidelity is still the simple path: rotation/placement
+  settings, face/connect rules, deco/physics, connected-block neighbour updates
+  and block entity metadata.
+- Missing-id sentinels are inconsistent (`0` vs `NOT_FOUND`/`-1`) in a few
+  asset id spaces.
+- T67 command-framework follow-ups: console stdin, permissions/op groups,
+  plain-chat broadcast, player-name targets, `kick`/`world`/limits, and the
+  remaining Java command set.
+- The release client is stable; the debug `LD_AUDIT`/core-capture artifacts in
+  `UserData` can be removed.

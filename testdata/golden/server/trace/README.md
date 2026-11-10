@@ -59,21 +59,45 @@ asset or protocol bodies.
 
 ### T66 real-client smoke checklist
 
-The code-side T66 gate is green; the remaining step needs a release client. On
-a successful run the trace and client log should show all of:
+T66 is green against the unmodified 0.7.7 release client (session 93). Keep
+this as the regression runbook. On a successful run the trace and client log
+should show all of:
 
 - the client reaches `Playing`, receives the full config burst and `JoinWorld`
   without a `WorldLoadFinished` exception;
+- the config burst contains `UpdateBlockTypes`, `UpdateItems`,
+  `UpdateBlockSets` and `UpdateBlockGroups` (43 groups / packet `78`), plus the
+  interaction stores (`UpdateInteractions`, `UpdateRootInteractions`,
+  `UpdateUnarmedInteractions`);
 - the initial chunk snapshot includes `SetColumn`, `SetChunk`,
   `SetChunkEnvironments` and `SetAbsentChunks` for empty sections;
 - the server sends `UpdateVisibleHudComponents`, `CommandTreeSync`, a self
   `EntityUpdates` with model/stats/movement states and `ClientTeleport`;
 - inbound `ClientMovement` is answered without disconnect/correction floods;
-- a right/left click produces inbound `MouseInteraction` and the matching
-  outbound `ServerSetBlock`;
-- the client log has no `Failed to prepare the item icon atlas` warning. If it
-  does, capture the full warning and the item it names; session 92 verified every
-  non-`Unknown` icon resolves in `CommonAssetsIndex`.
+- a left click sends `SyncInteractionChains` (not `MouseInteraction` on the
+  release client) and gets a non-`CancelInteractionChain` ack plus
+  `ServerSetBlock`; the broken block drops item entities;
+- walking over a drop auto-picks it up (inventory resync + held-item update),
+  and F-key `Pickup`/`Pick` also works;
+- a right click sends `SyncInteractionChains` for placement; the trace has
+  `SyncInteractionChains` acks and a `ServerSetBlock` on the `Chunks` channel,
+  and the placed block renders/collides consistently on the client;
+- the client log has no `Failed to prepare the item icon atlas` warning and no
+  `NullReferenceException`.
+
+Useful debug command while iterating:
+
+```sh
+HYTALE_DEBUG_INTERACTIONS=1 ./target/release/hytale-server serve \
+  --universe target/universe --world RealTest --auth-mode authenticated \
+  --view-radius 2 --trace target/trace/T66c-smoke.jsonl \
+  2> target/trace/server-interactions.log
+```
+
+The debug log prints each chain's block/normal/fork, operation block/face/
+placed id, and the final `Edit/Use/Rejected` outcome. Placement chains put the
+target cell in `interactionData[*].blockPosition`; acks must carry the
+authoritative `placedBlockId` or the client rolls its prediction back to air.
 
 Send the trace plus the client log lines around `WorldLoadFinished`, `JoinWorld`
 and any asset warning.

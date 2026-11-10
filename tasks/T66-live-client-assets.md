@@ -1,6 +1,6 @@
 # T66 — Live-client config-asset completeness
 
-**Status:** in progress (sessions 70–92; code-side complete, real-client smoke pending)
+**Status:** done (sessions 70–93; release-client join, break/drop/pickup and placement verified)
 **Package:** `hytale-assets`, `hytale-server`, `client-bot`, docs
 **Depends on:** T35, T39, T60b, T65
 **Agent fit:** medium (Java generator reading + golden comparison; iterative
@@ -86,9 +86,10 @@ This is an asset-packet completeness task, not an auth task.
   `SimpleBlockInteraction` fallback for block-derived nodes. Session 92 audited
   the non-fatal item-icon-atlas warning: every encoded item icon resolves
   through the streamed `CommonAssetsIndex`, and the only item without an icon is
-  the preloaded `Unknown`, which Java also sends without an icon. No server-side
-  icon gap remains. Still open:
-  - a user-run release-client smoke test (the agent cannot launch the client).
+  the preloaded `Unknown`, which Java also sends without an icon. Session 93
+  completed the interaction loop: block groups, drops/pickup, placement-chain
+  targets and authoritative placed-block reconciliation. The user-run release
+  client now joins, breaks, picks up and places.
 
 - `ModelAsset` has no packet generator; `Debug_Model` was verified as a preload
   with its model/texture in the common assets rather than a protocol packet.
@@ -222,16 +223,20 @@ packet-handler validation, not a wire-protocol change. See
 
 ## User-run real-client smoke
 
-The client is never launched by the agent. After deploying this revision:
+The client is never launched by the agent. T66's final smoke (2026-11-10,
+0.7.7) is green. To re-run:
 
 1. Build the server (`cargo build --release -p hytale-server`).
-2. Start it with `--auth-mode authenticated` and the same asset pack.
-3. Connect the release client and let it reach `SettingUp`/`WorldLoadFinished`.
-4. If it still fails, capture the client log around `WorldLoadFinished` and the
-   server trace (`serve --trace <path>`); the next asset gap is then data-driven
-   from the named access rather than guessed.
-5. On success, record `Playing`, spawn, movement and a block edit in the trace
-   fixture runbook.
+2. Start it with `--auth-mode authenticated` and the same asset pack; add
+   `--trace target/trace/T66c-smoke.jsonl` and optionally
+   `HYTALE_DEBUG_INTERACTIONS=1 ... 2> target/trace/server-interactions.log`.
+3. Connect the release client and let it reach `Playing`.
+4. Exercise spawn/movement, break a block, wait for the drop and pick it up,
+   press F on a harvestable block, then place the collected block and walk into
+   it.
+5. On failure, capture the client log plus the server trace/debug log; the
+   interaction log prints block/normal/fork, operation block/face/placed id and
+   the edit outcome.
 
 ## Notes
 
@@ -441,13 +446,99 @@ packet. A data audit of the encoded `UpdateItems` map found:
 
 Regression: `block_item_packets::item_icons_resolve_in_common_assets` asserts
 every icon path resolves and that only `Unknown` lacks an icon, matching Java.
-There is no server-side icon gap left; re-run the client smoke and capture the
-warning only if it still appears.
+The release-client smoke (session 93) confirmed no icon-atlas failure.
+
+### Session 93 — T66c: real-client block chain, drops, pickup and placement
+
+The release client now completes the full interaction loop against the Rust
+server: join, look/move, break blocks, receive drops, auto-pick up, and place
+blocks.
+
+**Protocol / interaction graph**
+
+- `SyncInteractionChain.interactionData` and `ActiveAnimationsUpdate` are
+  nullable-element arrays; the generated decoder treated them as
+  non-nullable and failed on the first null entry.
+- Root-interaction references were encoded as raw interaction ids in
+  `Parallel`/`Replace`/`Select`/`Repeat`/`Charging`/`Wielding` and the
+  drag/extrude/surface place nodes. They now use the root-interaction table.
+- Inline root children (`HitEntity`, `DefaultValue`, `Forks`,
+  `HitEntityRules.Next`, …) are registered so their ids are stable.
+- `BlockType.interactions` stays empty for plants/crystals; item-level
+  `Interactions` belong only in `UpdateItems`. Copying them into block types
+  made the cattail/plant chain use `Block_Primary` instead of the unarmed
+  chain and froze the client.
+
+**Drops, pickup and auto-pickup**
+
+- A successful break resolves the block's `Server/Drops` list (weighted
+  rolls) with a block-item fallback and spawns real item entities.
+- `Pickup`/`Pick` harvests a looked-at block or the nearest item entity; the
+  client F-key path sends these chains.
+- Java's `PlayerItemEntityPickupSystem` auto-picks items within the pickup
+  radius. The server now does the same, then resyncs the inventory and held
+  item.
+- `ItemUpdate.entity_scale` is `0` when there is no `EntityScaleComponent`,
+  matching Java; `1.0` rendered dropped items oversized.
+- Auto-pickup waits two seconds after `ClientReady(readyForGameplay)` so the
+  client finishes registering the join spawn burst.
+
+**Join inventory timing and missing sections**
+
+- The initial self-spawn and inventory are empty; the saved hotbar/armor is
+  sent 750 ms after the initial chunk snapshot. Equipping a saved block item
+  while the client was still building its join caches was unstable.
+- `UpdatePlayerInventory` always includes Java's ability-slot (capacity 6) and
+  rune-bag (capacity 50) sections.
+- `SetBlockPlacementOverride(false)` is sent immediately after the three
+  `SetActiveSlot` packets, as Java does.
+
+**Block groups**
+
+- `Server/Item/Groups/*.json` (43 stores) were not loaded and
+  `UpdateBlockGroups` (packet 78) was never sent. The client's asset registry
+  kept a null block-group store; `BlockGroup.findItemGroup` walks it for every
+  block item, so equipping any saved block crashed at
+  `HytaleClient+0x753cb5` after resolving `"Soil_Dirt"`.
+- The registry now loads the store and the setup burst sends
+  `UpdateBlockGroups`; `--validate-assets` checks 43 groups / 4,016 bytes.
+
+**Placement chain**
+
+- Placement chains carry the target cell in `interactionData[*].blockPosition`
+  (not only `data.blockPosition`) and may be forked. The server now resolves
+  both and accepts forked block chains.
+- Java's `PlaceBlockInteraction` places at the packet cell; if a client sends
+  the clicked face, the normal/face-adjacent cell is a fallback.
+- The client's local place prediction was failing (`placedBlockId = 0`), and
+  the server echoed that failed state. Follow-up fork updates were ignored, so
+  the client rolled back while the server kept the solid block: invisible
+  blocks and teleport corrections.
+- The server now records the authoritative placed position/block id, stamps it
+  into both the initial and follow-up `SyncInteractionChains` acks, and
+  acknowledges fork updates while preserving `forkedId`. The placed block now
+  renders and collides consistently.
+
+**Smoke result:** the user confirmed the full break → drop → pickup → place
+loop works with the unmodified 0.7.7 release client.
+
+**Remaining T66-adjacent gaps**
+
+- Long-tail interaction payloads still use base forms where the client does
+  not need them (chaining next maps, memories next maps, charging/wielding
+  maps, place-mode details, change-active-slot details).
+- Block placement fidelity is the simple server placement path: rotation,
+  placement settings/faces, deco/physics, connected-block updates and block
+  entity metadata are not yet replicated.
+- Missing-id sentinels are still inconsistent (`0` vs `NOT_FOUND`/`-1`) in a
+  few asset id spaces.
 
 ### Live-client debugging notes
 
-The launcher strips `LD_PRELOAD` but forwards `LD_AUDIT`. A debug-only audit
-library in `UserData/nre-hook.so` catches the managed null check at
-`HytaleClient+0x6f3e45`, logs the faulting arguments and the offending map to
-`UserData/nre-hook.log`, and forwards all other faults to the runtime. Remove
-it (and `createdump-tool/`, `run-hooked.sh`) once the client is stable.
+The launcher strips `LD_PRELOAD` but forwards `LD_AUDIT`. During T66 debugging
+a debug-only audit library in `UserData/nre-hook.so` caught the managed null
+check and logged the faulting arguments/maps. T66 is now green; remove
+`nre-hook*.so`, `nre-hook*.log`, `nre-probe.*`, `createdump-tool/` and
+`run-hooked.sh` from `UserData` when convenient. For a new 0x753cb5-class
+fault, rebuild the hook with the fault address and force `SIGABRT` after the
+log so systemd captures a core.

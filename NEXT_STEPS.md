@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 91)
+# Next steps — CoreServer rewrite, phase 2 (session 93)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -27,16 +27,18 @@ builder/ECS seam. Per-entity stat packets use Java's stat-index map and
 encounter target actions update live NPC state.
 
 **Later sessions:** **T65** landed live OAuth/session-service authentication;
-**T66** is still in progress (config-asset completeness plus the release-client
-join fixes in sessions 71–90); **T62**–**T64** landed the security/fuzz gate,
-the performance/soak baseline and packaging/docs. Sessions 71–90 debugged the
-real release client end to end: version comparison, Debug_Model/translations,
-interaction `NOT_FOUND`, weather fog, chunk absence/pacing/flags, the WorldMap
-stream, surface spawn, full player model/camera, stats/movement states, block
-and item interaction merges, and builder-tool args. **T57b** is closed with
-residual presentation gaps deferred. **T67** (in progress) adds the command
-framework and core in-game commands; the parser/registry/tree, `ChatMessage`
-dispatch and the first built-ins are landed (session 91).
+**T66** is done (session 93): the unmodified release client joins, moves,
+breaks blocks, picks up drops and places blocks; **T62**–**T64** landed the
+security/fuzz gate, the performance/soak baseline and packaging/docs. Sessions
+71–93 debugged the real release client end to end: version comparison,
+Debug_Model/translations, interaction `NOT_FOUND`, weather fog, chunk
+absence/pacing/flags, the WorldMap stream, surface spawn, full player
+model/camera, stats/movement states, block and item interaction merges,
+builder-tool args, nullable interaction arrays, interaction roots, drops/
+pickup, block groups and placement-chain reconciliation. **T57b** is closed
+with residual presentation gaps deferred. **T67** (in progress) adds the
+command framework and core in-game commands; the parser/registry/tree,
+`ChatMessage` dispatch and the first built-ins are landed (session 91).
 
 ## Current state
 
@@ -274,12 +276,12 @@ Landed and green:
   `/server-join/auth-grant`/`auth-token`, EdDSA/JWKS validation and the
   `cnf.x5t#S256` client-certificate binding. Credential persistence, token
   refresh scheduling, browser PKCE and external-session mode remain.
-- T66 (in progress, code-side complete): real config-asset encoders for items,
-  blocks and the remaining stores; sessions 71–92 closed the release-client
-  `WorldLoadFinished`/join path through surface spawn, movement, model, stats,
-  block/item interactions, the complete interaction variant audit and the
-  item-icon/common-asset audit. Every encoded icon resolves and only Java's
-  `Unknown` item lacks one. A user-run release-client smoke test remains.
+- T66 (done, session 93): real config-asset encoders for items, blocks and the
+  remaining stores; sessions 71–93 closed the release-client join/edit path
+  through surface spawn, movement, model, stats, block/item interactions, the
+  complete interaction variant audit, item icons, drops/pickup, block groups
+  and placement-chain reconciliation. The user-run release client now joins,
+  breaks blocks, picks up drops and places blocks.
 - T62–T64 (done): inbound payload/rate/view/queue ceilings and fuzz/audit gates;
   boot/assets/tick/chunk/save performance and 1,000-cycle soak baseline; release
   archive, systemd docs and the Rust-native plugin/asset-mod API.
@@ -309,6 +311,30 @@ cargo fmt --all -- --check
 See [`TESTING.md`](TESTING.md) for the fast asset/golden (`assets`), slow
 worldgen/world-boot (`slow`) and serial E2E tiers.
 
+## What's next after T66
+
+T66 is complete; the next work should be chosen by scope, not by the old
+asset-bring-up list:
+
+1. **T67 command follow-ups:** console stdin sender, real permissions/op
+   groups, plain-chat broadcast/formatting, player-name `tp`/`give` targets,
+   `kick`, `world`, `maxplayers`/`maxviewradius`, and the remaining Java
+   command set.
+2. **Block placement fidelity:** rotation and placement settings, face/connect
+   rules, deco and physics updates, connected-block neighbour updates, block
+   entity/metadata persistence, and the `/setblock`-style admin path.
+3. **Interaction long tail:** chaining/memories/charging/wielding next maps,
+   place-mode selection details, change-active-slot details, and a consistency
+   pass over missing-id sentinels (`NOT_FOUND`/`-1` vs `0`).
+4. **Multi-player and persistence smoke:** two clients, held-item/NPC
+   visibility, save/reload, disconnect/reconnect, and world restart.
+5. **Presentation gaps:** the known chunk-map, window-distance, particle,
+   audio and weather follow-ups from T57b; first-person/held-item polish if a
+   new client build exposes it.
+6. **Per-join player identity and real spawn providers:** the server still
+   joins the world's stored player in single-player style; per-auth-UUID
+   identity and Java `SpawnProvider` parity remain.
+
 ## Phase 2 sequence
 
 1. **M2 — asset completion (done):** T35 → T36/T37/T38 → T39.
@@ -335,10 +361,10 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
    lands the first gameplay follow-up slice (session 64). T61 records the
    editor/builder/machinima scope decision, T62–T64 close the security,
    performance and packaging gates, and T65 closes live authentication. T66 is
-   the only open milestone task (real-client config-asset completeness and
-   smoke verification). T67 (in progress, session 91) adds commands; its core
-   framework and first built-ins are landed, with console/permission/chat
-   follow-ups remaining.
+   complete (session 93): the release client joins, breaks, picks up and places
+   blocks. T67 (in progress, session 91) adds commands; its core framework and
+   first built-ins are landed, with console/permission/chat follow-ups
+   remaining.
 
 ## Try it
 

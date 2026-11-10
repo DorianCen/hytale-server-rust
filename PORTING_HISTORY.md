@@ -2468,6 +2468,53 @@ This file records phase-2 sessions only.
 - **Verified:** `HYTALE_TEST_ASSETS=1 cargo test -p hytale-assets` (all suites),
   `./tools/test.sh fast` (1,577 passed, 25 skipped), clippy and fmt. No
   server-side icon gap remains.
-- **Follow-up:** the only open T66 item is the user-run release-client smoke
-  (the agent cannot launch the client). If the warning persists, capture the
-  client log and the exact missing icon name from the atlas builder.
+- **Follow-up:** the user-run release-client smoke; session 93 completed it and
+  the icon warning does not appear.
+
+---
+
+## Session 93 — T66c real-client break/drop/pickup/placement (2026-11-10)
+
+- **Goal:** finish T66 by making the unmodified 0.7.7 release client playable
+  through the full block loop: break, receive drops, pick them up and place
+  blocks.
+- **Protocol fixes:** generated nullable-element arrays for
+  `SyncInteractionChain.interactionData` and `ActiveAnimationsUpdate`; root
+  interaction references for `Parallel`/`Replace`/`Select`/`Repeat`/
+  `Charging`/`Wielding` and the drag/extrude/surface place nodes; inline root
+  children (`HitEntity`, `DefaultValue`, `Forks`, `HitEntityRules.Next`, ...).
+- **Interaction graph:** `BlockType.interactions` now stays empty for plants
+  and crystals while item-level `Interactions` remain in `UpdateItems`.
+  Copying `Block_Primary` into reeds/crystal block types made the client use
+  the wrong cattail chain and freeze.
+- **Drops/pickup:** successful breaks resolve `Server/Drops` weighted lists
+  with a block-item fallback and spawn item entities. `Pickup`/`Pick` harvest a
+  looked-at block or nearby item entity. Java's auto-pickup is implemented with
+  a two-second grace after `ClientReady`, and `ItemUpdate.entity_scale` is `0`
+  when no `EntityScaleComponent` exists.
+- **Join state:** the initial self-spawn/inventory is empty and the saved
+  hotbar/armor follows the chunk snapshot; `UpdatePlayerInventory` carries the
+  ability-slot/rune-bag sections; `SetBlockPlacementOverride(false)` follows the
+  active-slot packets.
+- **Block groups:** loaded `Server/Item/Groups` (43 stores) and added
+  `UpdateBlockGroups` (packet 78). The missing store was the `0x753cb5` crash:
+  the client resolves every held block item through
+  `BlockGroup.findItemGroup`, which dereferenced the null store even for
+  `Soil_Dirt`.
+- **Placement chain:** placement targets are resolved from
+  `interactionData[*].blockPosition` as well as `data.blockPosition`; forked
+  block chains are handled. The server stamps the authoritative placed
+  position/block id into the initial and follow-up `SyncInteractionChains`
+  acks and acknowledges fork updates with their `forkedId`. Without this the
+  client kept its failed local prediction (`placedBlockId = 0`), so blocks were
+  solid on the server but invisible on the client and caused teleport
+  corrections.
+- **Landed commits:** `ee80068`, `fd0d726`, `6804221`, `17468b6`, `2e6508a`,
+  `e5e5f05`, `3611c58`, `aa9a795`, `ba483f3`, `6d1f320`, `9ba05df`, `11daff8`.
+- **Verified:** `block_item_packets` (24), `hytale-server --lib` (52), fast
+  tier (1,590 passed, 25 skipped), clippy/fmt, `--validate-assets` (48 packets,
+  `BlockGroup` count 43, 0 failures). The user-run release client completed
+  join, movement, break, drop pickup and block placement.
+- **Follow-ups:** block placement fidelity (rotation/faces/deco/physics/
+  connected blocks/block entities), long-tail interaction payloads, missing-id
+  sentinels, and the T67 command-framework follow-ups.

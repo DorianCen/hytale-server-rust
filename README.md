@@ -19,22 +19,21 @@ Hypixel Studios.
 
 ## Status
 
-The port is past the "can a client join?" stage. A real **Hytale 0.7.5 release
+The port is past the "can a client join?" stage. A real **Hytale 0.7.7 release
 client** authenticates through the live Hytale OAuth/session service, receives
-the full config burst, loads terrain, spawns on the surface, moves, sees the HUD
-and stays connected. Protocol compatibility is proven, not assumed: the client
-and the Rust server use the same protocol CRC (`-386561135`, `3908406161`
-unsigned) and build number (`258`).
+the full config burst, loads terrain, spawns on the surface, moves, sees the HUD,
+breaks blocks, picks up drops and places blocks. Protocol compatibility is
+proven, not assumed: the client and the Rust server use the same protocol CRC
+(`-386561135`, `3908406161` unsigned) and build number (`258`).
 
-The remaining live-client work is **a final smoke run** after code-side T66
-completion. Sessions 71–92 closed the join path through surface spawn,
-movement, player model, stats, block/item interactions and the full interaction
-variant audit; every encoded item icon now resolves through the streamed
-common-asset index, and the sole icon-less `Unknown` item matches Java. A
-real-client verification run is still pending. Basic in-game
-commands are now implemented (`help`, `tp`, `give`, `gamemode`, `save`, `stop`,
-`who`, ...); [T67](tasks/T67-commands.md) tracks the remaining console,
-permission, chat and advanced-command work.
+T66 is complete (session 93). Sessions 71–93 closed the join/edit path through
+surface spawn, movement, player model, stats, block/item interactions, the full
+interaction variant audit, item icons, block groups, drops/pickup and
+placement-chain reconciliation. Every encoded item icon resolves through the
+streamed common-asset index, and the sole icon-less `Unknown` item matches
+Java. Basic in-game commands are implemented (`help`, `tp`, `give`, `gamemode`,
+`save`, `stop`, `who`, ...); [T67](tasks/T67-commands.md) tracks the remaining
+console, permission, chat and advanced-command work.
 
 ### Milestones
 
@@ -46,7 +45,7 @@ permission, chat and advanced-command work.
 | M3 | Runtime, persistent universe and world lifecycle | Done |
 | M4 | v1 client join, multiplayer tracking and block edits | Done |
 | M5 | Core gameplay parity: inventory, interactions, movement, fluids, stats, weather, projectiles, prefabs, UI basics | Done; T57b closed, residual presentation gaps deferred |
-| M6 | Builtins and NPCs: AI/pathfinding, spawning, combat, encounters, modules | Done; T66 live-client asset completeness in progress; T67 commands in progress |
+| M6 | Builtins and NPCs: AI/pathfinding, spawning, combat, encounters, modules | Done; T66 live-client interaction loop complete; T67 commands in progress |
 | M7 | Security/fuzzing, performance/soak, packaging, plugin and mod API | Done |
 
 ### Implemented and covered by tests
@@ -81,10 +80,11 @@ block/item golden tests**, a clean
 - **Assets are required and not included.** The server needs a Hytale asset
   pack (`Assets.zip` or an extracted tree) from a Hytale installation you own.
   The pack is several GB and is git-ignored.
-- **Live-client parity is still being closed.** World load, spawn and movement
-  are verified. T66's item/interaction asset work is code-side complete; the
-  remaining gate is a release-client smoke run. First-person hand rendering and
-  in-client block breaking are not yet confirmed.
+- **Live-client parity is verified for the block loop.** Join, spawn, movement,
+  block breaking, item drops, pickup and block placement are confirmed against
+  the release client (T66, session 93). Remaining close-out work is placement
+  fidelity, long-tail interaction payloads, multi-player/persistence smoke and
+  the T67 command follow-ups.
 - **Commands are basic.** `ChatMessage` command lines and `CommandTreeSync` now
   work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`, `whereami`,
   `whoami`, `who`, `kill`, `respawn`, `time` and `version`. Console stdin, real

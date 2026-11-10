@@ -45,7 +45,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T60](T60-builtin-module-runtime.md) | Builtin module runtime and selected modules | T58, T59 | low/medium | done (session 63) |
 | [T60b](T60b-followup-gameplay.md) | Player combat/stats, containers, crafting, encounters, portal/ECS | T60 | low | done (session 64) |
 | [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65; asset follow-up T66) |
-| [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | in progress (session 92; code-side complete, real-client smoke pending) |
+| [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | done (session 93; release-client break/drop/pickup/place verified) |
 | [T67](T67-commands.md) | Command framework and in-game commands | T42, T48 | medium | in progress (session 91; core framework and built-ins) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
@@ -53,12 +53,12 @@ context. The main agent owns sequencing and shared-file edits.
 | T64 | [Packaging, docs and plugin/mod API](T64-packaging-docs-plugin-api.md) | T60 | medium | done (session 69) |
 
 Task files for T43–T67 are created when their milestone starts; the milestone
-scope is in [`../plan.md`](../plan.md). T65 closed live authentication; its
-real-client asset follow-up is T66, code-side complete with only the user-run
-smoke pending. Sessions 70–92 landed the item/block encoders, the release-client
-join fixes, the full interaction variant audit and the item-icon/common-asset
-audit; every encoded item icon resolves and the sole icon-less `Unknown` item
-matches Java. T61 records the
+scope is in [`../plan.md`](../plan.md). T65 closed live authentication; T66
+completed the real-client asset/interaction follow-up (session 93): the
+unmodified release client joins, moves, breaks blocks, picks up drops and
+places blocks. Sessions 70–93 landed the item/block encoders, the release-client
+join fixes, the full interaction variant audit, item icons, drops/pickup, block
+groups (`UpdateBlockGroups`) and placement-chain reconciliation. T61 records the
 editor/builder/machinima/voice/cosmetics scope: only cosmetic appearance
 passthrough is in scope, editor clients are refused in every auth mode, and
 `builtin/HytaleGenerator` stays a separate engine project. T62 lands the
