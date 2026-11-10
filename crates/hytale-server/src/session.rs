@@ -46,11 +46,11 @@ use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
     BenchType, BlockFace, BlockPosition, ChatType, ComponentUpdate, DisconnectType,
     EntityEffectsUpdate, EntityStatUpdate, EntityStatsUpdate, FormattedMessage, GameMode,
-    HudComponent, InstantData, InteractionState, InteractionType, MapChunk, MapMarker,
-    MapMarkerIconSize, MouseButtonEvent, MouseButtonState, MouseButtonType, MovementSettings,
-    MovementStates, MovementStatesUpdate, PlayerSkin, PongType, Position as ProtocolPosition,
-    SyncInteractionChain, Transform as ProtocolTransform, UpdateType, WindowAction,
-    WorldInteraction,
+    HudComponent, InstantData, InteractionState, InteractionSyncData, InteractionType, MapChunk,
+    MapMarker, MapMarkerIconSize, MouseButtonEvent, MouseButtonState, MouseButtonType,
+    MovementSettings, MovementStates, MovementStatesUpdate, PlayerSkin, PongType,
+    Position as ProtocolPosition, SyncInteractionChain, Transform as ProtocolTransform, UpdateType,
+    WindowAction, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -2934,6 +2934,7 @@ async fn run_game_loop(
     let mut movement_teleport_id = 1i8;
     let mut last_movement_correction: Option<std::time::Instant> = None;
     let mut last_interaction_chain_id = 0i32;
+    let mut last_chain_edit: Option<(i32, i32, Option<PlacedBlock>)> = None;
     // Registry view center follows the player's chunk even before the client
     // acknowledges the teleport (the chunk view itself still waits for the ack).
     let mut registry_center = center;
@@ -3412,7 +3413,7 @@ async fn run_game_loop(
                             None,
                             options.block_break_damage,
                         ) {
-                            BlockInteractionOutcome::Edit { consumed } => {
+                            BlockInteractionOutcome::Edit { consumed, .. } => {
                                 report.block_edits += 1;
                                 if consumed {
                                     send_inventory(
@@ -3528,6 +3529,18 @@ async fn run_game_loop(
                                 }
                             }
                             if !update.initial {
+                                if let Some((chain_id, root_id, placed)) = &last_chain_edit {
+                                    if update.chain_id == *chain_id {
+                                        ack_interaction_update(
+                                            writer,
+                                            update,
+                                            *root_id,
+                                            *placed,
+                                            options.chunk_compression_level,
+                                        )
+                                        .await?;
+                                    }
+                                }
                                 continue;
                             }
                             // Java `InteractionManager.syncStart`: chain ids are
@@ -3617,6 +3630,7 @@ async fn run_game_loop(
                                         writer,
                                         update,
                                         root_id,
+                                        None,
                                         options.chunk_compression_level,
                                     )
                                     .await?;
@@ -3657,8 +3671,12 @@ async fn run_game_loop(
                                     update.chain_id, placement, outcome
                                 );
                             }
+                            let placed = match &outcome {
+                                BlockInteractionOutcome::Edit { placed, .. } => *placed,
+                                _ => None,
+                            };
                             match outcome {
-                                BlockInteractionOutcome::Edit { consumed } => {
+                                BlockInteractionOutcome::Edit { consumed, .. } => {
                                     report.block_edits += 1;
                                     if consumed {
                                         send_inventory(
@@ -3689,10 +3707,12 @@ async fn run_game_loop(
                                     continue;
                                 }
                             }
+                            last_chain_edit = Some((update.chain_id, root_id, placed));
                             finish_interaction_chain(
                                 writer,
                                 update,
                                 root_id,
+                                placed.as_ref(),
                                 options.chunk_compression_level,
                             )
                             .await?;
@@ -4538,7 +4558,7 @@ fn interaction_chain_ack(
         interaction_type: update.interaction_type,
         equip_slot: update.equip_slot,
         chain_id: update.chain_id,
-        forked_id: None,
+        forked_id: update.forked_id.clone(),
         data: update.data.clone(),
         state,
         new_forks: None,
@@ -4553,23 +4573,16 @@ async fn finish_interaction_chain(
     writer: &mut FrameWriter,
     update: &SyncInteractionChain,
     root_id: i32,
+    placed: Option<&PlacedBlock>,
     compression_level: i32,
 ) -> Result<(), SessionError> {
     const NOT_FOUND: i32 = hytale_assets::packets::INTERACTION_NOT_FOUND;
     let mut first = interaction_chain_ack(update, true, root_id, InteractionState::NotFinished);
-    first.interaction_data = update.interaction_data.clone();
+    first.interaction_data =
+        patched_interaction_data(update, placed, InteractionState::NotFinished);
 
     let mut last = interaction_chain_ack(update, false, NOT_FOUND, InteractionState::Finished);
-    last.interaction_data = update.interaction_data.clone().map(|data| {
-        data.into_iter()
-            .map(|entry| {
-                entry.map(|mut entry| {
-                    entry.state = InteractionState::Finished;
-                    entry
-                })
-            })
-            .collect()
-    });
+    last.interaction_data = patched_interaction_data(update, placed, InteractionState::Finished);
 
     writer
         .write_packet(
@@ -4580,6 +4593,58 @@ async fn finish_interaction_chain(
         )
         .await?;
     Ok(())
+}
+
+/// Acknowledge a follow-up update for the active block chain. The client keeps
+/// sending fork updates until the server confirms them; without this it keeps
+/// its failed local prediction and the block stays invisible even though the
+/// server applied it.
+async fn ack_interaction_update(
+    writer: &mut FrameWriter,
+    update: &SyncInteractionChain,
+    root_id: i32,
+    placed: Option<PlacedBlock>,
+    compression_level: i32,
+) -> Result<(), SessionError> {
+    let mut ack = interaction_chain_ack(update, false, root_id, InteractionState::Finished);
+    ack.interaction_data =
+        patched_interaction_data(update, placed.as_ref(), InteractionState::Finished);
+    writer
+        .write_packet(
+            &SyncInteractionChains { updates: vec![ack] },
+            compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
+/// Mark every operation finished and stamp the authoritative placed block id
+/// into the operation that targets that cell. The client reconciles its
+/// predicted block from this data.
+fn patched_interaction_data(
+    update: &SyncInteractionChain,
+    placed: Option<&PlacedBlock>,
+    state: InteractionState,
+) -> Option<Vec<Option<InteractionSyncData>>> {
+    let mut data = update.interaction_data.clone()?;
+    for entry in data.iter_mut().flatten() {
+        entry.state = state;
+        let Some(placed) = placed else {
+            continue;
+        };
+        let matches_target = entry.block_position.as_ref().is_some_and(|position| {
+            position.x == placed.x && position.y == placed.y && position.z == placed.z
+        });
+        if matches_target || entry.block_position.is_none() {
+            entry.block_position = Some(BlockPosition {
+                x: placed.x,
+                y: placed.y,
+                z: placed.z,
+            });
+            entry.placed_block_id = placed.block_id;
+        }
+    }
+    Some(data)
 }
 
 fn interaction_debug_enabled() -> bool {
@@ -4593,10 +4658,19 @@ struct BenchOpen {
     bench: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PlacedBlock {
+    x: i32,
+    y: i32,
+    z: i32,
+    block_id: i32,
+}
+
 #[derive(Debug)]
 enum BlockInteractionOutcome {
     Edit {
         consumed: bool,
+        placed: Option<PlacedBlock>,
     },
     Use {
         state_changes: usize,
@@ -4651,7 +4725,10 @@ fn handle_block_interaction(
                         }
                     }
                 }
-                return BlockInteractionOutcome::Edit { consumed: false };
+                return BlockInteractionOutcome::Edit {
+                    consumed: false,
+                    placed: None,
+                };
             }
             let Ok((before, after)) = thread.set_block(x, y, z, 0) else {
                 return BlockInteractionOutcome::Rejected;
@@ -4678,7 +4755,15 @@ fn handle_block_interaction(
                     );
                 }
             }
-            BlockInteractionOutcome::Edit { consumed: false }
+            BlockInteractionOutcome::Edit {
+                consumed: false,
+                placed: Some(PlacedBlock {
+                    x,
+                    y,
+                    z,
+                    block_id: 0,
+                }),
+            }
         }
         Some(BlockEdit::Place { x, y, z, item_id }) => {
             // The inventory is authoritative. The packet's item id remains a
@@ -4694,11 +4779,13 @@ fn handle_block_interaction(
             // Java's `PlaceBlockInteraction` uses the packet's block position
             // directly. Some clients send the clicked face instead, so keep the
             // normal-adjusted cell as a fallback rather than the primary target.
+            let mut target = (x, y, z);
             let mut placed = thread.place_block(x, y, z, block_id);
             if matches!(placed, Ok(None)) {
                 if let Some(position) = placement_position {
                     if (position.x, position.y, position.z) != (x, y, z) {
-                        placed = thread.place_block(position.x, position.y, position.z, block_id);
+                        target = (position.x, position.y, position.z);
+                        placed = thread.place_block(target.0, target.1, target.2, block_id);
                     }
                 }
             }
@@ -4709,15 +4796,21 @@ fn handle_block_interaction(
                 return BlockInteractionOutcome::Rejected;
             }
             players.broadcast_block(ServerSetBlock {
-                x,
-                y,
-                z,
+                x: target.0,
+                y: target.1,
+                z: target.2,
                 block_id: after,
                 filler: 0,
                 rotation: 0,
             });
             BlockInteractionOutcome::Edit {
                 consumed: from_inventory,
+                placed: Some(PlacedBlock {
+                    x: target.0,
+                    y: target.1,
+                    z: target.2,
+                    block_id: after,
+                }),
             }
         }
         None => BlockInteractionOutcome::Rejected,
@@ -5866,6 +5959,47 @@ mod tests {
             z: 0.0,
         });
         assert_eq!(chain_placement_position(&primary), None);
+    }
+
+    #[test]
+    fn chain_ack_patches_the_placed_block_for_reconciliation() {
+        let mut update = chain_update(
+            InteractionType::Use,
+            Some(BlockPosition { x: 1, y: 2, z: 3 }),
+        );
+        update.interaction_data = Some(vec![
+            Some(InteractionSyncData {
+                block_position: Some(BlockPosition { x: 1, y: 3, z: 3 }),
+                state: InteractionState::Failed,
+                ..Default::default()
+            }),
+            Some(InteractionSyncData::default()),
+        ]);
+        let placed = PlacedBlock {
+            x: 1,
+            y: 3,
+            z: 3,
+            block_id: 3014,
+        };
+        let data = patched_interaction_data(&update, Some(&placed), InteractionState::Finished)
+            .expect("patched data");
+        assert!(data
+            .iter()
+            .flatten()
+            .all(|entry| entry.state == InteractionState::Finished));
+        assert!(data.iter().flatten().any(|entry| {
+            entry.placed_block_id == 3014
+                && entry.block_position == Some(BlockPosition { x: 1, y: 3, z: 3 })
+        }));
+
+        let mut forked = update.clone();
+        forked.forked_id = Some(hytale_protocol::generated::common::ForkedChainId {
+            entry_index: 5,
+            sub_index: 1,
+            forked_id: None,
+        });
+        let ack = interaction_chain_ack(&forked, false, 42, InteractionState::Finished);
+        assert_eq!(ack.forked_id, forked.forked_id);
     }
 
     #[test]
