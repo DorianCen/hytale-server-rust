@@ -1633,6 +1633,10 @@ fn load_root_interactions(pack: &AssetPack) -> Result<RootInteractionLoad, Asset
         .map(|asset| asset.key.to_ascii_lowercase())
         .collect();
     let mut files = read_store_files(pack, ROOT_INTERACTION.path)?;
+    // Java's `RootInteraction.CHILD_ASSET_CODEC` registers inline roots contained
+    // in interaction nodes (`Parallel.Interactions`, `Replace.DefaultValue`,
+    // `Select.HitEntity`, fork fields) in the same root-interaction asset map.
+    files.extend(load_contained_root_interactions(pack)?);
     let mut by_id: UnarmedInteractionsById = BTreeMap::new();
     for asset in read_store_files(pack, UNARMED_INTERACTION_PATH)? {
         let Some(entries) = asset.value.get("Interactions").and_then(Value::as_object) else {
@@ -1761,6 +1765,104 @@ fn load_contained_interactions(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetE
     Ok(out)
 }
 
+/// Register the inline **root** interactions Java creates for
+/// `RootInteraction.CHILD_ASSET_CODEC` fields.
+///
+/// These live in the `RootInteraction` store, not the `Interaction` store. The
+/// keys use the same `*<parent>_<field>` convention as the contained
+/// interaction codec.
+fn load_contained_root_interactions(pack: &AssetPack) -> Result<Vec<RawAsset>, AssetError> {
+    let mut out = Vec::new();
+    for store in [
+        INTERACTION.path,
+        ROOT_INTERACTION.path,
+        UNARMED_INTERACTION_PATH,
+    ] {
+        for asset in read_store_files(pack, store)? {
+            extract_inline_root_interactions(&asset.key, &asset.value, &asset.source, &mut out);
+        }
+    }
+    for asset in load_contained_interactions(pack)? {
+        extract_inline_root_interactions(&asset.key, &asset.value, &asset.source, &mut out);
+    }
+    Ok(out)
+}
+
+fn push_contained_root(key: String, source: &str, child: &Value, out: &mut Vec<RawAsset>) {
+    if !child.is_object() {
+        return;
+    }
+    out.push(contained_interaction(key, source, child.clone()));
+}
+
+fn extract_inline_root_interactions(
+    root: &str,
+    value: &Value,
+    source: &str,
+    out: &mut Vec<RawAsset>,
+) {
+    if !value.is_object() {
+        return;
+    }
+    let node_type = value
+        .get("Type")
+        .and_then(Value::as_str)
+        .unwrap_or("Simple");
+    match node_type {
+        "Parallel" => {
+            if let Some(children) = value.get("Interactions").and_then(Value::as_array) {
+                for (index, child) in children.iter().enumerate() {
+                    push_contained_root(
+                        format!("*{root}_Interactions_{index}"),
+                        source,
+                        child,
+                        out,
+                    );
+                }
+            }
+        }
+        "Replace" => {
+            if let Some(child) = value.get("DefaultValue") {
+                push_contained_root(format!("*{root}_DefaultValue"), source, child, out);
+            }
+        }
+        "Selector" => {
+            if let Some(child) = value.get("HitEntity") {
+                push_contained_root(format!("*{root}_HitEntity"), source, child, out);
+            }
+            if let Some(rules) = value.get("HitEntityRules").and_then(Value::as_array) {
+                for (index, rule) in rules.iter().enumerate() {
+                    if let Some(child) = rule.get("Next") {
+                        push_contained_root(
+                            format!("*{root}_HitEntityRules_{index}_Next"),
+                            source,
+                            child,
+                            out,
+                        );
+                    }
+                }
+            }
+        }
+        "Repeat"
+        | "DragPlaceBlock"
+        | "DragEraseBlock"
+        | "ExtrudePlaceBlock"
+        | "SurfaceDrawPlaceBlock" => {
+            if let Some(child) = value.get("ForkInteractions") {
+                push_contained_root(format!("*{root}_ForkInteractions"), source, child, out);
+            }
+        }
+        "Charging" | "Wielding" => {
+            if let Some(forks) = value.get("Forks").and_then(Value::as_object) {
+                for (fork, child) in forks {
+                    push_contained_root(format!("*{root}_Forks_{fork}"), source, child, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn extract_inline_interactions(root: &str, value: &Value, source: &str, out: &mut Vec<RawAsset>) {
     if !value.is_object() {
         return;
@@ -1827,6 +1929,36 @@ fn extract_inline_interactions(root: &str, value: &Value, source: &str, out: &mu
                 out.push(contained_interaction(key.clone(), source, child.clone()));
                 extract_inline_interactions(&key, child, source, out);
             }
+        }
+    }
+    // Inline root objects (`HitEntity`, `DefaultValue`, `ForkInteractions`,
+    // `Forks`, `HitEntityRules.Next`) also contain interaction children. They
+    // are not reached by the normal `Interactions` walk because the parent is a
+    // root, not an interaction, so walk their children from the generated root
+    // key.
+    for field in ["HitEntity", "DefaultValue", "ForkInteractions"] {
+        let Some(child) = value.get(field).filter(|child| child.is_object()) else {
+            continue;
+        };
+        let key = format!("*{root}_{field}");
+        extract_inline_interactions(&key, child, source, out);
+    }
+    if let Some(rules) = value.get("HitEntityRules").and_then(Value::as_array) {
+        for (index, rule) in rules.iter().enumerate() {
+            let Some(child) = rule.get("Next").filter(|child| child.is_object()) else {
+                continue;
+            };
+            let key = format!("*{root}_HitEntityRules_{index}_Next");
+            extract_inline_interactions(&key, child, source, out);
+        }
+    }
+    if let Some(forks) = value.get("Forks").and_then(Value::as_object) {
+        for (fork, child) in forks {
+            if !child.is_object() {
+                continue;
+            }
+            let key = format!("*{root}_Forks_{fork}");
+            extract_inline_interactions(&key, child, source, out);
         }
     }
     // Java's `CHILD_ASSET_CODEC_ARRAY` registers every inline element of an

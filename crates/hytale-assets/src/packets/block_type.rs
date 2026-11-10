@@ -222,15 +222,12 @@ pub(crate) fn block_type_packet(
                     .get("IgnoreSupportWhenPlaced")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
-                // Java maps the block's `Interactions` to root-interaction
-                // indices. A crystal's `Secondary` interaction is looked up by
-                // the client's crosshair raycast; an empty map leaves the
-                // client with a null root when it looks at the block.
-                interactions: Some(block_interactions(
-                    registry,
-                    record.value.container_item.as_deref(),
-                    json,
-                )),
+                // Java `BlockType.toPacket` maps only the block type's own
+                // `Interactions` document. Item-level `Interactions` are merged
+                // into the *item* packet, not the block type; copying them here
+                // makes the client use `Block_Primary` instead of the unarmed
+                // chain for plants and can loop in its local interaction walk.
+                interactions: Some(block_interactions(registry, json)),
                 conditional_sounds: conditional_sounds(registry, json.get("ConditionalSounds"))?,
                 states: states(registry, key, id, json),
                 transition_to_tag: json
@@ -948,24 +945,9 @@ fn filler(value: Option<&Value>) -> Option<Vec<Vector3i>> {
 }
 
 /// Map a block type's `Interactions` to root-interaction indices.
-fn block_interactions(
-    registry: &AssetRegistry,
-    container_item: Option<&str>,
-    json: &Value,
-) -> BTreeMap<InteractionType, i32> {
+fn block_interactions(registry: &AssetRegistry, json: &Value) -> BTreeMap<InteractionType, i32> {
     let mut interactions = BTreeMap::new();
-    // `BlockType.Interactions` lives on the containing item document, not on
-    // the `BlockType` sub-object.
-    let entries = json
-        .get("Interactions")
-        .and_then(Value::as_object)
-        .or_else(|| {
-            container_item
-                .and_then(|item| registry.items.get(item))
-                .and_then(|record| record.value.get("Interactions"))
-                .and_then(Value::as_object)
-        });
-    let Some(entries) = entries else {
+    let Some(entries) = json.get("Interactions").and_then(Value::as_object) else {
         return interactions;
     };
     for (type_name, value) in entries {

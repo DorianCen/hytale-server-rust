@@ -272,6 +272,162 @@ fn chaining_and_block_fallbacks_resolve_their_children() {
 }
 
 #[test]
+fn block_swing_forks_and_replace_defaults_use_root_ids() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (packets, registry) = load_packets();
+    let interactions: UpdateInteractions = decode(&packets);
+    let interactions = interactions.interactions.expect("interaction map");
+    let roots: UpdateRootInteractions = decode(&packets);
+    let roots = roots.interactions.expect("root interaction map");
+
+    let id_of = |key: &str| {
+        registry
+            .interactions
+            .id_of(key)
+            .unwrap_or_else(|| panic!("missing interaction `{key}`"))
+    };
+
+    // `Block_Swing_Left` is `Simple -> Parallel`. Java's `Parallel.Interactions`
+    // is `RootInteraction[]`; sending interaction ids here made the client fork
+    // the wrong root and loop.
+    let ProtocolInteraction::SimpleInteraction(swing) =
+        interactions.get(&id_of("Block_Swing_Left")).expect("swing")
+    else {
+        panic!("Block_Swing_Left is not Simple");
+    };
+    let ProtocolInteraction::ParallelInteraction(parallel) =
+        interactions.get(&swing.next).expect("parallel")
+    else {
+        panic!("Block_Swing_Left.Next is not Parallel");
+    };
+    assert_eq!(parallel.next.len(), 3);
+    assert!(parallel
+        .next
+        .iter()
+        .all(|root| *root != INTERACTION_NOT_FOUND && roots.contains_key(root)));
+
+    // `Block_Break` -> `BreakBlock` -> `Serial` contains a `Replace` whose
+    // `DefaultValue` is a root interaction.
+    let ProtocolInteraction::UseBlockInteraction(block_break) = interactions
+        .get(&id_of("Block_Break"))
+        .expect("block break")
+    else {
+        panic!("Block_Break is not UseBlock");
+    };
+    let ProtocolInteraction::BreakBlockInteraction(break_block) =
+        interactions.get(&block_break.failed).expect("break block")
+    else {
+        panic!("Block_Break.Failed is not BreakBlock");
+    };
+    let ProtocolInteraction::SerialInteraction(serial) =
+        interactions.get(&break_block.next).expect("break serial")
+    else {
+        panic!("BreakBlock.Next is not Serial");
+    };
+    let mut replaces = 0;
+    for child in &serial.serial_interactions {
+        let Some(ProtocolInteraction::ReplaceInteraction(replace)) = interactions.get(child) else {
+            continue;
+        };
+        replaces += 1;
+        assert_ne!(
+            replace.default_value, INTERACTION_NOT_FOUND,
+            "Replace `{:?}` has no default root",
+            replace.variable
+        );
+        assert!(
+            roots.contains_key(&replace.default_value),
+            "Replace `{:?}` default {} is not a root interaction",
+            replace.variable,
+            replace.default_value
+        );
+    }
+    assert!(replaces > 0);
+}
+
+#[test]
+fn block_swing_roots_resolve_every_child() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (packets, registry) = load_packets();
+    let interactions: UpdateInteractions = decode(&packets);
+    let interactions = interactions.interactions.expect("interaction map");
+    let roots: UpdateRootInteractions = decode(&packets);
+    let roots = roots.interactions.expect("root map");
+    let id_of = |key: &str| {
+        registry
+            .interactions
+            .id_of(key)
+            .unwrap_or_else(|| panic!("missing `{key}`"))
+    };
+    let ProtocolInteraction::SimpleInteraction(swing) =
+        interactions.get(&id_of("Block_Swing_Left")).expect("swing")
+    else {
+        panic!()
+    };
+    let ProtocolInteraction::ParallelInteraction(parallel) =
+        interactions.get(&swing.next).expect("parallel")
+    else {
+        panic!()
+    };
+
+    let mut pending: Vec<i32> = parallel.next.clone();
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(root_id) = pending.pop() {
+        if !seen.insert(root_id) {
+            continue;
+        }
+        let root = roots
+            .get(&root_id)
+            .unwrap_or_else(|| panic!("missing root {root_id}"));
+        assert!(!root.interactions.is_empty());
+        for child in &root.interactions {
+            assert_ne!(
+                *child, INTERACTION_NOT_FOUND,
+                "root `{:?}` contains a NOT_FOUND child",
+                root.id
+            );
+            let node = interactions.get(child).unwrap_or_else(|| {
+                panic!(
+                    "root `{:?}` references missing interaction {child}",
+                    root.id
+                )
+            });
+            match node {
+                ProtocolInteraction::SelectInteraction(select) => {
+                    assert!(
+                        select.hit_entity == INTERACTION_NOT_FOUND
+                            || roots.contains_key(&select.hit_entity),
+                        "selector {child} hit entity {} is not a root",
+                        select.hit_entity
+                    );
+                    if select.hit_entity != INTERACTION_NOT_FOUND {
+                        pending.push(select.hit_entity);
+                    }
+                }
+                ProtocolInteraction::ReplaceInteraction(replace) => {
+                    assert!(
+                        replace.default_value == INTERACTION_NOT_FOUND
+                            || roots.contains_key(&replace.default_value),
+                        "replace {child} default {} is not a root",
+                        replace.default_value
+                    );
+                    if replace.default_value != INTERACTION_NOT_FOUND {
+                        pending.push(replace.default_value);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+#[test]
 fn absent_interaction_references_use_not_found() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
@@ -310,7 +466,14 @@ fn absent_interaction_references_use_not_found() {
     let roots: UpdateRootInteractions = decode(&packets);
     let roots = roots.interactions.expect("root interaction map");
     for (id, root) in &roots {
+        assert!(
+            !root.interactions.is_empty(),
+            "root interaction {id} has no children"
+        );
         for reference in &root.interactions {
+            // Java itself emits `NOT_FOUND` for placeholder interactions such
+            // as the `Effect` variable in consumable roots; the client skips
+            // those. The block-break chain has its own stricter audit below.
             assert!(
                 *reference == INTERACTION_NOT_FOUND || interactions.contains_key(reference),
                 "root interaction {id} references missing interaction slot {reference}"

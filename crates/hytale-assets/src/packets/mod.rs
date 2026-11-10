@@ -34,13 +34,14 @@ use hytale_protocol::generated::assets::{
     UpdateUnarmedInteractions, UpdateWeathers,
 };
 use hytale_protocol::generated::common::{
-    AbilityKeyword, AmbienceFX, AmbienceFXAltitude, AmbienceFXAmbientBed, AmbienceFXBlockSoundSet,
-    AmbienceFXConditions, AmbienceFXPhysicalMaterial, AmbienceFXSound, AmbienceFXSoundEffect,
-    AmbienceFXSoundPlay3D, AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule,
-    ApplyEffectInteraction, ApplyForceInteraction, AudioCategoryDuckingRule, BarBeatDuration,
-    BarBeatPosition, BeamConfig, BenchRequirement, BenchType, BlockConditionInteraction, BlockSet,
-    BlockTextures, BlockTypeConnectedBlockShape, BreakBlockInteraction, BuilderToolInteraction,
-    CameraAxis, CameraNode, CameraSettings, ChainFlagInteraction, ChainingInteraction,
+    AOECircleSelector, AOECylinderSelector, AbilityKeyword, AmbienceFX, AmbienceFXAltitude,
+    AmbienceFXAmbientBed, AmbienceFXBlockSoundSet, AmbienceFXConditions,
+    AmbienceFXPhysicalMaterial, AmbienceFXSound, AmbienceFXSoundEffect, AmbienceFXSoundPlay3D,
+    AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule, ApplyEffectInteraction,
+    ApplyForceInteraction, AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig,
+    BenchRequirement, BenchType, BlockConditionInteraction, BlockSet, BlockTextures,
+    BlockTypeConnectedBlockShape, BreakBlockInteraction, BuilderToolInteraction, CameraAxis,
+    CameraNode, CameraSettings, ChainFlagInteraction, ChainingInteraction,
     ChangeActiveSlotInteraction, ChangeBlockInteraction, ChangeStatBehaviour,
     ChangeStatInteraction, ChangeStateInteraction, ChargingDelay, ChargingInteraction,
     ClearEntityEffectInteraction, CollisionType, Color, ColorAlpha, ColorLight,
@@ -48,38 +49,40 @@ use hytale_protocol::generated::common::{
     ComparisonOperator, ConditionInteraction, ConnectedBlockFaceTags, ConnectedBlockMatchType,
     ConnectedBlockPattern, ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape,
     ConnectedBlockUpdateMode, CooldownConditionInteraction, CraftingRecipe, CurveType,
-    DamageEntityInteraction, DestinationAlign, Direction, DragEraseBlockInteraction,
+    DamageEntityInteraction, DestinationAlign, Direction, DonutSelector, DragEraseBlockInteraction,
     DragPlaceBlockInteraction, DurabilityConditionInteraction, Edge, EffectConditionInteraction,
     EffectDirection, EmitShape, EntityEffect, EntityPart, EntityStatEffects,
     EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect,
     ExtrudePlaceBlockInteraction, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, FailOnType,
-    FirstClickInteraction, Fluid, FluidDrawType, FluidParticle, GroundedConditionInteraction,
-    Hitbox, HitboxCollisionConfig, HorizontalMusicContainer, InitialVelocity, Interaction,
-    InteractionCooldown, InteractionTarget, IntersectionHighlight, ItemAnimation, ItemCategory,
-    ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration, ItemQuality,
-    ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent, ItemSoundSet,
-    LayerPlacement, LoopOption, Match, MaterialQuantity, MemoriesConditionInteraction, Model,
-    ModelParticle, ModelVFX, ModifyInventoryInteraction, MovementConditionInteraction,
-    MusicContainer, MusicMarker, MusicSync, MusicTransition, MusicTransitionType, NearFar,
-    NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
+    FirstClickInteraction, Fluid, FluidDrawType, FluidParticle, GameMode,
+    GroundedConditionInteraction, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
+    HorizontalSelector, HorizontalSelectorDirection, InitialVelocity, Interaction,
+    InteractionCooldown, InteractionTarget, InteractionType, IntersectionHighlight, ItemAnimation,
+    ItemCategory, ItemGridInfoDisplayMode, ItemPlayerAnimations, ItemPullbackConfiguration,
+    ItemQuality, ItemReticle, ItemReticleClientEvent, ItemReticleConfig, ItemSoundEvent,
+    ItemSoundSet, LayerPlacement, LoopOption, Match, MaterialQuantity,
+    MemoriesConditionInteraction, Model, ModelParticle, ModelVFX, ModifyInventoryInteraction,
+    MovementConditionInteraction, MusicContainer, MusicMarker, MusicSync, MusicTransition,
+    MusicTransitionType, NearFar, NotConnectedBlockRule, Opacity, OrConnectedBlockRule,
     OverlapBehavior as ProtocolOverlapBehavior, ParallelInteraction, Particle,
     ParticleAnimationFrame, ParticleAttractor, ParticleCollision, ParticleCollisionAction,
     ParticleCollisionBlockType, ParticleRotationInfluence, ParticleScaleRatioConstraint,
     ParticleSpawner, ParticleSpawnerGroup, ParticleSystem, ParticleUVOption, PhysicalMaterial,
     PhysicsConfig, PhysicsType, PickBlockInteraction, PlaceBlockInteraction,
     PlaceModeSelectInteraction, ProjectileConfig, ProjectileInteraction, RandomMode,
-    RandomMusicContainer, Range, RangeVector2f, RangeVector3f, Rangeb, Rangef,
+    RandomMusicContainer, Range, RangeVector2f, RangeVector3f, Rangeb, Rangef, RaycastSelector,
     RemoveEntityInteraction, RepeatInteraction, ReplaceInteraction, RepulsionConfig,
     ResetCooldownInteraction, ResourceType, ReverbEffect, RoofState, RootInteraction, RotationMode,
-    SegmentMusicContainer, SelectInteraction, Selector, SequenceMusicContainer, SerialInteraction,
-    ShaderType, ShapeConnectedBlockRule, ShelterType, SimpleBlockInteraction, SimpleInteraction,
-    SingleTrackMusicContainer, Size, SoftParticle, SoundCategory, SoundSet, SpaceSize,
-    StateBinding, StateDelta, StateFade, StatsConditionInteraction, Stinger, StingerBinding,
-    StingerShortLead, SubCategoryDefinition, SurfaceDrawPlaceBlockInteraction, SurfaceType,
-    SwitchTo, SyncPoint, TagPatternConnectedBlockShape, TemplatedConnectedBlockShape,
-    TempoSettings, Trail, TriggerCooldownInteraction, UVMotion, UVMotionCurveType, UpdateType,
-    UseBlockInteraction, UseEntityInteraction, ValueType, Vector2i, Vector3i, WaitForDataFrom,
-    Weather, WieldingInteraction, WiggleWeights, WorldEnvironment,
+    SegmentMusicContainer, SelectInteraction, Selector, SelectorAnchor, SequenceMusicContainer,
+    SerialInteraction, ShaderType, ShapeConnectedBlockRule, ShelterType, SimpleBlockInteraction,
+    SimpleInteraction, SingleTrackMusicContainer, Size, SoftParticle, SoundCategory, SoundSet,
+    SpaceSize, StabSelector, StateBinding, StateDelta, StateFade, StatsConditionInteraction,
+    Stinger, StingerBinding, StingerShortLead, SubCategoryDefinition,
+    SurfaceDrawPlaceBlockInteraction, SurfaceType, SwitchTo, SyncPoint,
+    TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail,
+    TriggerCooldownInteraction, UVMotion, UVMotionCurveType, UpdateType, UseBlockInteraction,
+    UseEntityInteraction, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather,
+    WieldingInteraction, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
@@ -2239,6 +2242,115 @@ fn nested_interaction_index(
     }
 }
 
+/// Resolve a Java `RootInteraction.CHILD_ASSET_CODEC` reference.
+///
+/// Root interactions are a separate id space from `Interaction` nodes; writing
+/// an interaction id here makes the client fork an unrelated root and can loop.
+fn nested_root_interaction_index(
+    registry: &AssetRegistry,
+    parent_key: &str,
+    field: &str,
+    value: Option<&Value>,
+) -> i32 {
+    match value {
+        Some(Value::String(id)) => registry
+            .root_interactions
+            .id_of(id)
+            .unwrap_or(INTERACTION_NOT_FOUND),
+        Some(Value::Object(_)) => registry
+            .root_interactions
+            .id_of(&format!("*{parent_key}_{field}"))
+            .unwrap_or(INTERACTION_NOT_FOUND),
+        _ => INTERACTION_NOT_FOUND,
+    }
+}
+
+/// Resolve a `RootInteraction[]` field (Java `Parallel.Interactions`).
+fn root_interaction_indices(
+    registry: &AssetRegistry,
+    parent_key: &str,
+    field: &str,
+    value: Option<&Value>,
+) -> Vec<i32> {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, child)| match child {
+            Value::String(id) => registry
+                .root_interactions
+                .id_of(id)
+                .unwrap_or(INTERACTION_NOT_FOUND),
+            Value::Object(_) => registry
+                .root_interactions
+                .id_of(&format!("*{parent_key}_{field}_{index}"))
+                .unwrap_or(INTERACTION_NOT_FOUND),
+            _ => INTERACTION_NOT_FOUND,
+        })
+        .collect()
+}
+
+/// Resolve a map of root interaction references (`Charging.Forks`).
+fn root_interaction_map(
+    registry: &AssetRegistry,
+    parent_key: &str,
+    field: &str,
+    value: Option<&Value>,
+) -> Option<BTreeMap<InteractionType, i32>> {
+    let map = value?.as_object()?;
+    Some(
+        map.iter()
+            .filter_map(|(key, child)| {
+                let interaction_type = interaction_type_by_name(key)?;
+                let id = match child {
+                    Value::String(id) => registry
+                        .root_interactions
+                        .id_of(id)
+                        .unwrap_or(INTERACTION_NOT_FOUND),
+                    Value::Object(_) => registry
+                        .root_interactions
+                        .id_of(&format!("*{parent_key}_{field}_{key}"))
+                        .unwrap_or(INTERACTION_NOT_FOUND),
+                    _ => INTERACTION_NOT_FOUND,
+                };
+                Some((interaction_type, id))
+            })
+            .collect(),
+    )
+}
+
+fn interaction_type_by_name(name: &str) -> Option<InteractionType> {
+    Some(match name {
+        "Primary" => InteractionType::Primary,
+        "Secondary" => InteractionType::Secondary,
+        "Ability1" => InteractionType::Ability1,
+        "Ability2" => InteractionType::Ability2,
+        "Ability3" => InteractionType::Ability3,
+        "Ability4" => InteractionType::Ability4,
+        "Use" => InteractionType::Use,
+        "Pick" => InteractionType::Pick,
+        "Pickup" => InteractionType::Pickup,
+        "CollisionEnter" => InteractionType::CollisionEnter,
+        "CollisionLeave" => InteractionType::CollisionLeave,
+        "Collision" => InteractionType::Collision,
+        "EntityStatEffect" => InteractionType::EntityStatEffect,
+        "SwapTo" => InteractionType::SwapTo,
+        "SwapFrom" => InteractionType::SwapFrom,
+        "Death" => InteractionType::Death,
+        "Wielding" => InteractionType::Wielding,
+        "Held" => InteractionType::Held,
+        "HeldOffhand" => InteractionType::HeldOffhand,
+        "Equipped" => InteractionType::Equipped,
+        "Dodge" => InteractionType::Dodge,
+        "GameModeSwap" => InteractionType::GameModeSwap,
+        "OnBreak" => InteractionType::OnBreak,
+        "OnBreakImpact" => InteractionType::OnBreakImpact,
+        _ => return None,
+    })
+}
+
 struct InteractionBase {
     wait_for_data_from: WaitForDataFrom,
     effects: Option<hytale_protocol::generated::common::InteractionEffects>,
@@ -2481,6 +2593,97 @@ fn chaining_flags(
     )
 }
 
+fn selector_from_json(value: Option<&Value>) -> Selector {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return Selector::default();
+    };
+    let number = |name: &str| object.get(name).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+    let flag = |name: &str| object.get(name).and_then(Value::as_bool).unwrap_or(false);
+    let offset = object.get("Offset").and_then(vector3);
+    match object
+        .get("Id")
+        .and_then(Value::as_str)
+        .unwrap_or("AOECircle")
+    {
+        "Horizontal" => Selector::HorizontalSelector(HorizontalSelector {
+            extend_top: number("ExtendTop"),
+            extend_bottom: number("ExtendBottom"),
+            yaw_length: number("Length"),
+            yaw_start_offset: number("YawStartOffset"),
+            pitch_offset: number("PitchOffset"),
+            roll_offset: number("RollOffset"),
+            start_distance: number("StartDistance"),
+            end_distance: number("EndDistance"),
+            direction: match object.get("Direction").and_then(Value::as_str) {
+                Some("ToRight") => HorizontalSelectorDirection::ToRight,
+                _ => HorizontalSelectorDirection::ToLeft,
+            },
+            test_line_of_sight: flag("TestLineOfSight"),
+            ignore_pitch: flag("IgnorePitch"),
+            ignore_yaw: flag("IgnoreYaw"),
+            anchor: match object.get("Anchor").and_then(Value::as_str) {
+                Some("Feet") => SelectorAnchor::Feet,
+                _ => SelectorAnchor::Eyes,
+            },
+        }),
+        "AOECylinder" => Selector::AOECylinderSelector(AOECylinderSelector {
+            range: number("Range"),
+            height: number("Height"),
+            offset,
+        }),
+        "Raycast" => Selector::RaycastSelector(RaycastSelector {
+            offset,
+            distance: number("Distance") as i32,
+            block_tag_index: 0,
+            ignore_fluids: flag("IgnoreFluids"),
+            ignore_empty_collision_material: flag("IgnoreEmptyCollisionMaterial"),
+            distance_attribute: object
+                .get("DistanceAttribute")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+        }),
+        "Stab" => Selector::StabSelector(StabSelector {
+            extend_top: number("ExtendTop"),
+            extend_bottom: number("ExtendBottom"),
+            extend_left: number("ExtendLeft"),
+            extend_right: number("ExtendRight"),
+            yaw_offset: number("YawOffset"),
+            pitch_offset: number("PitchOffset"),
+            roll_offset: number("RollOffset"),
+            start_distance: number("StartDistance"),
+            end_distance: number("EndDistance"),
+            test_line_of_sight: flag("TestLineOfSight"),
+            ignore_pitch: flag("IgnorePitch"),
+            ignore_yaw: flag("IgnoreYaw"),
+            anchor: match object.get("Anchor").and_then(Value::as_str) {
+                Some("Feet") => SelectorAnchor::Feet,
+                _ => SelectorAnchor::Eyes,
+            },
+            size_attribute: object
+                .get("SizeAttribute")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+        }),
+        "Donut" => Selector::DonutSelector(DonutSelector {
+            min_radius: number("MinRadius"),
+            max_radius: number("MaxRadius"),
+            width: number("Width"),
+            height: number("Height"),
+            angle: number("Angle"),
+            offset,
+            yaw_offset: number("YawOffset"),
+        }),
+        _ => Selector::AOECircleSelector(AOECircleSelector {
+            range: number("Range"),
+            offset,
+            size_attribute: object
+                .get("SizeAttribute")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+        }),
+    }
+}
+
 fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Interaction {
     let base = interaction_base(registry, key, json);
     let node_type = json.get("Type").and_then(Value::as_str).unwrap_or("Simple");
@@ -2532,11 +2735,24 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             camera: base.camera,
             next: base.next,
             failed: base.failed,
-            selector: Selector::default(),
-            ignore_owner: false,
-            hit_entity: 0,
+            selector: selector_from_json(json.get("Selector")),
+            ignore_owner: json
+                .get("IgnoreOwner")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            hit_entity: nested_root_interaction_index(
+                registry,
+                key,
+                "HitEntity",
+                json.get("HitEntity"),
+            ),
             hit_entity_rules: None,
-            fail_on: FailOnType::Neither,
+            fail_on: match json.get("FailOn").and_then(Value::as_str) {
+                Some("Entity") => FailOnType::Entity,
+                Some("Block") => FailOnType::Block,
+                Some("Either") => FailOnType::Either,
+                _ => FailOnType::Neither,
+            },
         }),
         "StatsCondition" => Interaction::StatsConditionInteraction(StatsConditionInteraction {
             wait_for_data_from: base.wait_for_data_from,
@@ -2613,7 +2829,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 "MouseSensitivityAdjustmentDuration",
             ) as f32,
             charged_next: None,
-            forks: None,
+            forks: root_interaction_map(registry, key, "Forks", json.get("Forks")),
             charging_delay: charging_delay(json.get("Delay")),
         }),
         "Wielding" => Interaction::WieldingInteraction(WieldingInteraction {
@@ -2640,7 +2856,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             mouse_sensitivity_adjustment_target: 0.0,
             mouse_sensitivity_adjustment_duration: 0.0,
             charged_next: None,
-            forks: None,
+            forks: root_interaction_map(registry, key, "Forks", json.get("Forks")),
             charging_delay: None,
             blocked_effects: None,
             has_modifiers: json.get("DamageModifiers").is_some(),
@@ -2656,7 +2872,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             rules: base.rules,
             tags: base.tags,
             camera: base.camera,
-            next: interaction_indices(registry, key, "Interactions", json.get("Interactions")),
+            next: root_interaction_indices(registry, key, "Interactions", json.get("Interactions")),
         }),
         "Chaining" => Interaction::ChainingInteraction(ChainingInteraction {
             wait_for_data_from: base.wait_for_data_from,
@@ -2731,7 +2947,11 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             camera: base.camera,
             next: base.next,
             failed: base.failed,
-            required_game_mode: None,
+            required_game_mode: match json.get("RequiredGameMode").and_then(Value::as_str) {
+                Some("Creative") => Some(GameMode::Creative),
+                Some("Adventure") => Some(GameMode::Adventure),
+                _ => None,
+            },
             jumping: json.get("Jumping").and_then(Value::as_bool),
             swimming: json.get("Swimming").and_then(Value::as_bool),
             crouching: json.get("Crouching").and_then(Value::as_bool),
@@ -2824,7 +3044,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             camera: base.camera,
             next: base.next,
             failed: base.failed,
-            fork_interactions: nested_interaction_index(
+            fork_interactions: nested_root_interaction_index(
                 registry,
                 key,
                 "ForkInteractions",
@@ -3393,7 +3613,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             camera: base.camera,
             next: base.next,
             failed: base.failed,
-            fork_interactions: nested_interaction_index(
+            fork_interactions: nested_root_interaction_index(
                 registry,
                 key,
                 "ForkInteractions",
@@ -3422,7 +3642,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             camera: base.camera,
             next: base.next,
             failed: base.failed,
-            fork_interactions: nested_interaction_index(
+            fork_interactions: nested_root_interaction_index(
                 registry,
                 key,
                 "ForkInteractions",
@@ -3450,7 +3670,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 camera: base.camera,
                 next: base.next,
                 failed: base.failed,
-                fork_interactions: nested_interaction_index(
+                fork_interactions: nested_root_interaction_index(
                     registry,
                     key,
                     "ForkInteractions",
@@ -3479,7 +3699,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 camera: base.camera,
                 next: base.next,
                 failed: base.failed,
-                fork_interactions: nested_interaction_index(
+                fork_interactions: nested_root_interaction_index(
                     registry,
                     key,
                     "ForkInteractions",
@@ -3505,7 +3725,12 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             rules: base.rules,
             tags: base.tags,
             camera: base.camera,
-            default_value: 0,
+            default_value: nested_root_interaction_index(
+                registry,
+                key,
+                "DefaultValue",
+                json.get("DefaultValue"),
+            ),
             variable: json
                 .get("Var")
                 .and_then(Value::as_str)

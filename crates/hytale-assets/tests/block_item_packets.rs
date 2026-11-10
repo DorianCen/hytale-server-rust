@@ -1519,6 +1519,15 @@ fn interaction_graph_is_materialized() {
     let interactions = decoded.interactions.expect("interaction map");
     assert_eq!(interactions.len(), registry.interactions.len());
     assert!(interactions.len() > 2000);
+    let root_ids: std::collections::BTreeSet<i32> = UpdateRootInteractions::decode(
+        &mut Reader::new(&packet(&packets, UpdateRootInteractions::ID).payload),
+    )
+    .expect("decode roots")
+    .interactions
+    .expect("root map")
+    .keys()
+    .copied()
+    .collect();
     let mut simples = 0;
     let mut damage = 0;
     let mut serials = 0;
@@ -1581,19 +1590,30 @@ fn interaction_graph_is_materialized() {
             }
             ProtocolInteraction::SelectInteraction(selector) => {
                 selectors += 1;
-                assert_eq!(
-                    selector.fail_on,
-                    hytale_protocol::generated::common::FailOnType::Neither
+                assert!(
+                    selector.hit_entity == INTERACTION_NOT_FOUND
+                        || root_ids.contains(&selector.hit_entity),
+                    "selector {index} hit entity {} is not a root interaction",
+                    selector.hit_entity
                 );
             }
             ProtocolInteraction::StatsConditionInteraction(_) => stats_conditions += 1,
             ProtocolInteraction::ChargingInteraction(charging) => {
                 chargings += 1;
                 assert!(charging.mouse_sensitivity_adjustment_target >= 0.0);
+                if let Some(forks) = &charging.forks {
+                    assert!(forks
+                        .values()
+                        .all(|next| *next == INTERACTION_NOT_FOUND || root_ids.contains(next)));
+                }
             }
             ProtocolInteraction::WieldingInteraction(wielding) => {
                 wieldings += 1;
-                assert!(wielding.has_modifiers || !wielding.has_modifiers);
+                if let Some(forks) = &wielding.forks {
+                    assert!(forks
+                        .values()
+                        .all(|next| *next == INTERACTION_NOT_FOUND || root_ids.contains(next)));
+                }
             }
             ProtocolInteraction::ParallelInteraction(parallel) => {
                 parallels += 1;
@@ -1601,7 +1621,7 @@ fn interaction_graph_is_materialized() {
                 assert!(parallel
                     .next
                     .iter()
-                    .all(|next| *next == INTERACTION_NOT_FOUND || interactions.contains_key(next)));
+                    .all(|next| *next == INTERACTION_NOT_FOUND || root_ids.contains(next)));
             }
             ProtocolInteraction::ConditionInteraction(_) => conditions += 1,
             ProtocolInteraction::ProjectileInteraction(projectile) => {
@@ -1613,6 +1633,12 @@ fn interaction_graph_is_materialized() {
             ProtocolInteraction::RepeatInteraction(repeat) => {
                 repeats += 1;
                 assert_ne!(repeat.repeat, 0);
+                assert!(
+                    repeat.fork_interactions == INTERACTION_NOT_FOUND
+                        || root_ids.contains(&repeat.fork_interactions),
+                    "repeat {index} fork {} is not a root interaction",
+                    repeat.fork_interactions
+                );
             }
             ProtocolInteraction::RemoveEntityInteraction(_) => remove_entities += 1,
             ProtocolInteraction::PlaceBlockInteraction(place) => {
@@ -1644,10 +1670,38 @@ fn interaction_graph_is_materialized() {
             ProtocolInteraction::ApplyForceInteraction(_) => apply_forces += 1,
             ProtocolInteraction::UseEntityInteraction(_) => use_entities += 1,
             ProtocolInteraction::MovementConditionInteraction(_) => movement_conditions += 1,
-            ProtocolInteraction::DragPlaceBlockInteraction(_) => drag_places += 1,
-            ProtocolInteraction::ExtrudePlaceBlockInteraction(_) => extrude_places += 1,
-            ProtocolInteraction::SurfaceDrawPlaceBlockInteraction(_) => surface_draws += 1,
-            ProtocolInteraction::ReplaceInteraction(_) => replacements += 1,
+            ProtocolInteraction::DragPlaceBlockInteraction(place) => {
+                drag_places += 1;
+                assert!(
+                    place.fork_interactions == INTERACTION_NOT_FOUND
+                        || root_ids.contains(&place.fork_interactions),
+                    "drag place {index} fork {} is not a root interaction",
+                    place.fork_interactions
+                );
+            }
+            ProtocolInteraction::ExtrudePlaceBlockInteraction(place) => {
+                extrude_places += 1;
+                assert!(
+                    place.fork_interactions == INTERACTION_NOT_FOUND
+                        || root_ids.contains(&place.fork_interactions)
+                );
+            }
+            ProtocolInteraction::SurfaceDrawPlaceBlockInteraction(place) => {
+                surface_draws += 1;
+                assert!(
+                    place.fork_interactions == INTERACTION_NOT_FOUND
+                        || root_ids.contains(&place.fork_interactions)
+                );
+            }
+            ProtocolInteraction::ReplaceInteraction(replace) => {
+                replacements += 1;
+                assert!(
+                    replace.default_value == INTERACTION_NOT_FOUND
+                        || root_ids.contains(&replace.default_value),
+                    "replace {index} default {} is not a root interaction",
+                    replace.default_value
+                );
+            }
             ProtocolInteraction::ChangeActiveSlotInteraction(_) => active_slots += 1,
             _ => {}
         }
@@ -1851,7 +1905,7 @@ fn weather_fog_is_always_sent() {
 }
 
 #[test]
-fn crystal_block_types_carry_their_interactions() {
+fn block_type_interactions_stay_separate_from_item_interactions() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
         return;
@@ -1866,32 +1920,23 @@ fn crystal_block_types_carry_their_interactions() {
         .block_types
         .id_of("Rock_Crystal_Yellow_Small")
         .expect("crystal block id");
-    let crystal = &types[&crystal_id];
-    let interactions = crystal.interactions.as_ref().expect("interactions map");
-    let secondary = interactions
-        .get(&InteractionType::Secondary)
-        .expect("crystal Secondary interaction");
-    assert_ne!(*secondary, INTERACTION_NOT_FOUND);
+    // Java's `BlockType` document has no `Interactions` here; the crystal's
+    // `Secondary = Lantern_Yellow` lives on the item, which is where the client
+    // reads it from. Copying it into the block type made plants use
+    // `Block_Primary` instead of the unarmed chain.
     assert_eq!(
-        registry.root_interactions.id_of("Lantern_Yellow"),
-        Some(*secondary)
+        types[&crystal_id].interactions,
+        Some(BTreeMap::new()),
+        "block type interactions must match the Java golden"
     );
 
-    let roots: UpdateRootInteractions = UpdateRootInteractions::decode(&mut Reader::new(
-        &packet(&packets, UpdateRootInteractions::ID).payload,
-    ))
-    .expect("decode root interactions");
-    let roots = roots.interactions.expect("root interaction map");
-    for (block_id, block) in &types {
-        let Some(interactions) = &block.interactions else {
-            continue;
-        };
-        for (interaction_type, root) in interactions {
-            assert!(
-                *root == INTERACTION_NOT_FOUND || roots.contains_key(root),
-                "block {block_id} {interaction_type:?} references missing root {root}"
-            );
-        }
+    for key in ["Plant_Reeds_Marsh", "Plant_Reeds_Wet"] {
+        let block_id = registry.block_types.id_of(key).expect("reeds block id");
+        assert_eq!(
+            types[&block_id].interactions,
+            Some(BTreeMap::new()),
+            "`{key}` must not inherit the item-level `Block_Primary` interaction"
+        );
     }
 }
 
