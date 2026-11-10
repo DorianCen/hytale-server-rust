@@ -13,14 +13,14 @@ use hytale_assets::{
 };
 use hytale_protocol::generated::assets::{
     UpdateAbilityKeywords, UpdateAmbienceFX, UpdateAudioCategories, UpdateAudioStates,
-    UpdateBeamConfigs, UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets,
-    UpdateBlockSets, UpdateBlockSoundSets, UpdateBlockTypes, UpdateConnectedBlockRuleSets,
-    UpdateEntityEffects, UpdateEntityStatTypes, UpdateEntityUIComponents, UpdateEnvironments,
-    UpdateEqualizerEffects, UpdateFieldcraftCategories, UpdateFluidFX, UpdateFluids,
-    UpdateHitboxCollisionConfig, UpdateInteractions, UpdateItemCategories,
-    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
-    UpdateItems, UpdateModelvfxs, UpdateMusicContainers, UpdateMusicTransitions,
-    UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
+    UpdateBeamConfigs, UpdateBlockBreakingDecals, UpdateBlockGroups, UpdateBlockHitboxes,
+    UpdateBlockParticleSets, UpdateBlockSets, UpdateBlockSoundSets, UpdateBlockTypes,
+    UpdateConnectedBlockRuleSets, UpdateEntityEffects, UpdateEntityStatTypes,
+    UpdateEntityUIComponents, UpdateEnvironments, UpdateEqualizerEffects,
+    UpdateFieldcraftCategories, UpdateFluidFX, UpdateFluids, UpdateHitboxCollisionConfig,
+    UpdateInteractions, UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities,
+    UpdateItemReticles, UpdateItemSoundSets, UpdateItems, UpdateModelvfxs, UpdateMusicContainers,
+    UpdateMusicTransitions, UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
     UpdateProjectileConfigs, UpdateRecipes, UpdateRepulsionConfig, UpdateResourceTypes,
     UpdateReverbEffects, UpdateRootInteractions, UpdateSoundEvents, UpdateSoundSets,
     UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
@@ -162,7 +162,7 @@ pub fn validate_assets(pack: &Path) -> Result<AssetValidationReport, AssetValida
 }
 
 /// The expected config packet order. Kept here so the CLI reports order drift.
-fn expected_packets() -> [(u32, &'static str); 47] {
+fn expected_packets() -> [(u32, &'static str); 48] {
     [
         (UpdateBlockHitboxes::ID, "BlockBoundingBoxes"),
         (UpdatePhysicalMaterials::ID, "PhysicalMaterial"),
@@ -186,6 +186,7 @@ fn expected_packets() -> [(u32, &'static str); 47] {
         (UpdateWeathers::ID, "Weather"),
         (UpdateItems::ID, "Item"),
         (UpdateBlockSets::ID, "BlockSet"),
+        (UpdateBlockGroups::ID, "BlockGroup"),
         (UpdateTrails::ID, "Trail"),
         (UpdateParticleSystems::ID, "ParticleSystem"),
         (UpdateParticleSpawners::ID, "ParticleSpawner"),
@@ -261,6 +262,7 @@ fn store_reports(registry: &AssetRegistry) -> Vec<StoreReport> {
         store!("ModelVFX", model_vfxs),
         store!("EntityUIComponent", entity_ui_components),
         store!("BlockSet", block_sets),
+        store!("BlockGroup", block_groups),
         store!("ParticleSystem", particle_systems),
         store!("ParticleSpawner", particle_spawners),
         store!("MusicTransition", music_transitions),
@@ -483,6 +485,10 @@ fn check_packet(packet: &AssetPacket, tags: &BTreeSet<i32>) -> Result<usize, Str
             let _: UpdateBlockSets = decode(packet)?;
             Ok(0)
         }
+        UpdateBlockGroups::ID => {
+            let _: UpdateBlockGroups = decode(packet)?;
+            Ok(0)
+        }
         UpdateTrails::ID => {
             let _: UpdateTrails = decode(packet)?;
             Ok(0)
@@ -688,7 +694,7 @@ mod tests {
     #[test]
     fn expected_config_assets_cover_the_release_burst() {
         let expected = expected_packets();
-        assert_eq!(expected.len(), 47);
+        assert_eq!(expected.len(), 48);
         let ids: BTreeSet<u32> = expected.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids.len(), expected.len(), "config packet ids are unique");
         let stores: BTreeSet<&str> = expected.iter().map(|(_, store)| *store).collect();
@@ -698,6 +704,6 @@ mod tests {
             "config packet stores are unique"
         );
         assert_eq!(expected[20], (UpdateItems::ID, "Item"));
-        assert_eq!(expected[46], (UpdateAbilityKeywords::ID, "AbilityKeyword"));
+        assert_eq!(expected[47], (UpdateAbilityKeywords::ID, "AbilityKeyword"));
     }
 }
