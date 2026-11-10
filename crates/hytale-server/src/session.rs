@@ -2903,6 +2903,7 @@ async fn run_game_loop(
     let mut registry_center = center;
     let mut pending_movement = false;
     let mut last_movement: Option<std::time::Instant> = None;
+    let mut last_item_pickup = std::time::Instant::now();
     let mut open_window: Option<OpenContainerWindow> = None;
     let mut craft_jobs = CraftQueue::default();
     let mut next_window_id = 1i32;
@@ -3983,6 +3984,40 @@ async fn run_game_loop(
                 return Err(SessionError::Frame(error));
             }
             Err(_) => {}
+        }
+
+        // Java `PlayerItemEntityPickupSystem`: item entities are auto-picked up
+        // when a player is within the pickup radius. Do this a few times a
+        // second so dropped blocks become usable without pressing F.
+        if last_item_pickup.elapsed() >= Duration::from_millis(200) {
+            let mut picked = Vec::new();
+            while let Ok(Some(entity)) = active_thread.pickup_nearest_item(
+                transform.position.x,
+                transform.position.y,
+                transform.position.z,
+                2.0,
+            ) {
+                let Some(item_id) = entity.item_id() else {
+                    break;
+                };
+                picked.push((item_id.to_string(), entity.item_quantity()));
+                if picked.len() >= 16 {
+                    break;
+                }
+            }
+            if !picked.is_empty() {
+                let assets = active_thread.asset_registry()?;
+                let rules = AssetItemRules::new(&assets);
+                for (item_id, quantity) in picked {
+                    if let Ok(stack) = ItemStack::new(item_id, quantity, &rules) {
+                        let _ = inventory.pickup(stack, &rules);
+                    }
+                }
+                send_inventory(writer, inventory, options.chunk_compression_level).await?;
+                report.inventory_updates += 1;
+                broadcast_held_items(&players, network_id, inventory);
+            }
+            last_item_pickup = std::time::Instant::now();
         }
 
         if last_activity.elapsed() >= options.idle_timeout {

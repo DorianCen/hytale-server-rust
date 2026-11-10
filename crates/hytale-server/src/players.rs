@@ -838,7 +838,10 @@ pub fn runtime_entity_updates(entity: &RuntimeEntity) -> EntityUpdates {
     if entity.kind == RuntimeEntityKind::Item {
         components.push(ComponentUpdate::ItemUpdate(ItemUpdate {
             item: runtime_item(entity),
-            entity_scale: 1.0,
+            // Java item entities have no `EntityScaleComponent`, so the packet
+            // carries `0`. `1.0` renders dropped items at model scale and looks
+            // oversized.
+            entity_scale: 0.0,
         }));
     } else if let Some((asset_id, scale)) = runtime_entity_model(entity) {
         components.push(ComponentUpdate::ModelUpdate(ModelUpdate {
@@ -1504,6 +1507,7 @@ mod tests {
             panic!("the item component");
         };
         assert_eq!(item.item.item_id, "Rock_Stone");
+        assert_eq!(item.entity_scale, 0.0);
         assert_eq!(item.item.quantity, 3);
         assert_eq!(item.item.durability, 0.5);
         assert_eq!(item.item.max_durability, 2.0);
