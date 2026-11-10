@@ -20703,7 +20703,7 @@ impl Wire for AbilityKeyword {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActiveAnimationsUpdate {
     /// `activeAnimations`.
-    pub active_animations: Vec<String>,
+    pub active_animations: Vec<Option<String>>,
 }
 
 impl Default for ActiveAnimationsUpdate {
@@ -20719,7 +20719,14 @@ impl Wire for ActiveAnimationsUpdate {
         let fixed = vec![0u8; 0usize];
         let mut vars = Writer::new();
         vars.write_varint(self.active_animations.len() as u32)?;
-        for element in self.active_animations.iter() {
+        let mut element_bits = NullableBitset::new((self.active_animations.len() + 7) / 8);
+        for (index, element) in self.active_animations.iter().enumerate() {
+            if element.is_some() {
+                element_bits.set(index, true)?;
+            }
+        }
+        vars.write_nullable_bitfield(&element_bits);
+        for element in self.active_animations.iter().flatten() {
             vars.write_var_string("value", element.as_str(), 4_096_000usize)?;
         }
         writer.write_slice(&fixed);
@@ -20733,9 +20740,19 @@ impl Wire for ActiveAnimationsUpdate {
         let var_start = reader.position();
         Ok(Self {
             active_animations: {
-                reader.read_array("activeAnimations", 4096000usize, |reader| {
-                    Ok(reader.read_var_string("value", 4_096_000usize)?)
-                })?
+                {
+                    let length = reader.read_length("activeAnimations", 4096000usize)?;
+                    let bits = reader.read_nullable_bitfield((length + 7) / 8)?;
+                    let mut values = Vec::with_capacity(length);
+                    for index in 0..length {
+                        if bits.is_set(index)? {
+                            values.push(Some(reader.read_var_string("value", 4_096_000usize)?));
+                        } else {
+                            values.push(None);
+                        }
+                    }
+                    values
+                }
             },
         })
     }
@@ -75723,7 +75740,7 @@ pub struct SyncInteractionChain {
     /// `operationBaseIndex`.
     pub operation_base_index: i32,
     /// `interactionData`.
-    pub interaction_data: Option<Vec<InteractionSyncData>>,
+    pub interaction_data: Option<Vec<Option<InteractionSyncData>>>,
 }
 
 impl Default for SyncInteractionChain {
@@ -75837,7 +75854,14 @@ impl Wire for SyncInteractionChain {
         if let Some(value) = &self.interaction_data {
             write_i32_at(&mut fixed, 56, vars.len() as i32)?;
             vars.write_varint(value.len() as u32)?;
-            for element in value.iter() {
+            let mut element_bits = NullableBitset::new((value.len() + 7) / 8);
+            for (index, element) in value.iter().enumerate() {
+                if element.is_some() {
+                    element_bits.set(index, true)?;
+                }
+            }
+            vars.write_nullable_bitfield(&element_bits);
+            for element in value.iter().flatten() {
                 element.encode(&mut vars)?;
             }
         } else {
@@ -76027,9 +76051,19 @@ impl Wire for SyncInteractionChain {
                             expected,
                         });
                     }
-                    let value = reader.read_array("interactionData", 4096000usize, |reader| {
-                        Ok(InteractionSyncData::decode(reader)?)
-                    })?;
+                    let value = {
+                        let length = reader.read_length("interactionData", 4096000usize)?;
+                        let bits = reader.read_nullable_bitfield((length + 7) / 8)?;
+                        let mut values = Vec::with_capacity(length);
+                        for index in 0..length {
+                            if bits.is_set(index)? {
+                                values.push(Some(InteractionSyncData::decode(reader)?));
+                            } else {
+                                values.push(None);
+                            }
+                        }
+                        values
+                    };
                     Some(value)
                 } else {
                     let found = read_at(&fixed, 56, |reader| reader.read_i32())?;

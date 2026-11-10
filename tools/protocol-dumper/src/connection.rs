@@ -1,6 +1,6 @@
 //! Stage 2: field-level IR for the `packets/connection` family.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -222,6 +222,9 @@ pub struct ArrayInfo {
     pub element_type: String,
     /// Maximum element count.
     pub max_length: Option<i64>,
+    /// Whether null elements are encoded with a presence bitfield after the
+    /// length prefix (Java's nullable-element array layout).
+    pub nullable_elements: bool,
 }
 
 /// Map wire metadata.
@@ -251,6 +254,7 @@ struct WireInfo {
     variable_offset_slot: Option<i64>,
     string: Option<StringInfo>,
     array_max: Option<i64>,
+    array_nullable_elements: bool,
     bool_packed: Option<BoolPacked>,
 }
 
@@ -899,6 +903,7 @@ fn build_fields(
             .map(|element_type| ArrayInfo {
                 element_type: normalise_type(element_type),
                 max_length: info.array_max,
+                nullable_elements: info.array_nullable_elements,
             });
         let map = map_types(&raw.field_type).map(|(key_type, value_type)| MapInfo {
             key_type: normalise_type(&key_type),
@@ -1317,6 +1322,15 @@ fn parse_wire(
         }
     }
 
+    // Arrays whose elements are nullable carry a presence bitfield between the
+    // length prefix and the first element. The generated serializer names that
+    // bitfield `var <field>BitfieldSize`.
+    let nullable_element_arrays: BTreeSet<String> = names
+        .iter()
+        .filter(|name| serialize.contains(&format!("var {name}BitfieldSize")))
+        .map(|name| (*name).to_string())
+        .collect();
+
     for line in serialize.lines() {
         let line = line.trim();
         if line.contains("varOffset - offset") {
@@ -1370,6 +1384,7 @@ fn parse_wire(
         } else if line.contains("VarInt.set(") {
             let entry = wire.entry(field.to_string()).or_default();
             entry.array_max = array_limits.get(field).copied();
+            entry.array_nullable_elements = nullable_element_arrays.contains(field);
             if entry.variable_order.is_none() {
                 entry.variable_order = Some(variable_order);
                 variable_order += 1;

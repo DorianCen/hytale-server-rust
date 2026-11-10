@@ -4591,7 +4591,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -4701,7 +4702,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": true
           },
           "map": null,
           "enum_type": null,
@@ -4772,7 +4774,8 @@
           "string": null,
           "array": {
             "element_type": "AmbienceFXSound",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -4860,7 +4863,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -4897,7 +4901,8 @@
           "string": null,
           "array": {
             "element_type": "AmbienceStateWrite",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -4985,7 +4990,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5080,7 +5086,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5100,7 +5107,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5120,7 +5128,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5174,7 +5183,8 @@
           "string": null,
           "array": {
             "element_type": "AmbienceFXBlockSoundSet",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5347,7 +5357,8 @@
           "string": null,
           "array": {
             "element_type": "SpaceSize",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5367,7 +5378,8 @@
           "string": null,
           "array": {
             "element_type": "ShelterType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5387,7 +5399,8 @@
           "string": null,
           "array": {
             "element_type": "SurfaceType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5543,7 +5556,8 @@
           "string": null,
           "array": {
             "element_type": "AmbienceFXPhysicalMaterial",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5580,7 +5594,8 @@
           "string": null,
           "array": {
             "element_type": "AmbienceFXPhysicalMaterial",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5811,7 +5826,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -5969,7 +5985,8 @@
           "string": null,
           "array": {
             "element_type": "ConnectedBlockRule",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -6234,7 +6251,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -6322,7 +6340,8 @@
           "string": null,
           "array": {
             "element_type": "Animation",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -6427,7 +6446,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -6447,7 +6467,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -6828,7 +6849,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -7068,7 +7090,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -7173,7 +7196,8 @@
           "string": null,
           "array": {
             "element_type": "AppliedForce",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -8118,7 +8142,8 @@
           "string": null,
           "array": {
             "element_type": "AssetInheritanceTreeNode",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -8348,7 +8373,8 @@
           "string": null,
           "array": {
             "element_type": "AuthorInfo",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -8514,7 +8540,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -8534,7 +8561,8 @@
           "string": null,
           "array": {
             "element_type": "AudioCategoryDuckingRule",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -8775,7 +8803,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -8846,7 +8875,8 @@
           "string": null,
           "array": {
             "element_type": "StateTransition",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -8895,7 +8925,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -9340,7 +9371,8 @@
           "string": null,
           "array": {
             "element_type": "BeamInstance",
-            "max_length": 64
+            "max_length": 64,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -9372,7 +9404,8 @@
           "string": null,
           "array": {
             "element_type": "BenchTierLevel",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -9448,7 +9481,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -9490,7 +9524,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -9602,7 +9637,8 @@
           "string": null,
           "array": {
             "element_type": "MaterialQuantity",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -9865,7 +9901,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -10117,7 +10154,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -10205,7 +10243,8 @@
           "string": null,
           "array": {
             "element_type": "BlockMatcher",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -10322,7 +10361,8 @@
           "string": null,
           "array": {
             "element_type": "Vector3i",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -10422,7 +10462,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -11359,7 +11400,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -11736,7 +11778,8 @@
           "string": null,
           "array": {
             "element_type": "ShaderType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -11812,7 +11855,8 @@
           "string": null,
           "array": {
             "element_type": "ModelTexture",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -11998,7 +12042,8 @@
           "string": null,
           "array": {
             "element_type": "BlockTextures",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -12176,7 +12221,8 @@
           "string": null,
           "array": {
             "element_type": "ConditionalBlockSound",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -12196,7 +12242,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -12384,7 +12431,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -12587,7 +12635,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -13028,7 +13077,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -13868,7 +13918,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -14012,7 +14063,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -14112,7 +14164,8 @@
           "string": null,
           "array": {
             "element_type": "BuilderToolArg",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -14195,7 +14248,8 @@
           "string": null,
           "array": {
             "element_type": "CameraNode",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -14350,7 +14404,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -15058,7 +15113,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -15331,7 +15387,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -15581,7 +15638,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -15657,7 +15715,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -15833,7 +15892,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -16051,7 +16111,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -16329,7 +16390,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -16624,7 +16686,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -16982,7 +17045,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -17411,7 +17475,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -17613,7 +17678,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -17633,7 +17699,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -17658,7 +17725,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -17678,7 +17746,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18761,7 +18830,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18825,7 +18895,8 @@
           "string": null,
           "array": {
             "element_type": "CommandVariantEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18845,7 +18916,8 @@
           "string": null,
           "array": {
             "element_type": "CommandTreeEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18870,7 +18942,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18890,7 +18963,8 @@
           "string": null,
           "array": {
             "element_type": "CommandArgInfo",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18910,7 +18984,8 @@
           "string": null,
           "array": {
             "element_type": "CommandOptionalArgEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18930,7 +19005,8 @@
           "string": null,
           "array": {
             "element_type": "CommandSuggestionOverride",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -18984,7 +19060,8 @@
           "string": null,
           "array": {
             "element_type": "CommandArgInfo",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19026,7 +19103,8 @@
           "string": null,
           "array": {
             "element_type": "CommandSuggestionOverride",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19431,7 +19509,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19684,7 +19763,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19709,7 +19789,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19734,7 +19815,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19759,7 +19841,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19784,7 +19867,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19809,7 +19893,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -19858,7 +19943,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -20051,7 +20137,8 @@
           "string": null,
           "array": {
             "element_type": "ConnectedBlockPattern",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -20289,7 +20376,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -20478,7 +20566,8 @@
           "string": null,
           "array": {
             "element_type": "MaterialQuantity",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -20498,7 +20587,8 @@
           "string": null,
           "array": {
             "element_type": "MaterialQuantity",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -20535,7 +20625,8 @@
           "string": null,
           "array": {
             "element_type": "BenchRequirement",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -20973,7 +21064,8 @@
           "string": null,
           "array": {
             "element_type": "DamageEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -21005,7 +21097,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -21025,7 +21118,8 @@
           "string": null,
           "array": {
             "element_type": "WorldParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -21197,7 +21291,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -21302,7 +21397,8 @@
           "string": null,
           "array": {
             "element_type": "AngledDamage",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -21343,7 +21439,8 @@
           "string": null,
           "array": {
             "element_type": "EntityStatOnHit",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -22012,7 +22109,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -22269,7 +22367,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -22526,7 +22625,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -23018,7 +23118,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -23089,7 +23190,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -23559,7 +23661,8 @@
           "string": null,
           "array": {
             "element_type": "EntityEffectUpdate",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -23671,7 +23774,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -23737,7 +23841,8 @@
           "string": null,
           "array": {
             "element_type": "float",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -24265,7 +24370,8 @@
           "string": null,
           "array": {
             "element_type": "CombatTextEntityUIComponentAnimationEvent",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -24314,7 +24420,8 @@
           "string": null,
           "array": {
             "element_type": "ComponentUpdateType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -24334,7 +24441,8 @@
           "string": null,
           "array": {
             "element_type": "ComponentUpdate",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -24575,7 +24683,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -24651,7 +24760,8 @@
           "string": null,
           "array": {
             "element_type": "ItemQuantity",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -24806,7 +24916,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -25126,7 +25237,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -25294,7 +25406,8 @@
           "string": null,
           "array": {
             "element_type": "BlockTextures",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -25348,7 +25461,8 @@
           "string": null,
           "array": {
             "element_type": "ShaderType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -25385,7 +25499,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -25495,7 +25610,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -26265,7 +26381,8 @@
           "string": null,
           "array": {
             "element_type": "FormattedMessage",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -26693,7 +26810,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -27019,7 +27137,8 @@
           "string": null,
           "array": {
             "element_type": "EntityMatcher",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -27602,7 +27721,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -27622,7 +27742,8 @@
           "string": null,
           "array": {
             "element_type": "StingerBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -27676,7 +27797,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -27713,7 +27835,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -28164,7 +28287,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -28972,7 +29096,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionCamera",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -28992,7 +29117,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionCamera",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29329,7 +29455,8 @@
           "string": null,
           "array": {
             "element_type": "float",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29403,7 +29530,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29423,7 +29551,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29477,7 +29606,8 @@
           "string": null,
           "array": {
             "element_type": "ModelTrail",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29751,7 +29881,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29771,7 +29902,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29791,7 +29923,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -29811,7 +29944,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30199,7 +30333,8 @@
           "string": null,
           "array": {
             "element_type": "SelectedHitEntity",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30636,7 +30771,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30656,7 +30792,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30676,7 +30813,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30696,7 +30834,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30716,7 +30855,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30736,7 +30876,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -30761,7 +30902,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -31067,7 +31209,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -31087,7 +31230,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -31270,7 +31414,8 @@
           "string": null,
           "array": {
             "element_type": "Cosmetic",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -31688,7 +31833,8 @@
           "string": null,
           "array": {
             "element_type": "ItemResourceType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -31930,7 +32076,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -31972,7 +32119,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -31992,7 +32140,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32012,7 +32161,8 @@
           "string": null,
           "array": {
             "element_type": "ModelTrail",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32223,7 +32373,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32264,7 +32415,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32343,7 +32495,8 @@
           "string": null,
           "array": {
             "element_type": "ItemHudUI",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32492,7 +32645,8 @@
           "string": null,
           "array": {
             "element_type": "ItemCategory",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32512,7 +32666,8 @@
           "string": null,
           "array": {
             "element_type": "SubCategoryDefinition",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32845,7 +33000,8 @@
           "string": null,
           "array": {
             "element_type": "ItemBase",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -32865,7 +33021,8 @@
           "string": null,
           "array": {
             "element_type": "java.util.Map<Integer, String>",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -33555,7 +33712,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -33631,7 +33789,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -33760,7 +33919,8 @@
           "string": null,
           "array": {
             "element_type": "ItemToolSpec",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34080,7 +34240,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34133,7 +34294,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34400,7 +34562,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34469,7 +34632,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34574,7 +34738,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34732,7 +34897,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34769,7 +34935,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34879,7 +35046,8 @@
           "string": null,
           "array": {
             "element_type": "ContextMenuItem",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -34899,7 +35067,8 @@
           "string": null,
           "array": {
             "element_type": "MapMarkerComponent",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -35218,7 +35387,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -35538,7 +35708,8 @@
           "string": null,
           "array": {
             "element_type": "ModelAttachment",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -35575,7 +35746,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -35595,7 +35767,8 @@
           "string": null,
           "array": {
             "element_type": "ModelTrail",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -36933,7 +37106,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -37266,7 +37440,8 @@
           "string": null,
           "array": {
             "element_type": "MouseButtonType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -37438,7 +37613,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -39866,7 +40042,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -39886,7 +40063,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -40422,7 +40600,8 @@
           "string": null,
           "array": {
             "element_type": "ObjectiveTask",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -40517,7 +40696,8 @@
           "string": null,
           "array": {
             "element_type": "NoiseConfig",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -40537,7 +40717,8 @@
           "string": null,
           "array": {
             "element_type": "NoiseConfig",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -40557,7 +40738,8 @@
           "string": null,
           "array": {
             "element_type": "NoiseConfig",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -40589,7 +40771,8 @@
           "string": null,
           "array": {
             "element_type": "ConnectedBlockRule",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -40744,7 +40927,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -40781,7 +40965,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -41904,7 +42089,8 @@
           "string": null,
           "array": {
             "element_type": "ParticleAttractor",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -42162,7 +42348,8 @@
           "string": null,
           "array": {
             "element_type": "ParticleAttractor",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -42216,7 +42403,8 @@
           "string": null,
           "array": {
             "element_type": "ParticleSpawnerGroup",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -42994,7 +43182,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -43217,7 +43406,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -43524,7 +43714,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -44611,7 +44802,8 @@
           "string": null,
           "array": {
             "element_type": "BlockChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -44631,7 +44823,8 @@
           "string": null,
           "array": {
             "element_type": "FluidChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -45115,7 +45308,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -45436,7 +45630,8 @@
           "string": null,
           "array": {
             "element_type": "RailPoint",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -45813,7 +46008,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -45833,7 +46029,8 @@
           "string": null,
           "array": {
             "element_type": "StingerBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -45887,7 +46084,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -46618,7 +46816,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -46852,7 +47051,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -47092,7 +47292,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -47465,7 +47666,8 @@
           "string": null,
           "array": {
             "element_type": "Vector3i",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -47620,7 +47822,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -48229,7 +48432,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -48304,7 +48508,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -48438,7 +48643,8 @@
           "string": null,
           "array": {
             "element_type": "NoiseConfig",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -48458,7 +48664,8 @@
           "string": null,
           "array": {
             "element_type": "NoiseConfig",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -48478,7 +48685,8 @@
           "string": null,
           "array": {
             "element_type": "NoiseConfig",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -48633,7 +48841,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49095,7 +49304,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49115,7 +49325,8 @@
           "string": null,
           "array": {
             "element_type": "StingerBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49135,7 +49346,8 @@
           "string": null,
           "array": {
             "element_type": "LayerPlacement",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49189,7 +49401,8 @@
           "string": null,
           "array": {
             "element_type": "MusicMarker",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49344,7 +49557,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49466,7 +49680,8 @@
           "string": null,
           "array": {
             "element_type": "HitEntity",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49962,7 +50177,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -49982,7 +50198,8 @@
           "string": null,
           "array": {
             "element_type": "StingerBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -50002,7 +50219,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -50157,7 +50375,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -50194,7 +50413,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -51470,7 +51690,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -51625,7 +51846,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -51848,7 +52070,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -52230,7 +52453,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -52250,7 +52474,8 @@
           "string": null,
           "array": {
             "element_type": "StingerBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -52464,7 +52689,8 @@
           "string": null,
           "array": {
             "element_type": "UUID",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -52721,7 +52947,8 @@
           "string": null,
           "array": {
             "element_type": "SoundEventLayer",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -52758,7 +52985,8 @@
           "string": null,
           "array": {
             "element_type": "StateBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -52778,7 +53006,8 @@
           "string": null,
           "array": {
             "element_type": "AudioCategoryDuckingRule",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -52968,7 +53197,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -53292,7 +53522,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -53833,7 +54064,8 @@
           "string": null,
           "array": {
             "element_type": "StateDelta",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -54284,7 +54516,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -54593,7 +54826,8 @@
           "string": null,
           "array": {
             "element_type": "AudioCategoryDuckingRule",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -54979,7 +55213,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -55391,7 +55626,8 @@
           "string": null,
           "array": {
             "element_type": "SyncInteractionChain",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -55428,7 +55664,8 @@
           "string": null,
           "array": {
             "element_type": "InteractionSyncData",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": true
           },
           "map": null,
           "enum_type": null,
@@ -55494,7 +55731,8 @@
           "string": null,
           "array": {
             "element_type": "TagPattern",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -56157,7 +56395,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -56681,7 +56920,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -57316,7 +57556,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -57602,7 +57843,8 @@
           "string": null,
           "array": {
             "element_type": "UIDataValue",
-            "max_length": 1024
+            "max_length": 1024,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -58212,7 +58454,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -58435,7 +58678,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -58937,7 +59181,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 1024
+            "max_length": 1024,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -58991,7 +59236,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -59054,7 +59300,8 @@
           "string": null,
           "array": {
             "element_type": "Cloud",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -59741,7 +59988,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -60344,7 +60592,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -60436,7 +60685,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -60985,7 +61235,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096
+            "max_length": 4096,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61507,7 +61758,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 64
+            "max_length": 64,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61542,7 +61794,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 64
+            "max_length": 64,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61577,7 +61830,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 64
+            "max_length": 64,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61626,7 +61880,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 64
+            "max_length": 64,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61695,7 +61950,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096
+            "max_length": 4096,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61730,7 +61986,8 @@
           "string": null,
           "array": {
             "element_type": "Asset",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61845,7 +62102,8 @@
           "string": null,
           "array": {
             "element_type": "Asset",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61929,7 +62187,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -61978,7 +62237,8 @@
           "string": null,
           "array": {
             "element_type": "Asset",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -62898,7 +63158,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -62976,7 +63237,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -63247,7 +63509,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -63411,7 +63674,8 @@
           "string": null,
           "array": {
             "element_type": "ItemCategory",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -63533,7 +63797,8 @@
           "string": null,
           "array": {
             "element_type": "ItemCategory",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -63664,7 +63929,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -65274,7 +65540,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -66850,7 +67117,8 @@
           "string": null,
           "array": {
             "element_type": "float",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -66921,7 +67189,8 @@
           "string": null,
           "array": {
             "element_type": "float",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -67458,7 +67727,8 @@
           "string": null,
           "array": {
             "element_type": "BlockDamageCmd",
-            "max_length": 32768
+            "max_length": 32768,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -67796,7 +68066,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -67816,7 +68087,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -67836,7 +68108,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -67905,7 +68178,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": null
+            "max_length": null,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -67974,7 +68248,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -68060,7 +68335,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 196609
+            "max_length": 196609,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -68195,7 +68471,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -68330,7 +68607,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": null
+            "max_length": null,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -68350,7 +68628,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -68567,7 +68846,8 @@
           "string": null,
           "array": {
             "element_type": "SetBlockCmd",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -68753,7 +69033,8 @@
           "string": null,
           "array": {
             "element_type": "SetFluidCmd",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -69786,7 +70067,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -69806,7 +70088,8 @@
           "string": null,
           "array": {
             "element_type": "EntityUpdate",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -70151,7 +70434,8 @@
           "string": null,
           "array": {
             "element_type": "ModelParticle",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -71208,7 +71492,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 128
+            "max_length": 128,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -71243,7 +71528,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 12288
+            "max_length": 12288,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -71263,7 +71549,8 @@
           "string": null,
           "array": {
             "element_type": "int",
-            "max_length": 8192
+            "max_length": 8192,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -71398,7 +71685,8 @@
           "string": null,
           "array": {
             "element_type": "SetHeightCmd",
-            "max_length": 1024
+            "max_length": 1024,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -71827,7 +72115,8 @@
           "string": null,
           "array": {
             "element_type": "ServersideUICommand",
-            "max_length": 64
+            "max_length": 64,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -72014,7 +72303,8 @@
           "string": null,
           "array": {
             "element_type": "ViewModelClassDefinition",
-            "max_length": 10000
+            "max_length": 10000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -72034,7 +72324,8 @@
           "string": null,
           "array": {
             "element_type": "ViewModelEnumDefinition",
-            "max_length": 10000
+            "max_length": 10000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -72091,7 +72382,8 @@
           "string": null,
           "array": {
             "element_type": "ServersideUICommand",
-            "max_length": 64
+            "max_length": 64,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -72686,7 +72978,8 @@
           "string": null,
           "array": {
             "element_type": "CustomUICommand",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -72802,7 +73095,8 @@
           "string": null,
           "array": {
             "element_type": "CustomUICommand",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -72822,7 +73116,8 @@
           "string": null,
           "array": {
             "element_type": "CustomUIEventBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73102,7 +73397,8 @@
           "string": null,
           "array": {
             "element_type": "BlockChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73122,7 +73418,8 @@
           "string": null,
           "array": {
             "element_type": "FluidChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73142,7 +73439,8 @@
           "string": null,
           "array": {
             "element_type": "ClipboardEntityChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73306,7 +73604,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 16777216
+            "max_length": 16777216,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73434,7 +73733,8 @@
           "string": null,
           "array": {
             "element_type": "ServerPlayerListPlayer",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73469,7 +73769,8 @@
           "string": null,
           "array": {
             "element_type": "UUID",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73504,7 +73805,8 @@
           "string": null,
           "array": {
             "element_type": "ServerPlayerListUpdate",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73660,7 +73962,8 @@
           "string": null,
           "array": {
             "element_type": "HudComponent",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73854,7 +74157,8 @@
           "string": null,
           "array": {
             "element_type": "CustomUICommand",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -73874,7 +74178,8 @@
           "string": null,
           "array": {
             "element_type": "CustomUIEventBinding",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74000,7 +74305,8 @@
           "string": null,
           "array": {
             "element_type": "CommandTreeEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74307,7 +74613,8 @@
           "string": null,
           "array": {
             "element_type": "MapChunk",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74327,7 +74634,8 @@
           "string": null,
           "array": {
             "element_type": "MapMarker",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74352,7 +74660,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74673,7 +74982,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74693,7 +75003,8 @@
           "string": null,
           "array": {
             "element_type": "boolean",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74750,7 +75061,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -74883,7 +75195,8 @@
           "string": null,
           "array": {
             "element_type": "HostAddress",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -75040,7 +75353,8 @@
           "string": null,
           "array": {
             "element_type": "BlockAnimationEntry",
-            "max_length": 32768
+            "max_length": 32768,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -75185,7 +75499,8 @@
           "string": null,
           "array": {
             "element_type": "HostAddress",
-            "max_length": 16
+            "max_length": 16,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -75237,7 +75552,8 @@
           "string": null,
           "array": {
             "element_type": "RecurringWorldEvent",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -75272,7 +75588,8 @@
           "string": null,
           "array": {
             "element_type": "UUID",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -75702,7 +76019,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4
+            "max_length": 4,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -75989,7 +76307,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -76435,7 +76754,8 @@
           "string": null,
           "array": {
             "element_type": "CameraKeyframe",
-            "max_length": 128
+            "max_length": 128,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -76568,7 +76888,8 @@
           "string": null,
           "array": {
             "element_type": "SyncInteractionChain",
-            "max_length": 128
+            "max_length": 128,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -77187,7 +77508,8 @@
           "string": null,
           "array": {
             "element_type": "SchemaFile",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -77222,7 +77544,8 @@
           "string": null,
           "array": {
             "element_type": "AssetEditorAssetType",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -77570,7 +77893,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -77966,7 +78290,8 @@
           "string": null,
           "array": {
             "element_type": "AssetEditorFileEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78023,7 +78348,8 @@
           "string": null,
           "array": {
             "element_type": "AssetEditorFileEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78043,7 +78369,8 @@
           "string": null,
           "array": {
             "element_type": "AssetEditorFileEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78132,7 +78459,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78240,7 +78568,8 @@
           "string": null,
           "array": {
             "element_type": "JsonUpdateCommand",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78348,7 +78677,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78400,7 +78730,8 @@
           "string": null,
           "array": {
             "element_type": "JsonUpdateCommand",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78452,7 +78783,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78521,7 +78853,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78710,7 +79043,8 @@
           "string": null,
           "array": {
             "element_type": "TimestampedAssetReference",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78843,7 +79177,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -78942,7 +79277,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -79109,7 +79445,8 @@
           "string": null,
           "array": {
             "element_type": "AssetInfo",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -79208,7 +79545,8 @@
           "string": null,
           "array": {
             "element_type": "AssetPath",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -79326,7 +79664,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -79375,7 +79714,8 @@
           "string": null,
           "array": {
             "element_type": "AssetEditorAsset",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -79410,7 +79750,8 @@
           "string": null,
           "array": {
             "element_type": "TimestampedAssetReference",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -79810,7 +80151,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -81299,7 +81641,8 @@
           "string": null,
           "array": {
             "element_type": "BlockChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -81319,7 +81662,8 @@
           "string": null,
           "array": {
             "element_type": "FluidChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -81339,7 +81683,8 @@
           "string": null,
           "array": {
             "element_type": "ClipboardEntityChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -82697,7 +83042,8 @@
           "string": null,
           "array": {
             "element_type": "BlockChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -82717,7 +83063,8 @@
           "string": null,
           "array": {
             "element_type": "FluidChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -82737,7 +83084,8 @@
           "string": null,
           "array": {
             "element_type": "ClipboardEntityChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -83009,7 +83357,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -83449,7 +83798,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 512
+            "max_length": 512,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -83586,7 +83936,8 @@
           "string": null,
           "array": {
             "element_type": "byte",
-            "max_length": 512
+            "max_length": 512,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -83875,7 +84226,8 @@
           "string": null,
           "array": {
             "element_type": "TriggerVolumeDisplayEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -84001,7 +84353,8 @@
           "string": null,
           "array": {
             "element_type": "ClientRuleVolume",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -84396,7 +84749,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -84436,7 +84790,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -84692,7 +85047,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85122,7 +85478,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85238,7 +85595,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85290,7 +85648,8 @@
           "string": null,
           "array": {
             "element_type": "BlockChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85310,7 +85669,8 @@
           "string": null,
           "array": {
             "element_type": "FluidChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85330,7 +85690,8 @@
           "string": null,
           "array": {
             "element_type": "ClipboardEntityChange",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85614,7 +85975,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85671,7 +86033,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85812,7 +86175,8 @@
           "string": null,
           "array": {
             "element_type": "PointDisplayEntry",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -85965,7 +86329,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -86027,7 +86392,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,
@@ -86226,7 +86592,8 @@
           },
           "array": {
             "element_type": "String",
-            "max_length": 4096000
+            "max_length": 4096000,
+            "nullable_elements": false
           },
           "map": null,
           "enum_type": null,

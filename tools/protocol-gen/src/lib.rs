@@ -192,6 +192,10 @@ struct ArrayInfo {
     element_type: String,
     #[serde(default)]
     max_length: Option<i64>,
+    /// Whether null elements are encoded with a presence bitfield after the
+    /// length prefix.
+    #[serde(default)]
+    nullable_elements: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1661,12 +1665,28 @@ fn encode_variable_value(
             })?;
             let element =
                 encode_value_by_type(&array.element_type, "element", writer, indent + 4, enums)?;
-            out.push_str(&format!(
-                "{pad}{writer}.write_varint({value}.len() as u32)?;\n\
-                 {pad}for element in {value}.iter() {{\n\
-                 {element}\
-                 {pad}}}\n"
-            ));
+            if array.nullable_elements {
+                out.push_str(&format!(
+                    "{pad}{writer}.write_varint({value}.len() as u32)?;\n\
+                     {pad}let mut element_bits = NullableBitset::new(({value}.len() + 7) / 8);\n\
+                     {pad}for (index, element) in {value}.iter().enumerate() {{\n\
+                     {pad}    if element.is_some() {{\n\
+                     {pad}        element_bits.set(index, true)?;\n\
+                     {pad}    }}\n\
+                     {pad}}}\n\
+                     {pad}{writer}.write_nullable_bitfield(&element_bits);\n\
+                     {pad}for element in {value}.iter().flatten() {{\n\
+                     {element}\
+                     {pad}}}\n"
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{pad}{writer}.write_varint({value}.len() as u32)?;\n\
+                     {pad}for element in {value}.iter() {{\n\
+                     {element}\
+                     {pad}}}\n"
+                ));
+            }
         }
         "map" => {
             let map = field
@@ -1963,7 +1983,25 @@ fn decode_variable_value(
             })?;
             let max = array.max_length.unwrap_or(4_096_000);
             let element = decode_value_by_type(&array.element_type, "reader", enums)?;
-            format!("{reader}.read_array(\"{name}\", {max}usize, |reader| Ok({element}))?")
+            if array.nullable_elements {
+                format!(
+                    "{{\n\
+                     \x20               let length = {reader}.read_length(\"{name}\", {max}usize)?;\n\
+                     \x20               let bits = {reader}.read_nullable_bitfield((length + 7) / 8)?;\n\
+                     \x20               let mut values = Vec::with_capacity(length);\n\
+                     \x20               for index in 0..length {{\n\
+                     \x20                   if bits.is_set(index)? {{\n\
+                     \x20                       values.push(Some({element}));\n\
+                     \x20                   }} else {{\n\
+                     \x20                       values.push(None);\n\
+                     \x20                   }}\n\
+                     \x20               }}\n\
+                     \x20               values\n\
+                     \x20           }}"
+                )
+            } else {
+                format!("{reader}.read_array(\"{name}\", {max}usize, |reader| Ok({element}))?")
+            }
         }
         "map" => {
             let map = field
@@ -2140,7 +2178,12 @@ fn rust_type(field: &FieldIr, enums: &BTreeMap<String, &EnumIr>, boxed: bool) ->
             let array = field.array.as_ref().ok_or_else(|| {
                 GenError::Ir(format!("array field {} has no metadata", field.name))
             })?;
-            format!("Vec<{}>", rust_type_name(&array.element_type, enums)?)
+            let element = rust_type_name(&array.element_type, enums)?;
+            if array.nullable_elements {
+                format!("Vec<Option<{element}>>")
+            } else {
+                format!("Vec<{element}>")
+            }
         }
         "map" => {
             let map = field

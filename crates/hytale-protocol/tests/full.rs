@@ -9,8 +9,9 @@ use std::collections::BTreeMap;
 
 use hytale_protocol::generated::assets::UpdateUnarmedInteractions;
 use hytale_protocol::generated::common::{
-    AssetIconProperties, AssetInfo, AssetPath, Cloud, ColorAlpha, InteractionType, ItemArmor,
-    ItemLibrary, Modifier, ResistanceModifier, UpdateType,
+    ActiveAnimationsUpdate, AssetIconProperties, AssetInfo, AssetPath, Cloud, ColorAlpha,
+    InteractionSyncData, InteractionType, ItemArmor, ItemLibrary, Modifier, ResistanceModifier,
+    SyncInteractionChain, UpdateType,
 };
 use hytale_protocol::generated::wire::Wire;
 use hytale_protocol::generated::world::SetColumn;
@@ -128,6 +129,48 @@ fn fixed_array_and_variable_byte_array() {
         tintmap: vec![1, 2, 3, 4],
     };
     roundtrip(&column);
+}
+
+#[test]
+fn arrays_with_nullable_elements_round_trip() {
+    fn roundtrip_wire<T>(value: &T) -> T
+    where
+        T: Wire + PartialEq + std::fmt::Debug,
+    {
+        let mut writer = Writer::new();
+        value.encode(&mut writer).expect("encode");
+        let mut reader = Reader::new(writer.as_slice());
+        let decoded = T::decode(&mut reader).expect("decode");
+        assert!(reader.is_empty(), "decode must consume exactly one value");
+        assert_eq!(&decoded, value);
+        decoded
+    }
+
+    let chain = SyncInteractionChain {
+        interaction_data: Some(vec![
+            Some(InteractionSyncData::default()),
+            None,
+            Some(InteractionSyncData::default()),
+        ]),
+        ..Default::default()
+    };
+    let mut writer = Writer::new();
+    chain.encode(&mut writer).expect("encode chain");
+    // Fixed block (60) + array length (1) + presence bitfield (1) + two
+    // non-null InteractionSyncData fixed blocks (2 * 165).
+    assert_eq!(writer.len(), 60 + 1 + 1 + 2 * 165);
+    assert_eq!(writer.as_slice()[61], 0b0000_0101);
+    roundtrip_wire(&chain);
+
+    let animations = ActiveAnimationsUpdate {
+        active_animations: vec![Some("Idle".to_string()), None, Some("Walk".to_string())],
+    };
+    let mut writer = Writer::new();
+    animations.encode(&mut writer).expect("encode animations");
+    // Length (1) + presence bitfield (1) + "Idle" (5) + "Walk" (5).
+    assert_eq!(writer.len(), 1 + 1 + 5 + 5);
+    assert_eq!(writer.as_slice()[1], 0b0000_0101);
+    roundtrip_wire(&animations);
 }
 
 #[test]
