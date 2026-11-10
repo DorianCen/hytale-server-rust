@@ -44,17 +44,19 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    BenchType, ChatType, ComponentUpdate, DisconnectType, EntityEffectsUpdate, EntityStatUpdate,
-    EntityStatsUpdate, FormattedMessage, GameMode, HudComponent, InstantData, MapChunk, MapMarker,
-    MapMarkerIconSize, MouseButtonState, MouseButtonType, MovementSettings, MovementStates,
-    MovementStatesUpdate, PlayerSkin, PongType, Position as ProtocolPosition,
-    Transform as ProtocolTransform, UpdateType, WindowAction,
+    BenchType, BlockPosition, ChatType, ComponentUpdate, DisconnectType, EntityEffectsUpdate,
+    EntityStatUpdate, EntityStatsUpdate, FormattedMessage, GameMode, HudComponent, InstantData,
+    InteractionState, InteractionType, MapChunk, MapMarker, MapMarkerIconSize, MouseButtonEvent,
+    MouseButtonState, MouseButtonType, MovementSettings, MovementStates, MovementStatesUpdate,
+    PlayerSkin, PongType, Position as ProtocolPosition, SyncInteractionChain,
+    Transform as ProtocolTransform, UpdateType, WindowAction, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
+use hytale_protocol::generated::interaction::{CancelInteractionChain, SyncInteractionChains};
 use hytale_protocol::generated::interface_::Page;
 use hytale_protocol::generated::interface_::UpdateKnownRecipes;
 use hytale_protocol::generated::interface_::{
@@ -2895,6 +2897,7 @@ async fn run_game_loop(
     let mut teleport_sent = false;
     let mut movement_teleport_id = 1i8;
     let mut last_movement_correction: Option<std::time::Instant> = None;
+    let mut last_interaction_chain_id = 0i32;
     // Registry view center follows the player's chunk even before the client
     // acknowledges the teleport (the chunk view itself still waits for the ack).
     let mut registry_center = center;
@@ -3435,6 +3438,188 @@ async fn run_game_loop(
                             BlockInteractionOutcome::Rejected => {
                                 report.block_edit_rejections += 1;
                             }
+                        }
+                    }
+                    SyncInteractionChains::ID => {
+                        let packet: SyncInteractionChains = frame.decode()?;
+                        for update in &packet.updates {
+                            if interaction_debug_enabled() {
+                                eprintln!(
+                                    "interaction chain id={} initial={} desync={} type={:?} state={:?} block={:?} item={:?} root={} ops={}",
+                                    update.chain_id,
+                                    update.initial,
+                                    update.desync,
+                                    update.interaction_type,
+                                    update.state,
+                                    update
+                                        .data
+                                        .as_ref()
+                                        .and_then(|data| data.block_position.as_ref()),
+                                    update.item_in_hand_id,
+                                    update.override_root_interaction,
+                                    update.interaction_data.as_ref().map_or(0, Vec::len),
+                                );
+                            }
+                            if !update.initial {
+                                continue;
+                            }
+                            // Java `InteractionManager.syncStart`: chain ids are
+                            // strictly increasing, otherwise the packet is
+                            // rejected and the client is told to cancel it.
+                            if update.chain_id <= last_interaction_chain_id {
+                                cancel_interaction_chain(
+                                    writer,
+                                    update,
+                                    options.chunk_compression_level,
+                                )
+                                .await?;
+                                continue;
+                            }
+                            last_interaction_chain_id = update.chain_id;
+                            let root_id = interaction_chain_root(thread, update);
+
+                            // F-key pickup: harvest the target block into the
+                            // inventory, or pick up the nearest item entity.
+                            if matches!(
+                                update.interaction_type,
+                                InteractionType::Pickup | InteractionType::Pick
+                            ) {
+                                let mut picked = Vec::new();
+                                if let Some(block) = update
+                                    .data
+                                    .as_ref()
+                                    .and_then(|data| data.block_position.as_ref())
+                                {
+                                    if let Ok(Some(block_id)) =
+                                        thread.get_block(block.x, block.y, block.z)
+                                    {
+                                        let drops =
+                                            thread.player_block_drops(block_id).unwrap_or_default();
+                                        if !drops.is_empty() {
+                                            if let Ok((before, after)) =
+                                                thread.set_block(block.x, block.y, block.z, 0)
+                                            {
+                                                if before != 0 && before != after {
+                                                    players.broadcast_block(ServerSetBlock {
+                                                        x: block.x,
+                                                        y: block.y,
+                                                        z: block.z,
+                                                        block_id: after,
+                                                        filler: 0,
+                                                        rotation: 0,
+                                                    });
+                                                    picked = drops;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if picked.is_empty() {
+                                    if let Ok(Some(entity)) = thread.pickup_nearest_item(
+                                        transform.position.x,
+                                        transform.position.y,
+                                        transform.position.z,
+                                        3.0,
+                                    ) {
+                                        if let Some(item_id) = entity.item_id() {
+                                            picked.push((
+                                                item_id.to_string(),
+                                                entity.item_quantity(),
+                                            ));
+                                        }
+                                    }
+                                }
+                                if !picked.is_empty() {
+                                    let assets = thread.asset_registry()?;
+                                    let rules = AssetItemRules::new(&assets);
+                                    for (item_id, quantity) in picked {
+                                        if let Ok(stack) = ItemStack::new(item_id, quantity, &rules)
+                                        {
+                                            let _ = inventory.pickup(stack, &rules);
+                                        }
+                                    }
+                                    send_inventory(
+                                        writer,
+                                        inventory,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?;
+                                    report.inventory_updates += 1;
+                                    broadcast_held_items(&players, network_id, inventory);
+                                    finish_interaction_chain(
+                                        writer,
+                                        update,
+                                        root_id,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?;
+                                } else {
+                                    cancel_interaction_chain(
+                                        writer,
+                                        update,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?;
+                                }
+                                continue;
+                            }
+
+                            let Some(interaction) = block_interaction_from_chain(update) else {
+                                cancel_interaction_chain(
+                                    writer,
+                                    update,
+                                    options.chunk_compression_level,
+                                )
+                                .await?;
+                                continue;
+                            };
+                            match handle_block_interaction(
+                                thread,
+                                &players,
+                                transform,
+                                inventory,
+                                &interactions,
+                                &interaction,
+                                options.block_break_damage,
+                            ) {
+                                BlockInteractionOutcome::Edit { consumed } => {
+                                    report.block_edits += 1;
+                                    if consumed {
+                                        send_inventory(
+                                            writer,
+                                            inventory,
+                                            options.chunk_compression_level,
+                                        )
+                                        .await?;
+                                        report.inventory_updates += 1;
+                                        broadcast_held_items(&players, network_id, inventory);
+                                    }
+                                }
+                                BlockInteractionOutcome::Use { state_changes, .. } => {
+                                    // Block use still runs the server-side
+                                    // transition; container/bench windows stay on
+                                    // the `MouseInteraction` path for now.
+                                    report.block_uses += 1;
+                                    report.block_state_changes += state_changes;
+                                }
+                                BlockInteractionOutcome::Rejected => {
+                                    report.block_edit_rejections += 1;
+                                    cancel_interaction_chain(
+                                        writer,
+                                        update,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?;
+                                    continue;
+                                }
+                            }
+                            finish_interaction_chain(
+                                writer,
+                                update,
+                                root_id,
+                                options.chunk_compression_level,
+                            )
+                            .await?;
                         }
                     }
                     ChatMessage::ID => {
@@ -4039,6 +4224,175 @@ fn parse_block_edit(
     }
 }
 
+/// Resolve an inbound client interaction-chain start to the block edit it
+/// represents.
+///
+/// A release client breaks and places blocks through `SyncInteractionChains`,
+/// not `MouseInteraction`. The initial chain carries the target block in
+/// `InteractionChainData`; later updates only carry operation state and must
+/// not be replayed as a new edit. Only `Primary` (break/attack) and
+/// `Secondary`/`Use` (place/use) block targets are handled here; entity
+/// interactions and forked chains are rejected.
+fn block_interaction_from_chain(update: &SyncInteractionChain) -> Option<MouseInteraction> {
+    if !update.initial || update.forked_id.is_some() {
+        return None;
+    }
+    let data = update.data.as_ref()?;
+    let block_position = data.block_position.clone()?;
+    let mouse_button_type = match update.interaction_type {
+        InteractionType::Primary => MouseButtonType::Left,
+        InteractionType::Secondary | InteractionType::Use => MouseButtonType::Right,
+        _ => return None,
+    };
+    Some(MouseInteraction {
+        client_timestamp: 0,
+        active_slot: update.active_hotbar_slot,
+        item_in_hand_id: update.item_in_hand_id.clone(),
+        screen_point: hytale_protocol::generated::wire::Vector2f::default(),
+        mouse_button: Some(MouseButtonEvent {
+            mouse_button_type,
+            state: MouseButtonState::Pressed,
+            clicks: 1,
+        }),
+        mouse_motion: None,
+        world_interaction: Some(WorldInteraction {
+            // A block interaction is encoded with a negative entity id in
+            // `WorldInteraction`; the chain's `entityId` defaults to 0, so
+            // always use the block sentinel when a block position is present.
+            entity_id: -1,
+            block_position: Some(BlockPosition {
+                x: block_position.x,
+                y: block_position.y,
+                z: block_position.z,
+            }),
+            block_rotation: None,
+        }),
+    })
+}
+
+/// Tell the client to abandon an interaction chain we do not simulate.
+///
+/// The release client otherwise keeps the chain alive and stops issuing new
+/// interactions (observed as a frozen block break for simple `BreakBlock`
+/// chains).
+async fn cancel_interaction_chain(
+    writer: &mut FrameWriter,
+    update: &SyncInteractionChain,
+    compression_level: i32,
+) -> Result<(), SessionError> {
+    writer
+        .write_packet(
+            &CancelInteractionChain {
+                chain_id: update.chain_id,
+                forked_id: update.forked_id.clone(),
+            },
+            compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
+/// Resolve the root interaction the client used for a block chain.
+///
+/// An empty-hand block primary uses the block type's `Primary` root when the
+/// contained item defines one (`Block_Primary` for plants), otherwise the
+/// unarmed primary root. The server must echo this id in its first sync packet;
+/// `NOT_FOUND` leaves the client unable to resolve the chain and it desyncs.
+fn interaction_chain_root(thread: &WorldThread, update: &SyncInteractionChain) -> i32 {
+    const NOT_FOUND: i32 = hytale_assets::packets::INTERACTION_NOT_FOUND;
+    let Some(block) = update
+        .data
+        .as_ref()
+        .and_then(|data| data.block_position.as_ref())
+    else {
+        return NOT_FOUND;
+    };
+    let Ok(assets) = thread.asset_registry() else {
+        return NOT_FOUND;
+    };
+    if let Ok(Some((key, json))) = thread.block_type_json(block.x, block.y, block.z) {
+        let interactions = BlockInteractions::from_json(&key, &json);
+        if let Some(root) = interactions
+            .root(update.interaction_type)
+            .and_then(|root| assets.root_interactions.id_of(root))
+        {
+            return root;
+        }
+    }
+    assets
+        .unarmed_interactions
+        .get(&update.interaction_type)
+        .and_then(|root| assets.root_interactions.id_of(root))
+        .unwrap_or(NOT_FOUND)
+}
+
+fn interaction_chain_ack(
+    update: &SyncInteractionChain,
+    initial: bool,
+    override_root_interaction: i32,
+    state: InteractionState,
+) -> SyncInteractionChain {
+    SyncInteractionChain {
+        active_hotbar_slot: update.active_hotbar_slot,
+        active_utility_slot: update.active_utility_slot,
+        active_tools_slot: update.active_tools_slot,
+        item_in_hand_id: update.item_in_hand_id.clone(),
+        utility_item_id: update.utility_item_id.clone(),
+        tools_item_id: update.tools_item_id.clone(),
+        initial,
+        desync: false,
+        override_root_interaction,
+        interaction_type: update.interaction_type,
+        equip_slot: update.equip_slot,
+        chain_id: update.chain_id,
+        forked_id: None,
+        data: update.data.clone(),
+        state,
+        new_forks: None,
+        operation_base_index: update.operation_base_index,
+        interaction_data: None,
+    }
+}
+
+/// Acknowledge a handled chain with the real root id and the client's own
+/// operation payload, then finish it.
+async fn finish_interaction_chain(
+    writer: &mut FrameWriter,
+    update: &SyncInteractionChain,
+    root_id: i32,
+    compression_level: i32,
+) -> Result<(), SessionError> {
+    const NOT_FOUND: i32 = hytale_assets::packets::INTERACTION_NOT_FOUND;
+    let mut first = interaction_chain_ack(update, true, root_id, InteractionState::NotFinished);
+    first.interaction_data = update.interaction_data.clone();
+
+    let mut last = interaction_chain_ack(update, false, NOT_FOUND, InteractionState::Finished);
+    last.interaction_data = update.interaction_data.clone().map(|data| {
+        data.into_iter()
+            .map(|entry| {
+                entry.map(|mut entry| {
+                    entry.state = InteractionState::Finished;
+                    entry
+                })
+            })
+            .collect()
+    });
+
+    writer
+        .write_packet(
+            &SyncInteractionChains {
+                updates: vec![first, last],
+            },
+            compression_level,
+        )
+        .await?;
+    Ok(())
+}
+
+fn interaction_debug_enabled() -> bool {
+    std::env::var_os("HYTALE_DEBUG_INTERACTIONS").is_some()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct BenchOpen {
     position: (i32, i32, i32),
@@ -4117,6 +4471,17 @@ fn handle_block_interaction(
                 filler: 0,
                 rotation: 0,
             });
+            if let Ok(drops) = thread.player_block_drops(before) {
+                for (item_id, quantity) in drops {
+                    let _ = thread.spawn_item_entity(
+                        item_id,
+                        quantity,
+                        f64::from(x) + 0.5,
+                        f64::from(y) + 0.5,
+                        f64::from(z) + 0.5,
+                    );
+                }
+            }
             BlockInteractionOutcome::Edit { consumed: false }
         }
         Some(BlockEdit::Place { x, y, z, item_id }) => {
@@ -4436,7 +4801,7 @@ async fn expect<T: Packet + Wire>(
 mod tests {
     use super::*;
     use hytale_protocol::generated::common::{
-        BlockPosition, ComponentUpdate, MouseButtonEvent, WorldInteraction,
+        BlockPosition, ComponentUpdate, InteractionChainData, MouseButtonEvent, WorldInteraction,
     };
     use hytale_protocol::generated::wire::Vector2f;
     use hytale_world::player_data::{
@@ -5167,6 +5532,104 @@ mod tests {
             ),
             None
         );
+    }
+
+    fn chain_update(
+        interaction_type: InteractionType,
+        block: Option<BlockPosition>,
+    ) -> SyncInteractionChain {
+        SyncInteractionChain {
+            initial: true,
+            interaction_type,
+            chain_id: 7,
+            item_in_hand_id: Some("Rock_Stone".to_string()),
+            data: Some(InteractionChainData {
+                entity_id: 0,
+                block_position: block,
+                ..Default::default()
+            }),
+            override_root_interaction: 42,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn interaction_chains_map_to_block_edits() {
+        let block = BlockPosition { x: 1, y: 2, z: 3 };
+
+        let primary = block_interaction_from_chain(&chain_update(
+            InteractionType::Primary,
+            Some(block.clone()),
+        ))
+        .expect("primary block chain");
+        let button = primary.mouse_button.as_ref().expect("button");
+        assert_eq!(button.mouse_button_type, MouseButtonType::Left);
+        assert_eq!(button.state, MouseButtonState::Pressed);
+        assert_eq!(primary.item_in_hand_id.as_deref(), Some("Rock_Stone"));
+        let world = primary.world_interaction.as_ref().expect("world");
+        assert_eq!(world.entity_id, -1);
+        assert_eq!(world.block_position, Some(block.clone()));
+        assert_eq!(
+            parse_block_edit(&transform(), &primary),
+            Some(BlockEdit::Break { x: 1, y: 2, z: 3 })
+        );
+
+        let secondary = block_interaction_from_chain(&chain_update(
+            InteractionType::Secondary,
+            Some(block.clone()),
+        ))
+        .expect("secondary block chain");
+        assert_eq!(
+            secondary
+                .mouse_button
+                .as_ref()
+                .expect("button")
+                .mouse_button_type,
+            MouseButtonType::Right
+        );
+        assert_eq!(
+            parse_block_edit(&transform(), &secondary),
+            Some(BlockEdit::Place {
+                x: 1,
+                y: 2,
+                z: 3,
+                item_id: "Rock_Stone".to_string()
+            })
+        );
+
+        let use_chain =
+            block_interaction_from_chain(&chain_update(InteractionType::Use, Some(block.clone())))
+                .expect("use block chain");
+        assert_eq!(
+            use_chain
+                .mouse_button
+                .as_ref()
+                .expect("button")
+                .mouse_button_type,
+            MouseButtonType::Right
+        );
+    }
+
+    #[test]
+    fn interaction_chains_reject_non_initial_missing_and_unsupported_targets() {
+        let block = BlockPosition { x: 1, y: 2, z: 3 };
+
+        let mut follow_up = chain_update(InteractionType::Primary, Some(block.clone()));
+        follow_up.initial = false;
+        assert!(block_interaction_from_chain(&follow_up).is_none());
+
+        assert!(
+            block_interaction_from_chain(&chain_update(InteractionType::Primary, None)).is_none()
+        );
+        assert!(block_interaction_from_chain(&chain_update(
+            InteractionType::Pick,
+            Some(block.clone())
+        ))
+        .is_none());
+
+        let mut forked = chain_update(InteractionType::Primary, Some(block));
+        forked.forked_id = Some(Default::default());
+        assert!(block_interaction_from_chain(&forked).is_none());
     }
 
     #[test]

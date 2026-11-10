@@ -619,6 +619,22 @@ impl SimulationTables {
             .collect()
     }
 
+    /// Drops used when a player breaks a block: breaking, then soft, then
+    /// harvest. Returns empty when the block falls back to its own item.
+    pub fn player_drops(&self, id: i32) -> Vec<BlockDrop> {
+        self.block(id)
+            .and_then(|block| block.gathering.as_ref())
+            .and_then(|gathering| {
+                gathering
+                    .breaking
+                    .clone()
+                    .or_else(|| gathering.soft.clone())
+                    .or_else(|| gathering.harvest.clone())
+            })
+            .into_iter()
+            .collect()
+    }
+
     /// Drops used when physics/support removes a block, matching Java's
     /// `naturallyRemoveBlockByPhysics` priority: physics, breaking, soft, harvest.
     pub fn natural_drops(&self, id: i32) -> Vec<BlockDrop> {

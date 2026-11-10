@@ -8,6 +8,7 @@
 pub mod asset_validation;
 pub mod chunk_serve;
 pub mod chunk_streamer;
+mod drop_lists;
 pub mod generation;
 pub mod headless;
 pub mod inventory_rules;

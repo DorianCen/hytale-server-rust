@@ -67,6 +67,9 @@ use hytale_world::world_config::{WorldConfigError, WorldUuid};
 use thiserror::Error;
 use worldgen_hytale::prefab::prefab_rotation::PrefabRotation;
 
+use crate::drop_lists::DropListCatalog;
+use hytale_math::fast_random::FastRandom;
+
 use crate::generation::{GenerationError, GeneratorOptions, WorldGenerator};
 use crate::map_image;
 use crate::player_gameplay::PlayerGameplay;
@@ -626,6 +629,10 @@ enum Command {
     BlockDrops {
         block_id: i32,
         reply: SyncSender<Result<Vec<BlockDrop>, String>>,
+    },
+    PlayerBlockDrops {
+        block_id: i32,
+        reply: SyncSender<Result<Vec<(String, i32)>, String>>,
     },
     FluidId {
         name: String,
@@ -1623,6 +1630,22 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::BlockDrops { block_id, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Resolve a player-broken block to concrete item stacks, including
+    /// weighted `Server/Drops` drop lists and the block-item fallback.
+    pub fn player_block_drops(
+        &self,
+        block_id: i32,
+    ) -> Result<Vec<(String, i32)>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::PlayerBlockDrops { block_id, reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -2950,6 +2973,7 @@ fn run(
             damage_causes,
             mut npcs,
             recipes,
+            drop_lists,
             mut player_gameplay,
             mut last_npc_tick,
         }) => {
@@ -2958,6 +2982,7 @@ fn run(
                 return;
             }
             let seed = save.config().seed as i32;
+            let mut drop_rng = FastRandom::new(save.config().seed);
             let mut entity_events: Vec<RuntimeEntityEvent> = Vec::new();
             let mut npc_targets: Vec<NpcTarget> = Vec::new();
             let mut npc_presentation: Vec<NpcPresentationEvent> = Vec::new();
@@ -3365,6 +3390,42 @@ fn run(
                     }
                     Command::BlockDrops { block_id, reply } => {
                         let _ = reply.send(Ok(simulation.tables().breaking_drops(block_id)));
+                    }
+                    Command::PlayerBlockDrops { block_id, reply } => {
+                        let mut out = Vec::new();
+                        let mut rng = FastRandom::new(drop_rng.next_long());
+                        let drops = simulation.tables().player_drops(block_id);
+                        if drops.is_empty() {
+                            if let Some(item) = generator
+                                .assets()
+                                .block_types
+                                .get_by_id(block_id)
+                                .and_then(|record| record.value.container_item.clone())
+                            {
+                                out.push((item, 1));
+                            }
+                        } else {
+                            for drop in drops {
+                                if drop.item_id.is_none() && drop.drop_list_id.is_none() {
+                                    if let Some(item) = generator
+                                        .assets()
+                                        .block_types
+                                        .get_by_id(block_id)
+                                        .and_then(|record| record.value.container_item.clone())
+                                    {
+                                        out.push((item, 1));
+                                    }
+                                    continue;
+                                }
+                                if let Some(item_id) = drop.item_id {
+                                    out.push((item_id, drop.quantity.max(1)));
+                                }
+                                if let Some(list) = drop.drop_list_id {
+                                    out.extend(drop_lists.roll(&list, &mut rng));
+                                }
+                            }
+                        }
+                        let _ = reply.send(Ok(out));
                     }
                     Command::FluidId { name, reply } => {
                         let result = generator
@@ -5437,6 +5498,7 @@ struct Started {
     damage_causes: DamageCauses,
     npcs: NpcEcs,
     recipes: Arc<RecipeCatalog>,
+    drop_lists: DropListCatalog,
     player_gameplay: BTreeMap<i32, PlayerGameplay>,
     last_npc_tick: Instant,
 }
@@ -5697,6 +5759,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         recipes: Arc::new(
             RecipeCatalog::load_root(&options.generator.assets_root).unwrap_or_default(),
         ),
+        drop_lists: DropListCatalog::load(&options.generator.assets_root).unwrap_or_default(),
         player_gameplay: BTreeMap::new(),
         last_npc_tick: Instant::now(),
     })

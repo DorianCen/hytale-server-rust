@@ -1384,6 +1384,7 @@ dependencies = [
  "hytale-entities",
  "hytale-interactions",
  "hytale-inventory",
+ "hytale-math",
  "hytale-net",
  "hytale-npc",
  "hytale-protocol",
