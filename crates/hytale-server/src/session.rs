@@ -2904,6 +2904,7 @@ async fn run_game_loop(
     let mut pending_movement = false;
     let mut last_movement: Option<std::time::Instant> = None;
     let mut last_item_pickup = std::time::Instant::now();
+    let mut item_pickup_grace: Option<std::time::Instant> = None;
     let mut open_window: Option<OpenContainerWindow> = None;
     let mut craft_jobs = CraftQueue::default();
     let mut next_window_id = 1i32;
@@ -3212,6 +3213,11 @@ async fn run_game_loop(
                         let ready: ClientReady = frame.decode()?;
                         if ready.ready_for_gameplay {
                             report.ready_for_gameplay = true;
+                            // Let the client finish applying the join entity
+                            // spawns before removing nearby item entities; a
+                            // removal in the same burst nulls its tracker entry.
+                            item_pickup_grace =
+                                Some(std::time::Instant::now() + Duration::from_secs(2));
                         }
                         if ready.ready_for_gameplay && !teleport_sent {
                             send_client_teleport(writer, *transform, options).await?;
@@ -3989,7 +3995,9 @@ async fn run_game_loop(
         // Java `PlayerItemEntityPickupSystem`: item entities are auto-picked up
         // when a player is within the pickup radius. Do this a few times a
         // second so dropped blocks become usable without pressing F.
-        if last_item_pickup.elapsed() >= Duration::from_millis(200) {
+        if item_pickup_grace.is_some_and(|grace| std::time::Instant::now() >= grace)
+            && last_item_pickup.elapsed() >= Duration::from_millis(200)
+        {
             let mut picked = Vec::new();
             while let Ok(Some(entity)) = active_thread.pickup_nearest_item(
                 transform.position.x,
