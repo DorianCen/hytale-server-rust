@@ -500,7 +500,6 @@ struct EnterGame {
     client_effects: ClientEffects,
     gameplay_config: WorldGameplayConfig,
     movement_settings: MovementSettings,
-    inventory: PlayerInventory,
     recipes: Arc<RecipeCatalog>,
     crafting: CraftingKnowledge,
     player_stats_init: Vec<(i32, EntityStatUpdate)>,
@@ -707,7 +706,6 @@ pub async fn serve_connection_with_registry(
                 client_effects,
                 gameplay_config,
                 movement_settings,
-                inventory: inventory.clone(),
                 recipes: Arc::clone(&recipes),
                 crafting: crafting.clone(),
                 player_stats_init,
@@ -748,6 +746,14 @@ pub async fn serve_connection_with_registry(
             options.chunk_compression_level,
         )
         .await?;
+
+        // The saved hotbar/equipment is sent only after the initial chunk
+        // snapshot. Equipping a block item while the client is still building
+        // its block/item render caches null-references an uninitialized cache.
+        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+        send_inventory(&mut writer, &inventory, options.chunk_compression_level).await?;
+        send_active_slots(&mut writer, &inventory, options).await?;
+        broadcast_held_items(&players, join.network_id, &inventory);
 
         // Runtime entities are streamed after the chunk snapshot, like
         // Java's entity adds that follow chunk tracking.
@@ -1491,7 +1497,6 @@ async fn enter_game(
         client_effects,
         gameplay_config,
         movement_settings,
-        inventory,
         recipes,
         crafting,
         player_stats_init,
@@ -1638,12 +1643,21 @@ async fn enter_game(
             options.chunk_compression_level,
         )
         .await?;
+    // The first self-spawn carries no held/armor items. The client's item and
+    // block render stores are still being prepared while the join burst is
+    // processed; equipping a saved block item here dereferences an
+    // uninitialized block cache and crashes. The real inventory and equipment
+    // are sent after the initial chunk snapshot (see `send_join_inventory`).
+    let mut initial_appearance = appearance.clone();
+    initial_appearance.armor = Default::default();
+    initial_appearance.right_hand = None;
+    initial_appearance.left_hand = None;
     writer
         .write_packet(
             &self_spawn_packet(
                 network_id,
                 player_transform,
-                &appearance,
+                &initial_appearance,
                 skin,
                 &player_stats_init,
             ),
@@ -1654,24 +1668,12 @@ async fn enter_game(
     game.player_stats = !player_stats_init.is_empty();
 
     // Java `PlayerSystems` sends the full inventory and the three active-slot
-    // selections after the self spawn.
-    send_inventory(writer, &inventory, options.chunk_compression_level).await?;
+    // selections after the self spawn. Keep the initial packet empty; the
+    // saved stacks follow the initial chunk snapshot.
+    let initial_inventory = PlayerInventory::new();
+    send_inventory(writer, &initial_inventory, options.chunk_compression_level).await?;
     game.inventory = true;
-    for section in [Section::Hotbar, Section::Utility, Section::Tools] {
-        let active_slot = inventory
-            .active_container(section)
-            .and_then(|container| container.active_slot)
-            .map_or(-1, i32::from);
-        writer
-            .write_packet(
-                &SetActiveSlot {
-                    inventory_section_id: section.section_id(),
-                    active_slot,
-                },
-                options.chunk_compression_level,
-            )
-            .await?;
-    }
+    send_active_slots(writer, &initial_inventory, options).await?;
     game.active_slots = true;
     // Java `PlayerSystems.PlayerSpawnedSystem` writes the placement override
     // immediately after the active-slot selections.
@@ -1866,6 +1868,31 @@ async fn send_inventory(
 ) -> Result<(), SessionError> {
     let packet: UpdatePlayerInventory = inventory.to_update_packet();
     writer.write_packet(&packet, compression_level).await?;
+    Ok(())
+}
+
+/// Java `PlayerSystems.sendPlayerInventory`: hotbar, utility and tools active
+/// slots in that order.
+async fn send_active_slots(
+    writer: &mut FrameWriter,
+    inventory: &PlayerInventory,
+    options: &SessionOptions,
+) -> Result<(), SessionError> {
+    for section in [Section::Hotbar, Section::Utility, Section::Tools] {
+        let active_slot = inventory
+            .active_container(section)
+            .and_then(|container| container.active_slot)
+            .map_or(-1, i32::from);
+        writer
+            .write_packet(
+                &SetActiveSlot {
+                    inventory_section_id: section.section_id(),
+                    active_slot,
+                },
+                options.chunk_compression_level,
+            )
+            .await?;
+    }
     Ok(())
 }
 
