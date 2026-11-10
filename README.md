@@ -308,6 +308,7 @@ Read [`PORTING.md`](PORTING.md) before contributing code and
 | [`REMAINING.md`](REMAINING.md) | Deferred scope (what v1 deliberately does not do) |
 | [`PORTING.md`](PORTING.md) / [`PORTING_HISTORY.md`](PORTING_HISTORY.md) | Porting conventions and session history |
 | [`TESTING.md`](TESTING.md) | Test tiers, timings, E2E and CI |
+| [`PARITY_AUDIT.md`](PARITY_AUDIT.md) | Proposed behavior-driven Java↔Rust parity audit program |
 | [`CONNECTION_DEBUG.md`](CONNECTION_DEBUG.md) | Live release-client diagnosis log and evidence |
 | [`GOLDEN_DATA.md`](GOLDEN_DATA.md) | Java oracle and golden fixture layout |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | Performance and memory baselines |
