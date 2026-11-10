@@ -1,5 +1,6 @@
 //! Scripted inventory scenarios following the Java container semantics.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use hytale_inventory::{
@@ -342,4 +343,18 @@ fn packet_sections_round_trip_to_a_container() {
     let packet = container.to_packet();
     let decoded = container_from_packet(&packet).expect("decode packet container");
     assert_eq!(decoded, container);
+}
+
+/// Java's `PlayerInitSystem` always creates the ability-slot and rune-bag
+/// inventories, so `PlayerSystems.sendPlayerInventory` includes both sections.
+/// A null section made the client's held-item update dereference it.
+#[test]
+fn update_packet_carries_ability_slots_and_rune_bag() {
+    let packet = PlayerInventory::new().to_update_packet();
+    let ability_slots = packet.ability_slots.expect("abilitySlots section");
+    assert_eq!(ability_slots.capacity, 6);
+    assert_eq!(ability_slots.items, Some(BTreeMap::new()));
+    let rune_bag = packet.rune_bag.expect("runeBag section");
+    assert_eq!(rune_bag.capacity, 50);
+    assert_eq!(rune_bag.items, Some(BTreeMap::new()));
 }

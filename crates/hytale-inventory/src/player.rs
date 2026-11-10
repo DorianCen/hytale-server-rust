@@ -26,6 +26,10 @@ pub const UTILITY_SECTION_ID: i32 = -5;
 pub const TOOLS_SECTION_ID: i32 = -8;
 /// Java section id for the backpack.
 pub const BACKPACK_SECTION_ID: i32 = -9;
+/// Java section id for ability slots.
+pub const ABILITY_SLOTS_SECTION_ID: i32 = -10;
+/// Java section id for the rune bag.
+pub const RUNE_BAG_SECTION_ID: i32 = -11;
 
 /// Java default hotbar capacity.
 pub const HOTBAR_CAPACITY: u16 = 9;
@@ -37,6 +41,10 @@ pub const ARMOR_CAPACITY: u16 = 4;
 pub const STORAGE_CAPACITY: u16 = 36;
 /// Java default tools capacity.
 pub const TOOLS_CAPACITY: u16 = 23;
+/// Java `InventoryComponent.DEFAULT_ABILITIES_CAPACITY` (2 lines of 3).
+pub const ABILITY_SLOTS_CAPACITY: u16 = 6;
+/// Java `InventoryComponent.DEFAULT_RUNE_BAG_CAPACITY`.
+pub const RUNE_BAG_CAPACITY: u16 = 50;
 
 /// Component id of the modern hotbar inventory.
 pub const HOTBAR_COMPONENT: &str = "HotbarInventory";
@@ -52,6 +60,14 @@ pub const TOOLS_COMPONENT: &str = "ToolsInventory";
 pub const BACKPACK_COMPONENT: &str = "BackpackInventory";
 /// Legacy combined inventory component.
 pub const LEGACY_INVENTORY_COMPONENT: &str = "Inventory";
+
+/// One empty `InventorySection` with Java's capacity.
+fn empty_section(capacity: u16) -> InventorySection {
+    InventorySection {
+        items: Some(std::collections::BTreeMap::new()),
+        capacity: capacity as i16,
+    }
+}
 
 /// One inventory section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -451,6 +467,12 @@ impl PlayerInventory {
     }
 
     /// Java `UpdatePlayerInventory` packet with every standard section.
+    ///
+    /// Java `PlayerSystems.PlayerInitSystem` always creates the ability-slot
+    /// and rune-bag inventories before the join inventory is written, so the
+    /// packet carries them as empty sections. Leaving them null made the
+    /// client's hotbar/held-item update dereference a missing section as soon
+    /// as the hotbar contained an item.
     pub fn to_update_packet(&self) -> UpdatePlayerInventory {
         UpdatePlayerInventory {
             storage: Some(self.storage.to_packet()),
@@ -459,8 +481,8 @@ impl PlayerInventory {
             utility: Some(self.utility.container.to_packet()),
             tools: Some(self.tools.container.to_packet()),
             backpack: Some(self.backpack.to_packet()),
-            ability_slots: None,
-            rune_bag: None,
+            ability_slots: Some(empty_section(ABILITY_SLOTS_CAPACITY)),
+            rune_bag: Some(empty_section(RUNE_BAG_CAPACITY)),
         }
     }
 
