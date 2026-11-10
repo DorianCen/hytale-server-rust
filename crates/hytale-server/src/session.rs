@@ -44,12 +44,13 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    BenchType, BlockPosition, ChatType, ComponentUpdate, DisconnectType, EntityEffectsUpdate,
-    EntityStatUpdate, EntityStatsUpdate, FormattedMessage, GameMode, HudComponent, InstantData,
-    InteractionState, InteractionType, MapChunk, MapMarker, MapMarkerIconSize, MouseButtonEvent,
-    MouseButtonState, MouseButtonType, MovementSettings, MovementStates, MovementStatesUpdate,
-    PlayerSkin, PongType, Position as ProtocolPosition, SyncInteractionChain,
-    Transform as ProtocolTransform, UpdateType, WindowAction, WorldInteraction,
+    BenchType, BlockFace, BlockPosition, ChatType, ComponentUpdate, DisconnectType,
+    EntityEffectsUpdate, EntityStatUpdate, EntityStatsUpdate, FormattedMessage, GameMode,
+    HudComponent, InstantData, InteractionState, InteractionType, MapChunk, MapMarker,
+    MapMarkerIconSize, MouseButtonEvent, MouseButtonState, MouseButtonType, MovementSettings,
+    MovementStates, MovementStatesUpdate, PlayerSkin, PongType, Position as ProtocolPosition,
+    SyncInteractionChain, Transform as ProtocolTransform, UpdateType, WindowAction,
+    WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -3408,6 +3409,7 @@ async fn run_game_loop(
                             inventory,
                             &interactions,
                             &interaction,
+                            None,
                             options.block_break_damage,
                         ) {
                             BlockInteractionOutcome::Edit { consumed } => {
@@ -3487,7 +3489,7 @@ async fn run_game_loop(
                         for update in &packet.updates {
                             if interaction_debug_enabled() {
                                 eprintln!(
-                                    "interaction chain id={} initial={} desync={} type={:?} state={:?} block={:?} item={:?} root={} ops={}",
+                                    "interaction chain id={} initial={} desync={} type={:?} state={:?} block={:?} normal={:?} forked={:?} item={:?} root={} ops={}",
                                     update.chain_id,
                                     update.initial,
                                     update.desync,
@@ -3497,10 +3499,33 @@ async fn run_game_loop(
                                         .data
                                         .as_ref()
                                         .and_then(|data| data.block_position.as_ref()),
+                                    update
+                                        .data
+                                        .as_ref()
+                                        .and_then(|data| data.hit_normal.as_ref()),
+                                    update.forked_id,
                                     update.item_in_hand_id,
                                     update.override_root_interaction,
                                     update.interaction_data.as_ref().map_or(0, Vec::len),
                                 );
+                                for (index, entry) in update
+                                    .interaction_data
+                                    .as_deref()
+                                    .unwrap_or_default()
+                                    .iter()
+                                    .enumerate()
+                                {
+                                    if let Some(entry) = entry {
+                                        eprintln!(
+                                            "  op[{index}] state={:?} block={:?} face={:?} placed={} root={}",
+                                            entry.state,
+                                            entry.block_position,
+                                            entry.block_face,
+                                            entry.placed_block_id,
+                                            entry.root_interaction,
+                                        );
+                                    }
+                                }
                             }
                             if !update.initial {
                                 continue;
@@ -3615,15 +3640,24 @@ async fn run_game_loop(
                                 .await?;
                                 continue;
                             };
-                            match handle_block_interaction(
+                            let placement = chain_placement_position(update);
+                            let outcome = handle_block_interaction(
                                 thread,
                                 &players,
                                 transform,
                                 inventory,
                                 &interactions,
                                 &interaction,
+                                placement.clone(),
                                 options.block_break_damage,
-                            ) {
+                            );
+                            if interaction_debug_enabled() {
+                                eprintln!(
+                                    "interaction outcome id={} place={:?} -> {:?}",
+                                    update.chain_id, placement, outcome
+                                );
+                            }
+                            match outcome {
                                 BlockInteractionOutcome::Edit { consumed } => {
                                     report.block_edits += 1;
                                     if consumed {
@@ -4310,13 +4344,13 @@ fn parse_block_edit(
 /// `InteractionChainData`; later updates only carry operation state and must
 /// not be replayed as a new edit. Only `Primary` (break/attack) and
 /// `Secondary`/`Use` (place/use) block targets are handled here; entity
-/// interactions and forked chains are rejected.
+/// interactions are rejected. Forked block chains are still block edits: the
+/// client starts the actual place/break operation on the fork.
 fn block_interaction_from_chain(update: &SyncInteractionChain) -> Option<MouseInteraction> {
-    if !update.initial || update.forked_id.is_some() {
+    if !update.initial {
         return None;
     }
-    let data = update.data.as_ref()?;
-    let block_position = data.block_position.clone()?;
+    let block_position = chain_block_position(update)?;
     let mouse_button_type = match update.interaction_type {
         InteractionType::Primary => MouseButtonType::Left,
         InteractionType::Secondary | InteractionType::Use => MouseButtonType::Right,
@@ -4346,6 +4380,87 @@ fn block_interaction_from_chain(update: &SyncInteractionChain) -> Option<MouseIn
             block_rotation: None,
         }),
     })
+}
+
+/// The block target for a chain. Break/use chains carry it in `data`, while a
+/// place chain's operation sync data carries the destination cell.
+fn chain_block_position(update: &SyncInteractionChain) -> Option<BlockPosition> {
+    if let Some(position) = update
+        .data
+        .as_ref()
+        .and_then(|data| data.block_position.clone())
+    {
+        return Some(position);
+    }
+    update
+        .interaction_data
+        .as_ref()?
+        .iter()
+        .rev()
+        .flatten()
+        .find_map(|entry| entry.block_position.clone())
+}
+
+/// Placement position for a right-click block chain.
+///
+/// The client sends the block face it targeted plus the face normal. Java's
+/// `PlaceBlockInteraction` places against that face, i.e. at
+/// `blockPosition + blockFace`, so use the normal to get the empty cell. The
+/// original position is kept as a fallback for clients that already send the
+/// destination cell.
+fn chain_placement_position(update: &SyncInteractionChain) -> Option<BlockPosition> {
+    if !matches!(
+        update.interaction_type,
+        InteractionType::Secondary | InteractionType::Use
+    ) {
+        return None;
+    }
+    if let (Some(block), Some(normal)) = (
+        update
+            .data
+            .as_ref()
+            .and_then(|data| data.block_position.as_ref()),
+        update
+            .data
+            .as_ref()
+            .and_then(|data| data.hit_normal.as_ref()),
+    ) {
+        return Some(BlockPosition {
+            x: block.x + normal.x.round() as i32,
+            y: block.y + normal.y.round() as i32,
+            z: block.z + normal.z.round() as i32,
+        });
+    }
+    // Placement chains often put the target cell in the operation sync data
+    // instead of `data`. In that case `block_face` describes the face the
+    // client clicked; the destination cell is the fallback if the packet cell
+    // was already occupied.
+    let entry = update
+        .interaction_data
+        .as_ref()?
+        .iter()
+        .rev()
+        .flatten()
+        .find(|entry| entry.block_position.is_some())?;
+    let block = entry.block_position.as_ref()?;
+    let (dx, dy, dz) = block_face_direction(entry.block_face);
+    Some(BlockPosition {
+        x: block.x + dx,
+        y: block.y + dy,
+        z: block.z + dz,
+    })
+}
+
+fn block_face_direction(face: BlockFace) -> (i32, i32, i32) {
+    match face {
+        BlockFace::Up => (0, 1, 0),
+        BlockFace::Down => (0, -1, 0),
+        BlockFace::North => (0, 0, -1),
+        BlockFace::South => (0, 0, 1),
+        BlockFace::East => (1, 0, 0),
+        BlockFace::West => (-1, 0, 0),
+        BlockFace::None => (0, 0, 0),
+    }
 }
 
 /// Tell the client to abandon an interaction chain we do not simulate.
@@ -4478,6 +4593,7 @@ struct BenchOpen {
     bench: serde_json::Value,
 }
 
+#[derive(Debug)]
 enum BlockInteractionOutcome {
     Edit {
         consumed: bool,
@@ -4490,6 +4606,7 @@ enum BlockInteractionOutcome {
     Rejected,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_block_interaction(
     thread: &WorldThread,
     players: &PlayerRegistry,
@@ -4497,6 +4614,7 @@ fn handle_block_interaction(
     inventory: &mut PlayerInventory,
     interactions: &InteractionCatalog,
     interaction: &MouseInteraction,
+    placement_position: Option<BlockPosition>,
     block_break_damage: f32,
 ) -> BlockInteractionOutcome {
     if let Some(outcome) = try_block_use(thread, players, transform, interactions, interaction) {
@@ -4573,7 +4691,18 @@ fn handle_block_interaction(
             let Ok(Some(block_id)) = thread.block_id_for_item(&item_id) else {
                 return BlockInteractionOutcome::Rejected;
             };
-            let Ok(Some((_before, after))) = thread.place_block(x, y, z, block_id) else {
+            // Java's `PlaceBlockInteraction` uses the packet's block position
+            // directly. Some clients send the clicked face instead, so keep the
+            // normal-adjusted cell as a fallback rather than the primary target.
+            let mut placed = thread.place_block(x, y, z, block_id);
+            if matches!(placed, Ok(None)) {
+                if let Some(position) = placement_position {
+                    if (position.x, position.y, position.z) != (x, y, z) {
+                        placed = thread.place_block(position.x, position.y, position.z, block_id);
+                    }
+                }
+            }
+            let Ok(Some((_before, after))) = placed else {
                 return BlockInteractionOutcome::Rejected;
             };
             if from_inventory && !matches!(inventory.consume_right_hand(1), Ok(Some(_))) {
@@ -4879,9 +5008,10 @@ async fn expect<T: Packet + Wire>(
 mod tests {
     use super::*;
     use hytale_protocol::generated::common::{
-        BlockPosition, ComponentUpdate, InteractionChainData, MouseButtonEvent, WorldInteraction,
+        BlockPosition, ComponentUpdate, InteractionChainData, InteractionSyncData,
+        MouseButtonEvent, WorldInteraction,
     };
-    use hytale_protocol::generated::wire::Vector2f;
+    use hytale_protocol::generated::wire::{Vector2f, Vector3f};
     use hytale_world::player_data::{
         PlayerModelReference, PlayerSkinData, Position, Rotation, EMPTY_ITEM_ID,
     };
@@ -5707,7 +5837,61 @@ mod tests {
 
         let mut forked = chain_update(InteractionType::Primary, Some(block));
         forked.forked_id = Some(Default::default());
-        assert!(block_interaction_from_chain(&forked).is_none());
+        assert!(block_interaction_from_chain(&forked).is_some());
+    }
+
+    #[test]
+    fn placement_uses_the_hit_normal() {
+        let mut update = chain_update(
+            InteractionType::Use,
+            Some(BlockPosition { x: 1, y: 2, z: 3 }),
+        );
+        update.data.as_mut().unwrap().hit_normal = Some(Vector3f {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        });
+        assert_eq!(
+            chain_placement_position(&update),
+            Some(BlockPosition { x: 1, y: 3, z: 3 })
+        );
+
+        let mut primary = chain_update(
+            InteractionType::Primary,
+            Some(BlockPosition { x: 1, y: 2, z: 3 }),
+        );
+        primary.data.as_mut().unwrap().hit_normal = Some(Vector3f {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        });
+        assert_eq!(chain_placement_position(&primary), None);
+    }
+
+    #[test]
+    fn place_chain_target_falls_back_to_operation_data() {
+        let mut update = chain_update(InteractionType::Use, None);
+        update.interaction_data = Some(vec![Some(InteractionSyncData {
+            block_position: Some(BlockPosition { x: 4, y: 5, z: 6 }),
+            block_face: BlockFace::Up,
+            ..Default::default()
+        })]);
+        assert_eq!(
+            chain_block_position(&update),
+            Some(BlockPosition { x: 4, y: 5, z: 6 })
+        );
+        assert_eq!(
+            chain_placement_position(&update),
+            Some(BlockPosition { x: 4, y: 6, z: 6 })
+        );
+        let interaction = block_interaction_from_chain(&update).expect("place chain");
+        assert_eq!(
+            interaction
+                .world_interaction
+                .as_ref()
+                .and_then(|world| world.block_position.clone()),
+            Some(BlockPosition { x: 4, y: 5, z: 6 })
+        );
     }
 
     #[test]
