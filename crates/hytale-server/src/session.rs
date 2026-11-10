@@ -67,8 +67,8 @@ use hytale_protocol::generated::inventory::{
     DropItemStack, MoveItemStack, SetActiveSlot, UpdatePlayerInventory,
 };
 use hytale_protocol::generated::player::{
-    ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
-    SetGameMode, UpdateMovementSettings,
+    ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction,
+    SetBlockPlacementOverride, SetClientId, SetGameMode, UpdateMovementSettings,
 };
 use hytale_protocol::generated::registry::settings;
 use hytale_protocol::generated::setup::{
@@ -1673,6 +1673,14 @@ async fn enter_game(
             .await?;
     }
     game.active_slots = true;
+    // Java `PlayerSystems.PlayerSpawnedSystem` writes the placement override
+    // immediately after the active-slot selections.
+    writer
+        .write_packet(
+            &SetBlockPlacementOverride { enabled: false },
+            options.chunk_compression_level,
+        )
+        .await?;
 
     if !recipes.is_empty() {
         // `UpdateRecipes` is a Setup-stage asset packet and was already sent in
