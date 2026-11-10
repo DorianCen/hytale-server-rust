@@ -22,9 +22,9 @@ mod tag_pattern;
 use std::collections::{BTreeMap, BTreeSet};
 
 use hytale_protocol::generated::assets::{
-    UpdateAbilityKeywords, UpdateAmbienceFX, UpdateBeamConfigs, UpdateBlockHitboxes,
-    UpdateBlockSets, UpdateConnectedBlockRuleSets, UpdateEntityEffects, UpdateEntityStatTypes,
-    UpdateEntityUIComponents, UpdateEnvironments, UpdateEqualizerEffects,
+    UpdateAbilityKeywords, UpdateAmbienceFX, UpdateBeamConfigs, UpdateBlockGroups,
+    UpdateBlockHitboxes, UpdateBlockSets, UpdateConnectedBlockRuleSets, UpdateEntityEffects,
+    UpdateEntityStatTypes, UpdateEntityUIComponents, UpdateEnvironments, UpdateEqualizerEffects,
     UpdateFieldcraftCategories, UpdateFluids, UpdateHitboxCollisionConfig, UpdateInteractions,
     UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles,
     UpdateItemSoundSets, UpdateModelvfxs, UpdateMusicContainers, UpdateMusicTransitions,
@@ -39,7 +39,7 @@ use hytale_protocol::generated::common::{
     AmbienceFXPhysicalMaterial, AmbienceFXSound, AmbienceFXSoundEffect, AmbienceFXSoundPlay3D,
     AmbienceStateWrite, AmbienceTransitionSpeed, AndConnectedBlockRule, ApplyEffectInteraction,
     ApplyForceInteraction, AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig,
-    BenchRequirement, BenchType, BlockConditionInteraction, BlockSet, BlockTextures,
+    BenchRequirement, BenchType, BlockConditionInteraction, BlockGroup, BlockSet, BlockTextures,
     BlockTypeConnectedBlockShape, BreakBlockInteraction, BuilderToolInteraction, CameraAxis,
     CameraNode, CameraSettings, ChainFlagInteraction, ChainingInteraction,
     ChangeActiveSlotInteraction, ChangeBlockInteraction, ChangeStatBehaviour,
@@ -314,6 +314,7 @@ impl AssetRegistry {
                 // (empty), not null: the client dereferences them while
                 // handling the packet.
                 self.block_sets_packet()?,
+                self.block_groups_packet()?,
                 self.trails_packet()?,
                 self.particle_systems_packet()?,
                 self.particle_spawners_packet()?,
@@ -515,6 +516,41 @@ impl AssetRegistry {
             block_sets: Some(block_sets),
         };
         AssetPacket::encode("BlockSet", &packet)
+    }
+
+    /// `UpdateBlockGroups` (id 78) from the `BlockGroup` store.
+    ///
+    /// Java `BlockGroup.toPacket` sends the raw `Blocks` string array. The
+    /// client resolves the held block item's group through this store; leaving
+    /// it out leaves the store null and crashes on the first block item in the
+    /// hotbar.
+    pub fn block_groups_packet(&self) -> Result<AssetPacket> {
+        let mut groups = BTreeMap::new();
+        for record in self.block_groups.iter() {
+            let blocks = record
+                .value
+                .get("Blocks")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            groups.insert(
+                record.key.clone(),
+                BlockGroup {
+                    names: Some(blocks),
+                },
+            );
+        }
+        let packet = UpdateBlockGroups {
+            r#type: UpdateType::Init,
+            groups: Some(groups),
+        };
+        AssetPacket::encode("BlockGroup", &packet)
     }
 
     /// `UpdateInteractions` (id 56) from the `Interaction` store.

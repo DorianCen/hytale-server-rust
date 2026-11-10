@@ -13,14 +13,14 @@ use hytale_assets::packets::INTERACTION_NOT_FOUND;
 use hytale_assets::{AssetPack, AssetRegistry, TagRegistry};
 use hytale_protocol::generated::assets::{
     UpdateAbilityKeywords, UpdateAmbienceFX, UpdateAudioCategories, UpdateAudioStates,
-    UpdateBeamConfigs, UpdateBlockBreakingDecals, UpdateBlockHitboxes, UpdateBlockParticleSets,
-    UpdateBlockSets, UpdateBlockSoundSets, UpdateBlockTypes, UpdateConnectedBlockRuleSets,
-    UpdateEntityEffects, UpdateEntityStatTypes, UpdateEntityUIComponents, UpdateEnvironments,
-    UpdateEqualizerEffects, UpdateFieldcraftCategories, UpdateFluidFX, UpdateFluids,
-    UpdateHitboxCollisionConfig, UpdateInteractions, UpdateItemCategories,
-    UpdateItemPlayerAnimations, UpdateItemQualities, UpdateItemReticles, UpdateItemSoundSets,
-    UpdateItems, UpdateModelvfxs, UpdateMusicContainers, UpdateMusicTransitions,
-    UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
+    UpdateBeamConfigs, UpdateBlockBreakingDecals, UpdateBlockGroups, UpdateBlockHitboxes,
+    UpdateBlockParticleSets, UpdateBlockSets, UpdateBlockSoundSets, UpdateBlockTypes,
+    UpdateConnectedBlockRuleSets, UpdateEntityEffects, UpdateEntityStatTypes,
+    UpdateEntityUIComponents, UpdateEnvironments, UpdateEqualizerEffects,
+    UpdateFieldcraftCategories, UpdateFluidFX, UpdateFluids, UpdateHitboxCollisionConfig,
+    UpdateInteractions, UpdateItemCategories, UpdateItemPlayerAnimations, UpdateItemQualities,
+    UpdateItemReticles, UpdateItemSoundSets, UpdateItems, UpdateModelvfxs, UpdateMusicContainers,
+    UpdateMusicTransitions, UpdateParticleSpawners, UpdateParticleSystems, UpdatePhysicalMaterials,
     UpdateProjectileConfigs, UpdateRecipes, UpdateRepulsionConfig, UpdateResourceTypes,
     UpdateReverbEffects, UpdateRootInteractions, UpdateSoundEvents, UpdateSoundSets,
     UpdateStingers, UpdateTagPatterns, UpdateTrails, UpdateUnarmedInteractions, UpdateWeathers,
@@ -119,6 +119,7 @@ fn config_packets_are_sent_in_dependency_order() {
             UpdateWeathers::ID,
             UpdateItems::ID,
             UpdateBlockSets::ID,
+            UpdateBlockGroups::ID,
             UpdateTrails::ID,
             UpdateParticleSystems::ID,
             UpdateParticleSpawners::ID,
@@ -2032,4 +2033,50 @@ fn builder_tools_always_send_their_args_array() {
         );
     }
     assert!(tools > 0, "expected builder tools in the item packet");
+}
+
+/// Java `BlockGroup.toPacket` sends the group's raw `Blocks` names. The client
+/// resolves a held block item's group through this store; a missing
+/// `UpdateBlockGroups` packet left it null and crashed on the first block item
+/// added to the hotbar.
+#[test]
+fn block_group_packet_matches_the_asset_pack() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (registry, packets) = load();
+    let decoded: UpdateBlockGroups = UpdateBlockGroups::decode(&mut Reader::new(
+        &packet(&packets, UpdateBlockGroups::ID).payload,
+    ))
+    .expect("decode block groups");
+    assert_eq!(decoded.r#type, UpdateType::Init);
+    let groups = decoded.groups.expect("block group map");
+    assert_eq!(groups.len(), registry.block_groups.len());
+    assert!(!groups.is_empty());
+
+    let aqua = groups
+        .get("FullBlocks_Aqua")
+        .expect("FullBlocks_Aqua group");
+    assert_eq!(
+        aqua.names.as_deref(),
+        Some(&["Rock_Aqua".to_string(), "Rock_Aqua_Cobble".to_string()][..])
+    );
+    let ledgestone = groups
+        .get("FullBlocks_Ledgestone")
+        .expect("FullBlocks_Ledgestone group");
+    assert_eq!(
+        ledgestone.names.as_deref(),
+        Some(&["Rock_Ledge".to_string()][..])
+    );
+
+    // Group entries are raw block keys, exactly like Java's
+    // `BlockGroup.toPacket`; a few legacy keys (`Rock_Ledge`) no longer have a
+    // block type, so presence is not required.
+    for (key, group) in &groups {
+        assert!(
+            group.names.is_some(),
+            "group `{key}` names must be an array"
+        );
+    }
 }

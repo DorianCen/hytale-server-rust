@@ -370,6 +370,12 @@ const BLOCK_SET: StoreSpec = StoreSpec {
     map: MapKind::IndexedLookupTable,
 };
 
+const BLOCK_GROUP: StoreSpec = StoreSpec {
+    name: "BlockGroup",
+    path: "Server/Item/Groups",
+    map: MapKind::Default,
+};
+
 const PARTICLE_SYSTEM: StoreSpec = StoreSpec {
     name: "ParticleSystem",
     path: "Server/Particles",
@@ -975,6 +981,8 @@ pub struct AssetRegistry {
     pub entity_ui_components: AssetCollection<Value>,
     /// `BlockSet` (`Server/Item/Block/Sets`).
     pub block_sets: AssetCollection<Value>,
+    /// `BlockGroup` (`Server/Item/Groups`).
+    pub block_groups: AssetCollection<Value>,
     /// `ParticleSystem` (`Server/Particles/*.particlesystem`).
     pub particle_systems: AssetCollection<Value>,
     /// `ParticleSpawner` (`Server/Particles/**/*.particlespawner`).
@@ -1109,6 +1117,7 @@ impl AssetRegistry {
             model_vfxs: AssetCollection::empty(),
             entity_ui_components: AssetCollection::empty(),
             block_sets: AssetCollection::empty(),
+            block_groups: AssetCollection::empty(),
             particle_systems: AssetCollection::empty(),
             particle_spawners: AssetCollection::empty(),
             music_transitions: AssetCollection::empty(),
@@ -1157,6 +1166,7 @@ impl AssetRegistry {
         registry.entity_ui_components =
             load_indexed_store(pack, &ENTITY_UI_COMPONENT, Vec::new(), parse_key_asset)?;
         registry.block_sets = load_indexed_store(pack, &BLOCK_SET, Vec::new(), parse_key_asset)?;
+        registry.block_groups = load_default_store(pack, &BLOCK_GROUP, Vec::new())?;
         registry.particle_systems =
             load_indexed_store_extension(pack, &PARTICLE_SYSTEM, "particlesystem")?;
         registry.particle_spawners =
