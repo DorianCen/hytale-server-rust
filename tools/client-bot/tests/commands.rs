@@ -17,8 +17,8 @@ use hytale_net::{connect, ServerEndpointBuilder, TlsIdentity};
 use hytale_protocol::io::Uuid;
 use hytale_server::PermissionRegistry;
 use hytale_server::{
-    serve_listener, serve_session_connection, GeneratorOptions, ServeOptions, SessionOptions,
-    WorldThread, WorldThreadOptions,
+    serve_listener, serve_session_connection, GeneratorOptions, RuntimeLimits, ServeOptions,
+    SessionOptions, WorldThread, WorldThreadOptions,
 };
 use tokio::sync::oneshot;
 
@@ -75,7 +75,9 @@ async fn the_bot_runs_commands_over_chat() {
         .expect("bind server");
     let server_addr = server.local_addr();
     let client_identity = TlsIdentity::generate("command-client").expect("client cert");
+    let runtime_limits = Arc::new(RuntimeLimits::new(20, 16));
 
+    let server_limits = Arc::clone(&runtime_limits);
     let server_task = tokio::spawn(async move {
         let accepted = server.accept().await.expect("accept");
         let report = serve_session_connection(
@@ -84,6 +86,7 @@ async fn the_bot_runs_commands_over_chat() {
             &SessionOptions {
                 default_view_radius: 0,
                 handshake_timeout: Duration::from_secs(30),
+                runtime_limits: Some(server_limits),
                 ..SessionOptions::default()
             },
         )
@@ -123,6 +126,8 @@ async fn the_bot_runs_commands_over_chat() {
                 "/world".to_string(),
                 "/maxplayers".to_string(),
                 "/maxviewradius".to_string(),
+                "/maxplayers 25".to_string(),
+                "/maxviewradius 2".to_string(),
                 "/who".to_string(),
                 "/whereami".to_string(),
                 "/gamemode creative".to_string(),
@@ -130,6 +135,12 @@ async fn the_bot_runs_commands_over_chat() {
                 "/setblock 0 200 0 Rock_Stone 90".to_string(),
                 // Plain chat is relayed to every player (including the sender).
                 "hello chat".to_string(),
+                r#"/say {"RawText":"styled hello","Bold":true}"#.to_string(),
+            ],
+            arg_value_requests_after_join: vec![
+                ("hytale:player".to_string(), "Command".to_string()),
+                ("hytale:item".to_string(), "Rock_St".to_string()),
+                ("hytale:game_mode".to_string(), "c".to_string()),
             ],
         },
     )
@@ -183,11 +194,14 @@ async fn the_bot_runs_commands_over_chat() {
         "Current world:",
         "Max players:",
         "Max view radius:",
+        "Max players set to 25",
+        "Max view radius set to 2",
         "player(s): CommandBot",
         "Position:",
         "Game mode set to creative",
         "unknown command `nope`",
         "CommandBot: hello chat",
+        "styled hello",
         "Set block (0, 200, 0)",
     ] {
         assert!(
@@ -200,6 +214,76 @@ async fn the_bot_runs_commands_over_chat() {
             report.observation.server_messages
         );
     }
+    assert_eq!(runtime_limits.max_players(), 25);
+    assert_eq!(runtime_limits.max_view_radius(), 2);
+
+    let messages = &report.observation.formatted_messages;
+    assert!(
+        messages.iter().any(|message| {
+            message.message_id.as_deref() == Some("server.chat.playerMessage")
+                && message.raw_text.as_deref() == Some("CommandBot: hello chat")
+        }),
+        "player chat should keep the Java translation id: {messages:?}"
+    );
+    assert!(
+        messages.iter().any(|message| {
+            message
+                .message_id
+                .as_deref()
+                .is_some_and(|id| id == "server.chat.broadcastMessage")
+                && message.raw_text.as_deref() == Some("CommandBot: hello everyone")
+                && message.color.as_deref() == Some("#00ffff")
+        }),
+        "say should keep its translation and colour: {messages:?}"
+    );
+    assert!(
+        messages.iter().any(
+            |message| message.raw_text.as_deref() == Some("styled hello")
+                && message.bold == Some(true)
+        ),
+        "say JSON should keep styling: {messages:?}"
+    );
+
+    let responses = &report.observation.arg_values_responses;
+    assert!(
+        responses.iter().any(|response| {
+            response.arg_type_id.as_deref() == Some("hytale:player")
+                && response
+                    .values
+                    .as_ref()
+                    .is_some_and(|values| values.iter().any(|value| value == "CommandBot"))
+        }),
+        "player suggestions: {responses:?}"
+    );
+    assert!(
+        responses.iter().any(|response| {
+            response.arg_type_id.as_deref() == Some("hytale:item")
+                && response
+                    .values
+                    .as_ref()
+                    .is_some_and(|values| values.iter().any(|value| value == "Rock_Stone"))
+        }),
+        "item suggestions: {responses:?}"
+    );
+    assert!(
+        responses.iter().any(|response| {
+            response.arg_type_id.as_deref() == Some("hytale:game_mode")
+                && response
+                    .values
+                    .as_ref()
+                    .is_some_and(|values| values.iter().any(|value| value == "creative"))
+        }),
+        "game-mode suggestions: {responses:?}"
+    );
+    assert!(
+        report
+            .observation
+            .arg_cache_invalidations
+            .iter()
+            .any(|ids| ids.iter().any(|id| id == "hytale:player")),
+        "player-list changes should invalidate the player suggestion cache: {:?}",
+        report.observation.arg_cache_invalidations
+    );
     assert!(
         report.observation.teleports.iter().any(|position| {
             (position.x - 4.0).abs() < f64::EPSILON
@@ -303,6 +387,7 @@ async fn an_operator_can_target_another_player() {
                 place_block_after_join: None,
                 break_block_after_join: None,
                 commands_after_join: Vec::new(),
+                arg_value_requests_after_join: Vec::new(),
             },
         )
         .await
@@ -359,6 +444,7 @@ async fn an_operator_can_target_another_player() {
                 "/gamemode TargetBot creative".to_string(),
                 "/say targeted".to_string(),
             ],
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await

@@ -13,6 +13,7 @@
 mod builtins;
 mod command;
 mod console;
+mod message;
 mod registry;
 mod tokenizer;
 
@@ -24,7 +25,11 @@ pub use console::{
     execute_console_line, run_console, run_console_with_prompt, ConsoleEffects, CONSOLE_PROMPT,
 };
 pub use hytale_core::{PermissionRegistry, PermissionSet};
-pub use registry::{ArgKind, ArgSpec, Command, CommandHandler, CommandRegistry};
+pub use message::{parse_message, raw_message, translated_message, with_color};
+pub use registry::{
+    ArgKind, ArgSpec, Command, CommandHandler, CommandRegistry, SuggestionResponse,
+    MAX_WIRE_SUGGESTIONS,
+};
 pub use tokenizer::{tokenize, TokenizeError};
 
 /// Build the built-in command registry.

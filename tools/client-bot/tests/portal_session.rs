@@ -108,6 +108,7 @@ async fn a_connected_player_arrives_in_goblin_breach_after_the_handoff() {
                 send_ready_for_gameplay: true,
                 place_block_after_join: None,
                 break_block_after_join: None,
+                arg_value_requests_after_join: Vec::new(),
             },
         ),
     )

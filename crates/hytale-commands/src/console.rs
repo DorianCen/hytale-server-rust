@@ -6,6 +6,8 @@
 
 use std::io::{BufRead, Write};
 
+use hytale_protocol::generated::common::FormattedMessage;
+
 use crate::command::{CommandContext, CommandEffect, CommandSender};
 use crate::registry::CommandRegistry;
 
@@ -22,6 +24,22 @@ pub trait ConsoleEffects {
     fn stop_server(&mut self) -> Result<String, String>;
     /// Broadcast a chat line to every player.
     fn broadcast(&mut self, message: &str);
+    /// Broadcast a formatted chat message; the default keeps the raw fallback.
+    fn broadcast_message(&mut self, message: &FormattedMessage) {
+        if let Some(text) = &message.raw_text {
+            self.broadcast(text);
+        }
+    }
+    /// Update the listener's maximum player count.
+    fn set_max_players(&mut self, max_players: i32) -> Result<String, String> {
+        let _ = max_players;
+        Err("not available from the console".to_string())
+    }
+    /// Update the listener's maximum view radius.
+    fn set_max_view_radius(&mut self, max_view_radius: u32) -> Result<String, String> {
+        let _ = max_view_radius;
+        Err("not available from the console".to_string())
+    }
     /// Disconnect a player.
     fn kick(&mut self, target: &str, reason: Option<&str>) -> Result<String, String>;
     /// Switch a player (or the console) to another world.
@@ -65,6 +83,16 @@ pub fn execute_console_line(
                     CommandEffect::Broadcast { message } => {
                         effects.broadcast(&message);
                         Ok(String::new())
+                    }
+                    CommandEffect::BroadcastFormatted { message } => {
+                        effects.broadcast_message(&message);
+                        Ok(String::new())
+                    }
+                    CommandEffect::SetMaxPlayers { max_players } => {
+                        effects.set_max_players(max_players)
+                    }
+                    CommandEffect::SetMaxViewRadius { max_view_radius } => {
+                        effects.set_max_view_radius(max_view_radius)
                     }
                     CommandEffect::Kick { target, reason } => {
                         effects.kick(&target, reason.as_deref())
@@ -141,6 +169,9 @@ mod tests {
         saved: usize,
         stopped: usize,
         broadcasts: Vec<String>,
+        formatted_broadcasts: usize,
+        max_players: Vec<i32>,
+        max_view_radii: Vec<u32>,
         kicks: Vec<(String, Option<String>)>,
         worlds: Vec<String>,
         set_blocks: Vec<(i32, i32, i32, String, Option<i32>)>,
@@ -170,6 +201,26 @@ mod tests {
 
         fn broadcast(&mut self, message: &str) {
             self.broadcasts.push(message.to_string());
+        }
+
+        fn broadcast_message(
+            &mut self,
+            message: &hytale_protocol::generated::common::FormattedMessage,
+        ) {
+            self.formatted_broadcasts += 1;
+            if let Some(raw) = &message.raw_text {
+                self.broadcasts.push(raw.clone());
+            }
+        }
+
+        fn set_max_players(&mut self, max_players: i32) -> Result<String, String> {
+            self.max_players.push(max_players);
+            Ok(format!("Max players set to {max_players}"))
+        }
+
+        fn set_max_view_radius(&mut self, max_view_radius: u32) -> Result<String, String> {
+            self.max_view_radii.push(max_view_radius);
+            Ok(format!("Max view radius set to {max_view_radius}"))
         }
 
         fn kick(&mut self, target: &str, reason: Option<&str>) -> Result<String, String> {
@@ -218,7 +269,12 @@ mod tests {
         let registry = CommandRegistry::builtin();
         let mut recorder = Recorder::default();
         execute_console_line(&registry, "say hello", &mut recorder);
-        assert_eq!(recorder.broadcasts, ["hello"]);
+        assert_eq!(recorder.broadcasts, ["console: hello"]);
+        assert_eq!(recorder.formatted_broadcasts, 1);
+        execute_console_line(&registry, "maxplayers 25", &mut recorder);
+        assert_eq!(recorder.max_players, [25]);
+        execute_console_line(&registry, "maxviewradius 2", &mut recorder);
+        assert_eq!(recorder.max_view_radii, [2]);
         execute_console_line(&registry, "kick Alice bye", &mut recorder);
         assert_eq!(
             recorder.kicks,

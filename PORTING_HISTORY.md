@@ -2681,3 +2681,31 @@ This file records phase-2 sessions only.
   `./tools/test.sh fast` (1632 passed, 29 skipped), clippy and fmt.
 - **Follow-ups:** expand CustomTemplate mirror transforms; components that still
   lack a Java golden/dumper; client prediction parity for connected shapes.
+
+## Session 99 — T67b command long tail (2026-11-11)
+
+- **Goal:** close T67's deferred command work: dynamic argument suggestions,
+  listener-wide runtime limits and formatted chat.
+- **Suggestions:** the command tree now carries stable `argTypeId` values and
+  Java suggestion counts. `CommandRegistry::suggest` filters online players,
+  item asset ids, game modes and coordinates; the session answers
+  `ArgValuesRequest` with a 150-value-capped `ArgValuesResponse`, enforces the
+  Java 128/256-byte id/partial limits and 50 ms per-type rate limit, and
+  broadcasts `ArgCacheInvalidation` when the player list changes.
+- **Runtime limits:** `RuntimeLimits` shares atomics across sessions and the
+  console. `/maxplayers <amount>` updates new-join `ServerInfo`/capacity, and
+  `/maxviewradius <radius>` validates `1..=32`, updates the handshake clamp and
+  queues a control action that re-clamps live chunk views and sends `ViewRadius`.
+- **Chat:** plain chat and `/say` keep Java translation ids
+  (`server.chat.playerMessage`/`broadcastMessage`) with raw fallbacks; `/say`
+  carries cyan colour and accepts the Java `Message.parse` JSON subset
+  (`RawText`, `MessageId`, `Params`, `MessageParams`, `Children`, styles,
+  `Color`, `Link`, `Image`).
+- **Tests:** 31 command-crate unit tests, 58 server library tests, and the
+  ignored `client-bot` command loopback (2 passed, 61.19 s) covering
+  player/item/game-mode suggestions, cache invalidation, formatted player/say
+  messages, rich `/say` JSON and runtime limit changes.
+- **Verified:** `./tools/test.sh fast` (1637 passed, 29 skipped), clippy and fmt.
+- **Follow-ups:** Java's fuzzy-distance suggestion tail and plugin chat
+  formatters remain unported; the debug/editor/builder command set stays out of
+  scope (T61).

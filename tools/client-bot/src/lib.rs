@@ -34,8 +34,8 @@ use hytale_protocol::generated::connection::{
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
 use hytale_protocol::generated::interface_::{
-    AddToServerPlayerList, ChatMessage, CommandTreeSync, RemoveFromServerPlayerList, ServerMessage,
-    SetPage,
+    AddToServerPlayerList, ArgCacheInvalidation, ArgValuesRequest, ArgValuesResponse, ChatMessage,
+    CommandTreeSync, RemoveFromServerPlayerList, ServerMessage, SetPage,
 };
 use hytale_protocol::generated::inventory::{SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
@@ -326,6 +326,8 @@ pub struct DevJoinOptions {
     pub send_ready_for_gameplay: bool,
     /// Chat command lines (`/help`, `/tp ...`) sent after the join.
     pub commands_after_join: Vec<String>,
+    /// `(argTypeId, partial)` suggestion requests sent after the commands.
+    pub arg_value_requests_after_join: Vec<(String, String)>,
 }
 
 /// World-join state observed by the bot.
@@ -524,8 +526,14 @@ pub struct PlayerObservation {
     pub teleports: Vec<Position>,
     /// `CommandTreeSync` sent after the join.
     pub command_tree: Option<CommandTreeSync>,
+    /// `ServerMessage` payloads received after the join.
+    pub formatted_messages: Vec<FormattedMessage>,
     /// `ServerMessage.rawText` values received after the join.
     pub server_messages: Vec<String>,
+    /// `ArgValuesResponse` payloads received after the join.
+    pub arg_values_responses: Vec<ArgValuesResponse>,
+    /// `ArgCacheInvalidation` type-id batches received after the join.
+    pub arg_cache_invalidations: Vec<Vec<String>>,
 }
 
 /// Errors from the dev join.
@@ -703,6 +711,17 @@ pub async fn dev_join(
             )
             .await?;
     }
+    for (arg_type_id, partial) in &options.arg_value_requests_after_join {
+        writer
+            .write_packet(
+                &ArgValuesRequest {
+                    arg_type_id: Some(arg_type_id.clone()),
+                    partial: Some(partial.clone()),
+                },
+                3,
+            )
+            .await?;
+    }
     let disconnect_at = options
         .disconnect_after
         .map(|after| tokio::time::Instant::now() + after);
@@ -828,9 +847,22 @@ async fn observe_players(
                     }
                     ServerMessage::ID => {
                         let packet: ServerMessage = frame.decode()?;
-                        if let Some(message) = packet.message.and_then(|message| message.raw_text) {
-                            observation.server_messages.push(message);
+                        if let Some(message) = packet.message {
+                            if let Some(raw) = &message.raw_text {
+                                observation.server_messages.push(raw.clone());
+                            }
+                            observation.formatted_messages.push(message);
                         }
+                    }
+                    ArgValuesResponse::ID => {
+                        let packet: ArgValuesResponse = frame.decode()?;
+                        observation.arg_values_responses.push(packet);
+                    }
+                    ArgCacheInvalidation::ID => {
+                        let packet: ArgCacheInvalidation = frame.decode()?;
+                        observation
+                            .arg_cache_invalidations
+                            .push(packet.arg_type_ids.unwrap_or_default());
                     }
                     UpdateMovementSettings::ID => {
                         let packet: UpdateMovementSettings = frame.decode()?;

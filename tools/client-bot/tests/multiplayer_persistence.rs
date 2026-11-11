@@ -300,6 +300,7 @@ async fn two_clients_reconnect_and_survive_a_world_restart() {
         send_ready_for_gameplay: true,
         place_block_after_join: Some((first_target.clone(), HELD_BLOCK.to_string())),
         break_block_after_join: None,
+        arg_value_requests_after_join: Vec::new(),
     };
     let second_options = DevJoinOptions {
         commands_after_join: Vec::new(),
@@ -320,6 +321,7 @@ async fn two_clients_reconnect_and_survive_a_world_restart() {
         send_ready_for_gameplay: true,
         place_block_after_join: Some((second_target.clone(), HELD_BLOCK.to_string())),
         break_block_after_join: Some(second_target.clone()),
+        arg_value_requests_after_join: Vec::new(),
     };
     let first_future = dev_join(&first, &first_options);
     let second_future = async {
@@ -452,6 +454,7 @@ async fn two_clients_reconnect_and_survive_a_world_restart() {
             send_ready_for_gameplay: true,
             place_block_after_join: None,
             break_block_after_join: None,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await
@@ -602,6 +605,7 @@ async fn two_clients_reconnect_and_survive_a_world_restart() {
             send_ready_for_gameplay: true,
             place_block_after_join: None,
             break_block_after_join: None,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await

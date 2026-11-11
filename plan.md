@@ -1115,7 +1115,26 @@ through queued cross-session `ControlAction`s. `/kick`, `/world` (query plus a
 live `PortalRouter` switch), `/maxplayers` and `/maxviewradius` land. Tests:
 26 command-crate unit tests, 55 server library tests, and two ignored bot
 loopbacks (single-bot command round trip and a two-bot operator targeting test).
-Dynamic arg-value suggestions and runtime limit changes remain.
+
+### T67b — Command long tail (follow-up)
+
+**Status:** done (session 99)
+**Package:** `hytale-commands`, `hytale-server`, `tools/client-bot`
+**Depends on:** T67
+**Agent fit:** medium
+**Goal:** close T67's argument-suggestion, runtime-limit and chat-formatting
+follow-ups. See [`tasks/T67b-command-long-tail.md`](tasks/T67b-command-long-tail.md).
+
+**Landed:** `CommandArgInfo.argTypeId` plus Java value counts; dynamic player,
+item, game-mode and coordinate suggestions through `ArgValuesRequest`/
+`ArgValuesResponse`, capped at 150 and rate-limited per type; player-list
+`ArgCacheInvalidation`; shared `RuntimeLimits` with `/maxplayers <amount>` and
+`/maxviewradius <radius>` updates (new-join gating, `ServerInfo` and live view
+re-clamping); translated `server.chat.*` messages, cyan `/say`, and the Java
+`Message.parse` JSON subset for rich `/say` payloads. Tests: 31 command-crate
+unit tests, 58 server library tests, and the ignored bot command loopback
+covering suggestions, cache invalidation, formatted chat and runtime limits.
+The advanced debug/editor/builder command set stays out of scope (T61).
 
 ### T68 — Upstream transport/auth hardening (follow-up)
 

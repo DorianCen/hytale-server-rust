@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use hytale_core::PermissionSet;
+use hytale_protocol::generated::common::FormattedMessage;
 use thiserror::Error;
 
 /// Who is running a command.
@@ -130,6 +131,21 @@ pub enum CommandEffect {
         /// Chat text.
         message: String,
     },
+    /// Send a formatted chat message to every connected player.
+    BroadcastFormatted {
+        /// Translation/styled message.
+        message: FormattedMessage,
+    },
+    /// Update the listener's maximum player count (`<= 0` is unlimited).
+    SetMaxPlayers {
+        /// New maximum player count.
+        max_players: i32,
+    },
+    /// Update the listener's maximum view radius, in chunks.
+    SetMaxViewRadius {
+        /// New view-radius ceiling.
+        max_view_radius: u32,
+    },
     /// Disconnect a player.
     Kick {
         /// Target player name.
@@ -234,6 +250,8 @@ pub struct CommandInvocation<'a> {
     pub sender: &'a CommandSender,
     /// Positional arguments (the command name is not included).
     pub args: &'a [String],
+    /// Raw command remainder after the command name, before tokenization.
+    pub raw: String,
     /// Runtime state.
     pub context: &'a CommandContext,
     /// The full usage line for this command.
@@ -269,6 +287,14 @@ impl<'a> CommandInvocation<'a> {
             .map(String::as_str)
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// The original text after the command name, preserving quotes and JSON.
+    ///
+    /// Java `GREEDY_STRING` arguments are extracted from the raw input so
+    /// payloads such as `/say {"RawText":"hi"}` survive tokenization.
+    pub fn rest_raw(&self) -> &str {
+        self.raw.trim_start()
     }
 
     /// A required positional argument.

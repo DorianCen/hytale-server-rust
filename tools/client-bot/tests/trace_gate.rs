@@ -138,6 +138,7 @@ async fn v1_lifecycle_trace_matches_the_committed_gate() {
         send_ready_for_gameplay: true,
         place_block_after_join: Some((target.clone(), "Rock_Stone".to_string())),
         break_block_after_join: None,
+        arg_value_requests_after_join: Vec::new(),
     };
     let observer_options = DevJoinOptions {
         commands_after_join: Vec::new(),
@@ -154,6 +155,7 @@ async fn v1_lifecycle_trace_matches_the_committed_gate() {
         send_ready_for_gameplay: true,
         place_block_after_join: None,
         break_block_after_join: None,
+        arg_value_requests_after_join: Vec::new(),
     };
     let actor_future = dev_join(&actor, &actor_options);
     let observer_future = async {
@@ -194,6 +196,7 @@ async fn v1_lifecycle_trace_matches_the_committed_gate() {
             send_ready_for_gameplay: true,
             place_block_after_join: None,
             break_block_after_join: Some(target),
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await

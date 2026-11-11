@@ -21,9 +21,11 @@ use tokio::task::JoinSet;
 use tokio::time::{timeout, Instant};
 
 use hytale_commands::{CommandContext, CommandEffect, CommandRegistry, ConsoleEffects};
+use hytale_protocol::generated::common::FormattedMessage;
 
 use crate::generation::GeneratorOptions;
 use crate::players::{ControlAction, PlayerRegistry};
+use crate::runtime_limits::RuntimeLimits;
 use crate::session::{
     serve_connection_with_registry, AuthMode, SessionError, SessionOptions, SessionReport,
 };
@@ -345,7 +347,7 @@ struct ServerConsole {
     players: Arc<PlayerRegistry>,
     stop: Arc<AtomicBool>,
     router: Option<Arc<PortalRouter>>,
-    options: SessionOptions,
+    runtime_limits: Arc<RuntimeLimits>,
 }
 
 impl ConsoleEffects for ServerConsole {
@@ -360,8 +362,8 @@ impl ConsoleEffects for ServerConsole {
             time_paused: world_time.as_ref().map(|time| time.time_paused),
             world_name: Some(start.display_name.clone()),
             world_uuid: Some(start.world_uuid.clone()),
-            max_players: Some(self.options.max_players),
-            max_view_radius: Some(self.options.limits.max_view_radius),
+            max_players: Some(self.runtime_limits.max_players()),
+            max_view_radius: Some(self.runtime_limits.max_view_radius()),
         }
     }
 
@@ -377,6 +379,31 @@ impl ConsoleEffects for ServerConsole {
 
     fn broadcast(&mut self, message: &str) {
         self.players.broadcast_chat(message);
+    }
+
+    fn broadcast_message(&mut self, message: &FormattedMessage) {
+        self.players.broadcast_formatted(message.clone());
+    }
+
+    fn set_max_players(&mut self, max_players: i32) -> Result<String, String> {
+        self.runtime_limits.set_max_players(max_players);
+        Ok(if max_players > 0 {
+            format!("Max players set to {max_players}")
+        } else {
+            "Max players set to unlimited".to_string()
+        })
+    }
+
+    fn set_max_view_radius(&mut self, max_view_radius: u32) -> Result<String, String> {
+        let radius = self
+            .runtime_limits
+            .set_max_view_radius(max_view_radius)
+            .map_err(str::to_string)?;
+        self.players
+            .broadcast_control(ControlAction::SetMaxViewRadius {
+                max_view_radius: radius,
+            });
+        Ok(format!("Max view radius set to {radius}"))
     }
 
     fn kick(&mut self, target: &str, reason: Option<&str>) -> Result<String, String> {
@@ -438,7 +465,7 @@ fn spawn_console(
     players: Arc<PlayerRegistry>,
     stop: Arc<AtomicBool>,
     router: Option<Arc<PortalRouter>>,
-    options: SessionOptions,
+    runtime_limits: Arc<RuntimeLimits>,
 ) {
     let result = std::thread::Builder::new()
         .name("hytale-console".to_string())
@@ -449,7 +476,7 @@ fn spawn_console(
                 players,
                 stop,
                 router,
-                options,
+                runtime_limits,
             };
             let stdin = std::io::stdin();
             let stdout = std::io::stdout();
@@ -512,6 +539,13 @@ where
     }
 
     let mut session_options = options.session.clone();
+    let runtime_limits = session_options.runtime_limits.clone().unwrap_or_else(|| {
+        Arc::new(RuntimeLimits::new(
+            session_options.max_players,
+            session_options.limits.max_view_radius,
+        ))
+    });
+    session_options.runtime_limits = Some(Arc::clone(&runtime_limits));
     let stop_signal = session_options
         .stop_signal
         .clone()
@@ -575,7 +609,7 @@ where
             Arc::clone(&players),
             Arc::clone(&stop_signal),
             session_options.portal_router.clone(),
-            session_options.clone(),
+            Arc::clone(&runtime_limits),
         );
     }
     let mut sessions: JoinSet<Result<SessionReport, SessionError>> = JoinSet::new();

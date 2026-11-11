@@ -17,6 +17,7 @@ pub mod memory;
 pub mod player_data_tool;
 pub mod player_gameplay;
 pub mod players;
+pub mod runtime_limits;
 pub mod security;
 pub mod serve;
 pub mod session;
@@ -55,6 +56,7 @@ pub use players::{
     PlayerJoinError, PlayerJoinRequest, PlayerMessage, PlayerRegistry, PlayerSession,
     PLAYER_NPC_TARGET_OFFSET,
 };
+pub use runtime_limits::{RuntimeLimits, MAX_VIEW_RADIUS_CHUNKS};
 pub use security::SessionLimits;
 pub use serve::{
     run as run_serve, serve as serve_listener, PortalRouter, ServeError, ServeOptions, ServeReport,

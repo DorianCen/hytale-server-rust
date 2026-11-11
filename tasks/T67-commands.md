@@ -1,6 +1,6 @@
 # T67 — Command framework and in-game commands
 
-**Status:** done (session 91 framework; session 94 console, permissions, chat and targets)
+**Status:** done (session 91 framework; session 94 console, permissions, chat and targets; T67b closes the long tail)
 **Package:** `hytale-commands`, `hytale-server`, `hytale-core`, `tools/client-bot`
 **Depends on:** T42, T48
 **Agent fit:** medium
@@ -174,8 +174,8 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Dynamic argument-value suggestions and the Java `argTypeId` sync packet.
-- Runtime `maxplayers`/`maxviewradius` changes if the listener gains a shared
-  atomic limit; today the semaphore/`ServerInfo` are fixed at startup.
-- Command history, tab-completion UI polish and the remaining Java command set.
-- Message formatting events/rich text for chat (the current relay uses raw text).
+- Closed by [T67b](T67b-command-long-tail.md): dynamic argument-value
+  suggestions, the `argTypeId`/`ArgValuesRequest` flow and cache invalidation,
+  runtime `maxplayers`/`maxviewradius`, and formatted chat/rich `/say` payloads.
+- Command history/tab-completion UI polish and the remaining Java debug/editor/
+  builder command set stay out of scope (T61).

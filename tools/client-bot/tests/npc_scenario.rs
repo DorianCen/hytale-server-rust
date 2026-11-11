@@ -182,6 +182,7 @@ async fn bot_observes_npc_spawn_chase_and_despawn() {
             break_block_after_join: None,
             use_block_after_join: Vec::new(),
             send_ready_for_gameplay: true,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await

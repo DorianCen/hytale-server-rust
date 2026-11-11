@@ -122,6 +122,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
         send_ready_for_gameplay: false,
         place_block_after_join: Some((first_block.clone(), "Rock_Stone".to_string())),
         break_block_after_join: None,
+        arg_value_requests_after_join: Vec::new(),
     };
     let second_options = DevJoinOptions {
         commands_after_join: Vec::new(),
@@ -145,6 +146,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             "Rock_Stone".to_string(),
         )),
         break_block_after_join: Some(BlockPosition { x: 8, y: 200, z: 8 }),
+        arg_value_requests_after_join: Vec::new(),
     };
 
     // The second bot joins while the first is still observing, so both see
@@ -295,6 +297,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             send_ready_for_gameplay: false,
             place_block_after_join: None,
             break_block_after_join: Some(first_block.clone()),
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await
@@ -363,6 +366,7 @@ async fn two_clients_join_disconnect_and_rejoin_without_restart() {
             send_ready_for_gameplay: false,
             place_block_after_join: None,
             break_block_after_join: None,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await
@@ -491,6 +495,7 @@ async fn an_idle_session_is_torn_down_and_the_listener_keeps_accepting() {
             send_ready_for_gameplay: false,
             place_block_after_join: None,
             break_block_after_join: None,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await
@@ -525,6 +530,7 @@ async fn an_idle_session_is_torn_down_and_the_listener_keeps_accepting() {
             send_ready_for_gameplay: false,
             place_block_after_join: None,
             break_block_after_join: None,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await

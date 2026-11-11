@@ -13,6 +13,20 @@ use crate::tokenizer::tokenize;
 /// A command handler.
 pub type CommandHandler = fn(&mut CommandInvocation<'_>) -> Result<(), CommandError>;
 
+/// Maximum number of suggestions written in one `ArgValuesResponse`.
+pub const MAX_WIRE_SUGGESTIONS: usize = 150;
+
+/// One resolved argument-value suggestion batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuggestionResponse {
+    /// Suggested values.
+    pub values: Vec<String>,
+    /// Per-value continuation flags (always `false` for the built-in kinds).
+    pub continuations: Vec<bool>,
+    /// Whether the result contains every match.
+    pub is_complete: bool,
+}
+
 /// The kind of a command argument (used by the client tree and usage text).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgKind {
@@ -43,6 +57,37 @@ impl ArgKind {
             Self::Item => "Item",
             Self::GameMode => "GameMode",
             Self::Coordinates => "Coordinates",
+        }
+    }
+
+    /// Stable suggestion type id for `CommandArgInfo.argTypeId`.
+    ///
+    /// Java generates a per-process UUID for each `ArgumentType` and shares it
+    /// between types with identical suggestions. The Rust registry is stable
+    /// across restarts, so these ids are descriptive rather than random; the
+    /// client only uses them as opaque cache keys.
+    pub const fn type_id(self) -> &'static str {
+        match self {
+            Self::String => "hytale:string",
+            Self::Integer => "hytale:integer",
+            Self::Float => "hytale:float",
+            Self::Player => "hytale:player",
+            Self::Item => "hytale:item",
+            Self::GameMode => "hytale:game_mode",
+            Self::Coordinates => "hytale:coordinates",
+        }
+    }
+
+    /// Java `ArgumentType.getSuggestionValueCount` for this kind.
+    pub const fn suggestion_value_count(self) -> i32 {
+        match self {
+            Self::GameMode => 4,
+            Self::String
+            | Self::Integer
+            | Self::Float
+            | Self::Player
+            | Self::Item
+            | Self::Coordinates => -1,
         }
     }
 }
@@ -170,9 +215,11 @@ impl CommandRegistry {
         }
 
         let help = self.help_lines(sender);
+        let raw = raw_command_remainder(line);
         let mut invocation = CommandInvocation {
             sender,
             args: &tokens[1..],
+            raw: raw.to_string(),
             context,
             usage: command.usage_line(),
             help: &help,
@@ -196,6 +243,46 @@ impl CommandRegistry {
         }
     }
 
+    /// Resolve an `ArgValuesRequest` for one registered suggestion type.
+    ///
+    /// `item_ids` supplies the dynamic item-asset catalog; callers without an
+    /// asset registry pass an empty slice. Unknown type ids return `None` so
+    /// the network layer can ignore a malformed or stale request, matching
+    /// Java `GamePacketHandler.handle(ArgValuesRequest)`.
+    pub fn suggest(
+        &self,
+        arg_type_id: &str,
+        partial: &str,
+        context: &CommandContext,
+        item_ids: &[String],
+    ) -> Option<SuggestionResponse> {
+        if arg_type_id.len() > 128 || partial.len() > 256 {
+            return None;
+        }
+        let candidates = match arg_type_id {
+            "hytale:player" => context.players.clone(),
+            "hytale:item" => item_ids.to_vec(),
+            "hytale:game_mode" => ["adventure", "creative", "a", "c"]
+                .map(str::to_string)
+                .to_vec(),
+            "hytale:coordinates" => {
+                let [x, y, z] = context.position;
+                vec!["~ ~ ~".to_string(), format!("{x:.2} {y:.2} {z:.2}")]
+            }
+            "hytale:string" | "hytale:integer" | "hytale:float" => Vec::new(),
+            _ => return None,
+        };
+        let mut values = filter_suggestions(candidates, partial);
+        let is_complete = values.len() <= MAX_WIRE_SUGGESTIONS;
+        values.truncate(MAX_WIRE_SUGGESTIONS);
+        let continuations = vec![false; values.len()];
+        Some(SuggestionResponse {
+            values,
+            continuations,
+            is_complete,
+        })
+    }
+
     fn help_lines(&self, sender: &CommandSender) -> Vec<String> {
         self.commands
             .iter()
@@ -211,15 +298,45 @@ fn command_allowed(command: &Command, sender: &CommandSender) -> bool {
         .is_none_or(|permission| sender.has_permission(permission))
 }
 
+fn raw_command_remainder(line: &str) -> &str {
+    let line = line.trim_start();
+    let line = line.strip_prefix('/').unwrap_or(line);
+    line.split_once(char::is_whitespace)
+        .map_or("", |(_, rest)| rest.trim_start())
+}
+
+fn filter_suggestions(candidates: Vec<String>, partial: &str) -> Vec<String> {
+    if partial.is_empty() {
+        return candidates;
+    }
+    let lower = partial.to_ascii_lowercase();
+    let mut prefix = Vec::new();
+    let mut contains = Vec::new();
+    for candidate in candidates {
+        let lower_candidate = candidate.to_ascii_lowercase();
+        if lower_candidate.starts_with(&lower) {
+            prefix.push(candidate);
+        } else if lower_candidate.contains(&lower) {
+            contains.push(candidate);
+        }
+    }
+    let order =
+        |left: &String, right: &String| left.len().cmp(&right.len()).then_with(|| left.cmp(right));
+    prefix.sort_by(order);
+    contains.sort_by(order);
+    prefix.extend(contains);
+    prefix
+}
+
 fn tree_entry(command: &Command) -> CommandTreeEntry {
     let required_args = command
         .args
         .iter()
         .map(|argument| CommandArgInfo {
             name: Some(argument.name.to_string()),
-            arg_type_id: None,
+            arg_type_id: Some(argument.kind.type_id().to_string()),
             arg_type_name: Some(argument.kind.display_name().to_string()),
-            value_count: 1,
+            value_count: argument.kind.suggestion_value_count(),
             description: Some(argument.description.to_string()),
         })
         .collect();
@@ -319,7 +436,54 @@ mod tests {
         let entry = tree.commands.expect("commands").remove(0);
         assert_eq!(entry.name.as_deref(), Some("test"));
         assert_eq!(entry.aliases, Some(vec!["t".to_string()]));
-        assert_eq!(entry.required_args.expect("required args").len(), 1);
+        let args = entry.required_args.expect("required args");
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0].arg_type_id.as_deref(), Some("hytale:string"));
+        assert_eq!(args[0].value_count, -1);
+    }
+
+    #[test]
+    fn suggestions_filter_players_items_and_game_modes() {
+        let registry = CommandRegistry::builtin();
+        let context = crate::command::CommandContext {
+            players: vec!["Alice".to_string(), "Bob".to_string()],
+            position: [12.5, 64.0, -3.0],
+            ..crate::command::CommandContext::default()
+        };
+        let items = vec![
+            "Rock_Stone".to_string(),
+            "Rock_Sandstone".to_string(),
+            "Potion_Health".to_string(),
+        ];
+
+        let players = registry
+            .suggest("hytale:player", "a", &context, &items)
+            .expect("player suggestions");
+        assert_eq!(players.values, ["Alice"]);
+        assert!(players.is_complete);
+        assert_eq!(players.continuations, [false]);
+
+        let items = registry
+            .suggest("hytale:item", "rock_", &context, &items)
+            .expect("item suggestions");
+        assert_eq!(items.values, ["Rock_Stone", "Rock_Sandstone"]);
+
+        let modes = registry
+            .suggest("hytale:game_mode", "c", &context, &[])
+            .expect("game mode suggestions");
+        assert_eq!(modes.values, ["c", "creative"]);
+
+        let coordinates = registry
+            .suggest("hytale:coordinates", "", &context, &[])
+            .expect("coordinate suggestions");
+        assert_eq!(coordinates.values, ["~ ~ ~", "12.50 64.00 -3.00"]);
+
+        assert!(registry
+            .suggest("hytale:unknown", "", &context, &[])
+            .is_none());
+        assert!(registry
+            .suggest(&"x".repeat(129), "", &context, &[])
+            .is_none());
     }
 
     #[test]

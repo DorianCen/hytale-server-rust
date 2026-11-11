@@ -172,6 +172,7 @@ async fn held_block_is_consumed_and_restored_on_reconnect() {
             break_block_after_join: None,
             use_block_after_join: Vec::new(),
             send_ready_for_gameplay: true,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await
@@ -223,6 +224,7 @@ async fn held_block_is_consumed_and_restored_on_reconnect() {
             break_block_after_join: None,
             use_block_after_join: Vec::new(),
             send_ready_for_gameplay: true,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await

@@ -170,8 +170,9 @@ crates/
   hytale-auth/       EdDSA JWT keys/claims, certificate binding, local authority,
                      live OAuth device flow and session-service JWKS; browser
                      PKCE/credential persistence planned
-  hytale-commands/   command framework (T67): registry/parser, permissions,
-                     ChatMessage/CommandTreeSync wiring and built-in commands
+  hytale-commands/   command framework (T67/T67b): registry/parser, permissions,
+                     ChatMessage/CommandTreeSync, arg-value suggestions and
+                     formatted messages, plus built-in commands
   hytale-server/     binary, startup wiring, session/listener runtime, player
                      registry, module registration
 
@@ -699,7 +700,7 @@ land. “Planned” means the crate exists in the architecture but is not implem
 | `CoreServer/.../universe/world/storage/**` | `hytale-storage` + `hytale-world::{chunk::storage, world, world_config, player_data}` | `IndexedStorageFile` container, BSON chunk holder codec, named-palette storage, legacy heightmap, region files, `WorldConfig` v4 and player holder documents landed (M3); Java fixture read gates and all Rust write → Java read gates green (M3). Boot-time load/save wiring pending |
 | `CoreServer/.../io/**`, `transport/**` | `hytale-net` + `hytale-server::{session, chunk_streamer, serve, players}` | QUIC mTLS spike + `PeerIdentity`, generic framed streams, the framed `Chunks` writer/reader, the world-thread → stream bridge, incremental updates, the dev/insecure join, local EdDSA auth, common/config asset streaming (all P0/P1 stores), the `Game` transition, the joining player's list/self-spawn, the initial and periodic time/gameplay packets, the teleport exchange, movement-driven view updates, the persistent multi-session listener, the per-world player registry with view-filtered entity broadcasts, validated block place/break with `ServerSetBlock` broadcasts, and the JSONL packet-trace capture/gate (M3/M4) landed |
 | `CoreServer/.../auth/**` | `hytale-auth` | Ed25519 keys, EdDSA JWT claims/signature/time/scope validation, `cnf.x5t#S256` certificate binding, the local issuer/validator authority and live OAuth device flow/session-service JWKS (T65) landed (M4); browser PKCE, credential persistence/token refresh and external-session mode pending |
-| `CoreServer/.../command/**` | `hytale-commands` | landed (T67, session 94): tokenizer, registry/aliases, argument specs, sender/permission checks, `CommandTreeSync`, `ChatMessage` dispatch, the core built-ins (`help`, `tp`, `give`, `gamemode`, `save`, `stop`, `who`, `say`, `kick`, `world`, ...), the stdin console, plain-chat relay and cross-session player targets; dynamic arg-value suggestions and the advanced command set remain |
+| `CoreServer/.../command/**` | `hytale-commands` | landed (T67, session 94; T67b, session 99): tokenizer, registry/aliases, argument specs, sender/permission checks, `CommandTreeSync`, `ChatMessage` dispatch, the core built-ins (`help`, `tp`, `give`, `gamemode`, `save`, `stop`, `who`, `say`, `kick`, `world`, ...), the stdin console, plain-chat relay and cross-session player targets; T67b adds `argTypeId`/`ArgValuesRequest` suggestions and cache invalidation, shared runtime `maxplayers`/`maxviewradius`, and translated/styled chat; the advanced command set remains |
 | `CoreServer/.../permissions/**` | `hytale-commands`/`hytale-core` | landed (T67, session 94): `PermissionSet` wildcard matching and `PermissionRegistry` defaults/groups/operators (`--op`), used by the command tree and dispatch; runtime op/group management remains |
 | `CoreServer/modules/**` | `hytale-world` (core subset), later module crates | planned (M5) |
 | `builtin/**` | `hytale-builtin` feature crate | selected modules landed (M6/T60): Java-compatible manifests, dependency-first `setup`/`start`/`shutdown`, `--module`/`--disable-module`, and the `BlockTick`/`RandomTick`/`FallingBlocks`/`BlockPhysics`/`Fluid`/`Weather`/`NPC`/`EncounterManager` switches; T60b adds bench windows, the recipe catalog and encounter action execution; the remaining 54 builtins and resource-type/timer crafting follow-ups remain |

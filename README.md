@@ -34,7 +34,8 @@ streamed common-asset index, and the sole icon-less `Unknown` item matches
 Java. Commands are complete for the core set (`help`, `tp`, `give`, `gamemode`,
 `save`, `stop`, `who`, `say`, `kick`, `world`, ...), including the stdin
 console, permission/op groups, plain-chat broadcast and player-name targets
-(T67, session 94).
+(T67, session 94). T67b (session 99) adds dynamic argument suggestions, runtime
+`maxplayers`/`maxviewradius` changes and translated/styled chat.
 
 ### Milestones
 
@@ -96,8 +97,10 @@ block/item golden tests**, a clean
   `kick`, `world`, `maxplayers`, `maxviewradius` and `setblock`, with a prompted
   stdin console (automatic on a terminal), `hytale-core` permission/op groups
   (`--op`), plain-chat relay, player-name targets and live world switching.
-  Dynamic argument-value suggestions and the remaining Java debug/editor command
-  set are follow-ups ([T67](tasks/T67-commands.md)).
+  T67b adds dynamic player/item/game-mode suggestions, `ArgValuesRequest`
+  responses and cache invalidation, runtime limits and translated/styled chat
+  ([T67b](tasks/T67b-command-long-tail.md)). The debug/editor/builder command set
+  remains out of scope.
 - **One stored player identity.** The join currently uses the world's stored
   player record rather than necessarily the authenticated UUID. Per-join
   identity and the full Java `SpawnProvider` behavior remain future work.

@@ -739,6 +739,7 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
         portal_on_join: None,
         stop_signal: None,
         permissions: Arc::new(permissions),
+        runtime_limits: None,
     };
     let console = args.console || (!args.no_console && std::io::stdin().is_terminal());
     let options = ServeOptions {
@@ -880,6 +881,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs, builtin: BuiltinRuntime) -> Exi
             portal_on_join: None,
             stop_signal: None,
             permissions: Arc::new(PermissionRegistry::permissive()),
+            runtime_limits: None,
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };

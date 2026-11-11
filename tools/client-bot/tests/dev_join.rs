@@ -125,6 +125,7 @@ async fn the_bot_completes_the_dev_handshake_and_receives_chunks() {
             send_ready_for_gameplay: false,
             place_block_after_join: None,
             break_block_after_join: None,
+            arg_value_requests_after_join: Vec::new(),
         },
     )
     .await

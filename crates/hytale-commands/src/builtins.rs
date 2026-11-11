@@ -1,6 +1,7 @@
 //! Built-in commands for the console and in-game chat.
 
 use crate::command::{CommandEffect, CommandError, CommandInvocation};
+use crate::message::{parse_message, translated_message, with_color};
 use crate::registry::{ArgKind, ArgSpec, Command, CommandRegistry};
 
 const TP_ARGS: &[ArgSpec] = &[
@@ -245,8 +246,8 @@ fn commands() -> Vec<Command> {
         Command {
             name: "maxplayers",
             aliases: &[],
-            description: "Show the configured maximum player count",
-            usage: "maxplayers",
+            description: "Show or change the maximum player count",
+            usage: "maxplayers [amount]",
             permission: Some("server.commands.maxplayers"),
             args: &[],
             handler: maxplayers,
@@ -254,8 +255,8 @@ fn commands() -> Vec<Command> {
         Command {
             name: "maxviewradius",
             aliases: &[],
-            description: "Show the configured maximum view radius",
-            usage: "maxviewradius",
+            description: "Show or change the maximum view radius",
+            usage: "maxviewradius [radius]",
             permission: Some("server.commands.maxviewradius"),
             args: &[],
             handler: maxviewradius,
@@ -513,11 +514,30 @@ fn version(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandError> {
 }
 
 fn say(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandError> {
-    let message = invocation.rest(0);
+    let message = invocation.rest_raw().to_string();
     if message.trim().is_empty() {
         return Err(CommandError::Usage(invocation.usage.clone()));
     }
-    invocation.effect(CommandEffect::Broadcast { message });
+    let formatted = if message.trim_start().starts_with('{') {
+        with_color(
+            parse_message(message.trim()).map_err(CommandError::Message)?,
+            "#00ffff",
+        )
+    } else {
+        let fallback = format!("{}: {message}", invocation.sender.name);
+        with_color(
+            translated_message(
+                "server.chat.broadcastMessage",
+                &[
+                    ("username", invocation.sender.name.as_str()),
+                    ("message", message.as_str()),
+                ],
+                fallback,
+            ),
+            "#00ffff",
+        )
+    };
+    invocation.effect(CommandEffect::BroadcastFormatted { message: formatted });
     Ok(())
 }
 
@@ -555,10 +575,17 @@ fn world(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandError> {
 
 fn maxplayers(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandError> {
     invocation.no_extra_args(1)?;
-    if invocation.arg(0).is_some() {
-        return Err(CommandError::Message(
-            "maxplayers cannot be changed while the server is running".to_string(),
-        ));
+    if let Some(value) = invocation.arg(0) {
+        let max_players: i32 = value
+            .parse()
+            .map_err(|_| CommandError::Usage(format!("{} <amount>", invocation.usage)))?;
+        invocation.effect(CommandEffect::SetMaxPlayers { max_players });
+        if max_players > 0 {
+            invocation.reply(format!("Max players set to {max_players}"));
+        } else {
+            invocation.reply("Max players set to unlimited".to_string());
+        }
+        return Ok(());
     }
     invocation.reply(format!(
         "Max players: {}",
@@ -569,10 +596,25 @@ fn maxplayers(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandError
 
 fn maxviewradius(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandError> {
     invocation.no_extra_args(1)?;
-    if invocation.arg(0).is_some() {
-        return Err(CommandError::Message(
-            "maxviewradius cannot be changed while the server is running".to_string(),
-        ));
+    if let Some(value) = invocation.arg(0) {
+        let radius: u32 = value
+            .parse()
+            .map_err(|_| CommandError::Usage(format!("{} <radius>", invocation.usage)))?;
+        if radius == 0 {
+            return Err(CommandError::Message(
+                "view radius must be at least 1 chunk".to_string(),
+            ));
+        }
+        if radius > 32 {
+            return Err(CommandError::Message(
+                "view radius cannot be higher than 32 chunks".to_string(),
+            ));
+        }
+        invocation.effect(CommandEffect::SetMaxViewRadius {
+            max_view_radius: radius,
+        });
+        invocation.reply(format!("Max view radius set to {radius}"));
+        return Ok(());
     }
     invocation.reply(format!(
         "Max view radius: {}",
@@ -827,15 +869,28 @@ mod tests {
                 reason: Some("moving away".to_string())
             }]
         );
+        let say = registry
+            .execute("say hello everyone", &sender, &context)
+            .expect("say");
+        let [CommandEffect::BroadcastFormatted { message }] = say.effects.as_slice() else {
+            panic!("expected a formatted broadcast: {:?}", say.effects);
+        };
         assert_eq!(
-            registry
-                .execute("say hello everyone", &sender, &context)
-                .expect("say")
-                .effects,
-            [CommandEffect::Broadcast {
-                message: "hello everyone".to_string()
-            }]
+            message.message_id.as_deref(),
+            Some("server.chat.broadcastMessage")
         );
+        assert_eq!(message.raw_text.as_deref(), Some("Alice: hello everyone"));
+        assert_eq!(message.color.as_deref(), Some("#00ffff"));
+
+        let say = registry
+            .execute(r#"say {"RawText":"styled","Bold":true}"#, &sender, &context)
+            .expect("say json");
+        let [CommandEffect::BroadcastFormatted { message }] = say.effects.as_slice() else {
+            panic!("expected a formatted broadcast: {:?}", say.effects);
+        };
+        assert_eq!(message.raw_text.as_deref(), Some("styled"));
+        assert_eq!(message.bold, Some(true));
+        assert_eq!(message.color.as_deref(), Some("#00ffff"));
         assert!(registry
             .execute("say", &sender, &context)
             .expect_err("empty say")
@@ -991,5 +1046,41 @@ mod tests {
             .effects
             .iter()
             .any(|effect| matches!(effect, CommandEffect::SwitchWorld { world, .. } if world == "Nether")));
+
+        let output = registry
+            .execute("maxplayers 25", &sender, &context)
+            .expect("set maxplayers");
+        assert_eq!(output.messages, ["Max players set to 25"]);
+        assert_eq!(
+            output.effects,
+            [CommandEffect::SetMaxPlayers { max_players: 25 }]
+        );
+        let output = registry
+            .execute("maxplayers 0", &sender, &context)
+            .expect("unlimited maxplayers");
+        assert_eq!(output.messages, ["Max players set to unlimited"]);
+
+        let output = registry
+            .execute("maxviewradius 2", &sender, &context)
+            .expect("set maxviewradius");
+        assert_eq!(output.messages, ["Max view radius set to 2"]);
+        assert_eq!(
+            output.effects,
+            [CommandEffect::SetMaxViewRadius { max_view_radius: 2 }]
+        );
+        assert_eq!(
+            registry
+                .execute("maxviewradius 0", &sender, &context)
+                .expect_err("zero radius")
+                .to_string(),
+            "view radius must be at least 1 chunk"
+        );
+        assert_eq!(
+            registry
+                .execute("maxviewradius 33", &sender, &context)
+                .expect_err("too large")
+                .to_string(),
+            "view radius cannot be higher than 32 chunks"
+        );
     }
 }

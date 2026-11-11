@@ -37,7 +37,8 @@ model/camera, stats/movement states, block and item interaction merges,
 builder-tool args, nullable interaction arrays, interaction roots, drops/
 pickup, block groups and placement-chain reconciliation. **T57b** is closed
 with residual presentation gaps deferred. **T67** (done, session 94) adds the
-command framework, console, permissions, chat and the core in-game commands.
+command framework, console, permissions, chat and the core in-game commands;
+T67b closes its suggestions, runtime-limit and rich-chat follow-ups.
 
 ## Current state
 
@@ -292,8 +293,10 @@ Landed and green:
   `tp`, `give`, `gamemode`, `save`, `stop`, `who`, `say`, `kick`, `world`, ...).
   Teleports/inventory/save/kill/respawn effects work for the sender and named
   players; the stdin console, `hytale-core` permission/op groups, plain-chat
-  broadcast and live world switching are wired. Dynamic arg-value suggestions
-  and runtime limit changes remain follow-ups.
+  broadcast and live world switching are wired. T67b (done, session 99) adds
+  dynamic argument-value suggestions (`argTypeId`, `ArgValuesRequest`/response,
+  cache invalidation), runtime `maxplayers`/`maxviewradius` updates and
+  translated/styled chat with Java-compatible `/say` JSON.
 - T69b (done, session 98): `hytale-world::connected` resolves the real patterned
   pipe rule sets with templated shapes, face tags and `Shape`/`And`/`Or`/`Not`,
   plus `CustomTemplate` fence/wall templates and `Stair`/`Roof` including
@@ -331,9 +334,11 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
 T66 is complete; the next work should be chosen by scope, not by the old
 asset-bring-up list:
 
-1. **Command long tail (T67 follow-ups):** dynamic argument-value suggestions
-   (Java `argTypeId` sync), runtime `maxplayers`/`maxviewradius` changes, rich
-   chat formatting, and the remaining Java debug/editor/builder command set.
+1. **Command long tail (T67/T67b, done sessions 94/99):** dynamic
+   argument-value suggestions (Java `argTypeId` + `ArgValuesRequest`/response and
+   cache invalidation), runtime `maxplayers`/`maxviewradius` changes, and
+   translated/styled chat with rich `/say` JSON. The remaining debug/editor/
+   builder command set stays out of scope (T61).
 2. **Block placement fidelity (T69/T69b, done sessions 96/98):** client block
    rotation is stored/broadcast/acked, `/setblock` is authoritative, neighbour
    support/falling and save/reload rotation are covered. T69b adds the server
@@ -390,8 +395,8 @@ asset-bring-up list:
    complete (session 93): the release client joins, breaks, picks up and places
    blocks. T67 (done, session 94) adds commands, the stdin console,
    permissions/op groups, plain-chat broadcast, player-name targets and live
-   world switching; dynamic suggestions and the advanced command set remain
-   follow-ups.
+   world switching. T67b (done, session 99) closes dynamic suggestions, runtime
+   limits and rich chat; the advanced command set remains out of scope.
 
 ## Try it
 

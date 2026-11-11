@@ -28,7 +28,8 @@ use hytale_protocol::generated::common::{
 };
 use hytale_protocol::generated::entities::EntityUpdates;
 use hytale_protocol::generated::interface_::{
-    AddToServerPlayerList, ChatType, RemoveFromServerPlayerList, ServerMessage,
+    AddToServerPlayerList, ArgCacheInvalidation, ChatType, RemoveFromServerPlayerList,
+    ServerMessage,
 };
 use hytale_protocol::generated::world::{
     ServerSetBlock, ServerSetFluid, UpdateBlockDamage, UpdateBlockDamages,
@@ -79,6 +80,11 @@ pub enum ControlAction {
         /// World name or UUID.
         world: String,
     },
+    /// Re-clamp the target's chunk view to a new listener-wide ceiling.
+    SetMaxViewRadius {
+        /// New maximum view radius, in chunks.
+        max_view_radius: u32,
+    },
 }
 
 /// One packet batch queued for a session.
@@ -100,8 +106,10 @@ pub enum PlayerMessage {
     BlockDamages(UpdateBlockDamages),
     /// A world-map marker add/remove batch.
     WorldMap(UpdateWorldMap),
-    /// A chat line to display to this client.
-    Chat(String),
+    /// A formatted chat line to display to this client.
+    Chat(FormattedMessage),
+    /// Invalidate cached argument suggestions for the listed type ids.
+    ArgCacheInvalidation(ArgCacheInvalidation),
     /// A command effect another session must apply to itself.
     Control(ControlAction),
 }
@@ -656,12 +664,46 @@ impl PlayerRegistry {
         true
     }
 
-    /// Send a chat line to every connected player.
+    /// Send a plain chat line to every connected player.
     pub fn broadcast_chat(&self, message: impl Into<String>) {
-        let message = message.into();
+        self.broadcast_formatted(FormattedMessage {
+            raw_text: Some(message.into()),
+            ..FormattedMessage::default()
+        });
+    }
+
+    /// Send a formatted chat line to every connected player.
+    pub fn broadcast_formatted(&self, message: FormattedMessage) {
         let inner = self.inner.lock().expect("player registry poisoned");
         for player in inner.players.values() {
             queue(player, PlayerMessage::Chat(message.clone()));
+        }
+    }
+
+    /// Invalidate cached argument suggestions for every connected player.
+    pub fn broadcast_arg_cache_invalidation(&self, arg_type_ids: &[&str]) {
+        if arg_type_ids.is_empty() {
+            return;
+        }
+        let packet = ArgCacheInvalidation {
+            arg_type_ids: Some(
+                arg_type_ids
+                    .iter()
+                    .map(|arg_type| (*arg_type).to_string())
+                    .collect(),
+            ),
+        };
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for player in inner.players.values() {
+            queue(player, PlayerMessage::ArgCacheInvalidation(packet.clone()));
+        }
+    }
+
+    /// Queue a control action for every connected player.
+    pub fn broadcast_control(&self, action: ControlAction) {
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for player in inner.players.values() {
+            queue(player, PlayerMessage::Control(action.clone()));
         }
     }
 
@@ -696,7 +738,10 @@ impl PlayerSession {
 
 impl Drop for PlayerSession {
     fn drop(&mut self) {
-        self.registry.unregister(self.network_id);
+        if self.registry.unregister(self.network_id).is_some() {
+            self.registry
+                .broadcast_arg_cache_invalidation(&[hytale_commands::ArgKind::Player.type_id()]);
+        }
     }
 }
 
@@ -1206,19 +1251,19 @@ pub async fn write_message(
         PlayerMessage::WorldMap(update) => {
             world_map.write_packet(&update, compression_level).await?;
         }
-        PlayerMessage::Chat(text) => {
+        PlayerMessage::Chat(message) => {
             writer
                 .write_packet(
                     &ServerMessage {
                         r#type: ChatType::Chat,
-                        message: Some(FormattedMessage {
-                            raw_text: Some(text),
-                            ..FormattedMessage::default()
-                        }),
+                        message: Some(message),
                     },
                     compression_level,
                 )
                 .await?;
+        }
+        PlayerMessage::ArgCacheInvalidation(packet) => {
+            writer.write_packet(&packet, compression_level).await?;
         }
         // Control actions mutably change the target session's state, so the
         // game loop handles them before calling this writer-only function.
@@ -1723,12 +1768,26 @@ mod tests {
             ]
         );
         registry.broadcast_chat("hello");
-        assert!(drain(&first_rx)
-            .iter()
-            .any(|message| matches!(message, PlayerMessage::Chat(text) if text == "hello")));
-        assert!(drain(&second_rx)
-            .iter()
-            .any(|message| matches!(message, PlayerMessage::Chat(text) if text == "hello")));
+        assert!(drain(&first_rx).iter().any(
+            |message| matches!(message, PlayerMessage::Chat(text) if text.raw_text.as_deref() == Some("hello"))
+        ));
+        assert!(drain(&second_rx).iter().any(
+            |message| matches!(message, PlayerMessage::Chat(text) if text.raw_text.as_deref() == Some("hello"))
+        ));
+
+        registry.broadcast_formatted(FormattedMessage {
+            message_id: Some("server.chat.playerMessage".to_string()),
+            ..FormattedMessage::default()
+        });
+        registry.broadcast_arg_cache_invalidation(&["hytale:player"]);
+        assert!(drain(&first_rx).iter().any(|message| {
+            matches!(message, PlayerMessage::Chat(text)
+                if text.message_id.as_deref() == Some("server.chat.playerMessage"))
+        }));
+        assert!(drain(&second_rx).iter().any(|message| {
+            matches!(message, PlayerMessage::ArgCacheInvalidation(packet)
+                if packet.arg_type_ids.as_deref() == Some(&["hytale:player".to_string()][..]))
+        }));
 
         assert!(registry.queue_control(2, ControlAction::Kill));
         assert!(drain(&second_rx)

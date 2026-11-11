@@ -63,8 +63,8 @@ use hytale_protocol::generated::interaction::{CancelInteractionChain, SyncIntera
 use hytale_protocol::generated::interface_::Page;
 use hytale_protocol::generated::interface_::UpdateKnownRecipes;
 use hytale_protocol::generated::interface_::{
-    AddToServerPlayerList, ChatMessage, CommandTreeSync, ServerInfo, ServerMessage, SetPage,
-    UpdateBossBar, UpdateVisibleHudComponents,
+    AddToServerPlayerList, ArgValuesRequest, ArgValuesResponse, ChatMessage, CommandTreeSync,
+    ServerInfo, ServerMessage, SetPage, UpdateBossBar, UpdateVisibleHudComponents,
 };
 use hytale_protocol::generated::inventory::{
     DropItemStack, MoveItemStack, SetActiveSlot, UpdatePlayerInventory,
@@ -84,6 +84,8 @@ use hytale_protocol::generated::window::{
 };
 use hytale_protocol::generated::wire::{Packet, Wire};
 use hytale_protocol::generated::world::{ClearChunks, PlaySoundEvent3D, SpawnParticleSystem};
+
+use crate::runtime_limits::RuntimeLimits;
 use hytale_protocol::generated::world::{
     ServerSetBlock, ServerSetFluid, SetAudioState, UpdateForcedMusic, UpdatePostFxSettings,
     UpdateSunSettings, UpdateTime, UpdateTimeSettings, UpdateWeather, WorldGameplayConfig,
@@ -196,6 +198,11 @@ pub struct SessionOptions {
     pub stop_signal: Option<Arc<AtomicBool>>,
     /// Command permission registry (operators, groups and default grants).
     pub permissions: Arc<PermissionRegistry>,
+    /// Listener-wide mutable limits, shared by every session and the console.
+    ///
+    /// Direct single-session calls leave this `None`; the session then creates
+    /// private limits from `max_players`/`limits.max_view_radius`.
+    pub runtime_limits: Option<Arc<crate::runtime_limits::RuntimeLimits>>,
 }
 
 impl Default for SessionOptions {
@@ -217,6 +224,7 @@ impl Default for SessionOptions {
             portal_on_join: None,
             stop_signal: None,
             permissions: Arc::new(PermissionRegistry::permissive()),
+            runtime_limits: None,
         }
     }
 }
@@ -356,6 +364,10 @@ pub struct GameLoopReport {
     pub time_settings_updates: usize,
     /// Command lines handled from `ChatMessage`.
     pub commands: usize,
+    /// `ArgValuesRequest` packets answered.
+    pub arg_value_requests: usize,
+    /// Suggestion values written across those responses.
+    pub arg_value_suggestions: usize,
     /// Plain (non-command) chat lines relayed to every player.
     pub chat_messages: usize,
     /// Cross-session command effects applied by this session.
@@ -471,6 +483,9 @@ pub enum SessionError {
     /// The same player UUID already owns a live session in this world.
     #[error("player {0} is already connected")]
     DuplicateIdentity(Uuid),
+    /// The runtime `maxplayers` limit has been reached.
+    #[error("server is full")]
+    ServerFull,
     /// The client exceeded the inbound frame budget.
     #[error("client exceeded the inbound packet rate during {phase}")]
     RateLimited {
@@ -540,6 +555,7 @@ struct LiveGame<'a> {
     map_chunks: &'a mut BTreeSet<(i32, i32)>,
     world_map: &'a mut WorldMapStreamWriter,
     overflow: Arc<std::sync::atomic::AtomicBool>,
+    runtime_limits: Arc<RuntimeLimits>,
 }
 
 /// The one block-container or bench window this session owns (`OpenWindow.id`).
@@ -601,6 +617,12 @@ pub async fn serve_connection_with_registry(
         writer = writer.with_trace(Arc::clone(trace) as Arc<dyn hytale_net::PacketTraceSink>);
         reader = reader.with_trace(Arc::clone(trace) as Arc<dyn hytale_net::PacketTraceSink>);
     }
+    let runtime_limits = options.runtime_limits.clone().unwrap_or_else(|| {
+        Arc::new(RuntimeLimits::new(
+            options.max_players,
+            options.limits.max_view_radius,
+        ))
+    });
 
     let config_assets = thread.config_asset_packets()?;
     let common_assets = thread.common_assets()?;
@@ -616,6 +638,7 @@ pub async fn serve_connection_with_registry(
             client_fingerprint.as_deref(),
             &config_assets,
             &common_assets,
+            &runtime_limits,
         ),
     )
     .await
@@ -627,7 +650,11 @@ pub async fn serve_connection_with_registry(
     } else {
         handshake.view_radius
     };
-    let radius = options.limits.clamp_view_radius(requested_radius);
+    let radius = runtime_limits.clamp_view_radius(requested_radius);
+    if runtime_limits.is_full(players.len()) {
+        let _ = send_disconnect(&mut writer, "server is full").await;
+        return Err(SessionError::ServerFull);
+    }
 
     let player_uuid: WorldUuid = handshake
         .uuid
@@ -682,6 +709,7 @@ pub async fn serve_connection_with_registry(
             return Err(SessionError::DuplicateIdentity(uuid));
         }
     };
+    players.broadcast_arg_cache_invalidation(&[hytale_commands::ArgKind::Player.type_id()]);
     let mut view_id = match thread.add_view(player_chunk.0, player_chunk.1, radius) {
         Ok(view_id) => view_id,
         Err(error) => {
@@ -852,6 +880,7 @@ pub async fn serve_connection_with_registry(
                 map_chunks: &mut map_chunks,
                 world_map: &mut world_map,
                 overflow: Arc::clone(&join.overflow),
+                runtime_limits: Arc::clone(&runtime_limits),
             },
             options,
         )
@@ -951,6 +980,7 @@ async fn perform_handshake(
     client_fingerprint: Option<&str>,
     config_assets: &ConfigAssets,
     common_assets: &CommonAssetRegistry,
+    runtime_limits: &RuntimeLimits,
 ) -> Result<Handshake, SessionError> {
     let connect: Connect = expect(reader, Connect::ID).await?;
     let language = connect.language.clone();
@@ -1266,7 +1296,7 @@ async fn perform_handshake(
             &ServerInfo {
                 server_name: Some(options.server_name.clone()),
                 motd: Some(options.motd.clone()),
-                max_players: options.max_players,
+                max_players: runtime_limits.max_players(),
                 fallback_server: None,
             },
             DEFAULT_COMPRESSION_LEVEL,
@@ -3108,6 +3138,7 @@ async fn run_game_loop(
         map_chunks,
         world_map,
         overflow,
+        runtime_limits,
     } = live;
     let mut report = GameLoopReport::default();
     let mut game_mode = GameMode::Adventure;
@@ -3131,6 +3162,8 @@ async fn run_game_loop(
     let mut last_movement: Option<std::time::Instant> = None;
     let mut last_item_pickup = std::time::Instant::now();
     let mut item_pickup_grace: Option<std::time::Instant> = None;
+    let mut last_arg_values_request = BTreeMap::new();
+    let mut item_id_suggestions: Option<Arc<Vec<String>>> = None;
     let mut open_window: Option<OpenContainerWindow> = None;
     let mut craft_jobs = CraftQueue::default();
     let mut next_window_id = 1i32;
@@ -3301,6 +3334,23 @@ async fn run_game_loop(
                                 )
                                 .await?;
                             }
+                        }
+                        ControlAction::SetMaxViewRadius { max_view_radius } => {
+                            let next = radius.min(max_view_radius);
+                            if next != radius {
+                                radius = next;
+                                active_thread.update_view(view, center.0, center.1, radius)?;
+                                players.update_view(network_id, registry_center, radius);
+                                report.view_changes += 1;
+                            }
+                            chunks
+                                .write_packet(
+                                    &ViewRadius {
+                                        value: (max_view_radius * 32) as i32,
+                                    },
+                                    options.chunk_compression_level,
+                                )
+                                .await?;
                         }
                     }
                 }
@@ -4020,15 +4070,91 @@ async fn run_game_loop(
                             .await?;
                         }
                     }
+                    ArgValuesRequest::ID => {
+                        let packet: ArgValuesRequest = frame.decode()?;
+                        let Some(arg_type_id) = packet.arg_type_id else {
+                            continue;
+                        };
+                        let partial = packet.partial.unwrap_or_default();
+                        if arg_type_id.len() > 128 || partial.len() > 256 {
+                            continue;
+                        }
+                        let now = std::time::Instant::now();
+                        if last_arg_values_request
+                            .get(&arg_type_id)
+                            .is_some_and(|last| {
+                                now.duration_since(*last) < Duration::from_millis(50)
+                            })
+                        {
+                            continue;
+                        }
+                        let context = CommandContext {
+                            position: [
+                                transform.position.x,
+                                transform.position.y,
+                                transform.position.z,
+                            ],
+                            players: players.usernames(),
+                            player_positions: players.player_positions(),
+                            world_name: Some(active_thread.start_report().display_name.clone()),
+                            world_uuid: Some(active_thread.start_report().world_uuid.clone()),
+                            max_players: Some(runtime_limits.max_players()),
+                            max_view_radius: Some(runtime_limits.max_view_radius()),
+                            ..CommandContext::default()
+                        };
+                        let items = match &item_id_suggestions {
+                            Some(items) => Arc::clone(items),
+                            None => {
+                                let items = Arc::new(
+                                    active_thread
+                                        .asset_registry()?
+                                        .items
+                                        .iter()
+                                        .map(|record| record.key.clone())
+                                        .collect::<Vec<_>>(),
+                                );
+                                item_id_suggestions = Some(Arc::clone(&items));
+                                items
+                            }
+                        };
+                        let Some(suggestions) =
+                            commands.suggest(&arg_type_id, &partial, &context, items.as_slice())
+                        else {
+                            continue;
+                        };
+                        last_arg_values_request.insert(arg_type_id.clone(), now);
+                        let suggestion_count = suggestions.values.len();
+                        writer
+                            .write_packet(
+                                &ArgValuesResponse {
+                                    arg_type_id: Some(arg_type_id),
+                                    values: Some(suggestions.values),
+                                    continuations: Some(suggestions.continuations),
+                                    is_complete: suggestions.is_complete,
+                                },
+                                options.chunk_compression_level,
+                            )
+                            .await?;
+                        report.arg_value_requests += 1;
+                        report.arg_value_suggestions += suggestion_count;
+                    }
                     ChatMessage::ID => {
                         let packet: ChatMessage = frame.decode()?;
                         let Some(message) = packet.message else {
                             continue;
                         };
                         let Some(line) = message.strip_prefix('/') else {
-                            // Plain chat is relayed to every player. Commands own
-                            // the leading-slash path.
-                            players.broadcast_chat(format!("{username}: {message}"));
+                            // Plain chat is relayed to every player as Java's
+                            // `server.chat.playerMessage` translation, with a raw
+                            // fallback for tooling and logs.
+                            players.broadcast_formatted(hytale_commands::translated_message(
+                                "server.chat.playerMessage",
+                                &[
+                                    ("username", username.as_str()),
+                                    ("message", message.as_str()),
+                                ],
+                                format!("{username}: {message}"),
+                            ));
                             report.chat_messages += 1;
                             continue;
                         };
@@ -4045,8 +4171,8 @@ async fn run_game_loop(
                             time_paused: Some(world_time.time_paused),
                             world_name: Some(active_thread.start_report().display_name.clone()),
                             world_uuid: Some(active_thread.start_report().world_uuid.clone()),
-                            max_players: Some(options.max_players),
-                            max_view_radius: Some(options.limits.max_view_radius),
+                            max_players: Some(runtime_limits.max_players()),
+                            max_view_radius: Some(runtime_limits.max_view_radius()),
                         };
                         report.commands += 1;
                         match commands.execute(line, &sender, &context) {
@@ -4271,6 +4397,29 @@ async fn run_game_loop(
                                         }
                                         CommandEffect::Broadcast { message } => {
                                             players.broadcast_chat(message);
+                                        }
+                                        CommandEffect::BroadcastFormatted { message } => {
+                                            players.broadcast_formatted(message);
+                                        }
+                                        CommandEffect::SetMaxPlayers { max_players } => {
+                                            runtime_limits.set_max_players(max_players);
+                                        }
+                                        CommandEffect::SetMaxViewRadius { max_view_radius } => {
+                                            match runtime_limits
+                                                .set_max_view_radius(max_view_radius)
+                                            {
+                                                Ok(radius) => {
+                                                    players.broadcast_control(
+                                                        ControlAction::SetMaxViewRadius {
+                                                            max_view_radius: radius,
+                                                        },
+                                                    );
+                                                }
+                                                Err(error) => {
+                                                    send_server_message(writer, error, options)
+                                                        .await?;
+                                                }
+                                            }
                                         }
                                         CommandEffect::Kick { target, reason } => {
                                             let reason = reason.unwrap_or_else(|| {
@@ -4624,7 +4773,7 @@ async fn run_game_loop(
                         let packet: ViewRadius = frame.decode()?;
                         if packet.value > 0 {
                             let requested = ((packet.value as f32) / 32.0).ceil() as u32;
-                            let next = options.limits.clamp_view_radius(requested);
+                            let next = runtime_limits.clamp_view_radius(requested);
                             if next != requested {
                                 report.view_radius_clamps += 1;
                             }

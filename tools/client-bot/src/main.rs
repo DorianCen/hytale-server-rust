@@ -178,6 +178,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 send_ready_for_gameplay: cli.ready_for_gameplay,
                 place_block_after_join: None,
                 break_block_after_join: None,
+                arg_value_requests_after_join: Vec::new(),
             },
         )
         .await?;
