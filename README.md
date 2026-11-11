@@ -91,8 +91,9 @@ block/item golden tests**, a clean
   placement block-entity metadata. T70 (session 97) adds the two-client
   held-item/NPC and world-restart persistence smoke. T71 (session 100) closes
   the interaction branch maps, creative place-mode selection, active-slot
-  changes and missing-id sentinels; remaining close-out work is tracked by the
-  filed T72–T77 packets.
+  changes and missing-id sentinels. T72 (session 101) adds the 10/50/100-player
+  concurrent load harness and release baseline; remaining close-out work is
+  tracked by the filed T73–T77 packets.
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,

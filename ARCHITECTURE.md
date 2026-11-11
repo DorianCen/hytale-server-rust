@@ -180,7 +180,7 @@ tools/
   protocol-dumper/     generated Java protocol sources → protocol IR
   protocol-gen/        protocol IR → Rust source
   asset-golden-dumper/ Java asset packet / decoded-store fixtures
-  client-bot/          Rust scripted client for join/stream/trace tests
+  client-bot/          Rust scripted client for join/stream/trace and concurrent-load tests
 ```
 
 Planned dependency direction (arrows point from dependent to dependency):

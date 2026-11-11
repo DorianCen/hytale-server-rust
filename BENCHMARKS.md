@@ -182,3 +182,46 @@ targets are unchanged.
 - Rust `WorldThread::spawn` loads the phase-2 registry itself; the probe also
   measures P0/phase-2 decode separately for reporting, so the probe's total
   wall time is not the boot time. Use the `world.spawn` row for boot.
+
+## T72 — Concurrent player load — 2026-11-11
+
+Hardware: AMD Ryzen 7 9800X3D (8 cores / 16 threads), 60 GiB usable RAM,
+Linux `7.3.3-1-cachyos` x86_64.
+
+Build: `rustc 1.99.1`, release build with the committed `Assets/Assets.zip`,
+embedded loopback listener, default view radius 1 and 4 chunks/world-tick.
+Join latency is QUIC connect + setup + world-join snapshot; it excludes the
+post-join observation window. `peak` is the highest concurrent session count
+observed by the listener. RSS is the process hosting the listener.
+
+```sh
+cargo build --release -p client-bot
+./target/release/client-bot --load --players 10  --load-window 3  --report target/perf/load-release-10.json
+./target/release/client-bot --load --players 50  --stagger-ms 100 --load-window 15 --report target/perf/load-release-50.json
+./target/release/client-bot --load --players 100 --stagger-ms 200 --load-window 45 --report target/perf/load-release-100.json
+```
+
+| Players | Joined | Join p50 | Join p95 | Join max | Peak | Accepted | Rejected | Teardown | Chunks | Packets | Bytes | Edits | Sim ticks | Tick/s | RSS | Peak RSS |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 10 | 813.1 ms | 913.8 ms | 913.8 ms | 10 | 10 | 0 | 0 | 90 | 2,340 | 25.4 MiB | 20 | 415 | 103.3 | 1,634.7 MiB | 1,634.7 MiB |
+| 50 | 50 | 753.6 ms | 1,333.8 ms | 1,496.0 ms | 49 | 50 | 0 | 1 | 441 | 11,466 | 124.4 MiB | 98 | 12,125 | 583.4 | 2,416.5 MiB | 2,416.5 MiB |
+| 100 | 100 | 513.9 ms | 791.4 ms | 1,257.5 ms | 99 | 100 | 0 | 0 | 900 | 23,399 | 253.9 MiB | 200 | 74,934 | 1,145.7 | 3,181.5 MiB | 3,181.5 MiB |
+
+Notes:
+
+- All runs joined every bot with zero rejected connections, zero duplicate
+  identities, zero queue overflows, zero rate-limit disconnects and zero idle
+  timeouts. `Teardown` counts sessions whose client closed while the server was
+  still writing (`STOP_SENDING`), which the harness classifies separately from
+  unexpected session errors.
+- At 100 players the join ramp needs a wider stagger and observation window;
+  with the default 25 ms stagger the asset/config burst produced a long tail and
+  early bots left before the last joined. `--stagger-ms 200 --load-window 45`
+  keeps 99 sessions concurrent at peak. The 50-player run peaked at 49.
+- `Tick/s` is the sum of every session's `simulation_ticks` divided by wall
+  time. Each session currently drives the shared world tick, so it measures
+  aggregate simulation load rather than an independent world TPS.
+- The ignored debug gate (`cargo test -p client-bot --test load -- --ignored`)
+  is a correctness check, not a baseline: debug worldgen/asset decode makes the
+  10-bot join latency much larger. It asserts full joins, zero rejected/queued
+  overflow, chunk counters, block edits, ticks and RSS.

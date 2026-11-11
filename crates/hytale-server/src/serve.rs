@@ -16,7 +16,7 @@ use std::time::Duration;
 use hytale_net::{ServerEndpointBuilder, TlsIdentity, TraceRecorder, TransportError};
 use thiserror::Error;
 use tokio::runtime::Runtime;
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::{mpsc, oneshot, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::{timeout, Instant};
 
@@ -176,8 +176,24 @@ pub struct SessionSummary {
     pub auth_mode: &'static str,
     /// Chunks streamed.
     pub chunks: usize,
+    /// Chunk packets streamed.
+    pub packets: usize,
+    /// Chunk-stream QUIC frames written.
+    pub frames: usize,
+    /// Uncompressed chunk payload bytes.
+    pub payload_bytes: usize,
     /// Chunks unloaded.
     pub unloaded: usize,
+    /// Movement caused a view change.
+    pub view_changes: usize,
+    /// Block edits applied to the world.
+    pub block_edits: usize,
+    /// Block edits rejected (reach, unknown item, occupied target).
+    pub block_edit_rejections: usize,
+    /// Block-use interactions handled.
+    pub block_uses: usize,
+    /// Queued player/entity/block messages written.
+    pub player_messages: usize,
     /// The client disconnected cleanly.
     pub disconnected: bool,
     /// The server disconnected the client for idleness.
@@ -228,7 +244,15 @@ impl From<&SessionReport> for SessionSummary {
             username: report.username.clone(),
             auth_mode: report.auth_mode,
             chunks: report.stream.chunks + report.game_loop.chunks,
+            packets: report.stream.packets + report.game_loop.packets,
+            frames: report.stream.frames + report.game_loop.frames,
+            payload_bytes: report.stream.payload_bytes + report.game_loop.payload_bytes,
             unloaded: report.stream.unloaded + report.game_loop.unloaded,
+            view_changes: report.game_loop.view_changes,
+            block_edits: report.game_loop.block_edits,
+            block_edit_rejections: report.game_loop.block_edit_rejections,
+            block_uses: report.game_loop.block_uses,
+            player_messages: report.game_loop.player_messages,
             disconnected: report.game_loop.disconnected,
             idle_timeout: report.game_loop.idle_timeout,
             rate_limited: report.game_loop.rate_limited,
@@ -612,6 +636,21 @@ where
             Arc::clone(&runtime_limits),
         );
     }
+    // Complete every QUIC/TLS handshake on a dedicated task. `accept()` awaits
+    // the incoming connection *and* its handshake, so polling it directly in
+    // the main `select!` would drop concurrent handshakes whenever the 100 ms
+    // shutdown tick wins. A channel receive is cancellation-safe and keeps the
+    // handshake future alive across ticks.
+    let (accept_tx, mut accept_rx) = mpsc::channel(64);
+    let accept_task = tokio::spawn(async move {
+        loop {
+            let accepted = server.accept().await;
+            if accept_tx.send(accepted).await.is_err() {
+                break;
+            }
+        }
+    });
+
     let mut sessions: JoinSet<Result<SessionReport, SessionError>> = JoinSet::new();
     let mut summaries = Vec::new();
     let mut errors = Vec::new();
@@ -638,13 +677,14 @@ where
                     collect_session(result, &mut summaries, &mut errors);
                 }
             }
-            accepted = server.accept() => {
+            accepted = accept_rx.recv() => {
                 let accepted = match accepted {
-                    Ok(accepted) => accepted,
-                    Err(error) => {
+                    Some(Ok(accepted)) => accepted,
+                    Some(Err(error)) => {
                         eprintln!("QUIC handshake failed: {error}");
                         continue;
                     }
+                    None => break,
                 };
                 connections.retain(|connection| connection.close_reason().is_none());
                 let permit = match Arc::clone(&semaphore).try_acquire_owned() {
@@ -684,7 +724,8 @@ where
         }
     }
 
-    server.close();
+    accept_task.abort();
+    let _ = accept_task.await;
     for connection in &connections {
         connection.close(0u32.into(), b"server shutdown");
     }

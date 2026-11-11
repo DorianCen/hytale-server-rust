@@ -1,6 +1,6 @@
 # T72 — Concurrent player load generator
 
-**Status:** proposed (filed session 99)
+**Status:** done (session 101)
 **Package:** `tools/client-bot`, `hytale-server`, docs
 **Depends on:** T63, T70
 **Agent fit:** medium
@@ -35,6 +35,40 @@ covers concurrency against one listener.
   - document the manual 50/100 runs.
 - Record the baseline and limits in `BENCHMARKS.md`, including hardware and the
   exact command.
+
+## Landed (session 101)
+
+- `client_bot::load` drives N deterministic bots against one listener with a
+  configurable stagger, join timeout and workload window. Each bot joins,
+  moves, chats, runs `/who` (bot 0 also `/save`), places and breaks a block,
+  disconnects gracefully and contributes to a JSON report.
+- The report records join p50/p95/max, joined/failed, accepted/rejected/server
+  full, duplicate identities, client-teardown vs unexpected session errors,
+  chunk packets/frames/bytes, chunks/unloads/view changes, block edits/rejects,
+  chat/commands, queue overflow/rate-limit/idle-timeout counts, simulation
+  ticks and effective tick rate, and resident/peak RSS.
+- `client-bot --load --players N` starts an embedded loopback listener (release
+  baseline commands in `BENCHMARKS.md`); `--external --host` targets an existing
+  listener. Reports default to `target/perf/load-<players>.json`.
+- New ignored gate `tools/client-bot/tests/load.rs` runs 10 bots by default
+  (`HYTALE_LOAD_PLAYERS` overrides) and asserts full joins, no rejected/queued
+  overflow, chunk counters, edits, ticks, RSS and a decodable report.
+- The listener now completes QUIC handshakes on a dedicated accept task. The
+  previous `select!` loop dropped concurrent handshakes whenever the 100 ms
+  shutdown tick won, which the 10-bot gate exposed as half the joins failing.
+- `SessionSummary` exposes chunk packets/frames/bytes, view changes and block
+  edit/use counters for the load report.
+
+## Verification (session 101)
+
+```sh
+cargo test -p client-bot --lib                                  # 6 passed
+cargo test -p client-bot --test load -- --ignored               # 1 passed
+cargo test -p client-bot --test block_interactions -- --ignored # 2 passed
+./tools/test.sh fast                                            # see below
+cargo clippy -p hytale-server -p client-bot --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
 
 ## Read first
 

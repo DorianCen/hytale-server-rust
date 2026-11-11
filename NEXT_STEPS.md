@@ -358,8 +358,9 @@ asset-bring-up list:
 4. **Multi-player and persistence smoke (T70, done session 97):** two clients,
    held-item/NPC visibility, save/reload, disconnect/reconnect and world restart
    are covered by `client-bot/tests/multiplayer_persistence.rs`. The concurrent
-   10/50/100-player generator is [T72](tasks/T72-concurrent-load-generator.md);
-   universe-level restart and multi-world handoff are
+   10/50/100-player generator is [T72](tasks/T72-concurrent-load-generator.md)
+   (done session 101; release baseline in `BENCHMARKS.md`); universe-level
+   restart and multi-world handoff are
    [T73](tasks/T73-universe-restart-handoff.md).
 5. **Presentation gaps:** chunk-map refresh/byte parity, window-distance
    validation, particle/audio/weather presentation and first-person/held-item

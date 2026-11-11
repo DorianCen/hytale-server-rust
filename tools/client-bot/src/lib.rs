@@ -4,6 +4,8 @@
 //! packets until the server disconnects or the timeout expires. Packet handlers
 //! and the full join flow land in later tasks.
 
+pub mod load;
+
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -417,6 +419,10 @@ pub struct DevJoinReport {
     pub chunks: Vec<ChunkPacketSummary>,
     /// Player-list and entity broadcasts collected after the join.
     pub observation: PlayerObservation,
+    /// Time from the start of the join handshake to the completed world join,
+    /// excluding the post-join observation window. Load tests add the QUIC
+    /// connect time to this to report join latency.
+    pub joined_after: Duration,
 }
 
 /// One entity update seen during the post-join observation window.
@@ -593,6 +599,7 @@ pub async fn dev_join(
     session: &ClientSession,
     options: &DevJoinOptions,
 ) -> Result<DevJoinReport, DevJoinError> {
+    let join_started = tokio::time::Instant::now();
     let (send, recv) = session
         .connection()
         .open_bi()
@@ -683,6 +690,7 @@ pub async fn dev_join(
         receive_initial_snapshot(&mut chunks, &mut pending, options.view_radius_chunks)
             .await
             .map_err(|error| DevJoinError::Game(error.to_string()))?;
+    let joined_after = join_started.elapsed();
 
     if options.send_ready_for_gameplay {
         writer
@@ -829,6 +837,7 @@ pub async fn dev_join(
         game,
         chunks: chunk_packets,
         observation,
+        joined_after,
     })
 }
 

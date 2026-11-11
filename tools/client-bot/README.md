@@ -102,6 +102,37 @@ test is `#[ignore]`d:
 cargo test -p client-bot --test auth_join -- --ignored
 ```
 
+## Concurrent load harness
+
+`--load` starts an embedded loopback listener and drives N deterministic bots
+through the dev join, a move/chat/place/break/save window and a graceful
+disconnect. It writes a JSON report (join-latency p50/p95/max, accepted/rejected
+sessions, duplicate logins, chunk packets/frames/bytes, view changes, unloads,
+block edits, world ticks, RSS, queue overflow/rate-limit/idle-timeout counts)
+under `target/perf/`:
+
+```sh
+# Short smoke (also the ignored test gate)
+cargo run --release -p client-bot -- --load --players 10 --load-window 3
+
+# Documented manual baselines (the wider stagger avoids an asset-burst tail)
+cargo run --release -p client-bot -- --load --players 50  --stagger-ms 100 --load-window 15
+cargo run --release -p client-bot -- --load --players 100 --stagger-ms 200 --load-window 45
+```
+
+`--report <path>` overrides the report location, `--stagger-ms` controls the
+gap between joins, `--universe <dir>` reuses a universe root, and
+`--assets-pack`/`--assets-root`/`--world-dir` override the embedded listener
+inputs. `--external --host <addr>` runs the same bots against an already-running
+`serve` listener; in that mode the report omits the server-side counters and RSS.
+
+The cheap ignored gate defaults to 10 bots and accepts `HYTALE_LOAD_PLAYERS`:
+
+```sh
+cargo test -p client-bot --test load -- --ignored
+HYTALE_LOAD_PLAYERS=50 cargo test -p client-bot --test load -- --ignored --nocapture
+```
+
 ## Persistent multi-session listener
 
 `hytale-server serve` keeps one QUIC listener and one universe/world thread

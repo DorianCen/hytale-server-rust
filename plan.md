@@ -1211,12 +1211,12 @@ checks a shared passive NPC and held items, propagates edits, saves, reconnects,
 restarts the same `WorldThread` save, and verifies the persisted block/player/NPC
 state plus a fresh post-restart join.
 
-### Post-T70 follow-up packets (T71 done; T72–T77 filed)
+### Post-T70 follow-up packets (T71–T72 done; T73–T77 filed)
 
 - [T71](tasks/T71-interaction-long-tail.md) — done (session 100): interaction
   next maps, place-mode/active-slot details and missing-id sentinels.
-- [T72](tasks/T72-concurrent-load-generator.md) — 10/50/100-player load harness
-  and baseline.
+- [T72](tasks/T72-concurrent-load-generator.md) — done (session 101):
+  10/50/100-player load harness, ignored gate and release baseline.
 - [T73](tasks/T73-universe-restart-handoff.md) — listener/universe restart and
   multi-world handoff smoke.
 - [T74](tasks/T74-presentation-gaps.md) — map refresh/byte parity, window

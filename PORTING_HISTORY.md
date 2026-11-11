@@ -2743,3 +2743,31 @@ This file records phase-2 sessions only.
 - **Verified:** `./tools/test.sh fast` (1646 passed, 30 skipped), clippy and fmt.
 - **Follow-ups:** persistent server-side charge/fork state and a release-client
   trace for a live place-mode desync remain; see T71 deviations.
+
+## Session 101 — T72 concurrent player load (2026-11-11)
+
+- **Goal:** turn the two-client smoke into a repeatable 10/50/100-player load
+  harness with join, chunk, tick, queue and RSS metrics.
+- **Harness:** `client_bot::load` runs N deterministic bots against one
+  listener with a configurable stagger, join timeout and move/chat/`/who`/
+  place/break/save window. `client-bot --load --players N` starts an embedded
+  loopback listener and writes `target/perf/load-N.json`; `--external --host`
+  targets an existing listener.
+- **Metrics:** join p50/p95/max, joined/failed, accepted/rejected/server-full,
+  duplicate identities, client-teardown vs unexpected errors, chunk
+  packets/frames/bytes, chunks/unloads/view changes, block edits/rejects,
+  chat/commands, queue overflow/rate-limit/idle-timeout counts, simulation
+  ticks/effective tick rate and resident/peak RSS.
+- **Listener fix:** QUIC handshakes now run on a dedicated accept task. The old
+  `select!` loop cancelled `accept()` (which awaits the handshake) whenever the
+  100 ms shutdown tick won; the load gate exposed this as half the concurrent
+  joins failing. `SessionSummary` also exposes the chunk packet/frame/byte and
+  block edit/use counters.
+- **Verification:** `cargo test -p client-bot --lib` (6 passed), the ignored
+  `load` gate (1 passed, 10 bots), `block_interactions` (2 passed) and
+  `./tools/test.sh fast` (see README/session summary). Release baseline in
+  `BENCHMARKS.md`: 10/50/100 players joined with p50 813.1/753.6/513.9 ms,
+  zero rejected/duplicate/queue-overflow sessions and 1.63/2.42/3.18 GiB RSS.
+- **Follow-ups:** the 100-player asset burst needs a wider stagger/window to
+  keep every session concurrent at peak (97/100); per-session world ticking
+  means the tick-rate metric is aggregate simulation load, not independent TPS.

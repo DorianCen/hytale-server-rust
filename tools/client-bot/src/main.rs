@@ -6,10 +6,12 @@
 //! ```
 
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
+use client_bot::load::{run_load, LoadMemoryReport, LoadOptions, ServerLoadReport};
 use client_bot::{
     auth_join, build_connect, build_connect_frame, dev_join, drain_frames, hex,
     receive_chunk_stream, AuthJoinOptions, DevJoinOptions, DEFAULT_PROTOCOL_BUILD,
@@ -19,6 +21,8 @@ use hytale_auth::{AuthKey, AuthService};
 use hytale_net::{ClientEndpoint, TlsIdentity};
 use hytale_protocol::generated::wire::Packet;
 use hytale_protocol::io::Uuid;
+use hytale_server::{serve_listener, GeneratorOptions, ServeOptions, SessionOptions};
+use tokio::sync::oneshot;
 use tokio::time::timeout;
 
 #[derive(Debug, Parser)]
@@ -88,6 +92,36 @@ struct Cli {
     /// Seconds to keep observing the game stream after the dev join.
     #[arg(long, default_value_t = 0)]
     observe: u64,
+    /// Run the concurrent load harness against an embedded listener.
+    #[arg(long)]
+    load: bool,
+    /// Number of load bots (10/50/100 presets, or any value).
+    #[arg(long, default_value_t = 10)]
+    players: usize,
+    /// Delay between consecutive load-bot joins, in milliseconds.
+    #[arg(long, default_value_t = 25)]
+    stagger_ms: u64,
+    /// Post-join move/chat/edit/save window for each load bot, in seconds.
+    #[arg(long, default_value_t = 2)]
+    load_window: u64,
+    /// JSON report path (default: `target/perf/load-<players>.json`).
+    #[arg(long)]
+    report: Option<PathBuf>,
+    /// Run the load bots against `--host` instead of an embedded listener.
+    #[arg(long)]
+    external: bool,
+    /// Subscribe the load run to a fresh universe root at this path.
+    #[arg(long)]
+    universe: Option<PathBuf>,
+    /// Asset pack used by the embedded listener.
+    #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Assets/Assets.zip"))]
+    assets_pack: PathBuf,
+    /// Extracted asset root used by the embedded listener.
+    #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Assets/extracted"))]
+    assets_root: PathBuf,
+    /// World template used by the embedded listener.
+    #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/Default"))]
+    world_dir: PathBuf,
 }
 
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
@@ -133,6 +167,11 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("payload ({} bytes): {}", frame.len() - 8, hex(&frame[8..]));
         println!("frame ({} bytes): {}", frame.len(), hex(&frame));
+        return Ok(());
+    }
+
+    if cli.load {
+        run_load_mode(&cli).await?;
         return Ok(());
     }
 
@@ -331,5 +370,138 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     session
         .connection()
         .close(0u32.into(), b"client-bot complete");
+    Ok(())
+}
+
+async fn run_load_mode(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
+    if cli.players == 0 {
+        return Err("--players must be greater than zero".into());
+    }
+    let report_path = cli
+        .report
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("target/perf/load-{}.json", cli.players)));
+    let options = LoadOptions {
+        players: cli.players,
+        stagger: Duration::from_millis(cli.stagger_ms),
+        workload_window: Duration::from_secs(cli.load_window),
+        ..LoadOptions::default()
+    };
+
+    if cli.external {
+        let host = cli
+            .host
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| format!("{} did not resolve to an address", cli.host))?;
+        let mut report = run_load(host, &cli.server_name, &options).await;
+        finish_load_report(&mut report, &report_path)?;
+        return Ok(());
+    }
+
+    let universe_root = cli.universe.clone().unwrap_or_else(|| {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!(
+            "hytale-load-universe-{}-{nonce}",
+            std::process::id()
+        ))
+    });
+    let (bound_tx, bound_rx) = oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut serve_options = ServeOptions::new(
+        &universe_root,
+        GeneratorOptions {
+            assets_pack: cli.assets_pack.clone(),
+            assets_root: cli.assets_root.clone(),
+            world_dir: cli.world_dir.clone(),
+            workers: 1,
+        },
+        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        SessionOptions {
+            // The session registry enforces `max_players`, not only the
+            // listener semaphore, so size it for the run.
+            max_players: i32::try_from(cli.players + 4).unwrap_or(i32::MAX),
+            default_view_radius: cli.view_radius,
+            handshake_timeout: Duration::from_secs(60),
+            world_join_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(60),
+            ..SessionOptions::default()
+        },
+    );
+    serve_options.view_radius = cli.view_radius;
+    serve_options.max_connections = cli.players + 4;
+    serve_options.bound_tx = Some(bound_tx);
+    let server_task = tokio::spawn(serve_listener(serve_options, async move {
+        let _ = shutdown_rx.await;
+    }));
+    let server_addr = timeout(Duration::from_secs(180), bound_rx)
+        .await
+        .map_err(|_| "embedded listener did not bind within 180s")?
+        .map_err(|_| "embedded listener dropped its bound-address sender")?;
+    println!("load listener bound on {server_addr}");
+
+    let started = Instant::now();
+    let mut report = run_load(server_addr, "localhost", &options).await;
+    let elapsed = started.elapsed();
+    let _ = shutdown_tx.send(());
+    let serve_report = timeout(Duration::from_secs(120), server_task)
+        .await
+        .map_err(|_| "embedded listener did not shut down within 120s")???;
+    report.server = Some(ServerLoadReport::from_serve(&serve_report, elapsed));
+    report.memory = LoadMemoryReport {
+        resident_bytes: hytale_server::resident_bytes(),
+        peak_resident_bytes: hytale_server::peak_resident_bytes(),
+    };
+    if cli.universe.is_none() {
+        std::fs::remove_dir_all(&universe_root).ok();
+    }
+    finish_load_report(&mut report, &report_path)?;
+    Ok(())
+}
+
+fn finish_load_report(
+    report: &mut client_bot::load::LoadReport,
+    report_path: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}", report.summary());
+    if let Some(server) = &report.server {
+        println!(
+            "server accepted={} rejected={} teardown={} unexpected_errors={} peak={} \
+             chunk_packets={} chunk_frames={} chunk_bytes={} edits={} rejects={} \
+             queue_overflow={} rate_limited={} idle_timeout={} ticks={} tick_rate={:.1}/s \
+             saved_chunks={}",
+            server.accepted,
+            server.rejected,
+            server.client_teardown_errors,
+            server.unexpected_errors.len(),
+            server.peak_connections,
+            server.chunk_packets,
+            server.chunk_frames,
+            server.chunk_payload_bytes,
+            server.block_edits,
+            server.block_edit_rejections,
+            server.queue_overflows,
+            server.rate_limited,
+            server.idle_timeouts,
+            server.simulation_ticks,
+            server.effective_tick_rate,
+            server.saved_chunks,
+        );
+        if !server.errors.is_empty() {
+            println!("server errors: {:?}", server.errors);
+        }
+    }
+    if let Some(resident) = report.memory.resident_bytes {
+        println!(
+            "rss resident={:.1} MiB peak={:.1} MiB",
+            resident as f64 / (1024.0 * 1024.0),
+            report.memory.peak_resident_bytes.unwrap_or(resident) as f64 / (1024.0 * 1024.0),
+        );
+    }
+    report.write_json(report_path)?;
+    println!("report: {}", report_path.display());
     Ok(())
 }
