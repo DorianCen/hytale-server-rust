@@ -46,7 +46,9 @@ built-ins needed by the current server — not every debug/editor command.
   `server.commands.*` permissions.
 - **Console:** `hytale-commands::run_console` and the `ConsoleEffects` trait;
   the listener starts a stdin console when stdin is a terminal (also
-  `--console` / `--no-console`). Console `save`, `stop`, `say`, `kick` and
+  `--console` / `--no-console`). It prints `console ready — type "help"` on
+  start and a `hytale> ` prompt on an interactive terminal; piped/forced
+  consoles stay prompt-free. Console `save`, `stop`, `say`, `kick` and
   `world` map to the world thread, player registry and shutdown signal; player
   effects report that they are unavailable from the console.
 - **Chat:** plain (non-command) `ChatMessage` lines are relayed to every player
@@ -60,7 +62,7 @@ built-ins needed by the current server — not every debug/editor command.
 - **New commands:** `/kick <player> [reason]`, `/world [name]` (query, or a
   live world switch through `PortalRouter` in listener mode),
   `/maxplayers` and `/maxviewradius` (queries).
-- **Tests:** 24 `hytale-commands` unit tests (including the console runner and
+- **Tests:** 26 `hytale-commands` unit tests (including the console runner and
   targeting/permission cases), 55 `hytale-server` library tests (permission
   resolution and control/chat fan-out), and two ignored `client-bot` loopbacks:
   the single-bot command round trip (`/help`, `/tp`, `/give`, `/save`, `/say`,
@@ -140,10 +142,10 @@ cargo fmt -p hytale-commands -p hytale-server -- --check
 ## Verification (session 94)
 
 ```sh
-cargo test -p hytale-commands                      # 24 passed
+cargo test -p hytale-commands                      # 26 passed
 cargo test -p hytale-server --lib                  # 55 passed
 cargo test -p client-bot --test commands -- --ignored   # 2 passed
-./tools/test.sh fast                               # 1605 passed, 26 skipped
+./tools/test.sh fast                               # 1607 passed, 26 skipped
 cargo clippy -p hytale-commands -p hytale-server -p hytale-core --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```

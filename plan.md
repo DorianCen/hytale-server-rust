@@ -1113,7 +1113,7 @@ on a terminal) through `ConsoleEffects`, plain chat is relayed and `/say`
 broadcasts, and `tp`/`give`/`gamemode`/`kill`/`respawn` accept player names
 through queued cross-session `ControlAction`s. `/kick`, `/world` (query plus a
 live `PortalRouter` switch), `/maxplayers` and `/maxviewradius` land. Tests:
-24 command-crate unit tests, 55 server library tests, and two ignored bot
+26 command-crate unit tests, 55 server library tests, and two ignored bot
 loopbacks (single-bot command round trip and a two-bot operator targeting test).
 Dynamic arg-value suggestions and runtime limit changes remain.
 

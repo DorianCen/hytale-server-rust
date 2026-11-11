@@ -20,7 +20,9 @@ pub use command::{
     CommandContext, CommandEffect, CommandError, CommandInvocation, CommandOutput, CommandSender,
     SenderKind,
 };
-pub use console::{execute_console_line, run_console, ConsoleEffects};
+pub use console::{
+    execute_console_line, run_console, run_console_with_prompt, ConsoleEffects, CONSOLE_PROMPT,
+};
 pub use hytale_core::{PermissionRegistry, PermissionSet};
 pub use registry::{ArgKind, ArgSpec, Command, CommandHandler, CommandRegistry};
 pub use tokenizer::{tokenize, TokenizeError};

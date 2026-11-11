@@ -6,6 +6,7 @@
 //! selected world thread (and therefore its cached config burst); assets are not
 //! re-encoded per connection.
 
+use std::io::IsTerminal;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -428,9 +429,16 @@ fn spawn_console(
             };
             let stdin = std::io::stdin();
             let stdout = std::io::stdout();
-            if let Err(error) =
-                hytale_commands::run_console(&registry, stdin.lock(), &mut console, stdout.lock())
-            {
+            let interactive = stdin.is_terminal() && stdout.is_terminal();
+            println!("console ready — type `help` for commands");
+            let prompt = interactive.then_some(hytale_commands::CONSOLE_PROMPT);
+            if let Err(error) = hytale_commands::run_console_with_prompt(
+                &registry,
+                stdin.lock(),
+                &mut console,
+                stdout.lock(),
+                prompt,
+            ) {
                 eprintln!("console input failed: {error}");
             }
         });

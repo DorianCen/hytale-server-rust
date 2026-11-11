@@ -2533,9 +2533,11 @@ This file records phase-2 sessions only.
   `world`, `maxplayers` and `maxviewradius` carry `server.commands.*`.
 - **Console:** `hytale-commands::console` adds `ConsoleEffects`,
   `execute_console_line` and `run_console`; the listener starts a stdin console
-  when stdin is a terminal (`--console`/`--no-console` override). Console
-  `save`, `stop`, `say`, `kick` and `world` drive the world thread, player
-  registry and shutdown signal.
+  when stdin is a terminal (`--console`/`--no-console` override) and prints a
+  `console ready — type "help"` line plus a `hytale> ` prompt on interactive
+  terminals. Piped/forced consoles stay prompt-free. Console `save`, `stop`,
+  `say`, `kick` and `world` drive the world thread, player registry and
+  shutdown signal.
 - **Chat:** plain `ChatMessage` lines broadcast as `Name: message`; `/say`
   broadcasts an operator line. `GameLoopReport`/`SessionSummary` expose
   `chat_messages` and `control_actions`.
@@ -2545,7 +2547,7 @@ This file records phase-2 sessions only.
   kill/respawn, kick, world switch), so writers stay session-local.
 - **Commands:** `/kick <player> [reason]`, `/world [name]` (query, or a live
   `PortalRouter` switch in listener mode), `/maxplayers`, `/maxviewradius`.
-- **Tests:** 24 `hytale-commands` unit tests (tokenizer/registry/tree, console
+- **Tests:** 26 `hytale-commands` unit tests (tokenizer/registry/tree, console
   effects, targeting and permission denial), 55 `hytale-server` library tests
   (permission resolution, self-target matching, chat/control fan-out), and the
   two ignored `client-bot` command loopbacks (single-bot round trip incl.

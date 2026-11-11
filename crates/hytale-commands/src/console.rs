@@ -9,6 +9,9 @@ use std::io::{BufRead, Write};
 use crate::command::{CommandContext, CommandEffect, CommandSender};
 use crate::registry::CommandRegistry;
 
+/// Prompt printed before each interactive console line.
+pub const CONSOLE_PROMPT: &str = "hytale> ";
+
 /// Runtime operations a console command can request.
 pub trait ConsoleEffects {
     /// The current command context (players, world, time, limits).
@@ -75,14 +78,33 @@ pub fn execute_console_line(
 /// Read commands until EOF, printing each result.
 pub fn run_console<R: BufRead, W: Write>(
     registry: &CommandRegistry,
+    reader: R,
+    effects: &mut impl ConsoleEffects,
+    writer: W,
+) -> std::io::Result<()> {
+    run_console_with_prompt(registry, reader, effects, writer, None)
+}
+
+/// Read commands until EOF, printing an optional prompt before every line.
+pub fn run_console_with_prompt<R: BufRead, W: Write>(
+    registry: &CommandRegistry,
     mut reader: R,
     effects: &mut impl ConsoleEffects,
     mut writer: W,
+    prompt: Option<&str>,
 ) -> std::io::Result<()> {
     let mut line = String::new();
     loop {
+        if let Some(prompt) = prompt {
+            write!(writer, "{prompt}")?;
+            writer.flush()?;
+        }
         line.clear();
         if reader.read_line(&mut line)? == 0 {
+            if prompt.is_some() {
+                writeln!(writer)?;
+                writer.flush()?;
+            }
             return Ok(());
         }
         for message in execute_console_line(registry, &line, effects) {
@@ -94,7 +116,7 @@ pub fn run_console<R: BufRead, W: Write>(
 
 #[cfg(test)]
 mod tests {
-    use super::{execute_console_line, ConsoleEffects};
+    use super::{execute_console_line, run_console, run_console_with_prompt, ConsoleEffects};
     use crate::command::{CommandContext, CommandEffect};
     use crate::registry::CommandRegistry;
 
@@ -193,5 +215,49 @@ mod tests {
         let registry = CommandRegistry::builtin();
         let mut recorder = Recorder::default();
         assert!(execute_console_line(&registry, "   ", &mut recorder).is_empty());
+    }
+
+    #[test]
+    fn interactive_runner_prints_a_prompt_and_a_final_newline() {
+        let registry = CommandRegistry::builtin();
+        let mut recorder = Recorder::default();
+        let mut output = Vec::new();
+        run_console_with_prompt(
+            &registry,
+            std::io::Cursor::new(b"version\n".to_vec()),
+            &mut recorder,
+            &mut output,
+            Some(super::CONSOLE_PROMPT),
+        )
+        .expect("console");
+        let text = String::from_utf8(output).expect("utf8");
+        assert!(
+            text.starts_with("hytale> hytale-server-rust"),
+            "unexpected prompt output: {text:?}"
+        );
+        assert!(
+            text.ends_with("hytale> \n"),
+            "the EOF prompt needs a newline: {text:?}"
+        );
+    }
+
+    #[test]
+    fn piped_runner_prints_results_without_a_prompt() {
+        let registry = CommandRegistry::builtin();
+        let mut recorder = Recorder::default();
+        let mut output = Vec::new();
+        run_console(
+            &registry,
+            std::io::Cursor::new(b"version\n".to_vec()),
+            &mut recorder,
+            &mut output,
+        )
+        .expect("console");
+        let text = String::from_utf8(output).expect("utf8");
+        assert!(text.starts_with("hytale-server-rust"), "{text:?}");
+        assert!(
+            !text.contains("hytale>"),
+            "pipe output must stay clean: {text:?}"
+        );
     }
 }
