@@ -334,10 +334,6 @@ asset-bring-up list:
 6. **Per-join player identity and real spawn providers:** the server still
    joins the world's stored player in single-player style; per-auth-UUID
    identity and Java `SpawnProvider` parity remain.
-7. **Whole-codebase parity audit (planned):** a behavior-driven, risk-based
-   Java↔Rust audit with differential fixtures, scenario tests and targeted
-   benchmarks. See [`PARITY_AUDIT.md`](PARITY_AUDIT.md); start with the
-   inventory/interactions/storage pilot.
 
 ## Phase 2 sequence
 
