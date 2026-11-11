@@ -74,6 +74,12 @@ The client already receives every protocol variant. This task owns the
   (authoritative `SetActiveSlot` + held-item rebroadcast).
 - Shared `ASSET_NOT_FOUND`/`INTERACTION_NOT_FOUND` constants document the
   indexed-asset sentinel and are covered by a distinct-from-zero regression.
+- New ignored `client-bot/tests/interaction_long_tail.rs` loopback sends
+  `SyncPlayerPreferences` with Replace mode, starts the active-slot root
+  (`ChangeActiveSlot` 0 -> 1), Wielding and Charging roots through
+  `overrideRootInteraction`, and a `Block_Secondary` chain that quick-replaces
+  stone with the held soil block. It asserts the authoritative `SetActiveSlot`,
+  the replaced block update and the server acks for every override root.
 
 ## Verification (session 100)
 
@@ -82,8 +88,9 @@ cargo test -p hytale-interactions                        # 20 passed
 cargo test -p hytale-assets --test interaction_packets   # 7 passed
 cargo test -p hytale-assets --test block_item_packets    # 24 passed
 cargo test -p hytale-server --lib                         # 58 passed
-cargo test -p client-bot --test block_interactions -- --ignored # 2 passed
-./tools/test.sh fast                                      # 1646 passed, 29 skipped
+cargo test -p client-bot --test block_interactions -- --ignored            # 2 passed
+cargo test -p client-bot --test interaction_long_tail -- --ignored       # 1 passed
+./tools/test.sh fast                                                     # 1646 passed, 30 skipped
 cargo clippy -p hytale-assets -p hytale-interactions -p hytale-server -p client-bot --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
@@ -124,10 +131,9 @@ cargo fmt --all -- --check
 
 ## Deviations
 
-- The client-bot `block_interactions` loopback still drives `MouseInteraction`;
-  the place-mode/active-slot chain semantics are covered by real-asset
-  `PlaceBlockFlags` tests and synthetic charge/chaining graph tests. A release
-  client trace is the next step if a live desync appears.
+- The place-mode loopback uses the server's `overrideRootInteraction` path for
+  `Block_Secondary`; the release client may instead carry the item root in a
+  fork. A release-client trace is the next step if a live desync appears.
 - Full server-side simulation of client `chargeValue`/`forkCounts` state is
   limited to branch selection; the executor remains a bounded graph walk rather
   than a persistent tick-by-tick interaction state machine.

@@ -121,6 +121,8 @@ async fn a_wall_correction_is_sent_but_a_free_walk_is_not() {
             place_block_after_join: Some((wall.clone(), "Rock_Stone".to_string())),
             break_block_after_join: None,
             arg_value_requests_after_join: Vec::new(),
+            place_mode_after_join: None,
+            interaction_chains_after_join: Vec::new(),
         },
     )
     .await

@@ -3936,7 +3936,13 @@ async fn run_game_loop(
                                 continue;
                             }
                             last_interaction_chain_id = update.chain_id;
-                            let root_id = interaction_chain_root(thread, update);
+                            let root_id = if update.override_root_interaction
+                                != hytale_assets::packets::INTERACTION_NOT_FOUND
+                            {
+                                update.override_root_interaction
+                            } else {
+                                interaction_chain_root(thread, update)
+                            };
 
                             // F-key pickup: harvest the target block into the
                             // inventory, or pick up the nearest item entity.
@@ -4022,6 +4028,58 @@ async fn run_game_loop(
                                     )
                                     .await?;
                                 }
+                                continue;
+                            }
+
+                            // Item/weapon roots and other non-block interactions
+                            // carry their root in `overrideRootInteraction`. The
+                            // release client expects the server to walk that root
+                            // (charge/wielding/active-slot branches) and ack it.
+                            let override_key = override_root_key(thread, update);
+                            let placement_root = override_key
+                                .as_deref()
+                                .is_some_and(|key| key.eq_ignore_ascii_case("Block_Secondary"));
+                            if update.override_root_interaction
+                                != hytale_assets::packets::INTERACTION_NOT_FOUND
+                                && !placement_root
+                            {
+                                let Some(BlockInteractionOutcome::Use {
+                                    state_changes,
+                                    active_slot,
+                                    ..
+                                }) = execute_override_chain(
+                                    thread,
+                                    &interactions,
+                                    update,
+                                    game_mode,
+                                    place_mode,
+                                )
+                                else {
+                                    cancel_interaction_chain(
+                                        writer,
+                                        update,
+                                        options.chunk_compression_level,
+                                    )
+                                    .await?;
+                                    continue;
+                                };
+                                report.block_uses += 1;
+                                report.block_state_changes += state_changes;
+                                if let Some(slot) = active_slot {
+                                    apply_interaction_active_slot(
+                                        writer, inventory, &players, network_id, slot, options,
+                                    )
+                                    .await?;
+                                }
+                                finish_interaction_chain(
+                                    writer,
+                                    update,
+                                    root_id,
+                                    None,
+                                    options.chunk_compression_level,
+                                )
+                                .await?;
+                                last_chain_edit = Some((update.chain_id, root_id, None));
                                 continue;
                             }
 
@@ -5360,10 +5418,25 @@ async fn cancel_interaction_chain(
 /// contained item defines one (`Block_Primary` for plants), otherwise the
 /// unarmed primary root. The server must echo this id in its first sync packet;
 /// `NOT_FOUND` leaves the client unable to resolve the chain and it desyncs.
+fn override_root_key(thread: &WorldThread, update: &SyncInteractionChain) -> Option<String> {
+    if update.override_root_interaction == hytale_assets::packets::INTERACTION_NOT_FOUND {
+        return None;
+    }
+    thread
+        .asset_registry()
+        .ok()?
+        .root_interactions
+        .get_by_id(update.override_root_interaction)
+        .map(|root| root.key.clone())
+}
+
 fn interaction_chain_root_key(
     thread: &WorldThread,
     update: &SyncInteractionChain,
 ) -> Option<String> {
+    if let Some(root) = override_root_key(thread, update) {
+        return Some(root);
+    }
     let block = update
         .data
         .as_ref()
@@ -5426,6 +5499,66 @@ fn interaction_chain_place_flags(
     };
     interaction_chain_root_key(thread, update)
         .and_then(|root| interactions.place_block_flags_with_context(&root, &context))
+}
+
+/// Execute a client-supplied item/weapon root (`overrideRootInteraction`) using
+/// the same bounded graph walk as block interactions.
+fn execute_override_chain(
+    thread: &WorldThread,
+    interactions: &InteractionCatalog,
+    update: &SyncInteractionChain,
+    game_mode: GameMode,
+    place_mode: PlaceMode,
+) -> Option<BlockInteractionOutcome> {
+    let assets = thread.asset_registry().ok()?;
+    let root = assets
+        .root_interactions
+        .get_by_id(update.override_root_interaction)?;
+    let mut charge_value = 0.0;
+    let mut chaining_index = None;
+    let mut flag_index = None;
+    for entry in update
+        .interaction_data
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .flatten()
+    {
+        if entry.charge_value > 0.0 {
+            charge_value = entry.charge_value;
+        }
+        if entry.chaining_index >= 0 {
+            chaining_index = Some(entry.chaining_index as usize);
+        }
+        if entry.flag_index >= 0 {
+            flag_index = Some(entry.flag_index as usize);
+        }
+    }
+    let context = ExecutionContext {
+        game_mode,
+        place_mode,
+        interaction_type: update.interaction_type,
+        charge_value,
+        charge_failed: update.state == InteractionState::Failed,
+        chaining_index,
+        flag_index,
+        active_slot: Some(update.active_hotbar_slot),
+        ..ExecutionContext::default()
+    };
+    let outcome = execute_root(interactions, &root.key, &context);
+    if !outcome.success && outcome.actions.is_empty() {
+        return None;
+    }
+    let active_slot = outcome.actions.iter().find_map(|action| match action {
+        hytale_interactions::WorldAction::ChangeActiveSlot { target_slot } => Some(*target_slot),
+        _ => None,
+    });
+    Some(BlockInteractionOutcome::Use {
+        state_changes: 0,
+        open_container: None,
+        open_bench: None,
+        active_slot,
+    })
 }
 
 fn interaction_chain_ack(

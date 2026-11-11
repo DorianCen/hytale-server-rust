@@ -164,6 +164,8 @@ async fn door_use_toggles_the_block_state() {
             use_block_after_join: vec![target.clone(), target.clone()],
             send_ready_for_gameplay: true,
             arg_value_requests_after_join: Vec::new(),
+            place_mode_after_join: None,
+            interaction_chains_after_join: Vec::new(),
         },
     )
     .await
@@ -345,6 +347,8 @@ async fn container_use_opens_a_window_and_map_image() {
             use_block_after_join: vec![target.clone()],
             send_ready_for_gameplay: true,
             arg_value_requests_after_join: Vec::new(),
+            place_mode_after_join: None,
+            interaction_chains_after_join: Vec::new(),
         },
     )
     .await

@@ -24,8 +24,9 @@ use hytale_protocol::generated::assets::{
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{
     Asset, BlockDamageCmd, BlockPosition, ClientDisconnectReason, ComponentUpdate, DisconnectType,
-    FormattedMessage, MapMarker, MouseButtonEvent, MouseButtonState, MouseButtonType,
-    MovementSettings, Page, PlayerSkin, PongType, Position, TeleportAck, WindowType,
+    FormattedMessage, InteractionChainData, InteractionState, InteractionSyncData, InteractionType,
+    MapMarker, MouseButtonEvent, MouseButtonState, MouseButtonType, MovementSettings, Page,
+    PlaceMode, PlayerSkin, PongType, Position, SyncInteractionChain, TeleportAck, WindowType,
     WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
@@ -33,6 +34,7 @@ use hytale_protocol::generated::connection::{
     RequestInsecurePlayerOptions, ServerDisconnect,
 };
 use hytale_protocol::generated::entities::{EntityUpdates, SetEntitySeed};
+use hytale_protocol::generated::interaction::SyncInteractionChains;
 use hytale_protocol::generated::interface_::{
     AddToServerPlayerList, ArgCacheInvalidation, ArgValuesRequest, ArgValuesResponse, ChatMessage,
     CommandTreeSync, RemoveFromServerPlayerList, ServerMessage, SetPage,
@@ -40,7 +42,7 @@ use hytale_protocol::generated::interface_::{
 use hytale_protocol::generated::inventory::{SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
-    UpdateMovementSettings,
+    SyncPlayerPreferences, UpdateMovementSettings,
 };
 use hytale_protocol::generated::setup::{
     AssetFinalize, AssetInitialize, AssetPart, RequestAssets, RequestCommonAssetsRebuild,
@@ -290,6 +292,25 @@ pub fn summarize_chunk_packet(
     None
 }
 
+/// One scripted `SyncInteractionChain` start sent after the join.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InteractionChainRequest {
+    /// Root interaction id (server `overrideRootInteraction`).
+    pub root_interaction: i32,
+    /// Interaction type.
+    pub interaction_type: InteractionType,
+    /// Target block, when the chain targets one.
+    pub block_position: Option<BlockPosition>,
+    /// Item in hand carried by the chain.
+    pub item_in_hand_id: Option<String>,
+    /// Client-measured charge duration.
+    pub charge_value: f32,
+    /// Client-selected chaining index, or `-1`.
+    pub chaining_index: i32,
+    /// Client-selected flag index, or `-1`.
+    pub flag_index: i32,
+}
+
 /// Options for the dev/insecure join flow.
 #[derive(Debug, Clone)]
 pub struct DevJoinOptions {
@@ -326,6 +347,10 @@ pub struct DevJoinOptions {
     pub send_ready_for_gameplay: bool,
     /// Chat command lines (`/help`, `/tp ...`) sent after the join.
     pub commands_after_join: Vec<String>,
+    /// Creative place mode sent through `SyncPlayerPreferences`.
+    pub place_mode_after_join: Option<PlaceMode>,
+    /// Scripted interaction-chain starts sent after the commands.
+    pub interaction_chains_after_join: Vec<InteractionChainRequest>,
     /// `(argTypeId, partial)` suggestion requests sent after the commands.
     pub arg_value_requests_after_join: Vec<(String, String)>,
 }
@@ -530,6 +555,8 @@ pub struct PlayerObservation {
     pub formatted_messages: Vec<FormattedMessage>,
     /// `ServerMessage.rawText` values received after the join.
     pub server_messages: Vec<String>,
+    /// `SyncInteractionChains` updates received after the join.
+    pub interaction_chains: Vec<SyncInteractionChain>,
     /// `ArgValuesResponse` payloads received after the join.
     pub arg_values_responses: Vec<ArgValuesResponse>,
     /// `ArgCacheInvalidation` type-id batches received after the join.
@@ -706,6 +733,59 @@ pub async fn dev_join(
             .write_packet(
                 &ChatMessage {
                     message: Some(command.clone()),
+                },
+                3,
+            )
+            .await?;
+    }
+    if let Some(place_mode) = options.place_mode_after_join {
+        writer
+            .write_packet(
+                &SyncPlayerPreferences {
+                    place_mode,
+                    ..SyncPlayerPreferences::default()
+                },
+                3,
+            )
+            .await?;
+    }
+    for (index, request) in options.interaction_chains_after_join.iter().enumerate() {
+        let chain_id = 10_000 + index as i32;
+        let sync = InteractionSyncData {
+            state: InteractionState::Finished,
+            charge_value: request.charge_value,
+            chaining_index: request.chaining_index,
+            flag_index: request.flag_index,
+            block_position: request.block_position.clone(),
+            ..InteractionSyncData::default()
+        };
+        writer
+            .write_packet(
+                &SyncInteractionChains {
+                    updates: vec![SyncInteractionChain {
+                        active_hotbar_slot: 0,
+                        active_utility_slot: 0,
+                        active_tools_slot: 0,
+                        item_in_hand_id: request.item_in_hand_id.clone(),
+                        utility_item_id: None,
+                        tools_item_id: None,
+                        initial: true,
+                        desync: false,
+                        override_root_interaction: request.root_interaction,
+                        interaction_type: request.interaction_type,
+                        equip_slot: 0,
+                        chain_id,
+                        forked_id: None,
+                        data: Some(InteractionChainData {
+                            entity_id: -1,
+                            block_position: request.block_position.clone(),
+                            ..InteractionChainData::default()
+                        }),
+                        state: InteractionState::Finished,
+                        new_forks: None,
+                        operation_base_index: 0,
+                        interaction_data: Some(vec![Some(sync)]),
+                    }],
                 },
                 3,
             )
@@ -947,6 +1027,10 @@ async fn observe_players(
                         let packet: SetActiveSlot = frame.decode()?;
                         game.active_slots
                             .insert(packet.inventory_section_id, packet.active_slot);
+                    }
+                    SyncInteractionChains::ID => {
+                        let packet: SyncInteractionChains = frame.decode()?;
+                        observation.interaction_chains.extend(packet.updates);
                     }
                     Ping::ID => answer_ping(writer, &frame).await?,
                     ServerDisconnect::ID => return Ok(observation),

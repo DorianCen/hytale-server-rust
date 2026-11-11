@@ -142,6 +142,8 @@ async fn the_bot_runs_commands_over_chat() {
                 ("hytale:item".to_string(), "Rock_St".to_string()),
                 ("hytale:game_mode".to_string(), "c".to_string()),
             ],
+            place_mode_after_join: None,
+            interaction_chains_after_join: Vec::new(),
         },
     )
     .await
@@ -388,6 +390,8 @@ async fn an_operator_can_target_another_player() {
                 break_block_after_join: None,
                 commands_after_join: Vec::new(),
                 arg_value_requests_after_join: Vec::new(),
+                place_mode_after_join: None,
+                interaction_chains_after_join: Vec::new(),
             },
         )
         .await
@@ -445,6 +449,8 @@ async fn an_operator_can_target_another_player() {
                 "/say targeted".to_string(),
             ],
             arg_value_requests_after_join: Vec::new(),
+            place_mode_after_join: None,
+            interaction_chains_after_join: Vec::new(),
         },
     )
     .await

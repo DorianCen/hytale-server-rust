@@ -179,6 +179,8 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 place_block_after_join: None,
                 break_block_after_join: None,
                 arg_value_requests_after_join: Vec::new(),
+                place_mode_after_join: None,
+                interaction_chains_after_join: Vec::new(),
             },
         )
         .await?;

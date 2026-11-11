@@ -2730,12 +2730,16 @@ This file records phase-2 sessions only.
   passed into placement-flag resolution; `Block_Secondary` now selects the
   creative Replace/Retype/Extrude/SurfaceDraw/FastPlace branch. An interaction
   `ChangeActiveSlot` updates the hotbar, sends `SetActiveSlot` and rebroadcasts
-  held items.
+  held items. Client `overrideRootInteraction` roots are walked for item/weapon
+  chains, and a `Block_Secondary` override falls through to the authoritative
+  placement path with the selected creative place-mode flags.
 - **Tests:** 20 `hytale-interactions` tests (synthetic chaining/charging/
   wielding/memories/place-mode/active-slot plus real `Block_Secondary` flags),
   7 `interaction_packets` tests (next-map children, protocol variants,
-  sentinels), 24 `block_item_packets`, 58 server library tests and the ignored
-  block-interaction loopback (2 passed, 51.90 s).
-- **Verified:** `./tools/test.sh fast` (1646 passed, 29 skipped), clippy and fmt.
+  sentinels), 24 `block_item_packets`, 58 server library tests, the ignored
+  block-interaction loopback (2 passed, 51.90 s), and the new ignored
+  `interaction_long_tail` loopback (1 passed, 51.23 s) covering preferences,
+  active-slot, Wielding/Charging roots and Replace-mode quick replacement.
+- **Verified:** `./tools/test.sh fast` (1646 passed, 30 skipped), clippy and fmt.
 - **Follow-ups:** persistent server-side charge/fork state and a release-client
   trace for a live place-mode desync remain; see T71 deviations.
