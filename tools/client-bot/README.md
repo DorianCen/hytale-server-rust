@@ -124,6 +124,19 @@ The concurrent disconnect/rejoin loopback test is `#[ignore]`d:
 cargo test -p client-bot --test multi_join -- --ignored
 ```
 
+## Multi-player and persistence smoke
+
+`multiplayer_persistence` joins two clients through one shared
+`PlayerRegistry`, checks mutual held-item and shared NPC visibility, observes
+peer edits and disconnects, restores inventory/transform on reconnect, and then
+restarts the same world save. The fresh post-restart join receives the restored
+player and chunk snapshot, while the test verifies the persisted blocks, player
+documents and NPC directly through the world thread:
+
+```sh
+cargo test -p client-bot --test multiplayer_persistence -- --ignored
+```
+
 ## Packet trace gate
 
 The server can capture a JSONL packet trace without storing raw payloads:

@@ -405,6 +405,10 @@ pub struct ObservedEntityUpdate {
     pub model_asset: Option<String>,
     /// Armor ids carried by a spawn.
     pub armor: Option<Vec<String>>,
+    /// Right-hand/held item id carried by an equipment update.
+    pub right_hand: Option<String>,
+    /// Left-hand/utility item id carried by an equipment update.
+    pub left_hand: Option<String>,
 }
 
 /// One block edit seen on the chunks stream.
@@ -1040,6 +1044,8 @@ fn record_observed_entities(
                 position: None,
                 model_asset: None,
                 armor: None,
+                right_hand: None,
+                left_hand: None,
             });
         }
     }
@@ -1056,6 +1062,8 @@ fn record_observed_entities(
             position: None,
             model_asset: None,
             armor: None,
+            right_hand: None,
+            left_hand: None,
         };
         if let Some(components) = &update.updates {
             for component in components {
@@ -1068,6 +1076,8 @@ fn record_observed_entities(
                     }
                     ComponentUpdate::EquipmentUpdate(equipment) => {
                         observed.armor = equipment.armor_ids.clone();
+                        observed.right_hand = equipment.right_hand_item_id.clone();
+                        observed.left_hand = equipment.left_hand_item_id.clone();
                     }
                     ComponentUpdate::TransformUpdate(transform) => {
                         observed.position = transform.transform.position.clone();
@@ -1927,5 +1937,34 @@ mod tests {
         let records = drain_frames(&mut buffer).expect("complete drain");
         assert_eq!(records.len(), 1);
         assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn entity_observation_keeps_remote_held_items() {
+        let packet = EntityUpdates {
+            removed: None,
+            updates: Some(vec![hytale_protocol::generated::common::EntityUpdate {
+                network_id: 7,
+                removed: None,
+                updates: Some(vec![ComponentUpdate::EquipmentUpdate(
+                    hytale_protocol::generated::common::EquipmentUpdate {
+                        armor_ids: Some(vec!["Armor_Bronze_Head".to_string()]),
+                        right_hand_item_id: Some("Rock_Stone".to_string()),
+                        left_hand_item_id: Some("Potion_Health".to_string()),
+                    },
+                )]),
+            }]),
+        };
+        let mut observation = PlayerObservation::default();
+        record_observed_entities(&packet, &mut observation, Some(1));
+
+        let entity = observation.entities.first().expect("observed entity");
+        assert_eq!(entity.network_id, 7);
+        assert_eq!(
+            entity.armor.as_deref(),
+            Some(["Armor_Bronze_Head".to_string()].as_slice())
+        );
+        assert_eq!(entity.right_hand.as_deref(), Some("Rock_Stone"));
+        assert_eq!(entity.left_hand.as_deref(), Some("Potion_Health"));
     }
 }
