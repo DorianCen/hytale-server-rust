@@ -92,16 +92,22 @@ async fn concurrent_bots_join_one_listener_without_overflow() {
         .expect("bound sender");
 
     // The bigger runs need a longer overlap so early joiners stay connected
-    // while the slower asset bursts finish; debug builds are CPU-bound.
-    let workload_window = Duration::from_secs((players as u64 / 2).max(2));
+    // while the slower asset bursts finish; debug builds are CPU-bound and
+    // decode the config burst for every bot.
+    let (stagger_ms, workload_window, join_timeout) = if players <= 10 {
+        (25, Duration::from_secs(5), Duration::from_secs(60))
+    } else {
+        (100, Duration::from_secs(60), Duration::from_secs(240))
+    };
     let started = Instant::now();
     let mut report = run_load(
         server_addr,
         "localhost",
         &LoadOptions {
             players,
-            stagger: Duration::from_millis(25),
+            stagger: Duration::from_millis(stagger_ms),
             workload_window,
+            join_timeout,
             ..LoadOptions::default()
         },
     )

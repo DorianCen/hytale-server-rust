@@ -2764,8 +2764,9 @@ This file records phase-2 sessions only.
   joins failing. `SessionSummary` also exposes the chunk packet/frame/byte and
   block edit/use counters.
 - **Verification:** `cargo test -p client-bot --lib` (6 passed), the ignored
-  `load` gate (1 passed, 10 bots), `block_interactions` (2 passed) and
-  `./tools/test.sh fast` (see README/session summary). Release baseline in
+  `load` gate (1 passed at 10 bots and at `HYTALE_LOAD_PLAYERS=50`),
+  `block_interactions` (2 passed) and `./tools/test.sh fast` (1649 passed,
+  31 skipped). Release baseline in
   `BENCHMARKS.md`: 10/50/100 players joined with p50 813.1/753.6/513.9 ms,
   zero rejected/duplicate/queue-overflow sessions and 1.63/2.42/3.18 GiB RSS.
 - **Follow-ups:** the 100-player asset burst needs a wider stagger/window to

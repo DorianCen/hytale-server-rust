@@ -63,9 +63,11 @@ covers concurrency against one listener.
 
 ```sh
 cargo test -p client-bot --lib                                  # 6 passed
-cargo test -p client-bot --test load -- --ignored               # 1 passed
+cargo test -p client-bot --test load -- --ignored               # 1 passed (10 bots)
+HYTALE_LOAD_PLAYERS=50 cargo test -p client-bot --test load -- --ignored --nocapture
+                                                                # 1 passed (50 bots)
 cargo test -p client-bot --test block_interactions -- --ignored # 2 passed
-./tools/test.sh fast                                            # see below
+./tools/test.sh fast                                            # 1649 passed, 31 skipped
 cargo clippy -p hytale-server -p client-bot --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
