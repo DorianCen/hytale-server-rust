@@ -47,7 +47,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65; asset follow-up T66) |
 | [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | done (session 93; release-client break/drop/pickup/place verified) |
 | [T67](T67-commands.md) | Command framework and in-game commands | T42, T48 | medium | done (session 94; console, permissions, chat and targets) |
-| [T68](T68-upstream-transport-auth-hardening.md) | Upstream transport/auth hardening | T62, T65, T66 | medium | proposed (2026-11-11) |
+| [T68](T68-upstream-transport-auth-hardening.md) | Upstream transport/auth hardening | T62, T65, T66 | medium | done (session 95; TLS deny-list, channel validation, QUIC ceiling) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
 | [T63](T63-performance-memory-soak.md) | Performance, memory and soak | T48 | medium | done (session 68) |
@@ -119,7 +119,10 @@ built-ins (`help`, `tp`, `give`, `gamemode`, `save`, `stop`, `who`, `say`,
 `kick`, `world`, ...). Session 94 adds the `hytale-core` permission registry
 (`--op`/groups/wildcards), the stdin console, plain-chat broadcast,
 cross-session player-name targets and live world switching. Dynamic arg-value
-suggestions and runtime limit changes remain follow-ups.
+suggestions and runtime limit changes remain follow-ups. T68 (done, session 95)
+adds the Java-compatible outbound TLS SPKI deny-list (replacing `ureq` with a
+small rustls client), packet channel validation on the default/chunk streams,
+and the 1452-byte QUIC endpoint payload ceiling.
 
 ## Rules
 

@@ -90,9 +90,9 @@ into two groups.
 
 | Java change | Rust state | Impact |
 |---|---|---|
-| New `security/CertificateTrustPolicy` deny-lists eight compromised eMudhra intermediate CA SPKIs for outbound HTTPS (`Main.java` installs it) | `hytale-auth` uses `ureq` + webpki roots (`crates/hytale-auth/src/live.rs`) with no deny-list | Security hardening gap → **T68** |
-| `ConnectionHandler.handlesPacket`, `PacketDecoder` channel/handler pre-checks, `QuicheChannel.acceptsPacket`/`checkHandled` reject wrong-channel or wrong-stage packets before buffering | `FrameStream` rejects unknown IDs and oversized frames before the payload, and the session enforces stage legality after decoding (`SessionError::UnexpectedPacket`), but never checks `PacketInfo.channel` against the stream | Hardening gap → **T68** |
-| `QuicheListener` lowers the non-loopback QUIC payload ceiling to 1452 bytes, uses 5000 on loopback and a 1200 floor for IPv4/private peers; `QuicheConnection` sends paced datagrams | quinn default `max_udp_payload_size = 1472`, no explicit `TransportConfig` (`crates/hytale-net/src/transport.rs`) | Tuning/robustness gap → **T68** |
+| New `security/CertificateTrustPolicy` deny-lists eight compromised eMudhra intermediate CA SPKIs for outbound HTTPS (`Main.java` installs it) | `hytale-auth` now uses a blocking rustls client whose verifier rejects the same eight SPKI hashes (`crates/hytale-auth/src/https.rs`) | Closed by **T68** |
+| `ConnectionHandler.handlesPacket`, `PacketDecoder` channel/handler pre-checks, `QuicheChannel.acceptsPacket`/`checkHandled` reject wrong-channel or wrong-stage packets before buffering | `FrameReader`/`ChunkStreamReader` and the chunk/world-map writers enforce the same channel policy before payload allocation; the session keeps its stage checks | Closed by **T68** |
+| `QuicheListener` lowers the non-loopback QUIC payload ceiling to 1452 bytes, uses 5000 on loopback and a 1200 floor for IPv4/private peers; `QuicheConnection` sends paced datagrams | server/client endpoints use `quinn::EndpointConfig::max_udp_payload_size(1452)` with MTU discovery enabled | Closed by **T68** (loopback 5000 parity remains a perf follow-up) |
 | JWKS is now committed under `CoreServer/src/main/jwks/<env>.json` instead of fetched at build time | `hytale-auth` fetches `/well-known/jwks.json` at runtime and caches `.jwks.json` | No break; offline-JWKS parity remains a documented follow-up |
 | `JWTValidator` comment only | — | None |
 
@@ -123,14 +123,14 @@ it on the Rust side.
 ## Current conclusion (2026-11-11)
 
 The 2026-11-05 shared source does **not** break the Rust server: the protocol is
-unchanged and the asset deltas are content-only. The remaining differences are
-outbound TLS hardening, packet channel validation and QUIC payload tuning, filed
-as [T68](tasks/T68-upstream-transport-auth-hardening.md).
+unchanged and the asset deltas are content-only. The remaining differences —
+outbound TLS hardening, packet channel validation and QUIC payload tuning — were
+closed by [T68](tasks/T68-upstream-transport-auth-hardening.md) in session 95.
 
 ## Follow-ups
 
-- [T68](tasks/T68-upstream-transport-auth-hardening.md): TLS SPKI deny-list,
-  packet channel validation and QUIC payload ceiling.
+- Loopback QUIC throughput parity (Java 5000 vs quinn's endpoint-wide 1452) if
+  benchmarks show it matters.
 - Refresh `Assets/Assets.zip`/`Assets/extracted` to the 2026-11-05 tree in a
   separate change, then re-baseline the item/icon goldens with
   `tools/java-dumper`.

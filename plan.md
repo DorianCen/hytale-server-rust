@@ -1119,7 +1119,7 @@ Dynamic arg-value suggestions and runtime limit changes remain.
 
 ### T68 — Upstream transport/auth hardening (follow-up)
 
-**Status:** proposed (filed 2026-11-11)
+**Status:** done (session 95)
 **Package:** `hytale-net`, `hytale-auth`, `hytale-server`, docs
 **Depends on:** T62, T65, T66
 **Agent fit:** medium
@@ -1130,6 +1130,14 @@ validation before buffering, and the 1452-byte QUIC payload ceiling. See
 and [`JAVA_VERSION_DIFF.md`](JAVA_VERSION_DIFF.md).
 **Scope:** three bounded changes plus tests; no protocol or asset change and no
 transport rewrite. The wire contract and `Assets/extracted` remain compatible.
+
+**Landed (session 95):** `hytale-auth` now uses a small blocking rustls
+HTTP/1.1 client with a verifier that rejects the eight Java eMudhra SPKI
+hashes; `ureq` is gone. `FrameReader`/`ChunkStreamReader` (and both chunk/map
+writers) enforce the Java channel policy, and server/client QUIC endpoints use
+`EndpointConfig::max_udp_payload_size(1452)`. Tests cover generated certificate
+chains, SPKI/HTTP parsing, a loopback TLS request, and ignored loopback
+wrong-channel frames.
 
 ---
 

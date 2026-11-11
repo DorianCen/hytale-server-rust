@@ -2556,3 +2556,35 @@ This file records phase-2 sessions only.
 - **Follow-ups:** dynamic argument-value suggestions/`argTypeId` sync, runtime
   `maxplayers`/`maxviewradius`, rich chat formatting, and the remaining Java
   debug/editor/builder command set.
+
+## Session 95 — T68 upstream transport/auth hardening (2026-11-11)
+
+- **Goal:** mirror the 2026-11-05 Java hardening that changes security/failure
+  behavior: outbound TLS trust, packet channel validation and the QUIC payload
+  ceiling.
+- **Outbound TLS:** replaced `ureq` in `hytale-auth` with a small blocking
+  rustls HTTP/1.1 client (`crates/hytale-auth/src/https.rs`). The verifier wraps
+  `WebPkiServerVerifier` and rejects the eight Java `DISTRUSTED_SPKI_SHA256`
+  eMudhra keys on the end-entity/intermediate chain. The deny set is injectable
+  for tests; SPKI extraction is a bounded DER walk. Production URLs are HTTPS;
+  plain HTTP is accepted only for loopback test stubs. The dependency change
+  removed `ureq` and its tree from `Cargo.lock`.
+- **Channels:** `FrameReader` rejects `Voice` on the default stream (while
+  allowing the other non-voice channels, matching Java `acceptsPacket`);
+  `ChunkStreamReader` and the chunk/world-map writers require exact
+  `Chunks`/`WorldMap` matches before payload allocation.
+- **QUIC:** server and client endpoints are constructed with
+  `quinn::EndpointConfig::max_udp_payload_size(1452)`; MTU discovery stays
+  enabled. Java's 5000-byte loopback ceiling is not replicated because quinn's
+  endpoint config is not per-peer.
+- **Tests:** generated root/intermediate chains for the verifier,
+  SPKI/HTTP-response parsing, a loopback TLS request through the new client,
+  channel-policy unit tests, ignored loopback wrong-channel stream tests, the
+  existing `chunk_stream`/`quic_spike` loopbacks and the client-bot command
+  scenarios.
+- **Verified:** `cargo test -p hytale-net -p hytale-auth` (21 passed),
+  `cargo test -p hytale-net -- --ignored` (5 passed),
+  `cargo test -p client-bot --test commands -- --ignored` (2 passed),
+  `./tools/test.sh fast` (1613 passed, 28 skipped), clippy and fmt.
+- **Follow-ups:** loopback QUIC throughput parity if benchmarks show it
+  matters, bundled JWKS for offline auth, and the asset-pack refresh.

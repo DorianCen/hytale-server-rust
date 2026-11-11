@@ -26,6 +26,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use ring::signature::{UnparsedPublicKey, ED25519};
 use serde_json::Value;
 
+use crate::https::{HttpResponse, HttpsClient};
 use crate::{is_uuid, AuthError, Result, SCOPE_CLIENT, SCOPE_EDITOR};
 
 /// Live session service base URL (Java `AuthConfig.SESSION_SERVICE_URL`).
@@ -212,18 +213,13 @@ impl LiveClaims {
 /// Blocking HTTP client for the OAuth/session services.
 pub struct SessionService {
     config: LiveAuthConfig,
-    http: ureq::Agent,
+    http: HttpsClient,
 }
 
 impl SessionService {
     /// Builds the client.
     pub fn new(config: LiveAuthConfig) -> Result<Self> {
-        let http = ureq::Agent::config_builder()
-            .timeout_global(Some(config.timeout))
-            .user_agent(config.user_agent.clone())
-            .http_status_as_error(false)
-            .build()
-            .new_agent();
+        let http = HttpsClient::new(config.timeout, config.user_agent.clone())?;
         Ok(Self { config, http })
     }
 
@@ -235,14 +231,13 @@ impl SessionService {
     /// Java `requestDeviceAuthorization`: `POST oauth2/device/auth`.
     pub fn request_device_authorization(&self) -> Result<DeviceAuthorization> {
         let scopes = self.config.scopes.join(" ");
-        let response = self
-            .http
-            .post(&self.config.oauth_device_url)
-            .send_form([
+        let response = self.http.post_form(
+            &self.config.oauth_device_url,
+            &[
                 ("client_id", self.config.client_id.as_str()),
                 ("scope", scopes.as_str()),
-            ])
-            .map_err(service_error)?;
+            ],
+        )?;
         let value: Value = success_json(response, "device authorization")?;
         Ok(DeviceAuthorization {
             device_code: string_field(&value, "device_code")?,
@@ -265,43 +260,36 @@ impl SessionService {
     /// A 400 response is part of the protocol and carries `error`; it is
     /// returned as a normal [`TokenResponse`].
     pub fn poll_device_token(&self, device_code: &str) -> Result<TokenResponse> {
-        let response = self
-            .http
-            .post(&self.config.oauth_token_url)
-            .send_form([
+        let response = self.http.post_form(
+            &self.config.oauth_token_url,
+            &[
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("client_id", self.config.client_id.as_str()),
                 ("device_code", device_code),
-            ])
-            .map_err(service_error)?;
+            ],
+        )?;
         parse_token_response(response)
     }
 
     /// Java `refreshTokens`: `grant_type=refresh_token`.
     pub fn refresh_tokens(&self, refresh_token: &str) -> Result<TokenResponse> {
-        let response = self
-            .http
-            .post(&self.config.oauth_token_url)
-            .send_form([
+        let response = self.http.post_form(
+            &self.config.oauth_token_url,
+            &[
                 ("grant_type", "refresh_token"),
                 ("client_id", self.config.client_id.as_str()),
                 ("refresh_token", refresh_token),
-            ])
-            .map_err(service_error)?;
+            ],
+        )?;
         parse_token_response(response)
     }
 
     /// Java `getGameProfiles`: `GET /my-account/get-profiles`.
     pub fn game_profiles(&self, oauth_access_token: &str) -> Result<Vec<GameProfile>> {
-        let response = self
-            .http
-            .get(format!(
-                "{}/my-account/get-profiles",
-                self.config.account_data_url
-            ))
-            .header("Authorization", format!("Bearer {oauth_access_token}"))
-            .call()
-            .map_err(service_error)?;
+        let response = self.http.get(
+            &format!("{}/my-account/get-profiles", self.config.account_data_url),
+            Some(oauth_access_token),
+        )?;
         let value: Value = success_json(response, "account profiles")?;
         let profiles = value
             .get("profiles")
@@ -329,44 +317,31 @@ impl SessionService {
         oauth_access_token: &str,
         profile_uuid: &str,
     ) -> Result<GameSession> {
-        let response = self
-            .http
-            .post(format!(
-                "{}/game-session/new",
-                self.config.session_service_url
-            ))
-            .header("Authorization", format!("Bearer {oauth_access_token}"))
-            .send_json(serde_json::json!({ "uuid": profile_uuid }))
-            .map_err(service_error)?;
+        let response = self.http.post_json(
+            &format!("{}/game-session/new", self.config.session_service_url),
+            Some(oauth_access_token),
+            &serde_json::json!({ "uuid": profile_uuid }),
+        )?;
         let value: Value = success_json(response, "game-session/new")?;
         Ok(game_session_from_value(&value))
     }
 
     /// Java `refreshSessionAsync`: `POST /game-session/refresh`.
     pub fn refresh_game_session(&self, session_token: &str) -> Result<GameSession> {
-        let response = self
-            .http
-            .post(format!(
-                "{}/game-session/refresh",
-                self.config.session_service_url
-            ))
-            .header("Authorization", format!("Bearer {session_token}"))
-            .send_empty()
-            .map_err(service_error)?;
+        let response = self.http.post_empty(
+            &format!("{}/game-session/refresh", self.config.session_service_url),
+            Some(session_token),
+        )?;
         let value: Value = success_json(response, "game-session/refresh")?;
         Ok(game_session_from_value(&value))
     }
 
     /// Java `getJwks`: `GET /.well-known/jwks.json`.
     pub fn jwks(&self) -> Result<Value> {
-        let response = self
-            .http
-            .get(format!(
-                "{}/.well-known/jwks.json",
-                self.config.session_service_url
-            ))
-            .call()
-            .map_err(service_error)?;
+        let response = self.http.get(
+            &format!("{}/.well-known/jwks.json", self.config.session_service_url),
+            None,
+        )?;
         success_json(response, "session-service JWKS")
     }
 
@@ -377,18 +352,14 @@ impl SessionService {
         server_audience: &str,
         bearer_token: &str,
     ) -> Result<String> {
-        let response = self
-            .http
-            .post(format!(
-                "{}/server-join/auth-grant",
-                self.config.session_service_url
-            ))
-            .header("Authorization", format!("Bearer {bearer_token}"))
-            .send_json(serde_json::json!({
+        let response = self.http.post_json(
+            &format!("{}/server-join/auth-grant", self.config.session_service_url),
+            Some(bearer_token),
+            &serde_json::json!({
                 "identityToken": identity_token,
                 "aud": server_audience,
-            }))
-            .map_err(service_error)?;
+            }),
+        )?;
         let value: Value = success_json(response, "server-join/auth-grant")?;
         string_field(&value, "authorizationGrant")
     }
@@ -400,18 +371,14 @@ impl SessionService {
         x509_fingerprint: &str,
         bearer_token: &str,
     ) -> Result<String> {
-        let response = self
-            .http
-            .post(format!(
-                "{}/server-join/auth-token",
-                self.config.session_service_url
-            ))
-            .header("Authorization", format!("Bearer {bearer_token}"))
-            .send_json(serde_json::json!({
+        let response = self.http.post_json(
+            &format!("{}/server-join/auth-token", self.config.session_service_url),
+            Some(bearer_token),
+            &serde_json::json!({
                 "authorizationGrant": authorization_grant,
                 "x509Fingerprint": x509_fingerprint,
-            }))
-            .map_err(service_error)?;
+            }),
+        )?;
         let value: Value = success_json(response, "server-join/auth-token")?;
         string_field(&value, "accessToken")
     }
@@ -904,28 +871,22 @@ fn random_uuid() -> String {
     )
 }
 
-fn service_error(error: ureq::Error) -> AuthError {
-    AuthError::Service(error.to_string())
-}
-
-fn success_json(response: ureq::http::Response<ureq::Body>, what: &str) -> Result<Value> {
-    let status = response.status();
-    let mut body = response.into_body();
-    if !status.is_success() {
-        let text = body.read_to_string().unwrap_or_default();
+fn success_json(response: HttpResponse, what: &str) -> Result<Value> {
+    if !(200..300).contains(&response.status) {
+        let text = String::from_utf8_lossy(&response.body);
         return Err(AuthError::Service(format!(
-            "{what} returned HTTP {status}: {}",
+            "{what} returned HTTP {}: {}",
+            response.status,
             truncate(&text, 512)
         )));
     }
-    body.read_json()
+    serde_json::from_slice(&response.body)
         .map_err(|error| AuthError::Service(format!("{what} response: {error}")))
 }
 
-fn parse_token_response(response: ureq::http::Response<ureq::Body>) -> Result<TokenResponse> {
-    let status = response.status();
-    let mut body = response.into_body();
-    let value: Value = body.read_json().map_err(|error| {
+fn parse_token_response(response: HttpResponse) -> Result<TokenResponse> {
+    let status = response.status;
+    let value: Value = serde_json::from_slice(&response.body).map_err(|error| {
         AuthError::Service(format!("oauth token response (HTTP {status}): {error}"))
     })?;
     let error = value
@@ -936,12 +897,12 @@ fn parse_token_response(response: ureq::http::Response<ureq::Body>) -> Result<To
         .get("access_token")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    if !status.is_success() && error.is_none() {
+    if !(200..300).contains(&status) && error.is_none() {
         return Err(AuthError::Service(format!(
             "oauth token request returned HTTP {status}"
         )));
     }
-    if status.is_success() && access_token.is_none() && error.is_none() {
+    if (200..300).contains(&status) && access_token.is_none() && error.is_none() {
         return Err(AuthError::Service(
             "oauth token response has neither access_token nor error".to_string(),
         ));

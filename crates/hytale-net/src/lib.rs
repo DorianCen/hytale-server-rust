@@ -81,6 +81,6 @@ pub use trace::{
 };
 pub use transport::{
     connect, AcceptedConnection, ClientEndpoint, ClientSession, ServerEndpoint,
-    ServerEndpointBuilder, ServerEndpoints, TransportError,
+    ServerEndpointBuilder, ServerEndpoints, TransportError, MAX_UDP_PAYLOAD_SIZE,
 };
 pub use verify::{AcceptAnyClientCertificate, AcceptAnyServerCertificate};

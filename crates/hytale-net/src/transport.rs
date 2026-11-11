@@ -275,7 +275,9 @@ fn bind_endpoint(
     config: quinn::ServerConfig,
     addr: SocketAddr,
 ) -> Result<ServerEndpoint, TransportError> {
-    let endpoint = quinn::Endpoint::server(config, addr)?;
+    let socket = std::net::UdpSocket::bind(addr)?;
+    let runtime = endpoint_runtime()?;
+    let endpoint = quinn::Endpoint::new(endpoint_config(), Some(config), socket, runtime)?;
     let local_addr = endpoint.local_addr()?;
     Ok(ServerEndpoint {
         endpoint,
@@ -418,6 +420,30 @@ impl AcceptedConnection {
     }
 }
 
+/// Java's non-loopback QUIC send/receive ceiling
+/// (`MAX_SEND_UDP_PAYLOAD_SIZE`).
+///
+/// 1452 bytes is the largest datagram that fits a 1500-byte path on both IPv4
+/// and IPv6. quinn's MTU discovery still lowers the sending MTU for narrower
+/// paths.
+pub const MAX_UDP_PAYLOAD_SIZE: u16 = 1452;
+
+fn endpoint_config() -> quinn::EndpointConfig {
+    let mut config = quinn::EndpointConfig::default();
+    config
+        .max_udp_payload_size(MAX_UDP_PAYLOAD_SIZE)
+        .expect("1452 is a valid QUIC UDP payload size");
+    config
+}
+
+fn endpoint_runtime() -> Result<Arc<dyn quinn::Runtime>, TransportError> {
+    quinn::default_runtime().ok_or_else(|| {
+        TransportError::Io(std::io::Error::other(
+            "no async runtime is available for the QUIC endpoint",
+        ))
+    })
+}
+
 /// A bound client endpoint that can dial servers repeatedly.
 pub struct ClientEndpoint {
     endpoint: quinn::Endpoint,
@@ -450,7 +476,9 @@ impl ClientEndpoint {
         tls.alpn_protocols = vec![ALPN_HYTALE_V3.to_vec()];
 
         let quic = QuicClientConfig::try_from(tls)?;
-        let mut endpoint = quinn::Endpoint::client(bind_addr)?;
+        let socket = std::net::UdpSocket::bind(bind_addr)?;
+        let runtime = endpoint_runtime()?;
+        let mut endpoint = quinn::Endpoint::new(endpoint_config(), None, socket, runtime)?;
         endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(quic)));
 
         Ok(Self { endpoint })
@@ -537,4 +565,18 @@ pub async fn connect(
 ) -> Result<ClientSession, TransportError> {
     let endpoint = ClientEndpoint::bind(bind_addr, identity)?;
     endpoint.connect(server_addr, server_name).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{endpoint_config, MAX_UDP_PAYLOAD_SIZE};
+
+    #[test]
+    fn transport_uses_the_java_ipv4_and_ipv6_safe_payload_ceiling() {
+        assert_eq!(MAX_UDP_PAYLOAD_SIZE, 1452);
+        assert_eq!(
+            endpoint_config().get_max_udp_payload_size(),
+            u64::from(MAX_UDP_PAYLOAD_SIZE)
+        );
+    }
 }

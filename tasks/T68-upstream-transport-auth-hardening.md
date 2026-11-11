@@ -1,6 +1,6 @@
 # T68 — Upstream transport and auth hardening (follow-up)
 
-**Status:** proposed (filed 2026-11-11 from the 2026-11-05 shared-source delta)
+**Status:** done (session 95; TLS deny-list, channel validation and QUIC ceiling)
 **Package:** `hytale-net`, `hytale-auth`, `hytale-server` (tests), docs
 **Depends on:** T62, T65, T66
 **Agent fit:** medium
@@ -141,10 +141,55 @@ cargo fmt -p hytale-net -p hytale-auth -p hytale-server -- --check
 - The live release-client join/block loop is unchanged; no wire-visible
   difference for valid clients.
 
+## Landed (session 95)
+
+- **Outbound TLS:** replaced `ureq` in `hytale-auth` with a small blocking
+  rustls HTTP/1.1 client (`crates/hytale-auth/src/https.rs`). Its verifier wraps
+  `WebPkiServerVerifier` and rejects the eight Java `DISTRUSTED_SPKI_SHA256`
+  values on the end-entity and intermediate certificates. SPKI extraction is a
+  bounded DER walk; the denied set is injectable for tests. Plain `http://` is
+  accepted only for loopback hosts so the existing local auth-service tests can
+  keep using their stub servers; production URLs remain `https://`.
+- **Channel validation:** `FrameReader` defaults to the `Default` stream and
+  rejects `Voice` (while allowing the other non-voice channels, matching Java's
+  `acceptsPacket`); `ChunkStreamReader` and both chunk/world-map writers require
+  an exact `Chunks`/`WorldMap` match. Frames are rejected before payload
+  allocation/decompression.
+- **QUIC ceiling:** server and client endpoints are built with an explicit
+  `quinn::EndpointConfig` whose `max_udp_payload_size` is 1452; MTU discovery
+  remains enabled (its upper bound is already 1452).
+- **Tests:** verifier rejection/acceptance with generated root/intermediate
+  chains, SPKI/HTTP parsing tests, a loopback TLS request through the new
+  client, channel-policy unit tests, ignored loopback tests for a `Default`
+  packet on the chunks stream and `Voice` on the default stream, plus the
+  existing chunk-stream/QUIC/client-bot loopbacks.
+
+## Verification (session 95)
+
+```sh
+cargo test -p hytale-auth                             # 10 unit + 8 live-auth passed
+cargo test -p hytale-net                              # 3 unit passed, 5 ignored
+cargo test -p hytale-net -- --ignored                 # 5 passed (channels/chunk/quic)
+cargo test -p client-bot --test commands -- --ignored   # 2 passed
+./tools/test.sh fast                                    # 1613 passed, 28 skipped
+cargo clippy -p hytale-net -p hytale-auth -p hytale-server --all-targets -- -D warnings
+cargo fmt -p hytale-net -p hytale-auth -p hytale-server -- --check
+```
+
 ## Deviations
 
-- To be filled in when the TLS mechanism is chosen and the other two items
-  land.
+- `rustls-webpki` 0.103.16 ships its own `DISTRUSTED_SPKIS` set, but it is a
+  different eMudhra key set from Java's eight hashes. The explicit verifier is
+  therefore still required; it runs before the WebPKI chain check.
+- QUIC's 1452-byte limit is an **endpoint** setting
+  (`quinn::EndpointConfig::max_udp_payload_size`), not a per-connection
+  `TransportConfig` field. Java's 5000-byte loopback ceiling is not replicated
+  because quinn's endpoint config is not per-peer; loopback uses 1452 too.
+- The HTTP client is HTTP/1.1 with `Connection: close`, content-length and
+  chunked bodies, no redirects/cookies/keep-alive. That matches every live auth
+  endpoint; a redirect or non-close response would need a follow-up.
+- Plain HTTP is allowed only for loopback hosts (test stubs); production
+  `HttpsClient` URLs must be HTTPS.
 
 ## Follow-ups
 

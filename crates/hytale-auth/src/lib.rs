@@ -35,6 +35,7 @@
 
 #![deny(clippy::all)]
 
+mod https;
 pub mod live;
 
 use std::sync::Arc;

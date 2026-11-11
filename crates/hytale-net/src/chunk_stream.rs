@@ -11,7 +11,7 @@
 
 use hytale_protocol::frame::{compress_payload, decompress_payload, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::registry::packet_info;
-use hytale_protocol::generated::wire::{Packet, Wire};
+use hytale_protocol::generated::wire::{NetworkChannel, Packet, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
 use quinn::{Connection, ReadExactError, RecvStream, SendStream};
 use std::sync::Arc;
@@ -38,6 +38,16 @@ pub enum ChunkStreamError {
     /// The packet id is not in the protocol registry.
     #[error("unknown packet id {0} on the chunk stream")]
     UnknownPacket(u32),
+    /// The packet's registry channel does not belong on this stream.
+    #[error("packet {packet_id} ({channel:?}) is not allowed on the {expected:?} stream")]
+    WrongChannel {
+        /// Packet registry id.
+        packet_id: u32,
+        /// The packet's registry channel.
+        channel: NetworkChannel,
+        /// The stream's channel.
+        expected: NetworkChannel,
+    },
 }
 
 /// One received packet with its decompressed payload.
@@ -76,6 +86,7 @@ impl ChunkStreamWriter {
         packet: &T,
         compression_level: i32,
     ) -> Result<(), ChunkStreamError> {
+        require_channel(T::ID, T::CHANNEL, NetworkChannel::Chunks)?;
         let mut payload = Writer::new();
         packet.encode(&mut payload)?;
         let payload = if T::COMPRESSED {
@@ -151,6 +162,7 @@ impl WorldMapStreamWriter {
         packet: &T,
         compression_level: i32,
     ) -> Result<(), ChunkStreamError> {
+        require_channel(T::ID, T::CHANNEL, NetworkChannel::WorldMap)?;
         let mut payload = Writer::new();
         packet.encode(&mut payload)?;
         let payload = if T::COMPRESSED {
@@ -185,6 +197,22 @@ impl WorldMapStreamWriter {
 }
 
 /// Reads chunk frames from a client-accepted unidirectional stream.
+fn require_channel(
+    packet_id: u32,
+    channel: NetworkChannel,
+    expected: NetworkChannel,
+) -> Result<(), ChunkStreamError> {
+    if channel == expected {
+        Ok(())
+    } else {
+        Err(ChunkStreamError::WrongChannel {
+            packet_id,
+            channel,
+            expected,
+        })
+    }
+}
+
 pub struct ChunkStreamReader {
     recv: RecvStream,
     trace: Option<Arc<dyn PacketTraceSink>>,
@@ -226,6 +254,7 @@ impl ChunkStreamReader {
             ));
         }
         let info = packet_info(packet_id).ok_or(ChunkStreamError::UnknownPacket(packet_id))?;
+        require_channel(packet_id, info.channel, NetworkChannel::Chunks)?;
         if length > info.max_size {
             return Err(ChunkStreamError::Protocol(ProtocolError::PayloadTooLarge {
                 packet_id,

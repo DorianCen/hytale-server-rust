@@ -7,7 +7,7 @@
 
 use hytale_protocol::frame::{compress_payload, decompress_payload, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::registry::packet_info;
-use hytale_protocol::generated::wire::{Packet, Wire};
+use hytale_protocol::generated::wire::{NetworkChannel, Packet, Wire};
 use hytale_protocol::io::{ProtocolError, Writer};
 use quinn::{ClosedStream, ReadExactError, RecvStream, SendStream, WriteError};
 use std::sync::Arc;
@@ -39,6 +39,29 @@ pub enum FrameStreamError {
     /// The packet id is not in the registry.
     #[error("unknown packet id {0}")]
     UnknownPacket(u32),
+    /// The packet's registry channel does not belong on this stream.
+    #[error("packet {packet_id} ({channel:?}) is not allowed on the {expected:?} stream")]
+    WrongChannel {
+        /// Packet registry id.
+        packet_id: u32,
+        /// The packet's registry channel.
+        channel: NetworkChannel,
+        /// The stream's channel.
+        expected: NetworkChannel,
+    },
+}
+
+/// Whether a packet channel may travel on `stream`.
+///
+/// Java `QuicheChannel.acceptsPacket` accepts every non-Voice packet on the
+/// default game stream and requires an exact channel match on the dedicated
+/// chunk/world-map/voice streams.
+pub(crate) fn channel_allowed(stream: NetworkChannel, packet: NetworkChannel) -> bool {
+    if stream == NetworkChannel::Default {
+        packet != NetworkChannel::Voice
+    } else {
+        packet == stream
+    }
 }
 
 /// One received packet with its decompressed payload.
@@ -88,6 +111,13 @@ impl FrameWriter {
         packet: &T,
         compression_level: i32,
     ) -> Result<(), FrameStreamError> {
+        if !channel_allowed(NetworkChannel::Default, T::CHANNEL) {
+            return Err(FrameStreamError::WrongChannel {
+                packet_id: T::ID,
+                channel: T::CHANNEL,
+                expected: NetworkChannel::Default,
+            });
+        }
         let mut payload = Writer::new();
         packet.encode(&mut payload)?;
         let payload = if T::COMPRESSED {
@@ -111,6 +141,13 @@ impl FrameWriter {
         let info = packet_info(packet_id).ok_or(FrameStreamError::Protocol(
             ProtocolError::UnknownPacket { packet_id },
         ))?;
+        if !channel_allowed(NetworkChannel::Default, info.channel) {
+            return Err(FrameStreamError::WrongChannel {
+                packet_id,
+                channel: info.channel,
+                expected: NetworkChannel::Default,
+            });
+        }
         if payload.len() as u32 > info.max_size {
             return Err(FrameStreamError::Protocol(ProtocolError::PayloadTooLarge {
                 packet_id,
@@ -164,6 +201,7 @@ pub struct FrameReader {
     recv: RecvStream,
     trace: Option<Arc<dyn PacketTraceSink>>,
     max_payload: u32,
+    expected_channel: NetworkChannel,
 }
 
 impl FrameReader {
@@ -173,7 +211,14 @@ impl FrameReader {
             recv,
             trace: None,
             max_payload: MAX_PACKET_SIZE,
+            expected_channel: NetworkChannel::Default,
         }
+    }
+
+    /// Set the channel this stream is allowed to carry (default `Default`).
+    pub fn with_channel(mut self, channel: NetworkChannel) -> Self {
+        self.expected_channel = channel;
+        self
     }
 
     /// Attach a packet trace sink.
@@ -212,6 +257,13 @@ impl FrameReader {
             ));
         }
         let info = packet_info(packet_id).ok_or(FrameStreamError::UnknownPacket(packet_id))?;
+        if !channel_allowed(self.expected_channel, info.channel) {
+            return Err(FrameStreamError::WrongChannel {
+                packet_id,
+                channel: info.channel,
+                expected: self.expected_channel,
+            });
+        }
         let max_size = info.max_size.min(self.max_payload);
         if length > max_size {
             return Err(FrameStreamError::Protocol(ProtocolError::PayloadTooLarge {
@@ -247,5 +299,44 @@ impl FrameReader {
             Some(frame) => Ok(Some(frame.decode::<T>()?)),
             None => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hytale_protocol::generated::wire::NetworkChannel;
+
+    use super::channel_allowed;
+
+    #[test]
+    fn default_stream_rejects_only_voice_and_dedicated_streams_are_exact() {
+        assert!(channel_allowed(
+            NetworkChannel::Default,
+            NetworkChannel::Default
+        ));
+        assert!(channel_allowed(
+            NetworkChannel::Default,
+            NetworkChannel::Chunks
+        ));
+        assert!(!channel_allowed(
+            NetworkChannel::Default,
+            NetworkChannel::Voice
+        ));
+        assert!(channel_allowed(
+            NetworkChannel::Chunks,
+            NetworkChannel::Chunks
+        ));
+        assert!(!channel_allowed(
+            NetworkChannel::Chunks,
+            NetworkChannel::Default
+        ));
+        assert!(!channel_allowed(
+            NetworkChannel::WorldMap,
+            NetworkChannel::Chunks
+        ));
+        assert!(channel_allowed(
+            NetworkChannel::WorldMap,
+            NetworkChannel::WorldMap
+        ));
     }
 }
