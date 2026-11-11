@@ -48,7 +48,8 @@ context. The main agent owns sequencing and shared-file edits.
 | [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | done (session 93; release-client break/drop/pickup/place verified) |
 | [T67](T67-commands.md) | Command framework and in-game commands | T42, T48 | medium | done (session 94; console, permissions, chat and targets) |
 | [T69](T69-block-placement-fidelity.md) | Block placement fidelity | T46, T50, T52, T56, T66 | low/medium | done (session 96; rotation, setblock, neighbour simulation, persistence) |
-| [T69b](T69b-block-placement-followups.md) | Block placement follow-ups: connected variants, flags, block entities | T50, T66, T69 | medium/high | proposed (2026-11-11) |
+| [T69b](T69b-block-placement-followups.md) | Block placement follow-ups: connected variants, flags, block entities | T50, T66, T69 | medium/high | done (session 98; patterned/custom/stair/roof incl. valley/topper/wide, quick flags, BlockHolder components) |
+| [T70](T70-multiplayer-persistence-smoke.md) | Multi-player and persistence smoke | T45, T47, T49, T56, T59b, T69 | low/medium | done (session 97; two clients, held items/NPC, reconnect and world restart) |
 | [T68](T68-upstream-transport-auth-hardening.md) | Upstream transport/auth hardening | T62, T65, T66 | medium | done (session 95; TLS deny-list, channel validation, QUIC ceiling) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
@@ -127,7 +128,7 @@ small rustls client), packet channel validation on the default/chunk streams,
 and the 1452-byte QUIC endpoint payload ceiling. T69 (done, session 96) preserves
 the client block rotation through storage/broadcast/acks, adds the
 `/setblock` admin path, and proves neighbour-driven falling/support plus
-rotation persistence.
+rotation persistence. T69b (done, session 98) adds server-side patterned, CustomTemplate fence/wall and Stair/Roof connected-block variants, the creative quick-retype/replace/no-physics flags and placement-created block-entity components. T70 (done, session 97) adds the two-client held-item/NPC visibility, save/reconnect and world-restart persistence smoke.
 
 ## Rules
 

@@ -48,6 +48,7 @@ use hytale_protocol::generated::world::{UpdateBlockDamage, UpdateBlockDamages};
 use hytale_world::chunk::storage::ChunkCodec;
 use hytale_world::chunk::stream::ChunkPacketBatch;
 use hytale_world::collision::{BlockCollisionTable, Vec3, WorldCollision};
+use hytale_world::connected::ConnectedBlockCatalog;
 use hytale_world::crafting::RecipeCatalog;
 use hytale_world::player_data::{
     PlayerAppearance, PlayerDataError, PlayerTransform, Position, Rotation,
@@ -368,6 +369,35 @@ pub struct BlockChangeEvent {
     pub before: i32,
     /// Block id after the change.
     pub after: i32,
+    /// Java rotation tuple index after the change.
+    pub rotation: i8,
+}
+
+/// Placement settings for the interaction/admin paths.
+#[derive(Debug, Clone, Default)]
+pub struct PlaceBlockOptions {
+    /// Java rotation tuple index.
+    pub rotation: i32,
+    /// Face normal the placement targeted (`[0, 0, 0]` for admin/update paths).
+    pub placement_normal: [i32; 3],
+    /// Creative `QuickReplace`: overwrite an occupied target instead of rejecting.
+    pub quick_replace: bool,
+    /// Creative `QuickRetype`: replace the target while keeping its rotation/shape.
+    pub quick_retype: bool,
+    /// Skip the physics/neighbour scheduling for this edit while still persisting it.
+    pub no_physics: bool,
+    /// Placement-created block entity components (Java `BlockHolder` document).
+    pub block_components: Option<serde_json::Value>,
+}
+
+impl PlaceBlockOptions {
+    /// Options for a simple rotated placement.
+    pub fn new(rotation: i32) -> Self {
+        Self {
+            rotation,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -509,7 +539,7 @@ enum Command {
         y: i32,
         z: i32,
         block_id: i32,
-        rotation: i32,
+        options: Box<PlaceBlockOptions>,
         reply: SyncSender<Result<Option<(i32, i32)>, String>>,
     },
     GetBlock {
@@ -1279,6 +1309,19 @@ impl WorldThread {
         block_id: i32,
         rotation: i32,
     ) -> Result<Option<(i32, i32)>, WorldThreadError> {
+        self.place_block_with_options(x, y, z, block_id, PlaceBlockOptions::new(rotation))
+    }
+
+    /// Place `block_id` with the creative/admin flags and optional block entity
+    /// components used by the interaction path.
+    pub fn place_block_with_options(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+        options: PlaceBlockOptions,
+    ) -> Result<Option<(i32, i32)>, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::PlaceBlock {
@@ -1286,7 +1329,7 @@ impl WorldThread {
                 y,
                 z,
                 block_id,
-                rotation,
+                options: Box::new(options),
                 reply,
             })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
@@ -3014,6 +3057,7 @@ fn run(
             weather_forecasts,
             config_assets,
             interactions,
+            connected,
             mut roles,
             mut spawns,
             mut spawn_marker_catalog,
@@ -3172,7 +3216,18 @@ fn run(
                         rotation,
                         reply,
                     } => {
-                        let result = set_block(&mut save, x, y, z, block_id, rotation);
+                        let result = set_block_with_connected(
+                            &mut save,
+                            &generator,
+                            &connected,
+                            x,
+                            y,
+                            z,
+                            block_id,
+                            rotation,
+                            true,
+                            &mut block_events,
+                        );
                         map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
@@ -3202,10 +3257,20 @@ fn run(
                         y,
                         z,
                         block_id,
-                        rotation,
+                        options,
                         reply,
                     } => {
-                        let result = place_block(&mut save, x, y, z, block_id, rotation);
+                        let result = place_block_with_connected(
+                            &mut save,
+                            &generator,
+                            &connected,
+                            x,
+                            y,
+                            z,
+                            block_id,
+                            &options,
+                            &mut block_events,
+                        );
                         map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
@@ -4536,6 +4601,7 @@ fn run(
                                                                         z: bz,
                                                                         before,
                                                                         after,
+                                                                        rotation: 0,
                                                                     },
                                                                 );
                                                             }
@@ -5550,6 +5616,7 @@ struct Started {
     weather_forecasts: BTreeMap<i32, EnvironmentForecast>,
     config_assets: Arc<hytale_assets::ConfigAssets>,
     interactions: Arc<InteractionCatalog>,
+    connected: ConnectedBlockCatalog,
     roles: Option<RoleCatalog>,
     spawns: Option<WorldSpawnCatalog>,
     spawn_marker_catalog: Option<SpawnMarkerCatalog>,
@@ -5778,6 +5845,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         .map_err(WorldThreadError::Thread)?;
     eprintln!("preloaded NPC catalogs in {:?}", started.elapsed());
 
+    let connected = ConnectedBlockCatalog::from_assets(generator.assets());
     let plan = view.plan(save.world().loaded_chunk_coordinates());
     let pending = VecDeque::from(plan.loads.clone());
     let start = WorldStartReport {
@@ -5814,6 +5882,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         weather_forecasts,
         config_assets,
         interactions,
+        connected,
         roles,
         spawns,
         spawn_marker_catalog,
@@ -6843,6 +6912,144 @@ fn set_block(
     Ok((before, save.world().get_block(x, y, z)))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn set_block_with_connected(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    connected: &ConnectedBlockCatalog,
+    x: i32,
+    y: i32,
+    z: i32,
+    block_id: i32,
+    rotation: i32,
+    schedule_physics: bool,
+    block_events: &mut Vec<BlockChangeEvent>,
+) -> Result<(i32, i32), String> {
+    let (chunk_x, chunk_z) = (x >> 5, z >> 5);
+    if save.world().chunk(chunk_x, chunk_z).is_none() {
+        return Err(format!(
+            "chunk ({chunk_x}, {chunk_z}) is not loaded for block ({x}, {y}, {z})"
+        ));
+    }
+    let before = save.world().get_block(x, y, z);
+    save.world_mut()
+        .set_block_full_settings(
+            x,
+            y,
+            z,
+            block_id,
+            rotation.rem_euclid(64),
+            0,
+            schedule_physics,
+        )
+        .map_err(|error| error.to_string())?;
+    let after = save.world().get_block(x, y, z);
+    if before != after {
+        let changes = if after == 0 {
+            connected.update_around(save.world_mut(), generator.assets(), x, y, z, [0, 0, 0])
+        } else {
+            connected.apply(
+                save.world_mut(),
+                generator.assets(),
+                x,
+                y,
+                z,
+                rotation.rem_euclid(64),
+                [0, 0, 0],
+                true,
+            )
+        };
+        block_events.extend(changes.into_iter().map(|change| BlockChangeEvent {
+            x: change.x,
+            y: change.y,
+            z: change.z,
+            before: change.before,
+            after: change.after,
+            rotation: change.rotation as i8,
+        }));
+    }
+    Ok((before, after))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn place_block_with_connected(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    connected: &ConnectedBlockCatalog,
+    x: i32,
+    y: i32,
+    z: i32,
+    block_id: i32,
+    options: &PlaceBlockOptions,
+    block_events: &mut Vec<BlockChangeEvent>,
+) -> Result<Option<(i32, i32)>, String> {
+    if block_id <= 0 {
+        return Ok(None);
+    }
+    let (chunk_x, chunk_z) = (x >> 5, z >> 5);
+    if save.world().chunk(chunk_x, chunk_z).is_none() {
+        return Err(format!(
+            "chunk ({chunk_x}, {chunk_z}) is not loaded for block ({x}, {y}, {z})"
+        ));
+    }
+    let before = save.world().get_block(x, y, z);
+    if before != 0 && !(options.quick_replace || options.quick_retype || options.no_physics) {
+        return Ok(None);
+    }
+
+    let old_rotation = save.world().get_rotation(x, y, z);
+    let (mut target_block, mut rotation) = (block_id, options.rotation.rem_euclid(64));
+    if (options.quick_replace || options.quick_retype) && before != 0 {
+        rotation = old_rotation;
+        if let Some(shape) = connected.shape_for_block(generator.assets(), before) {
+            if let Some(variant) = connected.shape_variant(generator.assets(), block_id, &shape) {
+                target_block = variant;
+            }
+        }
+    }
+    let preserve_state = options.quick_replace || options.quick_retype;
+    let old_component = preserve_state
+        .then(|| save.world().block_component(x, y, z).cloned())
+        .flatten();
+    let old_container = preserve_state
+        .then(|| save.world().container(x, y, z).cloned())
+        .flatten();
+
+    save.world_mut()
+        .set_block_full_settings(x, y, z, target_block, rotation, 0, !options.no_physics)
+        .map_err(|error| error.to_string())?;
+    if let Some(component) = old_component {
+        save.world_mut()
+            .set_block_component(x, y, z, target_block, component.components);
+    }
+    if let Some(container) = old_container {
+        save.world_mut().set_container(x, y, z, container);
+    }
+    if let Some(components) = &options.block_components {
+        save.world_mut()
+            .set_block_component(x, y, z, target_block, components.clone());
+    }
+    let changes = connected.apply(
+        save.world_mut(),
+        generator.assets(),
+        x,
+        y,
+        z,
+        rotation,
+        options.placement_normal,
+        true,
+    );
+    block_events.extend(changes.into_iter().map(|change| BlockChangeEvent {
+        x: change.x,
+        y: change.y,
+        z: change.z,
+        before: change.before,
+        after: change.after,
+        rotation: change.rotation as i8,
+    }));
+    Ok(Some((before, save.world().get_block(x, y, z))))
+}
+
 fn place_block(
     save: &mut WorldSave,
     x: i32,
@@ -6980,6 +7187,7 @@ fn apply_interaction_outcome(
                 z,
                 before,
                 after,
+                rotation: 0,
             });
         }
     }

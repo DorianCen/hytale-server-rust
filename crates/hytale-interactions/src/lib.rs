@@ -13,7 +13,7 @@ pub mod combat;
 pub mod executor;
 
 pub use block::{interaction_type_from_name, state_from_block_key, BlockInteractions};
-pub use catalog::{merge_value, InteractionCatalog, InteractionError};
+pub use catalog::{merge_value, InteractionCatalog, InteractionError, PlaceBlockFlags};
 pub use combat::{
     collect_attack_hits, collect_value_hits, AngledDamage, AttackHit, DamageCalculator,
     DamageEffects, DamageEntity, DamageType, Knockback, TargetedDamage,

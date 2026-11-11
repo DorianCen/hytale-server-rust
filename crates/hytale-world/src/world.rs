@@ -373,6 +373,23 @@ impl World {
         rotation: i32,
         filler: i32,
     ) -> Result<bool> {
+        self.set_block_full_settings(x, y, z, block_id, rotation, filler, true)
+    }
+
+    /// Set one block preserving rotation/filler and optionally scheduling the
+    /// Java physics/neighbour pass. A no-physics edit still marks the chunk
+    /// dirty and persists, but is not queued into [`Self::take_changed_blocks`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_block_full_settings(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+        rotation: i32,
+        filler: i32,
+        schedule_physics: bool,
+    ) -> Result<bool> {
         let index = index_chunk(x >> 5, z >> 5);
         let Some(column) = self.chunks.get_mut(&index) else {
             return Ok(false);
@@ -383,7 +400,9 @@ impl World {
                 section.health.clear(index_local(x, y, z));
             }
             self.dirty.insert(index);
-            self.changed_blocks.insert((x, y, z));
+            if schedule_physics {
+                self.changed_blocks.insert((x, y, z));
+            }
             self.block_support.remove(&(x, y, z));
             self.block_components.remove(x, y, z);
             self.containers.remove(x, y, z);

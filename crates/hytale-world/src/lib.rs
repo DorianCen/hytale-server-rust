@@ -10,6 +10,7 @@
 
 pub mod chunk;
 pub mod collision;
+pub mod connected;
 pub mod containers;
 pub mod crafting;
 pub mod instance;

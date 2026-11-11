@@ -1,4 +1,4 @@
-# Next steps — CoreServer rewrite, phase 2 (session 93)
+# Next steps — CoreServer rewrite, phase 2 (session 97)
 
 **Status:** the first vertical slice is archived in
 [`done/coreserver-vertical-slice/`](done/coreserver-vertical-slice/README.md)
@@ -294,6 +294,20 @@ Landed and green:
   players; the stdin console, `hytale-core` permission/op groups, plain-chat
   broadcast and live world switching are wired. Dynamic arg-value suggestions
   and runtime limit changes remain follow-ups.
+- T69b (done, session 98): `hytale-world::connected` resolves the real patterned
+  pipe rule sets with templated shapes, face tags and `Shape`/`And`/`Or`/`Not`,
+  plus `CustomTemplate` fence/wall templates and `Stair`/`Roof` including
+  roof valley/topper/wide-roof splitting; placement/break/`/setblock` refresh
+  the changed block and its neighbours.
+  `PlaceBlockFlags` parses the interaction flags, `PlaceBlockOptions` applies
+  quick-retype/quick-replace/no-physics while preserving the target
+  shape/rotation, and item `BlockHolder` metadata is stored through the existing
+  component save path.
+- T70 (done, session 97): the ignored `multiplayer_persistence` loopback test
+  joins two clients through one registry, verifies mutual held-item and shared
+  NPC visibility, propagates edits and disconnects, restores inventory/transform
+  on reconnect, and reopens the same save after a world-thread restart with the
+  blocks, both player documents and the NPC still present.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure, local-EdDSA and live-session authenticated joins; common/config
@@ -320,17 +334,21 @@ asset-bring-up list:
 1. **Command long tail (T67 follow-ups):** dynamic argument-value suggestions
    (Java `argTypeId` sync), runtime `maxplayers`/`maxviewradius` changes, rich
    chat formatting, and the remaining Java debug/editor/builder command set.
-2. **Block placement fidelity (T69, done session 96):** client block rotation is
-   stored/broadcast/acked, `/setblock` is authoritative, neighbour
-   support/falling and save/reload rotation are covered. Remaining:
-   server-side `ConnectedBlockRuleSet` state variants, `quickReplace`/
-   `quickRetype`/`noPhysics` flags, and block-entity metadata beyond containers.
-   Those are filed as [T69b](tasks/T69b-block-placement-followups.md).
+2. **Block placement fidelity (T69/T69b, done sessions 96/98):** client block
+   rotation is stored/broadcast/acked, `/setblock` is authoritative, neighbour
+   support/falling and save/reload rotation are covered. T69b adds the server
+   connected-block evaluator for patterned pipes, `CustomTemplate` fence/wall
+   templates and `Stair`/`Roof` (templated shapes, face tags,
+   `Shape`/`And`/`Or`/`Not`, roof valley/topper/wide-roof splitting), creative
+   quick-retype/quick-replace/no-physics flags preserving target shape/rotation,
+   and placement `BlockHolder` component persistence.
 3. **Interaction long tail:** chaining/memories/charging/wielding next maps,
    place-mode selection details, change-active-slot details, and a consistency
    pass over missing-id sentinels (`NOT_FOUND`/`-1` vs `0`).
-4. **Multi-player and persistence smoke:** two clients, held-item/NPC
-   visibility, save/reload, disconnect/reconnect, and world restart.
+4. **Multi-player and persistence smoke (T70, done session 97):** two clients,
+   held-item/NPC visibility, save/reload, disconnect/reconnect and world restart
+   are covered by `client-bot/tests/multiplayer_persistence.rs`. A concurrent
+   10/50/100-player load generator remains a T63/T64 boundary item.
 5. **Presentation gaps:** the known chunk-map, window-distance, particle,
    audio and weather follow-ups from T57b; first-person/held-item polish if a
    new client build exposes it.

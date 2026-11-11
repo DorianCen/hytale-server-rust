@@ -1156,7 +1156,7 @@ rule-set state mutation stays with the interaction long tail.
 
 ### T69b — Block placement follow-ups
 
-**Status:** proposed (filed 2026-11-11)
+**Status:** done (session 98)
 **Package:** `hytale-server`, `hytale-assets`, `hytale-interactions`,
 `hytale-world`
 **Depends on:** T50, T66, T69
@@ -1164,6 +1164,33 @@ rule-set state mutation stays with the interaction long tail.
 `ConnectedBlockRuleSet` state variants, `quickReplace`/`quickRetype`/
 `noPhysics`, and block-entity components beyond containers. See
 [`tasks/T69b-block-placement-followups.md`](tasks/T69b-block-placement-followups.md).
+**Landed:** `hytale-world::connected` resolves the real patterned pipe rule
+sets (templated shapes, face tags, `Shape`/`And`/`Or`/`Not`), deprecated
+`CustomTemplate` fence/wall templates, and `Stair`/`Roof` rule sets (including
+roof valley/topper/wide-roof splitting) with bounded neighbour updates;
+world-thread placement/break/`/setblock` applies them.
+`PlaceBlockFlags` parses the interaction flags and `PlaceBlockOptions` applies
+creative quick-retype/replace/no-physics while preserving the target
+shape/rotation. Item `BlockHolder` metadata is stored through the existing
+block-component save path. Tests cover real pipe corner/neighbour resolution,
+an iron-bars fence corner, stair/roof variants, flag semantics and component
+reload.
+
+### T70 — Multi-player and persistence smoke
+
+**Status:** done (session 97)
+**Package:** `hytale-server`, `tools/client-bot`, docs
+**Depends on:** T45, T47, T49, T56, T59b, T69
+**Agent fit:** low/medium
+**Goal:** prove the combined multi-player/persistence path with two loopback
+clients: mutual held-item/NPC visibility, peer edits and disconnects, reconnect
+restore, and a full world restart with persisted blocks, players and NPCs. See
+[`tasks/T70-multiplayer-persistence-smoke.md`](tasks/T70-multiplayer-persistence-smoke.md).
+**Landed:** `client-bot` observes remote right/left-hand equipment, and the
+ignored `multiplayer_persistence` test joins two clients through one registry,
+checks a shared passive NPC and held items, propagates edits, saves, reconnects,
+restarts the same `WorldThread` save, and verifies the persisted block/player/NPC
+state plus a fresh post-restart join.
 
 ---
 

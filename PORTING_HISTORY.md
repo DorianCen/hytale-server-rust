@@ -2613,3 +2613,71 @@ This file records phase-2 sessions only.
 - **Follow-ups:** server-side `ConnectedBlockRuleSet` state variants,
   `quickReplace`/`quickRetype`/`noPhysics`, and block-entity metadata beyond
   containers.
+
+## Session 97 — T70 multi-player and persistence smoke (2026-11-11)
+
+- **Goal:** close the post-T69 smoke gap with two clients, mutual held-item/NPC
+  visibility, save/reload, disconnect/reconnect and a full world restart.
+- **Bot:** `ObservedEntityUpdate` now carries remote `right_hand`/`left_hand`
+  equipment ids; `record_observed_entities` keeps them from
+  `EquipmentUpdate`. A unit regression covers the decoder.
+- **Scenario:** new ignored `tools/client-bot/tests/multiplayer_persistence.rs`.
+  It joins two clients through one `PlayerRegistry` and `WorldThread`, gives one
+  a held `Rock_Stone` stack and the other `Soil_Grass`, and spawns a passive
+  `Frog_Green` in the same radius-0 view. Both clients see the NPC and each
+  other's held item; the second client places/breaks a block that the first
+  observes; `/save` completes; the first disconnects, the second sees the
+  player-list and entity removal, and reconnect restores the transform and the
+  remaining held stack. The test then saves, shuts down and reopens the same
+  `WorldThread`, verifies the placed/broken blocks, both player snapshots and the
+  persisted NPC entity, and joins a fresh client to the restarted world.
+- **Verified:** `cargo test -p client-bot --lib` (3 passed),
+  `cargo test -p client-bot --test multiplayer_persistence -- --ignored
+  --nocapture` (1 passed, 115.87 s), `./tools/test.sh fast` (1619 passed,
+  29 skipped), `cargo clippy -p client-bot --all-targets -- -D warnings`, and
+  `cargo fmt --all -- --check`.
+- **Follow-ups:** the passive NPC can wander, so post-restart NPC persistence is
+  asserted through the thread entity store while client visibility is covered
+  before the restart. A concurrent 10/50/100-player load generator remains a
+  T63/T64 boundary item.
+
+## Session 98 — T69b connected blocks, placement flags and block entities (2026-11-11)
+
+- **Goal:** close T69's deliberate placement-fidelity limits: server-side
+  connected-block variants, the creative placement flags and placement-created
+  block-entity metadata.
+- **Connected blocks:** new `hytale-world::connected` catalog parses the three
+  real `Patterned` pipe rule sets and evaluates templated shapes, face tags,
+  `Shape` rules and `And`/`Or`/`Not`. It also loads the deprecated
+  `CustomConnectedBlockTemplate` store, resolves fence/wall template patterns and
+  ports the `Stair`/`Roof` regular/hollow variants, roof valley/reverse-valley
+  corners, four-way toppers and width-aware additional-block splitting. It
+  ports Java's 90-degree rotation matrix composition, shape-relative rotations,
+  bounded 3-deep neighbour BFS and the
+  `PlaceUpdate`/`UpdatePlaceUpdate`/`IgnoreUpdates` modes.
+  `WorldThread` owns one parsed catalog per world; `SetBlock`, `PlaceBlock` and
+  `/setblock` apply the changed cell plus neighbours, and queued
+  `BlockChangeEvent`s carry the resulting rotation to session broadcasts.
+- **Flags:** `hytale-interactions::PlaceBlockFlags` walks root/interaction
+  documents and resolves `BlockTypeToPlace`, `RemoveItemInHand`, `QuickReplace`,
+  `QuickRetype` and `NoPhysics`. `PlaceBlockOptions` applies the creative-only
+  quick flags; quick-retype and quick-replace both keep the replaced block's
+  rotation and resolve a compatible shape variant. No-physics skips the scheduled
+  support/physics pass while still persisting the block.
+- **Block entities:** the session reads the Java `BlockHolder` document from the
+  held item metadata and passes it through `PlaceBlockOptions`; the existing
+  opaque block-component store saves/reloads it without a new codec.
+- **Tests:** real-asset pipe corner/neighbour and negative cases plus
+  `CustomTemplate` fence, stair and roof hollow/valley/topper/wide variants
+  (`hytale-world/tests/connected_blocks.rs`), world-thread quick-retype/
+  quick-replace shape/rotation preservation, no-physics and component save/reload
+  (`hytale-server/tests/world_thread.rs`), and nested/real root flag parsing
+  (`hytale-interactions/tests/interactions.rs`).
+- **Verified:** `cargo test -p hytale-server --test world_thread
+  placement_flags_preserve_shape_and_block_components` (1 passed),
+  `cargo test -p hytale-world` (all suites, including 8 connected-block tests),
+  `cargo test -p hytale-interactions` (13 passed),
+  `cargo test -p client-bot --test block_interactions -- --ignored` (2 passed),
+  `./tools/test.sh fast` (1632 passed, 29 skipped), clippy and fmt.
+- **Follow-ups:** expand CustomTemplate mirror transforms; components that still
+  lack a Java golden/dumper; client prediction parity for connected shapes.

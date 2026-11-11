@@ -83,8 +83,13 @@ block/item golden tests**, a clean
   The pack is several GB and is git-ignored.
 - **Live-client parity is verified for the block loop.** Join, spawn, movement,
   block breaking, item drops, pickup and block placement are confirmed against
-  the release client (T66, session 93). Remaining close-out work is placement
-  fidelity, long-tail interaction payloads and multi-player/persistence smoke.
+  the release client (T66, session 93); T69 closed the placement rotation,
+  neighbour and persistence gaps, and T69b (session 98) adds patterned,
+  CustomTemplate fence/wall and Stair/Roof connected-block variants, including
+  roof valley/topper/wide-roof splitting, the creative quick-placement flags and
+  placement block-entity metadata. T70 (session 97) adds the two-client
+  held-item/NPC and world-restart persistence smoke. Remaining close-out work is
+  the long-tail interaction payloads and other deferred placement follow-ups.
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,

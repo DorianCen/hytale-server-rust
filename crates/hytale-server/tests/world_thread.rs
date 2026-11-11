@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use hytale_protocol::generated::common::ArmorVisibilityOption;
 use hytale_protocol::generated::wire::NetworkChannel;
-use hytale_server::{WorldEvent, WorldThread, WorldThreadOptions};
+use hytale_server::{PlaceBlockOptions, WorldEvent, WorldThread, WorldThreadOptions};
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 use hytale_world::world_clock::parse_iso8601;
 use hytale_world::world_config::{WorldConfig, WorldUuid};
@@ -821,6 +821,162 @@ fn block_containers_open_with_their_block_capacity() {
         .expect("removed container")
         .is_none());
 
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
+fn placement_flags_preserve_shape_and_block_components() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let save_dir = temp_dir("placement-flags");
+    let options = || {
+        WorldThreadOptions::with_defaults(
+            hytale_server::GeneratorOptions {
+                assets_pack: repo_root().join("Assets/Assets.zip"),
+                assets_root: repo_root().join("Assets/extracted"),
+                world_dir: repo_root().join("testdata/Default"),
+                workers: 1,
+            },
+            save_dir.clone(),
+        )
+    };
+    let (thread, start) = WorldThread::spawn(options()).expect("spawn the world thread");
+    while thread.tick().expect("tick").remaining > 0 {}
+    let (x, y, z) = (
+        start.player_chunk.0 * 32 + 8,
+        200,
+        start.player_chunk.1 * 32 + 8,
+    );
+    let old_corner = thread
+        .block_type_id("Metal_Goblin_Iron_Pipe_Large_Corner")
+        .expect("resolve old corner")
+        .expect("old corner block");
+    let new_base = thread
+        .block_type_id("Metal_Orbis_Copper_Pipe_Large")
+        .expect("resolve new base")
+        .expect("new base block");
+    let new_corner = thread
+        .block_type_id("Metal_Orbis_Copper_Pipe_Large_Corner")
+        .expect("resolve new corner")
+        .expect("new corner block");
+
+    thread
+        .set_block_rotated(x, y, z, old_corner, 2)
+        .expect("place the old corner variant");
+    let mut quick_retype = PlaceBlockOptions::new(0);
+    quick_retype.quick_retype = true;
+    assert_eq!(
+        thread
+            .place_block_with_options(x, y, z, new_base, quick_retype)
+            .expect("quick retype"),
+        Some((old_corner, new_corner)),
+        "quick retype keeps the corner shape while changing the material"
+    );
+    assert_eq!(
+        thread.block_rotation(x, y, z).expect("rotation"),
+        Some(2),
+        "quick retype keeps the existing rotation"
+    );
+    let stone = thread
+        .block_type_id("Rock_Stone")
+        .expect("resolve stone")
+        .expect("stone block");
+    let old_base = thread
+        .block_type_id("Metal_Goblin_Iron_Pipe_Large")
+        .expect("resolve old base")
+        .expect("old base block");
+    let mut quick_replace = PlaceBlockOptions::new(5);
+    quick_replace.quick_replace = true;
+    assert_eq!(
+        thread
+            .place_block_with_options(x, y, z, old_base, quick_replace)
+            .expect("quick replace"),
+        Some((new_corner, old_corner)),
+        "quick replace overwrites the occupied target and keeps its corner shape"
+    );
+    assert_eq!(
+        thread.block_rotation(x, y, z).expect("rotation"),
+        Some(2),
+        "quick replace keeps the replaced block's rotation"
+    );
+
+    let components = serde_json::json!({
+        "Components": {
+            "BlockMapMarker": {"Id": "t69b-marker", "Discoverable": true},
+            "TestState": {"Value": 7}
+        }
+    });
+    let (cx, cz) = (x + 2, z + 2);
+    thread
+        .set_block(cx, y, cz, 0)
+        .expect("clear component target");
+    let mut with_components = PlaceBlockOptions::new(0);
+    with_components.block_components = Some(components.clone());
+    assert!(thread
+        .place_block_with_options(cx, y, cz, stone, with_components)
+        .expect("place with components")
+        .is_some());
+    assert_eq!(
+        thread
+            .block_component(cx, y, cz)
+            .expect("read component")
+            .expect("placement component")
+            .components,
+        components,
+        "the Java BlockHolder document is stored with the placed block"
+    );
+
+    let falling = thread
+        .block_type_id("Debug_Falling_Barrel")
+        .expect("resolve falling block")
+        .expect("falling block");
+    let (fx, fz) = (x + 4, z + 4);
+    thread
+        .set_block(fx, y, fz, 0)
+        .expect("clear falling target");
+    let mut no_physics = PlaceBlockOptions::new(0);
+    no_physics.no_physics = true;
+    assert!(thread
+        .place_block_with_options(fx, y, fz, falling, no_physics)
+        .expect("no-physics placement")
+        .is_some());
+    for _ in 0..20 {
+        thread.simulate(0.05).expect("simulate no-physics block");
+    }
+    assert_eq!(
+        thread.get_block(fx, y, fz).expect("read no-physics block"),
+        Some(falling),
+        "noPhysics suppresses the scheduled support/falling pass"
+    );
+    thread.set_block(fx, y, fz, 0).expect("clear barrel");
+    assert!(thread
+        .place_block_rotated(fx, y, fz, falling, 0)
+        .expect("normal placement")
+        .is_some());
+    for _ in 0..20 {
+        thread.simulate(0.05).expect("simulate normal block");
+    }
+    assert_ne!(
+        thread.get_block(fx, y, fz).expect("read normal block"),
+        Some(falling),
+        "a normal placement still schedules the support/falling pass"
+    );
+
+    thread.shutdown().expect("shutdown");
+    let (thread, _) = WorldThread::spawn(options()).expect("respawn the world thread");
+    while thread.tick().expect("tick").remaining > 0 {}
+    assert_eq!(
+        thread
+            .block_component(cx, y, cz)
+            .expect("read reloaded component")
+            .expect("reloaded placement component")
+            .components,
+        components,
+        "placement-created block components survive save/reload"
+    );
     thread.shutdown().expect("shutdown");
     std::fs::remove_dir_all(save_dir).ok();
 }

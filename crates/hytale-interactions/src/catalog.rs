@@ -200,3 +200,109 @@ pub fn merge_value(target: &mut Value, source: &Value) {
         (target, source) => *target = source.clone(),
     }
 }
+
+/// Server-side `PlaceBlockInteraction` flags resolved from a root interaction.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlaceBlockFlags {
+    /// Optional `BlockTypeToPlace` override.
+    pub block_type: Option<String>,
+    /// Whether the held item is consumed (`RemoveItemInHand`, Java default true).
+    pub remove_item_in_hand: bool,
+    /// Creative `QuickReplace`.
+    pub quick_replace: bool,
+    /// Creative `QuickRetype`.
+    pub quick_retype: bool,
+    /// Creative `NoPhysics`.
+    pub no_physics: bool,
+}
+
+impl PlaceBlockFlags {
+    /// Parse one interaction node, if it is a `PlaceBlock`.
+    fn from_node(value: &Value) -> Option<Self> {
+        if value.get("Type").and_then(Value::as_str) != Some("PlaceBlock") {
+            return None;
+        }
+        Some(Self {
+            block_type: value
+                .get("BlockTypeToPlace")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            remove_item_in_hand: value
+                .get("RemoveItemInHand")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            quick_replace: value
+                .get("QuickReplace")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            quick_retype: value
+                .get("QuickRetype")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            no_physics: value
+                .get("NoPhysics")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        })
+    }
+}
+
+impl InteractionCatalog {
+    /// Resolve the first `PlaceBlock` node reachable from a root interaction.
+    ///
+    /// Root interaction chains often reach placement through `UseBlock`'s
+    /// failed branch or a `Select`; this walks strings and nested documents
+    /// until it finds the node that carries the creative flags.
+    pub fn place_block_flags(&self, root: &str) -> Option<PlaceBlockFlags> {
+        let root = self.root(root)?;
+        let mut visiting = BTreeSet::new();
+        self.visit_place_block(root, &mut visiting)
+    }
+
+    fn visit_place_block(
+        &self,
+        value: &Value,
+        visiting: &mut BTreeSet<String>,
+    ) -> Option<PlaceBlockFlags> {
+        match value {
+            Value::Object(object) => {
+                if let Some(flags) = PlaceBlockFlags::from_node(value) {
+                    return Some(flags);
+                }
+                for (key, child) in object {
+                    if key == "Parent" {
+                        continue;
+                    }
+                    if let Some(flags) = self.visit_place_block(child, visiting) {
+                        return Some(flags);
+                    }
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    if let Some(flags) = self.visit_place_block(child, visiting) {
+                        return Some(flags);
+                    }
+                }
+            }
+            Value::String(reference) => {
+                let key = reference.to_ascii_lowercase();
+                if !visiting.insert(key.clone()) {
+                    return None;
+                }
+                if let Some(node) = self.interaction(&key) {
+                    if let Some(flags) = self.visit_place_block(node, visiting) {
+                        return Some(flags);
+                    }
+                }
+                if let Some(root) = self.root(&key) {
+                    if let Some(flags) = self.visit_place_block(root, visiting) {
+                        return Some(flags);
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+}

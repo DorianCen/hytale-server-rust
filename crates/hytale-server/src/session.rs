@@ -2004,7 +2004,7 @@ async fn apply_game_mode(
     writer: &mut FrameWriter,
     options: &SessionOptions,
     mode: &str,
-) -> Result<(), SessionError> {
+) -> Result<GameMode, SessionError> {
     let game_mode = if mode == "creative" {
         GameMode::Creative
     } else {
@@ -2014,7 +2014,7 @@ async fn apply_game_mode(
         .write_packet(&SetGameMode { game_mode }, options.chunk_compression_level)
         .await?;
     send_server_message(writer, &format!("Game mode set to {mode}"), options).await?;
-    Ok(())
+    Ok(game_mode)
 }
 
 async fn apply_kill(
@@ -3110,6 +3110,7 @@ async fn run_game_loop(
         overflow,
     } = live;
     let mut report = GameLoopReport::default();
+    let mut game_mode = GameMode::Adventure;
     let mut ticker = std::time::Instant::now();
     let mut last_activity = std::time::Instant::now();
     let interval = Duration::from_millis(50);
@@ -3251,7 +3252,7 @@ async fn run_game_loop(
                             .await?;
                         }
                         ControlAction::SetGameMode { mode } => {
-                            apply_game_mode(writer, options, &mode).await?;
+                            game_mode = apply_game_mode(writer, options, &mode).await?;
                         }
                         ControlAction::Kill => {
                             apply_kill(writer, options, active_thread, network_id).await?;
@@ -3506,7 +3507,7 @@ async fn run_game_loop(
                     z: event.z,
                     block_id: event.after,
                     filler: 0,
-                    rotation: 0,
+                    rotation: event.rotation,
                 });
             }
         }
@@ -3702,6 +3703,9 @@ async fn run_game_loop(
                             &interactions,
                             &interaction,
                             None,
+                            None,
+                            None,
+                            game_mode,
                             options.block_break_damage,
                         );
                         match outcome {
@@ -3947,6 +3951,9 @@ async fn run_game_loop(
                                 continue;
                             };
                             let placement = chain_placement_position(update);
+                            let placement_normal = chain_placement_normal(update);
+                            let place_flags =
+                                interaction_chain_place_flags(thread, &interactions, update);
                             let outcome = handle_block_interaction(
                                 thread,
                                 &players,
@@ -3955,6 +3962,9 @@ async fn run_game_loop(
                                 &interactions,
                                 &interaction,
                                 placement.clone(),
+                                placement_normal,
+                                place_flags.as_ref(),
+                                game_mode,
                                 options.block_break_damage,
                             );
                             if interaction_debug_enabled() {
@@ -4159,7 +4169,8 @@ async fn run_game_loop(
                                         }
                                         CommandEffect::SetGameMode { target, mode } => {
                                             if target_is_self(&target, &username) {
-                                                apply_game_mode(writer, options, &mode).await?;
+                                                game_mode =
+                                                    apply_game_mode(writer, options, &mode).await?;
                                             } else if let Some(target_name) = target.as_deref() {
                                                 if let Some(id) =
                                                     players.network_id_for(target_name)
@@ -5083,6 +5094,29 @@ fn chain_placement_position(update: &SyncInteractionChain) -> Option<BlockPositi
     })
 }
 
+fn chain_placement_normal(update: &SyncInteractionChain) -> Option<[i32; 3]> {
+    if let Some(normal) = update
+        .data
+        .as_ref()
+        .and_then(|data| data.hit_normal.as_ref())
+    {
+        return Some([
+            normal.x.round() as i32,
+            normal.y.round() as i32,
+            normal.z.round() as i32,
+        ]);
+    }
+    let face = update
+        .interaction_data
+        .as_ref()?
+        .iter()
+        .rev()
+        .flatten()
+        .find_map(|entry| (entry.block_face != BlockFace::None).then_some(entry.block_face))?;
+    let (x, y, z) = block_face_direction(face);
+    Some([x, y, z])
+}
+
 fn block_face_direction(face: BlockFace) -> (i32, i32, i32) {
     match face {
         BlockFace::Up => (0, 1, 0),
@@ -5123,32 +5157,50 @@ async fn cancel_interaction_chain(
 /// contained item defines one (`Block_Primary` for plants), otherwise the
 /// unarmed primary root. The server must echo this id in its first sync packet;
 /// `NOT_FOUND` leaves the client unable to resolve the chain and it desyncs.
-fn interaction_chain_root(thread: &WorldThread, update: &SyncInteractionChain) -> i32 {
-    const NOT_FOUND: i32 = hytale_assets::packets::INTERACTION_NOT_FOUND;
-    let Some(block) = update
+fn interaction_chain_root_key(
+    thread: &WorldThread,
+    update: &SyncInteractionChain,
+) -> Option<String> {
+    let block = update
         .data
         .as_ref()
-        .and_then(|data| data.block_position.as_ref())
-    else {
-        return NOT_FOUND;
-    };
+        .and_then(|data| data.block_position.as_ref());
     let Ok(assets) = thread.asset_registry() else {
-        return NOT_FOUND;
+        return None;
     };
-    if let Ok(Some((key, json))) = thread.block_type_json(block.x, block.y, block.z) {
-        let interactions = BlockInteractions::from_json(&key, &json);
-        if let Some(root) = interactions
-            .root(update.interaction_type)
-            .and_then(|root| assets.root_interactions.id_of(root))
-        {
-            return root;
+    if let Some(block) = block {
+        if let Ok(Some((key, json))) = thread.block_type_json(block.x, block.y, block.z) {
+            let interactions = BlockInteractions::from_json(&key, &json);
+            if let Some(root) = interactions.root(update.interaction_type) {
+                return Some(root.to_string());
+            }
         }
     }
     assets
         .unarmed_interactions
         .get(&update.interaction_type)
-        .and_then(|root| assets.root_interactions.id_of(root))
+        .cloned()
+}
+
+fn interaction_chain_root(thread: &WorldThread, update: &SyncInteractionChain) -> i32 {
+    const NOT_FOUND: i32 = hytale_assets::packets::INTERACTION_NOT_FOUND;
+    let Some(root) = interaction_chain_root_key(thread, update) else {
+        return NOT_FOUND;
+    };
+    thread
+        .asset_registry()
+        .ok()
+        .and_then(|assets| assets.root_interactions.id_of(&root))
         .unwrap_or(NOT_FOUND)
+}
+
+fn interaction_chain_place_flags(
+    thread: &WorldThread,
+    interactions: &InteractionCatalog,
+    update: &SyncInteractionChain,
+) -> Option<hytale_interactions::PlaceBlockFlags> {
+    interaction_chain_root_key(thread, update)
+        .and_then(|root| interactions.place_block_flags(&root))
 }
 
 fn interaction_chain_ack(
@@ -5303,6 +5355,9 @@ fn handle_block_interaction(
     interactions: &InteractionCatalog,
     interaction: &MouseInteraction,
     placement_position: Option<BlockPosition>,
+    placement_normal: Option<[i32; 3]>,
+    place_flags: Option<&hytale_interactions::PlaceBlockFlags>,
+    game_mode: GameMode,
     block_break_damage: f32,
 ) -> BlockInteractionOutcome {
     if let Some(outcome) = try_block_use(thread, players, transform, interactions, interaction) {
@@ -5390,32 +5445,67 @@ fn handle_block_interaction(
             // The inventory is authoritative. The packet's item id remains a
             // compatibility fallback for sessions/tests without a saved
             // inventory (creative/debug joins).
-            let (item_id, from_inventory) = inventory
-                .right_hand()
-                .map(|stack| (stack.item_id.clone(), true))
-                .unwrap_or((item_id, false));
-            let Ok(Some(block_id)) = thread.block_id_for_item(&item_id) else {
+            let held = inventory.right_hand();
+            let (item_id, from_inventory, block_components) = match held {
+                Some(stack) => (
+                    stack.item_id.clone(),
+                    true,
+                    stack
+                        .metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("BlockHolder"))
+                        .cloned(),
+                ),
+                None => (item_id, false, None),
+            };
+            let block_id = place_flags
+                .and_then(|flags| flags.block_type.as_deref())
+                .and_then(|key| thread.block_type_id(key).ok().flatten())
+                .or_else(|| thread.block_id_for_item(&item_id).ok().flatten());
+            let Some(block_id) = block_id.filter(|id| *id > 0) else {
                 return BlockInteractionOutcome::Rejected;
+            };
+            let creative = game_mode == GameMode::Creative;
+            let quick_replace = creative && place_flags.is_some_and(|flags| flags.quick_replace);
+            let quick_retype = creative && place_flags.is_some_and(|flags| flags.quick_retype);
+            let no_physics = creative && place_flags.is_some_and(|flags| flags.no_physics);
+            let remove_item_in_hand = place_flags
+                .map(|flags| flags.remove_item_in_hand)
+                .unwrap_or(true);
+            let rotation = rotation.as_ref().map(block_rotation_index).unwrap_or(0);
+            let options = crate::world_thread::PlaceBlockOptions {
+                rotation,
+                placement_normal: placement_normal.unwrap_or([0, 0, 0]),
+                quick_replace,
+                quick_retype,
+                no_physics,
+                block_components,
             };
             // Java's `PlaceBlockInteraction` uses the packet's block position
             // directly. Some clients send the clicked face instead, so keep the
             // normal-adjusted cell as a fallback rather than the primary target.
             let mut target = (x, y, z);
-            let rotation = rotation.as_ref().map(block_rotation_index).unwrap_or(0);
-            let mut placed = thread.place_block_rotated(x, y, z, block_id, rotation);
+            let mut placed = thread.place_block_with_options(x, y, z, block_id, options.clone());
             if matches!(placed, Ok(None)) {
                 if let Some(position) = placement_position {
                     if (position.x, position.y, position.z) != (x, y, z) {
                         target = (position.x, position.y, position.z);
-                        placed = thread
-                            .place_block_rotated(target.0, target.1, target.2, block_id, rotation);
+                        placed = thread.place_block_with_options(
+                            target.0, target.1, target.2, block_id, options,
+                        );
                     }
                 }
             }
             let Ok(Some((_before, after))) = placed else {
                 return BlockInteractionOutcome::Rejected;
             };
-            if from_inventory && !matches!(inventory.consume_right_hand(1), Ok(Some(_))) {
+            let final_rotation = thread
+                .block_rotation(target.0, target.1, target.2)
+                .ok()
+                .flatten()
+                .unwrap_or(rotation);
+            let consume = from_inventory && !creative && remove_item_in_hand;
+            if consume && !matches!(inventory.consume_right_hand(1), Ok(Some(_))) {
                 return BlockInteractionOutcome::Rejected;
             }
             players.broadcast_block(ServerSetBlock {
@@ -5424,16 +5514,16 @@ fn handle_block_interaction(
                 z: target.2,
                 block_id: after,
                 filler: 0,
-                rotation: rotation as i8,
+                rotation: final_rotation as i8,
             });
             BlockInteractionOutcome::Edit {
-                consumed: from_inventory,
+                consumed: consume,
                 placed: Some(PlacedBlock {
                     x: target.0,
                     y: target.1,
                     z: target.2,
                     block_id: after,
-                    rotation,
+                    rotation: final_rotation,
                 }),
             }
         }

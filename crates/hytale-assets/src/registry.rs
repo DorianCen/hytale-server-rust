@@ -400,6 +400,12 @@ const CONNECTED_BLOCK_RULE_SET: StoreSpec = StoreSpec {
     map: MapKind::Default,
 };
 
+const CUSTOM_CONNECTED_BLOCK_TEMPLATE: StoreSpec = StoreSpec {
+    name: "CustomConnectedBlockTemplate",
+    path: "Server/Item/CustomConnectedBlockTemplates",
+    map: MapKind::Default,
+};
+
 const AMBIENCE_FX: StoreSpec = StoreSpec {
     name: "AmbienceFX",
     path: "Server/Audio/AmbienceFX",
@@ -991,6 +997,8 @@ pub struct AssetRegistry {
     pub music_transitions: AssetCollection<Value>,
     /// `ConnectedBlockRuleSet` (`Server/Item/ConnectedBlockRuleSets`).
     pub connected_block_rule_sets: AssetCollection<Value>,
+    /// Deprecated `CustomConnectedBlockTemplate` fence/wall rule-set templates.
+    pub custom_connected_block_templates: AssetCollection<Value>,
     /// `AmbienceFX` (`Server/Audio/AmbienceFX`, `Empty` preloaded at 0).
     pub ambience_fxs: AssetCollection<Value>,
     /// `Stinger` (`Server/Audio/Stingers`, `EMPTY` preloaded at 0).
@@ -1122,6 +1130,7 @@ impl AssetRegistry {
             particle_spawners: AssetCollection::empty(),
             music_transitions: AssetCollection::empty(),
             connected_block_rule_sets: AssetCollection::empty(),
+            custom_connected_block_templates: AssetCollection::empty(),
             ambience_fxs: AssetCollection::empty(),
             stingers: AssetCollection::empty(),
             recipes: AssetCollection::empty(),
@@ -1183,6 +1192,8 @@ impl AssetRegistry {
             Vec::new(),
             MergeHook::Custom(merge_connected_block_rule_set),
         )?;
+        registry.custom_connected_block_templates =
+            load_default_store(pack, &CUSTOM_CONNECTED_BLOCK_TEMPLATE, Vec::new())?;
         registry.ambience_fxs =
             load_indexed_store(pack, &AMBIENCE_FX, ambience_fx_preloads(), parse_key_asset)?;
         registry.stingers =

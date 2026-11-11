@@ -161,3 +161,93 @@ fn loads_the_real_root_and_interaction_stores_when_available() {
     let door = catalog.interaction("Door").expect("Door interaction");
     assert_eq!(door.get("Type").and_then(Value::as_str), Some("Door"));
 }
+
+#[test]
+fn place_block_flags_follow_nested_root_paths() {
+    let catalog = catalog(
+        &[
+            (
+                "Place_Default",
+                json!({"Type": "PlaceBlock", "RemoveItemInHand": true}),
+            ),
+            (
+                "Place_Replace",
+                json!({
+                    "Type": "PlaceBlock",
+                    "BlockTypeToPlace": "Rock_Stone",
+                    "QuickReplace": true,
+                    "NoPhysics": true,
+                    "RemoveItemInHand": false
+                }),
+            ),
+            (
+                "Place_Retype",
+                json!({"Type": "PlaceBlock", "QuickRetype": true}),
+            ),
+        ],
+        &[
+            (
+                "Root_Default",
+                json!({"Interactions": [{"Type": "UseBlock", "Failed": "Place_Default"}]}),
+            ),
+            ("Root_Replace", json!({"Interactions": ["Place_Replace"]})),
+            (
+                "Root_Retype",
+                json!({"Interactions": [{"Type": "Select", "Default": "Place_Retype"}]}),
+            ),
+        ],
+    );
+
+    assert_eq!(
+        catalog.place_block_flags("Root_Default"),
+        Some(hytale_interactions::PlaceBlockFlags {
+            block_type: None,
+            remove_item_in_hand: true,
+            quick_replace: false,
+            quick_retype: false,
+            no_physics: false,
+        })
+    );
+    assert_eq!(
+        catalog.place_block_flags("Root_Replace"),
+        Some(hytale_interactions::PlaceBlockFlags {
+            block_type: Some("Rock_Stone".to_string()),
+            remove_item_in_hand: false,
+            quick_replace: true,
+            quick_retype: false,
+            no_physics: true,
+        })
+    );
+    assert_eq!(
+        catalog.place_block_flags("Root_Retype"),
+        Some(hytale_interactions::PlaceBlockFlags {
+            block_type: None,
+            remove_item_in_hand: true,
+            quick_replace: false,
+            quick_retype: true,
+            no_physics: false,
+        })
+    );
+}
+
+#[test]
+fn real_block_secondary_root_reaches_the_place_node() {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        eprintln!("HYTALE_TEST_ASSETS disables the asset-backed test");
+        return;
+    }
+    let pack = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Assets.zip");
+    if !pack.is_file() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let pack = hytale_assets::AssetPack::open(pack).expect("open pack");
+    let catalog = InteractionCatalog::load(&pack).expect("load interactions");
+    let flags = catalog
+        .place_block_flags("Block_Secondary")
+        .expect("Block_Secondary reaches a PlaceBlock node");
+    assert!(flags.remove_item_in_hand);
+}
