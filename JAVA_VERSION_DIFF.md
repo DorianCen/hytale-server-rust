@@ -1,28 +1,28 @@
-# Java 0.7.2 vs 0.7.5 — protocol and asset comparison
+# Java shared-source delta — 2026-10-14 → 2026-11-05
 
-**Status:** investigation complete (2026-10-31)
-**Question:** does the release-client version gap (old Java server used for the
-Rust rewrite vs the current Java server) explain the Rust server's
-`WorldLoadFinished` failure?
+**Status:** refreshed 2026-11-11
+**Question:** does the newer Java shared source change the protocol, assets or
+runtime behavior that the Rust server ports?
 
 ## Inputs
 
-| Input | Path | Commit / date |
-|---|---|---|
-| Old shared source used by the Rust rewrite | `.hytale-source/hytale-shared-source` | `387dc7e0a` — Sync 2026-10-14 |
-| Current shared source | `/home/chome/Projects/hytale-shared-source` | `bcc393865` — Sync 2026-10-30 |
-| Rust unpacked asset pack | `Assets/extracted` | matches `387dc7e0a` |
+| Input | Path | Commit | Date |
+|---|---|---|---|
+| Archived reference (Rust rewrite + goldens) | `.hytale-source/hytale-shared-source` | `387dc7e0a` | 2026-10-14 |
+| Previously compared tree | `~/Projects/hytale-shared-source` (before pull) | `bcc393865` | 2026-10-30 |
+| Current pulled tree | `~/Projects/hytale-shared-source` | `b9eb29b30` | 2026-11-05 |
+| Rust asset pack | `Assets/extracted` | matches `387dc7e0a` | — |
 
-The two commits are consecutive release-branch sync points. There are three
-commits between them: `e6285f3a4` (2026-10-21), `f063c2a88` (2026-10-22) and
-`bcc393865` (2026-10-30).
+The pulled tree contains three syncs after the archived reference:
+`e6285f3a4` (2026-10-21), `f063c2a88` (2026-10-22) and `bcc393865`
+(2026-10-30), plus `b9eb29b30` (2026-11-05).
 
 Reproduce with:
 
 ```sh
 tools/compare-java-versions.py \
   .hytale-source/hytale-shared-source \
-  /home/chome/Projects/hytale-shared-source \
+  ~/Projects/hytale-shared-source \
   Assets/extracted
 ```
 
@@ -33,83 +33,106 @@ protocol-version.json: old crc=3908406161 build=258; new crc=3908406161 build=25
 Protocol: files 883 vs 883; changed 0; left-only 0; right-only 0
 ```
 
-- `Protocol/protocol-version.json` is the same blob in both commits.
-- The complete `Protocol/` tree (C# source of truth + generated serializers) has
-  **0 changed files** between the two commits.
-- `HytaleServer/Protocol` has only four changed Java files, all IO/decoder
-  plumbing; no generated packet class changed.
-- The Rust generated protocol already asserts the same values:
-  `crates/hytale-protocol/tests/registry.rs` checks `settings::CRC ==
-  -386_561_135` and `settings::BUILD_NUMBER == 258`.
+- Packet IDs, layouts, channels, compression flags and protocol constants are
+  identical.
+- The only `HytaleServer/Protocol` edits are IO plumbing: the new
+  `ConnectionHandler.handlesPacket` hook and `PacketDecoder`'s pre-buffer
+  channel/handler checks (see Result 3). No generated packet class changed.
+- The Rust generated protocol still asserts the same values in
+  `crates/hytale-protocol/tests/registry.rs` (`CRC == -386_561_135`,
+  `BUILD_NUMBER == 258`).
 
-**Conclusion:** packet IDs, layouts, channels, compression flags and protocol
-constants are identical for both Java versions. A 0.7.5 client and a server
-using the 0.7.2 protocol are not rejected by the `Connect` CRC/build check.
+**Conclusion:** a 0.7.x client and the Rust server still agree on the network
+contract. No protocol codegen change is required.
 
-## Result 2 — Rust uses the old asset pack, not the new one
-
-```text
-Rust Server JSON vs old: common 36498; same 36498; different 0;
-                         rust-only 6; old-only 0
-Rust Server JSON vs new: common 36498; same 36468; different 30;
-                         rust-only 6; new-only 4
-```
-
-`Assets/extracted/Server` is byte-identical to the 2026-10-14 checkout for
-every common JSON file. The six Rust-only files are instance configs, not
-assets. The new checkout adds four assets and changes 30:
-
-- 20 `Armor_*_Legs.json` files: add `Overpants` to `CosmeticsToHide`
-- 8 Halloween/deco/food item documents: model paths, light colours, new
-  `State`/`Interactions` and new pumpkin-lamp/base plush assets
-- `Models/Beast/Hatworm.json`: one cosmetic texture path
-
-The full asset tree has 79 changed common files, all cosmetics/event content
-(plush models, makeup textures, cosmetology language files, Halloween icons),
-plus 4 new Server JSON items. No block/store schema changed.
-
-## Result 3 — Java server asset/packet code did not change
+## Result 2 — Rust assets still match the archived pack
 
 ```text
-asset code changed in CoreServer: 0
-HytaleServer/CoreServer/src/main/java files changed: 18
-HytaleAssets files changed: 200
+Rust Server JSON vs old: common 36498; same 36498; different 0; rust-only 6; old-only 0
+Rust Server JSON vs new: common 36498; same 36468; different 30; rust-only 6; new-only 4
+Server JSON old -> new: changed 30; added 4
 ```
 
-The 18 Java source files are Sentry configuration, QUIC/Netty stream handling,
-packet handler `handlesPacket` additions and two world commands. Zero files
-under `asset/` or `modules/` changed, and no `*PacketGenerator` or `toPacket()`
-implementation changed.
+`Assets/extracted/Server` is still byte-identical to the 2026-10-14 checkout.
+The newer tree changes 30 and adds 4 Server documents:
 
-One client-facing behaviour is new in 0.7.5: `PacketDecoder` now rejects a
-packet before buffering if the current handler does not accept its ID, and
-validates that the packet channel matches the stream. The Rust server does not
-yet mirror that pre-buffer handler check, but this is a Rust-side hardening
-difference, not a protocol-version incompatibility.
+- **20 `Armor_*_Legs.json`** add `Overpants` to `CosmeticsToHide`. Rust already
+  maps `Cosmetic::Overpants`
+  (`crates/hytale-assets/src/packets/item.rs`).
+- **8 Halloween/deco/food items** retarget `CustomModel`/texture paths from
+  `Items/Halloween_Props/**` to `Blocks/Decorative_Sets/Halloween/**`, adjust
+  light colours, and add `State.Definitions` plus `Use`/`ChangeState`
+  interactions. Rust already loads `State.Definitions` and executes
+  `ChangeState` (`crates/hytale-assets/src/packets/block_type.rs`,
+  `crates/hytale-interactions/src/executor.rs`).
+- **`Models/Beast/Hatworm.json`** swaps one cosmetic texture path.
+- **`Server/Languages/en-US/server.lang`** adds names for the new items.
+- **4 new items**: `Deco_Bat_Plush` and three
+  `Deco_Halloween_Pumpkin_Lamp_*` variants, with new Common models, icons and
+  cosmetics. The new items use the existing item/block/interaction shapes.
 
-## Conclusion for T66
+No block, item or store schema changed, so the
+`--validate-assets` store list and count are unchanged. The local pack still
+has 3,960 item documents; the newer tree has 3,964.
 
-The 0.7.2 → 0.7.5 gap is **not a protocol-version incompatibility**:
+**Consequence:** the running server needs no code change for the new content.
+If the asset pack is refreshed, the item/icon goldens (the 3,971-item packet
+assertions) and any content-derived fixtures must be re-baselined with
+`tools/java-dumper`; the Rust parsers should accept the new documents as-is.
 
-- the network contract is byte-identical;
-- the Rust asset pack matches the old checkout exactly;
-- the only asset deltas are cosmetic/Halloween items and one model;
-- no asset-store or packet-generator code changed.
+## Result 3 — server code deltas and Rust impact
 
-The `WorldLoadFinished` failure is therefore more likely in the Rust server's
-runtime behaviour (setup/auth flow, common-asset request handling, config packet
-contents or the new strict packet-handler/channel validation) than in the
-client/server version pair.
+The 260 changed files are mostly content (155 Common assets/cosmetics, 10
+Cosmetics documents, 35 Server assets). The `HytaleServer` source changes fall
+into two groups.
 
-Refreshing `Assets/Assets.zip` to the 0.7.5 asset tree is still useful for
-content parity, but it should not be treated as the fix for the connection
-failure until a client log identifies a missing 0.7.5 asset or packet.
+### Relevant to the Rust server
+
+| Java change | Rust state | Impact |
+|---|---|---|
+| New `security/CertificateTrustPolicy` deny-lists eight compromised eMudhra intermediate CA SPKIs for outbound HTTPS (`Main.java` installs it) | `hytale-auth` uses `ureq` + webpki roots (`crates/hytale-auth/src/live.rs`) with no deny-list | Security hardening gap → **T68** |
+| `ConnectionHandler.handlesPacket`, `PacketDecoder` channel/handler pre-checks, `QuicheChannel.acceptsPacket`/`checkHandled` reject wrong-channel or wrong-stage packets before buffering | `FrameStream` rejects unknown IDs and oversized frames before the payload, and the session enforces stage legality after decoding (`SessionError::UnexpectedPacket`), but never checks `PacketInfo.channel` against the stream | Hardening gap → **T68** |
+| `QuicheListener` lowers the non-loopback QUIC payload ceiling to 1452 bytes, uses 5000 on loopback and a 1200 floor for IPv4/private peers; `QuicheConnection` sends paced datagrams | quinn default `max_udp_payload_size = 1472`, no explicit `TransportConfig` (`crates/hytale-net/src/transport.rs`) | Tuning/robustness gap → **T68** |
+| JWKS is now committed under `CoreServer/src/main/jwks/<env>.json` instead of fetched at build time | `hytale-auth` fetches `/well-known/jwks.json` at runtime and caches `.jwks.json` | No break; offline-JWKS parity remains a documented follow-up |
+| `JWTValidator` comment only | — | None |
+
+### Not applicable to the Rust server
+
+- `SentryDsn` config, `ThirdPartySentryFilter` and the plugin/event Sentry
+  routing changes: the Rust server has no Sentry and its plugins are compiled
+  in.
+- Singleplayer `localhost` binding: Rust already binds explicit loopback
+  addresses (`ServerEndpoint::bind_addrs`).
+- `HytaleGenerator` density-`anchor` unification, `OffsetX/Y/Z` int→double and
+  thread-count tuning: `builtin/HytaleGenerator` remains a separate engine
+  project (T61); Rust worldgen does not port that asset graph.
+- Beds respawn-owner/state-save fix and chunk-tint updates on chunk
+  regeneration: Rust has no respawn-point pages, regeneration command or tint
+  notifications.
+- `CosmeticsModule` disconnect-message format note: Rust does not emit
+  `invalidSkin` validation messages.
+
+## Conclusion for T66 (preserved)
+
+The 0.7.2 → 0.7.5 gap was not a protocol-version incompatibility: the network
+contract is byte-identical, the Rust pack matches the old checkout exactly, and
+the only asset deltas were cosmetic/Halloween content. The `WorldLoadFinished`
+failure was therefore a runtime-flow problem, not a version pair, and T66 fixed
+it on the Rust side.
+
+## Current conclusion (2026-11-11)
+
+The 2026-11-05 shared source does **not** break the Rust server: the protocol is
+unchanged and the asset deltas are content-only. The remaining differences are
+outbound TLS hardening, packet channel validation and QUIC payload tuning, filed
+as [T68](tasks/T68-upstream-transport-auth-hardening.md).
 
 ## Follow-ups
 
-- Capture the release client's exact disconnect/`WorldLoadFinished` log before
-  changing protocol or packet generation.
-- Consider mirroring 0.7.5's `handlesPacket`/channel pre-checks in the Rust
-  transport, since that is the only new client-facing server validation.
-- Refresh the asset pack separately, with the 30 changed and 4 added Server
-  assets re-baselined through the existing asset tests.
+- [T68](tasks/T68-upstream-transport-auth-hardening.md): TLS SPKI deny-list,
+  packet channel validation and QUIC payload ceiling.
+- Refresh `Assets/Assets.zip`/`Assets/extracted` to the 2026-11-05 tree in a
+  separate change, then re-baseline the item/icon goldens with
+  `tools/java-dumper`.
+- Consider bundling the release JWKS for offline live-auth validation when the
+  credential-persistence follow-up lands.

@@ -334,6 +334,11 @@ asset-bring-up list:
 6. **Per-join player identity and real spawn providers:** the server still
    joins the world's stored player in single-player style; per-auth-UUID
    identity and Java `SpawnProvider` parity remain.
+7. **Upstream hardening (T68, after T67):** the 2026-11-05 Java shared source
+   adds an outbound TLS SPKI deny-list, packet channel validation and a
+   1452-byte QUIC payload ceiling. See
+   [`tasks/T68-upstream-transport-auth-hardening.md`](tasks/T68-upstream-transport-auth-hardening.md)
+   and [`JAVA_VERSION_DIFF.md`](JAVA_VERSION_DIFF.md).
 
 ## Phase 2 sequence
 

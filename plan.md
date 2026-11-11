@@ -1109,6 +1109,20 @@ the tree/messages/teleports; the ignored `commands` test covers the round trip.
 Remaining: console stdin, real permissions/op groups, plain-chat broadcast,
 player-name targets and `kick`/`world`/`maxplayers`/`maxviewradius`.
 
+### T68 — Upstream transport/auth hardening (follow-up)
+
+**Status:** proposed (filed 2026-11-11)
+**Package:** `hytale-net`, `hytale-auth`, `hytale-server`, docs
+**Depends on:** T62, T65, T66
+**Agent fit:** medium
+**Goal:** mirror the Java hardening in the 2026-11-05 shared source that changes
+security or failure behavior: the outbound TLS SPKI deny-list, packet channel
+validation before buffering, and the 1452-byte QUIC payload ceiling. See
+[`tasks/T68-upstream-transport-auth-hardening.md`](tasks/T68-upstream-transport-auth-hardening.md)
+and [`JAVA_VERSION_DIFF.md`](JAVA_VERSION_DIFF.md).
+**Scope:** three bounded changes plus tests; no protocol or asset change and no
+transport rewrite. The wire contract and `Assets/extracted` remain compatible.
+
 ---
 
 ## M7 — Production hardening
