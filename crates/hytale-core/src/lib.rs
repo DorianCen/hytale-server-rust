@@ -11,6 +11,7 @@ pub mod config;
 pub mod events;
 pub mod logging;
 pub mod modules;
+pub mod permissions;
 pub mod tasks;
 
 pub use config::{
@@ -20,4 +21,5 @@ pub use config::{
 pub use events::{EventBus, PublishReport, Subscription};
 pub use logging::{init_logging, LoggingError};
 pub use modules::{ModuleError, ModuleManifest, ModuleRegistry};
+pub use permissions::{PermissionRegistry, PermissionSet};
 pub use tasks::{ShutdownReport, ShutdownToken, TaskHandle, TaskScheduler};

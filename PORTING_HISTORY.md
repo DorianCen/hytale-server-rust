@@ -2518,3 +2518,39 @@ This file records phase-2 sessions only.
 - **Follow-ups:** block placement fidelity (rotation/faces/deco/physics/
   connected blocks/block entities), long-tail interaction payloads, missing-id
   sentinels, and the T67 command-framework follow-ups.
+
+## Session 94 — T67 console, permissions, chat and player targets (2026-11-11)
+
+- **Goal:** finish T67: close the console, permission, chat and player-target
+  follow-ups so the command framework matches the task's acceptance section.
+- **Permissions:** new `hytale-core::permissions` with `PermissionSet` (exact,
+  `*` and trailing-`*` prefix matching) and `PermissionRegistry` (default set,
+  named groups, per-player grants, operators). `CommandSender` carries the
+  resolved set; the join `CommandTreeSync`/`/help` and dispatch filter on it.
+  `serve --op <name>` grants operators; players without a grant get only the
+  unrestricted self commands, and tooling/test defaults stay permissive.
+  Cross-player actions require `server.commands.target`; `stop`, `say`, `kick`,
+  `world`, `maxplayers` and `maxviewradius` carry `server.commands.*`.
+- **Console:** `hytale-commands::console` adds `ConsoleEffects`,
+  `execute_console_line` and `run_console`; the listener starts a stdin console
+  when stdin is a terminal (`--console`/`--no-console` override). Console
+  `save`, `stop`, `say`, `kick` and `world` drive the world thread, player
+  registry and shutdown signal.
+- **Chat:** plain `ChatMessage` lines broadcast as `Name: message`; `/say`
+  broadcasts an operator line. `GameLoopReport`/`SessionSummary` expose
+  `chat_messages` and `control_actions`.
+- **Targets:** `tp`/`give`/`gamemode`/`kill`/`respawn` accept a player name.
+  Remote effects are queued as `players::ControlAction` and applied by the
+  target's own game loop (teleport correction, inventory resync, game-mode,
+  kill/respawn, kick, world switch), so writers stay session-local.
+- **Commands:** `/kick <player> [reason]`, `/world [name]` (query, or a live
+  `PortalRouter` switch in listener mode), `/maxplayers`, `/maxviewradius`.
+- **Tests:** 24 `hytale-commands` unit tests (tokenizer/registry/tree, console
+  effects, targeting and permission denial), 55 `hytale-server` library tests
+  (permission resolution, self-target matching, chat/control fan-out), and the
+  two ignored `client-bot` command loopbacks (single-bot round trip incl.
+  `/say`, `/world`, limits, unknown commands and plain chat; two-bot operator
+  targeting with cross-session control actions and the operator-only tree).
+- **Follow-ups:** dynamic argument-value suggestions/`argTypeId` sync, runtime
+  `maxplayers`/`maxviewradius`, rich chat formatting, and the remaining Java
+  debug/editor/builder command set.

@@ -31,9 +31,10 @@ surface spawn, movement, player model, stats, block/item interactions, the full
 interaction variant audit, item icons, block groups, drops/pickup and
 placement-chain reconciliation. Every encoded item icon resolves through the
 streamed common-asset index, and the sole icon-less `Unknown` item matches
-Java. Basic in-game commands are implemented (`help`, `tp`, `give`, `gamemode`,
-`save`, `stop`, `who`, ...); [T67](tasks/T67-commands.md) tracks the remaining
-console, permission, chat and advanced-command work.
+Java. Commands are complete for the core set (`help`, `tp`, `give`, `gamemode`,
+`save`, `stop`, `who`, `say`, `kick`, `world`, ...), including the stdin
+console, permission/op groups, plain-chat broadcast and player-name targets
+(T67, session 94).
 
 ### Milestones
 
@@ -45,7 +46,7 @@ console, permission, chat and advanced-command work.
 | M3 | Runtime, persistent universe and world lifecycle | Done |
 | M4 | v1 client join, multiplayer tracking and block edits | Done |
 | M5 | Core gameplay parity: inventory, interactions, movement, fluids, stats, weather, projectiles, prefabs, UI basics | Done; T57b closed, residual presentation gaps deferred |
-| M6 | Builtins and NPCs: AI/pathfinding, spawning, combat, encounters, modules | Done; T66 live-client interaction loop complete; T67 commands in progress |
+| M6 | Builtins and NPCs: AI/pathfinding, spawning, combat, encounters, modules | Done; T66 live-client interaction loop complete; T67 commands done |
 | M7 | Security/fuzzing, performance/soak, packaging, plugin and mod API | Done |
 
 ### Implemented and covered by tests
@@ -83,13 +84,15 @@ block/item golden tests**, a clean
 - **Live-client parity is verified for the block loop.** Join, spawn, movement,
   block breaking, item drops, pickup and block placement are confirmed against
   the release client (T66, session 93). Remaining close-out work is placement
-  fidelity, long-tail interaction payloads, multi-player/persistence smoke and
-  the T67 command follow-ups.
-- **Commands are basic.** `ChatMessage` command lines and `CommandTreeSync` now
-  work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`, `whereami`,
-  `whoami`, `who`, `kill`, `respawn`, `time` and `version`. Console stdin, real
-  permissions/op groups, plain-chat broadcast, player-name targets and the
-  advanced command set remain under [T67](tasks/T67-commands.md).
+  fidelity, long-tail interaction payloads and multi-player/persistence smoke.
+- **Commands are complete for the core set.** `ChatMessage` command lines and
+  `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
+  `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,
+  `kick`, `world`, `maxplayers` and `maxviewradius`, with a stdin console,
+  `hytale-core` permission/op groups (`--op`), plain-chat relay, player-name
+  targets and live world switching. Dynamic argument-value suggestions and the
+  remaining Java debug/editor command set are follow-ups
+  ([T67](tasks/T67-commands.md)).
 - **One stored player identity.** The join currently uses the world's stored
   player record rather than necessarily the authenticated UUID. Per-join
   identity and the full Java `SpawnProvider` behavior remain future work.

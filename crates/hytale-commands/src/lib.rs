@@ -1,8 +1,8 @@
 //! `hytale-commands` — console and in-game command framework.
 //!
 //! Provides argument parsing, command registration and dispatch, permission
-//! checks, the `CommandTreeSync` view sent to clients, and the core built-in
-//! commands (`help`, `tp`, `give`, `save`, `stop`, ...).
+//! checks, the `CommandTreeSync` view sent to clients, the console loop, and
+//! the core built-in commands (`help`, `tp`, `give`, `save`, `stop`, ...).
 //!
 //! Commands are pure with respect to the server runtime: a handler validates
 //! its arguments and returns [`CommandEffect`]s. The owning world/session
@@ -12,6 +12,7 @@
 
 mod builtins;
 mod command;
+mod console;
 mod registry;
 mod tokenizer;
 
@@ -19,6 +20,8 @@ pub use command::{
     CommandContext, CommandEffect, CommandError, CommandInvocation, CommandOutput, CommandSender,
     SenderKind,
 };
+pub use console::{execute_console_line, run_console, ConsoleEffects};
+pub use hytale_core::{PermissionRegistry, PermissionSet};
 pub use registry::{ArgKind, ArgSpec, Command, CommandHandler, CommandRegistry};
 pub use tokenizer::{tokenize, TokenizeError};
 

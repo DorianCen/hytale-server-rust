@@ -40,6 +40,7 @@ pub use chunk_streamer::{
 pub use generation::{GenerationError, GeneratorOptions, WorldGenerator};
 pub use headless::{run as run_headless, HeadlessError, HeadlessOptions, HeadlessReport};
 pub use hytale_builtin::{BuiltinHost, BuiltinRuntime, HostError, StartOptions};
+pub use hytale_commands::{CommandSender, PermissionRegistry, PermissionSet};
 pub use hytale_world::simulation::{
     BlockChange, BlockDrop, FluidChange, SimulationReport, SimulationStages, SimulationTables,
 };

@@ -19,14 +19,17 @@ use tokio::sync::{oneshot, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::{timeout, Instant};
 
+use hytale_commands::{CommandContext, CommandEffect, CommandRegistry, ConsoleEffects};
+
 use crate::generation::GeneratorOptions;
-use crate::players::PlayerRegistry;
+use crate::players::{ControlAction, PlayerRegistry};
 use crate::session::{
     serve_connection_with_registry, AuthMode, SessionError, SessionOptions, SessionReport,
 };
 use crate::universe_runtime::{
     PortalArrival, PortalTransferReport, UniverseRuntime, UniverseRuntimeError,
 };
+use crate::world_thread::WorldThread;
 
 /// Session-facing portal router. It owns the universe runtime lock so a live
 /// session can create/select an instance world and move its player while the
@@ -52,6 +55,20 @@ impl PortalRouter {
             .lock()
             .expect("universe runtime poisoned")
             .open_portal_instance(portal_key, fallback)
+    }
+
+    /// Resolve and start (if needed) a world by name/UUID for `/world`.
+    pub fn switch_world(
+        &self,
+        name: &str,
+    ) -> Result<(String, Arc<crate::world_thread::WorldThread>), UniverseRuntimeError> {
+        let mut runtime = self.runtime.lock().expect("universe runtime poisoned");
+        let descriptor = runtime.universe().resolve(name)?.clone();
+        if !runtime.is_running(&descriptor.uuid.to_string()) {
+            runtime.start_world(&descriptor.uuid.to_string())?;
+        }
+        let thread = runtime.world_thread(&descriptor.uuid.to_string())?;
+        Ok((descriptor.name, thread))
     }
 
     /// Persist/move the live player document into the target world.
@@ -112,6 +129,8 @@ pub struct ServeOptions {
     pub builtin: hytale_builtin::BuiltinRuntime,
     /// Optional JSONL packet trace written for every accepted session.
     pub trace_path: Option<PathBuf>,
+    /// Run the stdin command console.
+    pub console: bool,
     /// Optional test/CLI hook that receives the actual bound address.
     pub bound_tx: Option<oneshot::Sender<SocketAddr>>,
 }
@@ -139,6 +158,7 @@ impl ServeOptions {
             auto_population: false,
             builtin: hytale_builtin::BuiltinRuntime::compiled(),
             trace_path: None,
+            console: false,
             bound_tx: None,
         }
     }
@@ -189,6 +209,12 @@ pub struct SessionSummary {
     pub npc_attacks: usize,
     /// NPC actors that died.
     pub npc_deaths: usize,
+    /// Command lines handled from chat.
+    pub commands: usize,
+    /// Plain chat lines relayed.
+    pub chat_messages: usize,
+    /// Cross-session command effects applied.
+    pub control_actions: usize,
     /// Target world after a live portal handoff.
     pub portal_world: Option<String>,
 }
@@ -217,6 +243,9 @@ impl From<&SessionReport> for SessionSummary {
             npc_moves: report.game_loop.npc_moves,
             npc_attacks: report.game_loop.npc_attacks,
             npc_deaths: report.game_loop.npc_deaths,
+            commands: report.game_loop.commands,
+            chat_messages: report.game_loop.chat_messages,
+            control_actions: report.game_loop.control_actions,
             portal_world: report.game_loop.portal_world.clone(),
         }
     }
@@ -307,6 +336,107 @@ pub fn run(options: ServeOptions) -> Result<ServeReport, ServeError> {
     runtime.block_on(serve(options, async {
         let _ = tokio::signal::ctrl_c().await;
     }))
+}
+
+/// Console effect sink backed by the listener's world and player registry.
+struct ServerConsole {
+    thread: Arc<WorldThread>,
+    players: Arc<PlayerRegistry>,
+    stop: Arc<AtomicBool>,
+    router: Option<Arc<PortalRouter>>,
+    options: SessionOptions,
+}
+
+impl ConsoleEffects for ServerConsole {
+    fn context(&mut self) -> CommandContext {
+        let start = self.thread.start_report();
+        let world_time = self.thread.world_time().ok();
+        CommandContext {
+            position: [0.0; 3],
+            players: self.players.usernames(),
+            player_positions: self.players.player_positions(),
+            game_time_seconds: world_time.as_ref().map(|time| time.game_time_seconds),
+            time_paused: world_time.as_ref().map(|time| time.time_paused),
+            world_name: Some(start.display_name.clone()),
+            world_uuid: Some(start.world_uuid.clone()),
+            max_players: Some(self.options.max_players),
+            max_view_radius: Some(self.options.limits.max_view_radius),
+        }
+    }
+
+    fn save_world(&mut self) -> Result<String, String> {
+        let dirty = self.thread.save().map_err(|error| error.to_string())?;
+        Ok(format!("Saved world ({dirty} dirty chunk(s))"))
+    }
+
+    fn stop_server(&mut self) -> Result<String, String> {
+        self.stop.store(true, Ordering::Relaxed);
+        Ok("Server shutdown requested".to_string())
+    }
+
+    fn broadcast(&mut self, message: &str) {
+        self.players.broadcast_chat(message);
+    }
+
+    fn kick(&mut self, target: &str, reason: Option<&str>) -> Result<String, String> {
+        let network_id = self
+            .players
+            .network_id_for(target)
+            .ok_or_else(|| format!("player `{target}` is not connected"))?;
+        self.players.queue_control(
+            network_id,
+            ControlAction::Kick {
+                reason: reason.unwrap_or("Kicked from the console").to_string(),
+            },
+        );
+        Ok(format!("Kicked {target}"))
+    }
+
+    fn switch_world(&mut self, world: &str) -> Result<String, String> {
+        let router = self
+            .router
+            .as_ref()
+            .ok_or_else(|| "World switching is not available in this mode".to_string())?;
+        let (name, _) = router
+            .switch_world(world)
+            .map_err(|error| error.to_string())?;
+        Ok(format!("World `{name}` is ready"))
+    }
+
+    fn unsupported(&mut self, _effect: &CommandEffect) -> Result<String, String> {
+        Err("not available from the console".to_string())
+    }
+}
+
+fn spawn_console(
+    thread: Arc<WorldThread>,
+    players: Arc<PlayerRegistry>,
+    stop: Arc<AtomicBool>,
+    router: Option<Arc<PortalRouter>>,
+    options: SessionOptions,
+) {
+    let result = std::thread::Builder::new()
+        .name("hytale-console".to_string())
+        .spawn(move || {
+            let registry = CommandRegistry::builtin();
+            let mut console = ServerConsole {
+                thread,
+                players,
+                stop,
+                router,
+                options,
+            };
+            let stdin = std::io::stdin();
+            let stdout = std::io::stdout();
+            if let Err(error) =
+                hytale_commands::run_console(&registry, stdin.lock(), &mut console, stdout.lock())
+            {
+                eprintln!("console input failed: {error}");
+            }
+        });
+    if let Err(error) = result {
+        eprintln!("could not start the stdin console: {error}");
+    }
 }
 
 /// Run the listener until `shutdown` resolves.
@@ -407,6 +537,15 @@ where
 
     let semaphore = Arc::new(Semaphore::new(options.max_connections.max(1)));
     let players = Arc::new(PlayerRegistry::new());
+    if options.console {
+        spawn_console(
+            Arc::clone(&thread),
+            Arc::clone(&players),
+            Arc::clone(&stop_signal),
+            session_options.portal_router.clone(),
+            session_options.clone(),
+        );
+    }
     let mut sessions: JoinSet<Result<SessionReport, SessionError>> = JoinSet::new();
     let mut summaries = Vec::new();
     let mut errors = Vec::new();

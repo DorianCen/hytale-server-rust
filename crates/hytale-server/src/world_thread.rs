@@ -135,6 +135,8 @@ impl WorldThreadOptions {
 pub struct WorldStartReport {
     /// Save root.
     pub save_dir: PathBuf,
+    /// Display name from the world config.
+    pub display_name: String,
     /// True when the thread created `config.json`.
     pub config_created: bool,
     /// World UUID.
@@ -5722,6 +5724,11 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     let pending = VecDeque::from(plan.loads.clone());
     let start = WorldStartReport {
         save_dir: options.save_dir.clone(),
+        display_name: options
+            .display_name
+            .clone()
+            .or_else(|| save.config().display_name.clone())
+            .unwrap_or_else(|| "Default".to_string()),
         config_created,
         world_uuid: save.config().uuid.to_string(),
         seed: save.config().seed,

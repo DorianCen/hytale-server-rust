@@ -1083,7 +1083,7 @@ now joins, moves, breaks blocks, picks up drops and places blocks.
 
 ### T67 — Command framework and in-game commands (follow-up)
 
-**Status:** in progress (session 91)
+**Status:** done (session 91 framework; session 94 console, permissions, chat and targets)
 **Package:** `hytale-commands`, `hytale-server`, `hytale-core`,
 `tools/client-bot`
 **Depends on:** T42, T48
@@ -1106,8 +1106,16 @@ Built-ins `help`, `tp`, `give`, `gamemode`, `save`, `stop`, `whereami`,
 authoritative, `/give` resyncs the inventory, `/save` persists the player and
 world, and `/stop` signals the listener. `client-bot` sends commands and records
 the tree/messages/teleports; the ignored `commands` test covers the round trip.
-Remaining: console stdin, real permissions/op groups, plain-chat broadcast,
-player-name targets and `kick`/`world`/`maxplayers`/`maxviewradius`.
+**Landed (session 94):** `hytale-core` adds `PermissionSet`/`PermissionRegistry`
+(defaults, groups, `*`/prefix wildcards, operators) and `--op`; the command tree
+and dispatch use it. The listener runs a stdin console (`--console`/automatic
+on a terminal) through `ConsoleEffects`, plain chat is relayed and `/say`
+broadcasts, and `tp`/`give`/`gamemode`/`kill`/`respawn` accept player names
+through queued cross-session `ControlAction`s. `/kick`, `/world` (query plus a
+live `PortalRouter` switch), `/maxplayers` and `/maxviewradius` land. Tests:
+24 command-crate unit tests, 55 server library tests, and two ignored bot
+loopbacks (single-bot command round trip and a two-bot operator targeting test).
+Dynamic arg-value suggestions and runtime limit changes remain.
 
 ### T68 — Upstream transport/auth hardening (follow-up)
 

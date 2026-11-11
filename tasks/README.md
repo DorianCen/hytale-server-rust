@@ -46,7 +46,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T60b](T60b-followup-gameplay.md) | Player combat/stats, containers, crafting, encounters, portal/ECS | T60 | low | done (session 64) |
 | [T65](T65-live-auth.md) | Live OAuth/session-service authentication for release clients | T48, T42 | medium | done (session 65; asset follow-up T66) |
 | [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | done (session 93; release-client break/drop/pickup/place verified) |
-| [T67](T67-commands.md) | Command framework and in-game commands | T42, T48 | medium | in progress (session 91; core framework and built-ins) |
+| [T67](T67-commands.md) | Command framework and in-game commands | T42, T48 | medium | done (session 94; console, permissions, chat and targets) |
 | [T68](T68-upstream-transport-auth-hardening.md) | Upstream transport/auth hardening | T62, T65, T66 | medium | proposed (2026-11-11) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
@@ -112,13 +112,14 @@ encounter and weather modules do no world-thread work. T60b closes the first
 gameplay follow-up slice: player health/stat replication, container
 `MoveItemStack` transactions, bench windows and recipe delivery, encounter
 spawn/particle/sound execution, portal/instance catalog plans and the NPC
-builder/ECS storage seam. T67 (in progress, session 91) replaces the empty
+builder/ECS storage seam. T67 (done, session 94) replaces the empty
 `hytale-commands` stub with the tokenizer/registry/permission/dispatch
 framework, inbound `ChatMessage` handling, `CommandTreeSync` and the core
-built-ins (`help`, `tp`, `give`, `gamemode`, `save`, `stop`, `who`, ...). The
-ignored `client-bot` commands loopback covers the command round trip; console
-stdin, permissions/op groups, chat broadcast and player-name targets remain
-follow-ups.
+built-ins (`help`, `tp`, `give`, `gamemode`, `save`, `stop`, `who`, `say`,
+`kick`, `world`, ...). Session 94 adds the `hytale-core` permission registry
+(`--op`/groups/wildcards), the stdin console, plain-chat broadcast,
+cross-session player-name targets and live world switching. Dynamic arg-value
+suggestions and runtime limit changes remain follow-ups.
 
 ## Rules
 

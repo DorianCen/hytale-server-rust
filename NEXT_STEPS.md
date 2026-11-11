@@ -36,9 +36,8 @@ absence/pacing/flags, the WorldMap stream, surface spawn, full player
 model/camera, stats/movement states, block and item interaction merges,
 builder-tool args, nullable interaction arrays, interaction roots, drops/
 pickup, block groups and placement-chain reconciliation. **T57b** is closed
-with residual presentation gaps deferred. **T67** (in progress) adds the
-command framework and core in-game commands; the parser/registry/tree,
-`ChatMessage` dispatch and the first built-ins are landed (session 91).
+with residual presentation gaps deferred. **T67** (done, session 94) adds the
+command framework, console, permissions, chat and the core in-game commands.
 
 ## Current state
 
@@ -288,11 +287,13 @@ Landed and green:
 - T57b (done, session 49): chunk map images, container/bench windows, runtime
   entity lifecycle and the remaining config packets; residual map-image,
   window-distance and particle/audio/weather presentation gaps are deferred.
-- T67 (in progress, session 91): command framework, `ChatMessage` handling,
+- T67 (done, session 94): command framework, `ChatMessage` handling,
   `CommandTreeSync`, permission-filtered trees and the core built-ins (`help`,
-  `tp`, `give`, `gamemode`, `save`, `stop`, `who`, ...). Teleports/inventory/
-  save/kill/respawn effects are wired through the session; console stdin, real
-  permissions, plain-chat broadcast and player-name targets remain.
+  `tp`, `give`, `gamemode`, `save`, `stop`, `who`, `say`, `kick`, `world`, ...).
+  Teleports/inventory/save/kill/respawn effects work for the sender and named
+  players; the stdin console, `hytale-core` permission/op groups, plain-chat
+  broadcast and live world switching are wired. Dynamic arg-value suggestions
+  and runtime limit changes remain follow-ups.
 - Runtime chunks, BSON chunk/world/player storage, world config, save boot,
   demand loading, world thread and Java-ordered chunk packets.
 - Dev/insecure, local-EdDSA and live-session authenticated joins; common/config
@@ -316,10 +317,9 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
 T66 is complete; the next work should be chosen by scope, not by the old
 asset-bring-up list:
 
-1. **T67 command follow-ups:** console stdin sender, real permissions/op
-   groups, plain-chat broadcast/formatting, player-name `tp`/`give` targets,
-   `kick`, `world`, `maxplayers`/`maxviewradius`, and the remaining Java
-   command set.
+1. **Command long tail (T67 follow-ups):** dynamic argument-value suggestions
+   (Java `argTypeId` sync), runtime `maxplayers`/`maxviewradius` changes, rich
+   chat formatting, and the remaining Java debug/editor/builder command set.
 2. **Block placement fidelity:** rotation and placement settings, face/connect
    rules, deco and physics updates, connected-block neighbour updates, block
    entity/metadata persistence, and the `/setblock`-style admin path.
@@ -367,9 +367,10 @@ asset-bring-up list:
    editor/builder/machinima scope decision, T62–T64 close the security,
    performance and packaging gates, and T65 closes live authentication. T66 is
    complete (session 93): the release client joins, breaks, picks up and places
-   blocks. T67 (in progress, session 91) adds commands; its core framework and
-   first built-ins are landed, with console/permission/chat follow-ups
-   remaining.
+   blocks. T67 (done, session 94) adds commands, the stdin console,
+   permissions/op groups, plain-chat broadcast, player-name targets and live
+   world switching; dynamic suggestions and the advanced command set remain
+   follow-ups.
 
 ## Try it
 

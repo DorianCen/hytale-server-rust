@@ -27,7 +27,9 @@ use hytale_protocol::generated::common::{
     Transform as ProtocolTransform, TransformUpdate,
 };
 use hytale_protocol::generated::entities::EntityUpdates;
-use hytale_protocol::generated::interface_::{AddToServerPlayerList, RemoveFromServerPlayerList};
+use hytale_protocol::generated::interface_::{
+    AddToServerPlayerList, ChatType, RemoveFromServerPlayerList, ServerMessage,
+};
 use hytale_protocol::generated::world::{
     ServerSetBlock, ServerSetFluid, UpdateBlockDamage, UpdateBlockDamages,
 };
@@ -38,6 +40,46 @@ use hytale_world::player_data::{
     PlayerAppearance, PlayerModelReference, PlayerSkinData, PlayerTransform, EMPTY_ITEM_ID,
 };
 use hytale_world::runtime::{RuntimeEntity, RuntimeEntityKind};
+
+/// A control action queued for another session's game loop.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ControlAction {
+    /// Move the target to absolute coordinates.
+    Teleport {
+        /// X coordinate.
+        x: f64,
+        /// Y coordinate.
+        y: f64,
+        /// Z coordinate.
+        z: f64,
+    },
+    /// Add an item stack to the target's inventory.
+    GiveItem {
+        /// Item asset id.
+        item_id: String,
+        /// Positive quantity.
+        quantity: i32,
+    },
+    /// Change the target's game mode.
+    SetGameMode {
+        /// `adventure` or `creative`.
+        mode: String,
+    },
+    /// Kill the target.
+    Kill,
+    /// Respawn the target.
+    Respawn,
+    /// Disconnect the target.
+    Kick {
+        /// Disconnect reason.
+        reason: String,
+    },
+    /// Move the target to another world.
+    SwitchWorld {
+        /// World name or UUID.
+        world: String,
+    },
+}
 
 /// One packet batch queued for a session.
 #[derive(Debug, Clone)]
@@ -58,6 +100,10 @@ pub enum PlayerMessage {
     BlockDamages(UpdateBlockDamages),
     /// A world-map marker add/remove batch.
     WorldMap(UpdateWorldMap),
+    /// A chat line to display to this client.
+    Chat(String),
+    /// A command effect another session must apply to itself.
+    Control(ControlAction),
 }
 
 /// Default per-session broadcast queue capacity.
@@ -567,6 +613,56 @@ impl PlayerRegistry {
             .values()
             .map(|player| player.username.clone())
             .collect()
+    }
+
+    /// Every connected player's username and position, in network-id order.
+    pub fn player_positions(&self) -> Vec<(String, [f64; 3])> {
+        self.inner
+            .lock()
+            .expect("player registry poisoned")
+            .players
+            .values()
+            .map(|player| {
+                (
+                    player.username.clone(),
+                    [
+                        player.transform.position.x,
+                        player.transform.position.y,
+                        player.transform.position.z,
+                    ],
+                )
+            })
+            .collect()
+    }
+
+    /// Resolve a connected player's network id by username (case-insensitive).
+    pub fn network_id_for(&self, username: &str) -> Option<i32> {
+        self.inner
+            .lock()
+            .expect("player registry poisoned")
+            .players
+            .values()
+            .find(|player| player.username.eq_ignore_ascii_case(username))
+            .map(|player| player.network_id)
+    }
+
+    /// Queue a control action for one session.
+    pub fn queue_control(&self, network_id: i32, action: ControlAction) -> bool {
+        let inner = self.inner.lock().expect("player registry poisoned");
+        let Some(player) = inner.players.get(&network_id) else {
+            return false;
+        };
+        queue(player, PlayerMessage::Control(action));
+        true
+    }
+
+    /// Send a chat line to every connected player.
+    pub fn broadcast_chat(&self, message: impl Into<String>) {
+        let message = message.into();
+        let inner = self.inner.lock().expect("player registry poisoned");
+        for player in inner.players.values() {
+            queue(player, PlayerMessage::Chat(message.clone()));
+        }
     }
 
     /// Number of registered players.
@@ -1110,6 +1206,23 @@ pub async fn write_message(
         PlayerMessage::WorldMap(update) => {
             world_map.write_packet(&update, compression_level).await?;
         }
+        PlayerMessage::Chat(text) => {
+            writer
+                .write_packet(
+                    &ServerMessage {
+                        r#type: ChatType::Chat,
+                        message: Some(FormattedMessage {
+                            raw_text: Some(text),
+                            ..FormattedMessage::default()
+                        }),
+                    },
+                    compression_level,
+                )
+                .await?;
+        }
+        // Control actions mutably change the target session's state, so the
+        // game loop handles them before calling this writer-only function.
+        PlayerMessage::Control(_) => {}
     }
     Ok(())
 }
@@ -1583,6 +1696,46 @@ mod tests {
                 .any(|message| matches!(message, PlayerMessage::EntityUpdates(_))),
             "far entity must not spawn: {messages:?}"
         );
+        drop(first);
+        drop(second);
+    }
+
+    #[test]
+    fn chat_broadcasts_and_control_actions_reach_every_player() {
+        let registry = Arc::new(PlayerRegistry::new());
+        let (first_tx, first_rx) = channel();
+        let (first, _) = registry
+            .register(request(Uuid::new(2, 1), "First", (0, 0), first_tx))
+            .expect("register");
+        let (second_tx, second_rx) = channel();
+        let (second, _) = registry
+            .register(request(Uuid::new(2, 2), "Second", (0, 0), second_tx))
+            .expect("register");
+        let _ = drain(&first_rx);
+        let _ = drain(&second_rx);
+
+        assert_eq!(registry.network_id_for("sEcOnD"), Some(2));
+        assert_eq!(
+            registry.player_positions(),
+            [
+                ("First".to_string(), [8.0, 0.0, 8.0]),
+                ("Second".to_string(), [8.0, 0.0, 8.0])
+            ]
+        );
+        registry.broadcast_chat("hello");
+        assert!(drain(&first_rx)
+            .iter()
+            .any(|message| matches!(message, PlayerMessage::Chat(text) if text == "hello")));
+        assert!(drain(&second_rx)
+            .iter()
+            .any(|message| matches!(message, PlayerMessage::Chat(text) if text == "hello")));
+
+        assert!(registry.queue_control(2, ControlAction::Kill));
+        assert!(drain(&second_rx)
+            .iter()
+            .any(|message| matches!(message, PlayerMessage::Control(ControlAction::Kill))));
+        assert!(!registry.queue_control(99, ControlAction::Respawn));
+
         drop(first);
         drop(second);
     }

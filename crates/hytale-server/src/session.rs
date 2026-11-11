@@ -29,7 +29,9 @@ use hytale_assets::{
 };
 use hytale_auth::live::LiveAuth;
 use hytale_auth::{AuthService, SCOPE_CLIENT, SCOPE_SERVER};
-use hytale_commands::{CommandContext, CommandEffect, CommandRegistry, CommandSender};
+use hytale_commands::{
+    CommandContext, CommandEffect, CommandRegistry, CommandSender, PermissionRegistry,
+};
 use hytale_entities::movement::{MovementBounds, MovementRejection, MovementState};
 use hytale_interactions::{
     execute_root, state_from_block_key, BlockInteractions, ExecutionContext, InteractionCatalog,
@@ -100,7 +102,9 @@ use crate::chunk_streamer::{
 };
 use crate::inventory_rules::AssetItemRules;
 use crate::player_gameplay::PlayerGameplay;
-use crate::players::{self, PlayerJoinError, PlayerJoinRequest, PlayerMessage, PlayerRegistry};
+use crate::players::{
+    self, ControlAction, PlayerJoinError, PlayerJoinRequest, PlayerMessage, PlayerRegistry,
+};
 use crate::security::SessionLimits;
 use crate::world_thread::{
     BlockDamagePacket, NpcPresentationKind, RuntimeEntityEvent, ViewId, WorldThread,
@@ -190,6 +194,8 @@ pub struct SessionOptions {
     pub portal_on_join: Option<String>,
     /// Listener shutdown signal set by `/stop` (listener-provided).
     pub stop_signal: Option<Arc<AtomicBool>>,
+    /// Command permission registry (operators, groups and default grants).
+    pub permissions: Arc<PermissionRegistry>,
 }
 
 impl Default for SessionOptions {
@@ -210,6 +216,7 @@ impl Default for SessionOptions {
             portal_router: None,
             portal_on_join: None,
             stop_signal: None,
+            permissions: Arc::new(PermissionRegistry::permissive()),
         }
     }
 }
@@ -349,6 +356,10 @@ pub struct GameLoopReport {
     pub time_settings_updates: usize,
     /// Command lines handled from `ChatMessage`.
     pub commands: usize,
+    /// Plain (non-command) chat lines relayed to every player.
+    pub chat_messages: usize,
+    /// Cross-session command effects applied by this session.
+    pub control_actions: usize,
     /// Queued player list/entity packets written during the loop.
     pub player_messages: usize,
     /// Block edits applied to the world.
@@ -730,9 +741,7 @@ pub async fn serve_connection_with_registry(
 
         // Java `GamePacketHandler.registered0` sends the command tree when the
         // playing handler is installed, before chunk tracking starts.
-        // No permission provider is wired yet; the authenticated player is the
-        // server operator for this first command-framework slice.
-        let command_sender = CommandSender::player(username.clone()).operator();
+        let command_sender = command_sender(&username, options);
         let command_tree: CommandTreeSync = commands.tree(&command_sender);
         writer
             .write_packet(&command_tree, options.chunk_compression_level)
@@ -1917,6 +1926,185 @@ async fn send_server_message(
     Ok(())
 }
 
+fn command_sender(username: &str, options: &SessionOptions) -> CommandSender {
+    let permissions = Arc::new(options.permissions.permissions_for(username));
+    CommandSender::player_with(username, permissions)
+}
+
+fn target_is_self(target: &Option<String>, username: &str) -> bool {
+    target
+        .as_deref()
+        .is_none_or(|name| name.eq_ignore_ascii_case(username))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn apply_give_item(
+    writer: &mut FrameWriter,
+    options: &SessionOptions,
+    thread: &WorldThread,
+    inventory: &mut PlayerInventory,
+    players: &PlayerRegistry,
+    network_id: i32,
+    item_id: &str,
+    quantity: i32,
+) -> Result<(), SessionError> {
+    let assets = thread.asset_registry()?;
+    let rules = AssetItemRules::new(&assets);
+    match ItemStack::new(item_id.to_string(), quantity, &rules) {
+        Ok(stack) => {
+            if let Some(remainder) = inventory.pickup(stack, &rules) {
+                send_server_message(
+                    writer,
+                    &format!(
+                        "Inventory full; {} x{} left over",
+                        remainder.item_id, remainder.quantity
+                    ),
+                    options,
+                )
+                .await?;
+            } else {
+                send_server_message(writer, &format!("Gave {item_id} x{quantity}"), options)
+                    .await?;
+            }
+            send_inventory(writer, inventory, options.chunk_compression_level).await?;
+            broadcast_held_items(players, network_id, inventory);
+        }
+        Err(error) => {
+            send_server_message(
+                writer,
+                &format!("Cannot give `{item_id}`: {error}"),
+                options,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Apply an authoritative teleport and return the destination chunk.
+#[allow(clippy::too_many_arguments)]
+async fn apply_teleport(
+    writer: &mut FrameWriter,
+    options: &SessionOptions,
+    players: &PlayerRegistry,
+    network_id: i32,
+    transform: &mut PlayerTransform,
+    x: f64,
+    y: f64,
+    z: f64,
+    teleport_id: &mut i8,
+) -> Result<(i32, i32), SessionError> {
+    transform.position = hytale_world::player_data::Position { x, y, z };
+    players.update_transform(network_id, *transform);
+    send_client_teleport_correction(writer, *transform, teleport_id, options).await?;
+    Ok((block_to_chunk(x), block_to_chunk(z)))
+}
+
+async fn apply_game_mode(
+    writer: &mut FrameWriter,
+    options: &SessionOptions,
+    mode: &str,
+) -> Result<(), SessionError> {
+    let game_mode = if mode == "creative" {
+        GameMode::Creative
+    } else {
+        GameMode::Adventure
+    };
+    writer
+        .write_packet(&SetGameMode { game_mode }, options.chunk_compression_level)
+        .await?;
+    send_server_message(writer, &format!("Game mode set to {mode}"), options).await?;
+    Ok(())
+}
+
+async fn apply_kill(
+    writer: &mut FrameWriter,
+    options: &SessionOptions,
+    thread: &WorldThread,
+    network_id: i32,
+) -> Result<(), SessionError> {
+    thread.damage_player(network_id, 1_000_000.0, "command")?;
+    send_server_message(writer, "Killed", options).await?;
+    Ok(())
+}
+
+async fn apply_respawn(
+    writer: &mut FrameWriter,
+    options: &SessionOptions,
+    thread: &WorldThread,
+    network_id: i32,
+) -> Result<(), SessionError> {
+    thread.respawn_player(network_id)?;
+    send_server_message(writer, "Respawned", options).await?;
+    Ok(())
+}
+
+/// Move one live session to another world and return the new session state.
+#[allow(clippy::too_many_arguments)]
+async fn switch_player_world(
+    source: &WorldThread,
+    router: &crate::serve::PortalRouter,
+    writer: &mut FrameWriter,
+    chunks: &mut ChunkStreamWriter,
+    players: &PlayerRegistry,
+    network_id: i32,
+    player_uuid: WorldUuid,
+    source_view: ViewId,
+    transform: PlayerTransform,
+    inventory: &PlayerInventory,
+    radius: u32,
+    compression_level: i32,
+    world: &str,
+) -> Result<
+    (
+        String,
+        PlayerTransform,
+        ViewId,
+        (i32, i32),
+        Arc<WorldThread>,
+    ),
+    SessionError,
+> {
+    let (name, target) = router.switch_world(world)?;
+    let health = source.player_health(network_id)?;
+    source.save_player_state(player_uuid, transform, inventory.clone())?;
+    if let Some(health) = health {
+        source.save_player_health(player_uuid, health)?;
+    }
+    let snapshot = target.player_snapshot(player_uuid)?;
+    let target_transform = snapshot.transform;
+    target.save_player_state(player_uuid, target_transform, inventory.clone())?;
+    if let Some(health) = health {
+        target.save_player_health(player_uuid, health)?;
+    }
+    let _ = source.remove_player_gameplay(network_id);
+    let _ = target.ensure_player_gameplay(network_id, health);
+    let switched = switch_session_world(
+        source,
+        &target,
+        writer,
+        chunks,
+        players,
+        network_id,
+        source_view,
+        target_transform,
+        radius,
+        compression_level,
+    )
+    .await?;
+    let center = (
+        block_to_chunk(target_transform.position.x),
+        block_to_chunk(target_transform.position.z),
+    );
+    Ok((
+        name,
+        target_transform,
+        ViewId::from_raw(switched.new_view),
+        center,
+        target,
+    ))
+}
+
 fn chunk_view_contains(
     center: (i32, i32),
     radius: u32,
@@ -3005,7 +3193,11 @@ async fn run_game_loop(
     }
 
     let mut inbound = options.limits.inbound_bucket();
+    let mut kicked = false;
     loop {
+        if kicked {
+            break;
+        }
         if connection.close_reason().is_some() {
             report.disconnected = true;
             break;
@@ -3018,15 +3210,114 @@ async fn run_game_loop(
         }
 
         while let Ok(message) = broadcasts.try_recv() {
-            players::write_message(
-                writer,
-                chunks,
-                world_map,
-                message,
-                options.chunk_compression_level,
-            )
-            .await?;
-            report.player_messages += 1;
+            match message {
+                PlayerMessage::Control(action) => {
+                    report.control_actions += 1;
+                    match action {
+                        ControlAction::Teleport { x, y, z } => {
+                            let next = apply_teleport(
+                                writer,
+                                options,
+                                &players,
+                                network_id,
+                                transform,
+                                x,
+                                y,
+                                z,
+                                &mut movement_teleport_id,
+                            )
+                            .await?;
+                            if next != registry_center {
+                                players.update_view(network_id, next, radius);
+                                registry_center = next;
+                            }
+                            if next != center && report.teleport_acked {
+                                active_thread.update_view(view, next.0, next.1, radius)?;
+                                center = next;
+                                report.view_changes += 1;
+                            }
+                        }
+                        ControlAction::GiveItem { item_id, quantity } => {
+                            apply_give_item(
+                                writer,
+                                options,
+                                active_thread,
+                                inventory,
+                                &players,
+                                network_id,
+                                &item_id,
+                                quantity,
+                            )
+                            .await?;
+                        }
+                        ControlAction::SetGameMode { mode } => {
+                            apply_game_mode(writer, options, &mode).await?;
+                        }
+                        ControlAction::Kill => {
+                            apply_kill(writer, options, active_thread, network_id).await?;
+                        }
+                        ControlAction::Respawn => {
+                            apply_respawn(writer, options, active_thread, network_id).await?;
+                        }
+                        ControlAction::Kick { reason } => {
+                            let _ = send_disconnect(writer, &reason).await;
+                            report.disconnected = true;
+                            kicked = true;
+                        }
+                        ControlAction::SwitchWorld { world } => {
+                            if let Some(router) = &options.portal_router {
+                                let (name, next_transform, next_view, next_center, target) =
+                                    switch_player_world(
+                                        active_thread,
+                                        router,
+                                        writer,
+                                        chunks,
+                                        &players,
+                                        network_id,
+                                        player_uuid,
+                                        view,
+                                        *transform,
+                                        inventory,
+                                        radius,
+                                        options.chunk_compression_level,
+                                        &world,
+                                    )
+                                    .await?;
+                                *transform = next_transform;
+                                view = next_view;
+                                center = next_center;
+                                registry_center = center;
+                                last_map_view = (center, radius);
+                                send_client_teleport(writer, *transform, options).await?;
+                                teleport_sent = true;
+                                report.teleport_sent = true;
+                                owned_target = Some(target);
+                                active_thread = owned_target.as_deref().expect("target installed");
+                                send_server_message(
+                                    writer,
+                                    &format!("Switched to {name}"),
+                                    options,
+                                )
+                                .await?;
+                            }
+                        }
+                    }
+                }
+                other => {
+                    players::write_message(
+                        writer,
+                        chunks,
+                        world_map,
+                        other,
+                        options.chunk_compression_level,
+                    )
+                    .await?;
+                    report.player_messages += 1;
+                }
+            }
+        }
+        if kicked {
+            break;
         }
 
         active_thread.set_npc_targets(players.npc_targets())?;
@@ -3724,11 +4015,13 @@ async fn run_game_loop(
                             continue;
                         };
                         let Some(line) = message.strip_prefix('/') else {
-                            // Plain chat is not broadcast yet; commands own the
-                            // first command-framework slice.
+                            // Plain chat is relayed to every player. Commands own
+                            // the leading-slash path.
+                            players.broadcast_chat(format!("{username}: {message}"));
+                            report.chat_messages += 1;
                             continue;
                         };
-                        let sender = CommandSender::player(username.clone()).operator();
+                        let sender = command_sender(&username, options);
                         let context = CommandContext {
                             position: [
                                 transform.position.x,
@@ -3736,8 +4029,13 @@ async fn run_game_loop(
                                 transform.position.z,
                             ],
                             players: players.usernames(),
+                            player_positions: players.player_positions(),
                             game_time_seconds: Some(world_time.game_time_seconds),
                             time_paused: Some(world_time.time_paused),
+                            world_name: Some(active_thread.start_report().display_name.clone()),
+                            world_uuid: Some(active_thread.start_report().world_uuid.clone()),
+                            max_players: Some(options.max_players),
+                            max_view_radius: Some(options.limits.max_view_radius),
                         };
                         report.commands += 1;
                         match commands.execute(line, &sender, &context) {
@@ -3747,78 +4045,61 @@ async fn run_game_loop(
                                 }
                                 for effect in output.effects {
                                     match effect {
-                                        CommandEffect::Teleport { x, y, z } => {
-                                            transform.position =
-                                                hytale_world::player_data::Position { x, y, z };
-                                            players.update_transform(network_id, *transform);
-                                            send_client_teleport_correction(
-                                                writer,
-                                                *transform,
-                                                &mut movement_teleport_id,
-                                                options,
-                                            )
-                                            .await?;
-                                            let next = (block_to_chunk(x), block_to_chunk(z));
-                                            if next != registry_center {
-                                                players.update_view(network_id, next, radius);
-                                                registry_center = next;
-                                            }
-                                            if next != center && report.teleport_acked {
-                                                active_thread
-                                                    .update_view(view, next.0, next.1, radius)?;
-                                                center = next;
-                                                report.view_changes += 1;
-                                            }
-                                            send_server_message(
-                                                writer,
-                                                &format!("Teleported to {x:.1}, {y:.1}, {z:.1}"),
-                                                options,
-                                            )
-                                            .await?;
-                                        }
-                                        CommandEffect::GiveItem { item_id, quantity } => {
-                                            let assets = active_thread.asset_registry()?;
-                                            let rules = AssetItemRules::new(&assets);
-                                            match ItemStack::new(item_id.clone(), quantity, &rules)
-                                            {
-                                                Ok(stack) => {
-                                                    if let Some(remainder) =
-                                                        inventory.pickup(stack, &rules)
-                                                    {
-                                                        send_server_message(
-                                                            writer,
-                                                            &format!(
-                                                                "Inventory full; {} x{} left over",
-                                                                remainder.item_id,
-                                                                remainder.quantity
-                                                            ),
-                                                            options,
-                                                        )
-                                                        .await?;
-                                                    } else {
-                                                        send_server_message(
-                                                            writer,
-                                                            &format!("Gave {item_id} x{quantity}"),
-                                                            options,
-                                                        )
-                                                        .await?;
-                                                    }
-                                                    send_inventory(
-                                                        writer,
-                                                        inventory,
-                                                        options.chunk_compression_level,
-                                                    )
-                                                    .await?;
-                                                    report.inventory_updates += 1;
-                                                    broadcast_held_items(
-                                                        &players, network_id, inventory,
-                                                    );
+                                        CommandEffect::Teleport { target, x, y, z } => {
+                                            if target_is_self(&target, &username) {
+                                                let next = apply_teleport(
+                                                    writer,
+                                                    options,
+                                                    &players,
+                                                    network_id,
+                                                    transform,
+                                                    x,
+                                                    y,
+                                                    z,
+                                                    &mut movement_teleport_id,
+                                                )
+                                                .await?;
+                                                if next != registry_center {
+                                                    players.update_view(network_id, next, radius);
+                                                    registry_center = next;
                                                 }
-                                                Err(error) => {
+                                                if next != center && report.teleport_acked {
+                                                    active_thread.update_view(
+                                                        view, next.0, next.1, radius,
+                                                    )?;
+                                                    center = next;
+                                                    report.view_changes += 1;
+                                                }
+                                                send_server_message(
+                                                    writer,
+                                                    &format!(
+                                                        "Teleported to {x:.1}, {y:.1}, {z:.1}"
+                                                    ),
+                                                    options,
+                                                )
+                                                .await?;
+                                            } else if let Some(target_name) = target.as_deref() {
+                                                if let Some(id) =
+                                                    players.network_id_for(target_name)
+                                                {
+                                                    players.queue_control(
+                                                        id,
+                                                        ControlAction::Teleport { x, y, z },
+                                                    );
                                                     send_server_message(
                                                         writer,
                                                         &format!(
-                                                            "Cannot give `{item_id}`: {error}"
+                                                            "Queued teleport of {target_name} to \
+                                                             {x:.1}, {y:.1}, {z:.1}"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                } else {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "player `{target_name}` is not connected"
                                                         ),
                                                         options,
                                                     )
@@ -3826,37 +4107,275 @@ async fn run_game_loop(
                                                 }
                                             }
                                         }
-                                        CommandEffect::SetGameMode { mode } => {
-                                            let game_mode = if mode == "creative" {
-                                                GameMode::Creative
-                                            } else {
-                                                GameMode::Adventure
-                                            };
-                                            writer
-                                                .write_packet(
-                                                    &SetGameMode { game_mode },
-                                                    options.chunk_compression_level,
+                                        CommandEffect::GiveItem {
+                                            target,
+                                            item_id,
+                                            quantity,
+                                        } => {
+                                            if target_is_self(&target, &username) {
+                                                apply_give_item(
+                                                    writer,
+                                                    options,
+                                                    active_thread,
+                                                    inventory,
+                                                    &players,
+                                                    network_id,
+                                                    &item_id,
+                                                    quantity,
                                                 )
                                                 .await?;
-                                            send_server_message(
-                                                writer,
-                                                &format!("Game mode set to {mode}"),
-                                                options,
-                                            )
-                                            .await?;
+                                            } else if let Some(target_name) = target.as_deref() {
+                                                if let Some(id) =
+                                                    players.network_id_for(target_name)
+                                                {
+                                                    players.queue_control(
+                                                        id,
+                                                        ControlAction::GiveItem {
+                                                            item_id: item_id.clone(),
+                                                            quantity,
+                                                        },
+                                                    );
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "Queued {item_id} x{quantity} for \
+                                                             {target_name}"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                } else {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "player `{target_name}` is not connected"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            }
                                         }
-                                        CommandEffect::Kill => {
-                                            active_thread.damage_player(
-                                                network_id,
-                                                1_000_000.0,
-                                                "command",
-                                            )?;
-                                            send_server_message(writer, "Killed", options).await?;
+                                        CommandEffect::SetGameMode { target, mode } => {
+                                            if target_is_self(&target, &username) {
+                                                apply_game_mode(writer, options, &mode).await?;
+                                            } else if let Some(target_name) = target.as_deref() {
+                                                if let Some(id) =
+                                                    players.network_id_for(target_name)
+                                                {
+                                                    players.queue_control(
+                                                        id,
+                                                        ControlAction::SetGameMode {
+                                                            mode: mode.clone(),
+                                                        },
+                                                    );
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "Queued game mode `{mode}` for \
+                                                             {target_name}"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                } else {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "player `{target_name}` is not connected"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            }
                                         }
-                                        CommandEffect::Respawn => {
-                                            active_thread.respawn_player(network_id)?;
-                                            send_server_message(writer, "Respawned", options)
+                                        CommandEffect::Kill { target } => {
+                                            if target_is_self(&target, &username) {
+                                                apply_kill(
+                                                    writer,
+                                                    options,
+                                                    active_thread,
+                                                    network_id,
+                                                )
                                                 .await?;
+                                            } else if let Some(target_name) = target.as_deref() {
+                                                if let Some(id) =
+                                                    players.network_id_for(target_name)
+                                                {
+                                                    players.queue_control(id, ControlAction::Kill);
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!("Queued kill for {target_name}"),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                } else {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "player `{target_name}` is not connected"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            }
+                                        }
+                                        CommandEffect::Respawn { target } => {
+                                            if target_is_self(&target, &username) {
+                                                apply_respawn(
+                                                    writer,
+                                                    options,
+                                                    active_thread,
+                                                    network_id,
+                                                )
+                                                .await?;
+                                            } else if let Some(target_name) = target.as_deref() {
+                                                if let Some(id) =
+                                                    players.network_id_for(target_name)
+                                                {
+                                                    players
+                                                        .queue_control(id, ControlAction::Respawn);
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "Queued respawn for {target_name}"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                } else {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "player `{target_name}` is not connected"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            }
+                                        }
+                                        CommandEffect::Broadcast { message } => {
+                                            players.broadcast_chat(message);
+                                        }
+                                        CommandEffect::Kick { target, reason } => {
+                                            let reason = reason.unwrap_or_else(|| {
+                                                "Kicked by an operator".to_string()
+                                            });
+                                            if target.eq_ignore_ascii_case(&username) {
+                                                let _ = send_disconnect(writer, &reason).await;
+                                                report.disconnected = true;
+                                                kicked = true;
+                                            } else if let Some(id) = players.network_id_for(&target)
+                                            {
+                                                players.queue_control(
+                                                    id,
+                                                    ControlAction::Kick {
+                                                        reason: reason.clone(),
+                                                    },
+                                                );
+                                                send_server_message(
+                                                    writer,
+                                                    &format!("Kicked {target}"),
+                                                    options,
+                                                )
+                                                .await?;
+                                            } else {
+                                                send_server_message(
+                                                    writer,
+                                                    &format!("player `{target}` is not connected"),
+                                                    options,
+                                                )
+                                                .await?;
+                                            }
+                                        }
+                                        CommandEffect::SwitchWorld { target, world } => {
+                                            if target_is_self(&target, &username) {
+                                                if let Some(router) = &options.portal_router {
+                                                    let (
+                                                        name,
+                                                        next_transform,
+                                                        next_view,
+                                                        next_center,
+                                                        target_thread,
+                                                    ) = switch_player_world(
+                                                        active_thread,
+                                                        router,
+                                                        writer,
+                                                        chunks,
+                                                        &players,
+                                                        network_id,
+                                                        player_uuid,
+                                                        view,
+                                                        *transform,
+                                                        inventory,
+                                                        radius,
+                                                        options.chunk_compression_level,
+                                                        &world,
+                                                    )
+                                                    .await?;
+                                                    *transform = next_transform;
+                                                    view = next_view;
+                                                    center = next_center;
+                                                    registry_center = center;
+                                                    last_map_view = (center, radius);
+                                                    send_client_teleport(
+                                                        writer, *transform, options,
+                                                    )
+                                                    .await?;
+                                                    teleport_sent = true;
+                                                    report.teleport_sent = true;
+                                                    owned_target = Some(target_thread);
+                                                    active_thread = owned_target
+                                                        .as_deref()
+                                                        .expect("target installed");
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!("Switched to {name}"),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                } else {
+                                                    send_server_message(
+                                                        writer,
+                                                        "World switching is not available in \
+                                                         this mode",
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            } else if let Some(target_name) = target.as_deref() {
+                                                if let Some(id) =
+                                                    players.network_id_for(target_name)
+                                                {
+                                                    players.queue_control(
+                                                        id,
+                                                        ControlAction::SwitchWorld {
+                                                            world: world.clone(),
+                                                        },
+                                                    );
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "Queued world `{world}` for \
+                                                             {target_name}"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                } else {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "player `{target_name}` is not connected"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            }
                                         }
                                         CommandEffect::SaveWorld => {
                                             active_thread.save_player_state(
@@ -6076,5 +6595,37 @@ mod tests {
         assert_eq!(settings.default_scale, 128.0);
         assert_eq!(settings.min_scale, 32.0);
         assert_eq!(settings.max_scale, 175.0);
+    }
+
+    #[test]
+    fn command_sender_resolves_registry_permissions_and_operators() {
+        let mut permissions = PermissionRegistry::new();
+        permissions.grant("Bob", "server.commands.say");
+        let options = SessionOptions {
+            permissions: Arc::new(permissions),
+            ..SessionOptions::default()
+        };
+        let bob = command_sender("Bob", &options);
+        assert!(bob.has_permission("server.commands.say"));
+        assert!(!bob.has_permission("server.commands.stop"));
+        assert!(!bob.operator);
+
+        let alice = command_sender("Alice", &options);
+        assert!(!alice.has_permission("server.commands.say"));
+        assert!(!alice.operator);
+
+        let console = CommandSender::console();
+        assert!(console.has_permission("anything"));
+
+        let default = command_sender("Anyone", &SessionOptions::default());
+        assert!(default.operator);
+        assert!(default.has_permission("server.commands.stop"));
+    }
+
+    #[test]
+    fn self_targets_are_case_insensitive_and_none_means_the_sender() {
+        assert!(target_is_self(&None, "Bob"));
+        assert!(target_is_self(&Some("bob".to_string()), "Bob"));
+        assert!(!target_is_self(&Some("Alice".to_string()), "Bob"));
     }
 }

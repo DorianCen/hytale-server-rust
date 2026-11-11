@@ -4,12 +4,15 @@
 //! providers, command framework, and world threads. The binary owns no format
 //! or gameplay logic of its own; it composes the library crates.
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand};
 use hytale_auth::live::{LiveAuth, LiveAuthConfig};
 use hytale_auth::{AuthKey, AuthService};
+use hytale_commands::PermissionRegistry;
 use hytale_server::GeneratorOptions;
 use hytale_server::{
     run_chunk_serve, run_chunk_tool, run_headless, run_player_data_tool, run_serve, run_world_boot,
@@ -439,6 +442,15 @@ struct ServeArgs {
     /// Expected/granted JWT audience for `--auth-mode local`.
     #[arg(long, default_value = "rust-server")]
     auth_audience: String,
+    /// Grant operator permissions to a player name (repeatable).
+    #[arg(long = "op")]
+    op: Vec<String>,
+    /// Enable the stdin command console (default: only when stdin is a terminal).
+    #[arg(long, conflicts_with = "no_console")]
+    console: bool,
+    /// Disable the stdin command console.
+    #[arg(long)]
+    no_console: bool,
 }
 
 fn parse_chunk(value: &str) -> Result<(i32, i32), String> {
@@ -700,6 +712,10 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
         }
     };
 
+    let mut permissions = PermissionRegistry::new();
+    for operator in &args.op {
+        permissions.grant_operator(operator);
+    }
     let session = SessionOptions {
         server_name: args.server_name,
         motd: args.motd,
@@ -722,7 +738,9 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
         portal_router: None,
         portal_on_join: None,
         stop_signal: None,
+        permissions: Arc::new(permissions),
     };
+    let console = args.console || (!args.no_console && std::io::stdin().is_terminal());
     let options = ServeOptions {
         universe_root: args.universe,
         world: args.world,
@@ -743,6 +761,7 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
         shutdown_timeout: std::time::Duration::from_secs(args.shutdown_timeout),
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
         trace_path: args.trace,
+        console,
         bound_tx: None,
     };
     match run_serve(options) {
@@ -860,6 +879,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs, builtin: BuiltinRuntime) -> Exi
             portal_router: None,
             portal_on_join: None,
             stop_signal: None,
+            permissions: Arc::new(PermissionRegistry::permissive()),
         },
         close_timeout: std::time::Duration::from_secs(args.close_timeout),
     };
