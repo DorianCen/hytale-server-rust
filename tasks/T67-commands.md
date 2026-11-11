@@ -160,6 +160,10 @@ cargo fmt --all -- --check
 - `/world` switching requires listener mode (a `PortalRouter`); single-connection
   tools report that world switching is unavailable. Console `/world <name>`
   starts/resolves the world but has no live player to move.
+- The `CommandTreeSync` coverage is a stable in-code snapshot of names, usage,
+  arguments and permission filtering (plus a protocol round-trip test) rather
+  than a committed binary `.bin` fixture; it catches ordering and field drift
+  without adding another generated artifact.
 - A world switch keeps the source world's saved player document so returning to
   it later restores the previous position, matching the portal-return model
   rather than deleting the source record.
