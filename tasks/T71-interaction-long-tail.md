@@ -99,19 +99,19 @@ cargo fmt --all -- --check
 
 - Java:
   - `CoreServer/.../modules/interaction/interaction/config/client/ChainingInteraction.java`
-  - `CoreServer/.../modules/interaction/interaction/config/entity/MemoriesInteraction.java`
-  - `CoreServer/.../modules/interaction/interaction/config/entity/ChargingInteraction.java`
-  - `CoreServer/.../modules/interaction/interaction/config/entity/WieldingInteraction.java`
-  - `CoreServer/.../modules/interaction/interaction/config/client/PlaceModeSelectInteraction.java`
-  - `CoreServer/.../modules/interaction/interaction/config/entity/ChangeActiveSlotInteraction.java`
+  - `builtin/adventure/Memories/.../interactions/MemoriesConditionInteraction.java`
+  - `CoreServer/.../modules/interaction/interaction/config/client/ChargingInteraction.java`
+  - `CoreServer/.../modules/interaction/interaction/config/client/WieldingInteraction.java`
+  - `CoreServer/.../modules/interaction/interaction/config/none/PlaceModeSelectInteraction.java`
+  - `CoreServer/.../modules/interaction/interaction/config/none/ChangeActiveSlotInteraction.java`
   - `CoreServer/.../modules/interaction/InteractionModule.java`,
-    `InteractionManager.java`
+    `CoreServer/.../entity/InteractionManager.java`
 - Rust:
   - `crates/hytale-interactions/src/{catalog,executor,block,combat}.rs`
   - `crates/hytale-server/src/session.rs` (`block_interaction_from_chain`,
     `finish_interaction_chain`, `ack_interaction_update`)
   - `crates/hytale-assets/src/packets/mod.rs` interaction encoders
-  - `tools/client-bot/tests/block_interactions.rs`
+  - `tools/client-bot/tests/{block_interactions,interaction_long_tail}.rs`
 
 ## Acceptance
 
