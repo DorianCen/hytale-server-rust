@@ -1211,6 +1211,23 @@ checks a shared passive NPC and held items, propagates edits, saves, reconnects,
 restarts the same `WorldThread` save, and verifies the persisted block/player/NPC
 state plus a fresh post-restart join.
 
+### Post-T70 follow-up packets (filed, unstarted)
+
+- [T71](tasks/T71-interaction-long-tail.md) — interaction next maps, place-mode/
+  active-slot details and missing-id sentinels.
+- [T72](tasks/T72-concurrent-load-generator.md) — 10/50/100-player load harness
+  and baseline.
+- [T73](tasks/T73-universe-restart-handoff.md) — listener/universe restart and
+  multi-world handoff smoke.
+- [T74](tasks/T74-presentation-gaps.md) — map refresh/byte parity, window
+  distance, particle/audio/weather and held-item presentation.
+- [T75](tasks/T75-player-identity-spawn-providers.md) — per-join identity and
+  Java `SpawnProvider` parity.
+- [T76](tasks/T76-placement-followups.md) — CustomTemplate mirrors, placement
+  rotation RNG and component goldens.
+- [T77](tasks/T77-command-completion-polish.md) — fuzzy suggestion ranking and
+  console history/tab completion.
+
 ---
 
 ## M7 — Production hardening

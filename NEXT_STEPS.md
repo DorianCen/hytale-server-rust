@@ -337,7 +337,9 @@ asset-bring-up list:
 1. **Command long tail (T67/T67b, done sessions 94/99):** dynamic
    argument-value suggestions (Java `argTypeId` + `ArgValuesRequest`/response and
    cache invalidation), runtime `maxplayers`/`maxviewradius` changes, and
-   translated/styled chat with rich `/say` JSON. The remaining debug/editor/
+   translated/styled chat with rich `/say` JSON. Fuzzy completion ranking and
+   console history/tab completion are filed as
+   [T77](tasks/T77-command-completion-polish.md); the remaining debug/editor/
    builder command set stays out of scope (T61).
 2. **Block placement fidelity (T69/T69b, done sessions 96/98):** client block
    rotation is stored/broadcast/acked, `/setblock` is authoritative, neighbour
@@ -346,20 +348,25 @@ asset-bring-up list:
    templates and `Stair`/`Roof` (templated shapes, face tags,
    `Shape`/`And`/`Or`/`Not`, roof valley/topper/wide-roof splitting), creative
    quick-retype/quick-replace/no-physics flags preserving target shape/rotation,
-   and placement `BlockHolder` component persistence.
+   and placement `BlockHolder` component persistence. Remaining mirror,
+   placement-rotation and component-golden work is
+   [T76](tasks/T76-placement-followups.md).
 3. **Interaction long tail:** chaining/memories/charging/wielding next maps,
    place-mode selection details, change-active-slot details, and a consistency
-   pass over missing-id sentinels (`NOT_FOUND`/`-1` vs `0`).
+   pass over missing-id sentinels (`NOT_FOUND`/`-1` vs `0`). Filed as
+   [T71](tasks/T71-interaction-long-tail.md).
 4. **Multi-player and persistence smoke (T70, done session 97):** two clients,
    held-item/NPC visibility, save/reload, disconnect/reconnect and world restart
-   are covered by `client-bot/tests/multiplayer_persistence.rs`. A concurrent
-   10/50/100-player load generator remains a T63/T64 boundary item.
-5. **Presentation gaps:** the known chunk-map, window-distance, particle,
-   audio and weather follow-ups from T57b; first-person/held-item polish if a
-   new client build exposes it.
-6. **Per-join player identity and real spawn providers:** the server still
-   joins the world's stored player in single-player style; per-auth-UUID
-   identity and Java `SpawnProvider` parity remain.
+   are covered by `client-bot/tests/multiplayer_persistence.rs`. The concurrent
+   10/50/100-player generator is [T72](tasks/T72-concurrent-load-generator.md);
+   universe-level restart and multi-world handoff are
+   [T73](tasks/T73-universe-restart-handoff.md).
+5. **Presentation gaps:** chunk-map refresh/byte parity, window-distance
+   validation, particle/audio/weather presentation and first-person/held-item
+   polish are filed as [T74](tasks/T74-presentation-gaps.md).
+6. **Per-join player identity and real spawn providers:** per-auth-UUID identity
+   and Java `SpawnProvider` parity are filed as
+   [T75](tasks/T75-player-identity-spawn-providers.md).
 7. **Upstream hardening (T68, done session 95):** the 2026-11-05 Java shared
    source adds an outbound TLS SPKI deny-list, packet channel validation and a
    1452-byte QUIC payload ceiling. See
