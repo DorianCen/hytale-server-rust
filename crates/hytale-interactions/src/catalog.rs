@@ -12,6 +12,8 @@ use hytale_assets::{AssetError, AssetPack};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+use crate::executor::{selected_branch, ExecutionContext};
+
 /// Interaction catalog errors.
 #[derive(Debug, Error)]
 pub enum InteractionError {
@@ -254,14 +256,24 @@ impl InteractionCatalog {
     /// failed branch or a `Select`; this walks strings and nested documents
     /// until it finds the node that carries the creative flags.
     pub fn place_block_flags(&self, root: &str) -> Option<PlaceBlockFlags> {
+        self.place_block_flags_with_context(root, &ExecutionContext::default())
+    }
+
+    /// Resolve placement flags for the selected mode/charge/chain branch.
+    pub fn place_block_flags_with_context(
+        &self,
+        root: &str,
+        context: &ExecutionContext,
+    ) -> Option<PlaceBlockFlags> {
         let root = self.root(root)?;
         let mut visiting = BTreeSet::new();
-        self.visit_place_block(root, &mut visiting)
+        self.visit_place_block(root, context, &mut visiting)
     }
 
     fn visit_place_block(
         &self,
         value: &Value,
+        context: &ExecutionContext,
         visiting: &mut BTreeSet<String>,
     ) -> Option<PlaceBlockFlags> {
         match value {
@@ -269,18 +281,22 @@ impl InteractionCatalog {
                 if let Some(flags) = PlaceBlockFlags::from_node(value) {
                     return Some(flags);
                 }
+                if let Some(branch) = selected_branch(value, context) {
+                    return branch
+                        .and_then(|child| self.visit_place_block(child, context, visiting));
+                }
                 for (key, child) in object {
                     if key == "Parent" {
                         continue;
                     }
-                    if let Some(flags) = self.visit_place_block(child, visiting) {
+                    if let Some(flags) = self.visit_place_block(child, context, visiting) {
                         return Some(flags);
                     }
                 }
             }
             Value::Array(values) => {
                 for child in values {
-                    if let Some(flags) = self.visit_place_block(child, visiting) {
+                    if let Some(flags) = self.visit_place_block(child, context, visiting) {
                         return Some(flags);
                     }
                 }
@@ -291,12 +307,12 @@ impl InteractionCatalog {
                     return None;
                 }
                 if let Some(node) = self.interaction(&key) {
-                    if let Some(flags) = self.visit_place_block(node, visiting) {
+                    if let Some(flags) = self.visit_place_block(node, context, visiting) {
                         return Some(flags);
                     }
                 }
                 if let Some(root) = self.root(&key) {
-                    if let Some(flags) = self.visit_place_block(root, visiting) {
+                    if let Some(flags) = self.visit_place_block(root, context, visiting) {
                         return Some(flags);
                     }
                 }

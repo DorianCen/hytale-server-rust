@@ -1,6 +1,6 @@
 # T71 — Interaction long tail
 
-**Status:** proposed (filed session 99)
+**Status:** done (session 100)
 **Package:** `hytale-interactions`, `hytale-server`, `hytale-protocol`,
 `tools/client-bot`
 **Depends on:** T50, T60b, T66
@@ -53,6 +53,41 @@ The client already receives every protocol variant. This task owns the
   - place-mode/active-slot change observed by the server and a peer client.
 - Docs/task board updates.
 
+## Landed (session 100)
+
+- `ExecutionContext` now carries `place_mode`, `memories_level`,
+  `charge_value`/`charge_failed`, `chaining_index`/`flag_index` and
+  `active_slot`.
+- The executor selects Java's branch maps for `Chaining` (Next array and sorted
+  Flags), `Charging`/`Wielding` (closest charge threshold, failed branch),
+  `MemoriesCondition` (level map/failed), and `PlaceModeSelect` (creative mode
+  only, with Default fallback). It emits `ChangeActiveSlot`.
+- `PlaceBlockFlags` traversal is branch-aware, so `Block_Secondary` selects the
+  creative Replace/Retype/Extrude/SurfaceDraw/FastPlace flags instead of always
+  walking every child.
+- Asset registration materializes `Charging.Next`, `Wielding.Next` and
+  `MemoriesCondition.Next` inline children under Java's generated keys; the
+  encoders now populate `chargedNext`/`memoriesNext`. `ChangeActiveSlot` uses
+  Java's `Integer.MIN_VALUE` UNSET sentinel instead of slot 0.
+- The session stores `SyncPlayerPreferences.place_mode`, passes it into the
+  interaction/placement context, and applies `ChangeActiveSlot` to the hotbar
+  (authoritative `SetActiveSlot` + held-item rebroadcast).
+- Shared `ASSET_NOT_FOUND`/`INTERACTION_NOT_FOUND` constants document the
+  indexed-asset sentinel and are covered by a distinct-from-zero regression.
+
+## Verification (session 100)
+
+```sh
+cargo test -p hytale-interactions                        # 20 passed
+cargo test -p hytale-assets --test interaction_packets   # 7 passed
+cargo test -p hytale-assets --test block_item_packets    # 24 passed
+cargo test -p hytale-server --lib                         # 58 passed
+cargo test -p client-bot --test block_interactions -- --ignored # 2 passed
+./tools/test.sh fast                                      # 1646 passed, 29 skipped
+cargo clippy -p hytale-assets -p hytale-interactions -p hytale-server -p client-bot --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
 ## Read first
 
 - Java:
@@ -86,6 +121,16 @@ cargo fmt --all -- --check
 - Place-mode/active-slot changes are authoritative and acked without desync.
 - Every missing-id path has a documented sentinel and a regression.
 - Existing door/place/break/container loopbacks stay green.
+
+## Deviations
+
+- The client-bot `block_interactions` loopback still drives `MouseInteraction`;
+  the place-mode/active-slot chain semantics are covered by real-asset
+  `PlaceBlockFlags` tests and synthetic charge/chaining graph tests. A release
+  client trace is the next step if a live desync appears.
+- Full server-side simulation of client `chargeValue`/`forkCounts` state is
+  limited to branch selection; the executor remains a bounded graph walk rather
+  than a persistent tick-by-tick interaction state machine.
 
 ## Notes
 

@@ -50,7 +50,7 @@ use hytale_protocol::generated::common::{
     EntityEffectsUpdate, EntityStatUpdate, EntityStatsUpdate, FormattedMessage, GameMode,
     HudComponent, InstantData, InteractionState, InteractionSyncData, InteractionType, MapChunk,
     MapMarker, MapMarkerIconSize, MouseButtonEvent, MouseButtonState, MouseButtonType,
-    MovementSettings, MovementStates, MovementStatesUpdate, PlayerSkin, PongType,
+    MovementSettings, MovementStates, MovementStatesUpdate, PlaceMode, PlayerSkin, PongType,
     Position as ProtocolPosition, Rotation as BlockRotationAxis, SyncInteractionChain,
     Transform as ProtocolTransform, UpdateType, WindowAction, WorldInteraction,
 };
@@ -71,7 +71,8 @@ use hytale_protocol::generated::inventory::{
 };
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction,
-    SetBlockPlacementOverride, SetClientId, SetGameMode, UpdateMovementSettings,
+    SetBlockPlacementOverride, SetClientId, SetGameMode, SyncPlayerPreferences,
+    UpdateMovementSettings,
 };
 use hytale_protocol::generated::registry::settings;
 use hytale_protocol::generated::setup::{
@@ -1936,6 +1937,30 @@ async fn send_active_slots(
     Ok(())
 }
 
+async fn apply_interaction_active_slot(
+    writer: &mut FrameWriter,
+    inventory: &mut PlayerInventory,
+    players: &PlayerRegistry,
+    network_id: i32,
+    slot: i32,
+    options: &SessionOptions,
+) -> Result<(), SessionError> {
+    if !inventory.set_active_slot(Section::Hotbar, slot) {
+        return Ok(());
+    }
+    writer
+        .write_packet(
+            &SetActiveSlot {
+                inventory_section_id: Section::Hotbar.section_id(),
+                active_slot: slot,
+            },
+            options.chunk_compression_level,
+        )
+        .await?;
+    broadcast_held_items(players, network_id, inventory);
+    Ok(())
+}
+
 async fn send_server_message(
     writer: &mut FrameWriter,
     message: &str,
@@ -3142,6 +3167,7 @@ async fn run_game_loop(
     } = live;
     let mut report = GameLoopReport::default();
     let mut game_mode = GameMode::Adventure;
+    let mut place_mode = PlaceMode::Default;
     let mut ticker = std::time::Instant::now();
     let mut last_activity = std::time::Instant::now();
     let interval = Duration::from_millis(50);
@@ -3756,6 +3782,7 @@ async fn run_game_loop(
                             None,
                             None,
                             game_mode,
+                            place_mode,
                             options.block_break_damage,
                         );
                         match outcome {
@@ -3776,9 +3803,16 @@ async fn run_game_loop(
                                 state_changes,
                                 open_container,
                                 open_bench,
+                                active_slot,
                             } => {
                                 report.block_uses += 1;
                                 report.block_state_changes += state_changes;
+                                if let Some(slot) = active_slot {
+                                    apply_interaction_active_slot(
+                                        writer, inventory, &players, network_id, slot, options,
+                                    )
+                                    .await?;
+                                }
                                 if open_container.is_some() || open_bench.is_some() {
                                     if let Some(previous) = open_window.take() {
                                         close_container_window(
@@ -4002,8 +4036,13 @@ async fn run_game_loop(
                             };
                             let placement = chain_placement_position(update);
                             let placement_normal = chain_placement_normal(update);
-                            let place_flags =
-                                interaction_chain_place_flags(thread, &interactions, update);
+                            let place_flags = interaction_chain_place_flags(
+                                thread,
+                                &interactions,
+                                update,
+                                game_mode,
+                                place_mode,
+                            );
                             let outcome = handle_block_interaction(
                                 thread,
                                 &players,
@@ -4015,6 +4054,7 @@ async fn run_game_loop(
                                 placement_normal,
                                 place_flags.as_ref(),
                                 game_mode,
+                                place_mode,
                                 options.block_break_damage,
                             );
                             if interaction_debug_enabled() {
@@ -4041,12 +4081,22 @@ async fn run_game_loop(
                                         broadcast_held_items(&players, network_id, inventory);
                                     }
                                 }
-                                BlockInteractionOutcome::Use { state_changes, .. } => {
+                                BlockInteractionOutcome::Use {
+                                    state_changes,
+                                    active_slot,
+                                    ..
+                                } => {
                                     // Block use still runs the server-side
                                     // transition; container/bench windows stay on
                                     // the `MouseInteraction` path for now.
                                     report.block_uses += 1;
                                     report.block_state_changes += state_changes;
+                                    if let Some(slot) = active_slot {
+                                        apply_interaction_active_slot(
+                                            writer, inventory, &players, network_id, slot, options,
+                                        )
+                                        .await?;
+                                    }
                                 }
                                 BlockInteractionOutcome::Rejected => {
                                     report.block_edit_rejections += 1;
@@ -4642,6 +4692,10 @@ async fn run_game_loop(
                                 send_server_message(writer, &error.to_string(), options).await?;
                             }
                         }
+                    }
+                    SyncPlayerPreferences::ID => {
+                        let packet: SyncPlayerPreferences = frame.decode()?;
+                        place_mode = packet.place_mode;
                     }
                     SetActiveSlot::ID => {
                         let packet: SetActiveSlot = frame.decode()?;
@@ -5347,9 +5401,31 @@ fn interaction_chain_place_flags(
     thread: &WorldThread,
     interactions: &InteractionCatalog,
     update: &SyncInteractionChain,
+    game_mode: GameMode,
+    place_mode: PlaceMode,
 ) -> Option<hytale_interactions::PlaceBlockFlags> {
+    let context = hytale_interactions::ExecutionContext {
+        game_mode,
+        place_mode,
+        interaction_type: update.interaction_type,
+        charge_value: update
+            .interaction_data
+            .as_ref()
+            .and_then(|data| {
+                data.iter()
+                    .flatten()
+                    .find_map(|entry| (entry.charge_value > 0.0).then_some(entry.charge_value))
+            })
+            .unwrap_or(0.0),
+        chaining_index: update.interaction_data.as_ref().and_then(|data| {
+            data.iter().flatten().find_map(|entry| {
+                (entry.chaining_index >= 0).then_some(entry.chaining_index as usize)
+            })
+        }),
+        ..hytale_interactions::ExecutionContext::default()
+    };
     interaction_chain_root_key(thread, update)
-        .and_then(|root| interactions.place_block_flags(&root))
+        .and_then(|root| interactions.place_block_flags_with_context(&root, &context))
 }
 
 fn interaction_chain_ack(
@@ -5491,6 +5567,7 @@ enum BlockInteractionOutcome {
         state_changes: usize,
         open_container: Option<(i32, i32, i32)>,
         open_bench: Option<BenchOpen>,
+        active_slot: Option<i32>,
     },
     Rejected,
 }
@@ -5507,9 +5584,18 @@ fn handle_block_interaction(
     placement_normal: Option<[i32; 3]>,
     place_flags: Option<&hytale_interactions::PlaceBlockFlags>,
     game_mode: GameMode,
+    place_mode: PlaceMode,
     block_break_damage: f32,
 ) -> BlockInteractionOutcome {
-    if let Some(outcome) = try_block_use(thread, players, transform, interactions, interaction) {
+    if let Some(outcome) = try_block_use(
+        thread,
+        players,
+        transform,
+        interactions,
+        interaction,
+        game_mode,
+        place_mode,
+    ) {
         return outcome;
     }
 
@@ -5686,6 +5772,8 @@ fn try_block_use(
     transform: &PlayerTransform,
     interactions: &InteractionCatalog,
     interaction: &MouseInteraction,
+    game_mode: GameMode,
+    place_mode: PlaceMode,
 ) -> Option<BlockInteractionOutcome> {
     let button = interaction.mouse_button.as_ref()?;
     if button.state != MouseButtonState::Pressed
@@ -5706,6 +5794,7 @@ fn try_block_use(
                 block_item_id: block_key.clone(),
                 bench,
             }),
+            active_slot: None,
         });
     }
     if block.container {
@@ -5713,11 +5802,14 @@ fn try_block_use(
             state_changes: 0,
             open_container: Some((x, y, z)),
             open_bench: None,
+            active_slot: None,
         });
     }
 
     let (interaction_type, root_id) = block.use_root()?;
     let context = ExecutionContext {
+        game_mode,
+        place_mode,
         interaction_type,
         vars: interaction_vars(&block_json),
         ..ExecutionContext::default()
@@ -5730,6 +5822,7 @@ fn try_block_use(
     let mut handled = false;
     let mut state_changes = 0;
     let mut open_container = None;
+    let mut active_slot = None;
     for action in outcome.actions {
         match action {
             WorldAction::Door { .. } => {
@@ -5788,6 +5881,10 @@ fn try_block_use(
                     }
                 }
             }
+            WorldAction::ChangeActiveSlot { target_slot } => {
+                active_slot = Some(target_slot);
+                handled = true;
+            }
             WorldAction::ChangeBlock { .. }
             | WorldAction::UseBlock { .. }
             | WorldAction::PlaceBlock => {}
@@ -5798,6 +5895,7 @@ fn try_block_use(
         state_changes,
         open_container,
         open_bench: None,
+        active_slot,
     })
 }
 

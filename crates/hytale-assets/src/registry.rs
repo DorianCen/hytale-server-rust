@@ -1888,7 +1888,13 @@ fn extract_inline_interactions(root: &str, value: &Value, source: &str, out: &mu
     if !value.is_object() {
         return;
     }
+    let node_type = value.get("Type").and_then(Value::as_str);
+    let next_is_map = matches!(node_type, Some("Charging" | "MemoriesCondition"))
+        && value.get("Next").is_some_and(Value::is_object);
     for field in ["Next", "Failed"] {
+        if field == "Next" && next_is_map {
+            continue;
+        }
         let Some(child) = value.get(field).filter(|child| child.is_object()) else {
             continue;
         };
@@ -1947,6 +1953,24 @@ fn extract_inline_interactions(root: &str, value: &Value, source: &str, out: &mu
                     continue;
                 }
                 let key = format!("*{root}_Flags_{flag}");
+                out.push(contained_interaction(key.clone(), source, child.clone()));
+                extract_inline_interactions(&key, child, source, out);
+            }
+        }
+    }
+    // `Charging.Next` is a float-keyed map and `MemoriesCondition.Next` is an
+    // int-keyed map. Java registers each inline child as
+    // `*<parent>_Next_<key>` (the map key is part of the generated asset key).
+    if matches!(
+        value.get("Type").and_then(Value::as_str),
+        Some("Charging" | "MemoriesCondition")
+    ) {
+        if let Some(children) = value.get("Next").and_then(Value::as_object) {
+            for (map_key, child) in children {
+                if !child.is_object() {
+                    continue;
+                }
+                let key = format!("*{root}_Next_{map_key}");
                 out.push(contained_interaction(key.clone(), source, child.clone()));
                 extract_inline_interactions(&key, child, source, out);
             }

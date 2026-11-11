@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use hytale_assets::packets::INTERACTION_NOT_FOUND;
+use hytale_assets::packets::{ASSET_NOT_FOUND, INTERACTION_NOT_FOUND};
 use hytale_assets::{AssetPack, AssetPacket, AssetRegistry};
 use hytale_protocol::generated::assets::{
     UpdateInteractions, UpdateRootInteractions, UpdateUnarmedInteractions,
@@ -130,6 +130,7 @@ fn java_protocol_type_id(type_name: &str) -> u32 {
         "Repeat" => 22,
         "Parallel" => 23,
         "ChangeActiveSlot" => 24,
+        "CancelChain" => 39,
         "EffectCondition" => 25,
         "ApplyForce" => 26,
         "ApplyEffect" => 27,
@@ -269,6 +270,104 @@ fn chaining_and_block_fallbacks_resolve_their_children() {
         interactions.get(&id_of("Creative_Eraser_Drag")),
         Some(ProtocolInteraction::DragEraseBlockInteraction(_))
     ));
+}
+
+#[test]
+fn charging_wielding_memories_and_active_slot_children_resolve() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let (packets, registry) = load_packets();
+    let interactions: UpdateInteractions = decode(&packets);
+    let interactions = interactions.interactions.expect("interaction map");
+    let id_of = |key: &str| {
+        registry
+            .interactions
+            .id_of(key)
+            .unwrap_or_else(|| panic!("missing interaction `{key}`"))
+    };
+
+    // `Charging.Next` is a float-keyed inline map. Every branch must resolve to
+    // a real interaction id, never NOT_FOUND.
+    match interactions
+        .get(&id_of("Consume_Charge_Food_T1_Inner"))
+        .expect("charging consumable")
+    {
+        ProtocolInteraction::ChargingInteraction(node) => {
+            let next = node.charged_next.as_ref().expect("charged next map");
+            assert!(!next.is_empty());
+            assert_eq!(next[0].0, 2.5);
+            for (_, child) in next {
+                assert!(
+                    interactions.contains_key(child),
+                    "charging branch {child} is missing"
+                );
+            }
+        }
+        other => panic!("expected ChargingInteraction, got {other:?}"),
+    }
+
+    // `Wielding.Next` is a single child encoded at charge 0.0.
+    match interactions
+        .get(&id_of("Common_Guard_Wield"))
+        .expect("wielding guard")
+    {
+        ProtocolInteraction::WieldingInteraction(node) => {
+            let next = node.charged_next.as_ref().expect("wielding next");
+            assert_eq!(next.len(), 1);
+            assert_eq!(next[0].0, 0.0);
+            assert!(interactions.contains_key(&next[0].1));
+        }
+        other => panic!("expected WieldingInteraction, got {other:?}"),
+    }
+
+    // `MemoriesCondition.Next` is an int-keyed map; `Teleporter_Place` has all
+    // six levels plus a failed branch.
+    match interactions
+        .get(&id_of("Teleporter_Place"))
+        .expect("memories teleporter")
+    {
+        ProtocolInteraction::MemoriesConditionInteraction(node) => {
+            assert_eq!(node.memories_next.len(), 6);
+            assert!(node.memories_next.contains_key(&0));
+            assert!(node.memories_next.contains_key(&5));
+            for child in node.memories_next.values() {
+                assert!(
+                    interactions.contains_key(child),
+                    "memories branch {child} is missing"
+                );
+            }
+            assert_ne!(node.failed, INTERACTION_NOT_FOUND);
+            assert!(interactions.contains_key(&node.failed));
+        }
+        other => panic!("expected MemoriesConditionInteraction, got {other:?}"),
+    }
+
+    // An explicit ChangeActiveSlot target is preserved; the synthetic default
+    // interaction uses Java's UNSET sentinel when no slot is authored.
+    match interactions
+        .get(&id_of("Skeleton_Burnt_Praetorian_EquipSecondSword"))
+        .expect("equip next change slot")
+    {
+        ProtocolInteraction::SimpleInteraction(node) => {
+            let ProtocolInteraction::SerialInteraction(serial) =
+                interactions.get(&node.next).expect("equip serial")
+            else {
+                panic!("equip next is not Serial");
+            };
+            let slot = serial
+                .serial_interactions
+                .iter()
+                .find_map(|child| match interactions.get(child) {
+                    Some(ProtocolInteraction::ChangeActiveSlotInteraction(slot)) => Some(slot),
+                    _ => None,
+                })
+                .expect("change active slot in serial");
+            assert_eq!(slot.target_slot, 1);
+        }
+        other => panic!("expected SimpleInteraction, got {other:?}"),
+    }
 }
 
 #[test]
@@ -425,6 +524,13 @@ fn block_swing_roots_resolve_every_child() {
             }
         }
     }
+}
+
+#[test]
+fn the_missing_id_sentinel_is_never_zero() {
+    assert_eq!(INTERACTION_NOT_FOUND, ASSET_NOT_FOUND);
+    assert_eq!(ASSET_NOT_FOUND, i32::MIN);
+    assert_ne!(INTERACTION_NOT_FOUND, 0);
 }
 
 #[test]

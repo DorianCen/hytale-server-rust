@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use hytale_interactions::{
     execute_root, BlockInteractions, ExecutionContext, InteractionCatalog, WorldAction,
 };
-use hytale_protocol::generated::common::{GameMode, InteractionType};
+use hytale_protocol::generated::common::{GameMode, InteractionType, PlaceMode};
 use serde_json::{json, Value};
 
 fn catalog(interactions: &[(&str, Value)], roots: &[(&str, Value)]) -> InteractionCatalog {
@@ -250,4 +250,344 @@ fn real_block_secondary_root_reaches_the_place_node() {
         .place_block_flags("Block_Secondary")
         .expect("Block_Secondary reaches a PlaceBlock node");
     assert!(flags.remove_item_in_hand);
+}
+
+#[test]
+fn chaining_selects_next_and_sorted_flag_branches() {
+    let catalog = catalog(
+        &[
+            ("Chain_0", json!({"Type": "Door", "Horizontal": false})),
+            (
+                "Chain_1",
+                json!({"Type": "ChangeState", "Changes": {"default": "Open"}}),
+            ),
+            ("Flag_A", json!({"Type": "OpenContainer"})),
+            ("Flag_B", json!({"Type": "OpenBench"})),
+        ],
+        &[(
+            "Root",
+            json!({
+                "Interactions": [{
+                    "Type": "Chaining",
+                    "Next": ["Chain_0", "Chain_1"],
+                    "Flags": {"B": "Flag_B", "A": "Flag_A"}
+                }]
+            }),
+        )],
+    );
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            chaining_index: Some(1),
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(
+        outcome.actions,
+        vec![WorldAction::ChangeState {
+            changes: BTreeMap::from([("default".to_string(), "Open".to_string())])
+        }]
+    );
+
+    // Java sorts flag names; index 0 is `A`.
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            flag_index: Some(0),
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(outcome.actions, vec![WorldAction::OpenContainer]);
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            chaining_index: Some(9),
+            ..ExecutionContext::default()
+        },
+    );
+    assert!(!outcome.success);
+    assert!(outcome.actions.is_empty());
+}
+
+#[test]
+fn charging_selects_the_highest_reached_threshold_and_failed_branch() {
+    let catalog = catalog(
+        &[
+            ("Charge_Short", json!({"Type": "OpenContainer"})),
+            ("Charge_Long", json!({"Type": "OpenBench"})),
+            ("Charge_Failed", json!({"Type": "Door"})),
+        ],
+        &[(
+            "Root",
+            json!({
+                "Interactions": [{
+                    "Type": "Charging",
+                    "Next": {
+                        "0.5": "Charge_Short",
+                        "1.5": "Charge_Long"
+                    },
+                    "Failed": "Charge_Failed"
+                }]
+            }),
+        )],
+    );
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            charge_value: 1.75,
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(outcome.actions, vec![WorldAction::OpenBench]);
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            charge_value: 0.25,
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(
+        outcome.actions,
+        vec![WorldAction::Door { horizontal: false }]
+    );
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            charge_value: 10.0,
+            charge_failed: true,
+            ..ExecutionContext::default()
+        },
+    );
+    assert!(!outcome.success);
+    assert_eq!(
+        outcome.actions,
+        vec![WorldAction::Door { horizontal: false }]
+    );
+}
+
+#[test]
+fn wielding_uses_its_single_next_child() {
+    let catalog = catalog(
+        &[("Wield_Next", json!({"Type": "OpenContainer"}))],
+        &[(
+            "Root",
+            json!({
+                "Interactions": [{
+                    "Type": "Wielding",
+                    "Next": "Wield_Next"
+                }]
+            }),
+        )],
+    );
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            charge_value: 0.0,
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(outcome.actions, vec![WorldAction::OpenContainer]);
+}
+
+#[test]
+fn memories_condition_selects_the_matching_level() {
+    let catalog = catalog(
+        &[
+            ("Level_0", json!({"Type": "Door"})),
+            ("Level_3", json!({"Type": "OpenContainer"})),
+            ("Level_Failed", json!({"Type": "OpenBench"})),
+        ],
+        &[(
+            "Root",
+            json!({
+                "Interactions": [{
+                    "Type": "MemoriesCondition",
+                    "Next": {"0": "Level_0", "3": "Level_3"},
+                    "Failed": "Level_Failed"
+                }]
+            }),
+        )],
+    );
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            memories_level: Some(3),
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(outcome.actions, vec![WorldAction::OpenContainer]);
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            memories_level: Some(2),
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(outcome.actions, vec![WorldAction::OpenBench]);
+}
+
+#[test]
+fn place_mode_select_is_creative_only_and_falls_back_to_default() {
+    let catalog = catalog(
+        &[
+            ("Place_Default", json!({"Type": "Door"})),
+            ("Place_Replace", json!({"Type": "OpenContainer"})),
+            ("Place_Retype", json!({"Type": "OpenBench"})),
+        ],
+        &[(
+            "Root",
+            json!({
+                "Interactions": [{
+                    "Type": "PlaceModeSelect",
+                    "DefaultInteractions": "Place_Default",
+                    "ReplaceInteractions": "Place_Replace",
+                    "RetypeInteractions": "Place_Retype"
+                }]
+            }),
+        )],
+    );
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            game_mode: GameMode::Creative,
+            place_mode: PlaceMode::Replace,
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(outcome.actions, vec![WorldAction::OpenContainer]);
+
+    // Adventure always uses Default, even if the client reports Replace.
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            game_mode: GameMode::Adventure,
+            place_mode: PlaceMode::Replace,
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(
+        outcome.actions,
+        vec![WorldAction::Door { horizontal: false }]
+    );
+
+    // A mode without its own branch falls back to Default.
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            game_mode: GameMode::Creative,
+            place_mode: PlaceMode::Extrude,
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(
+        outcome.actions,
+        vec![WorldAction::Door { horizontal: false }]
+    );
+}
+
+#[test]
+fn change_active_slot_emits_a_slot_action_once() {
+    let catalog = catalog(
+        &[("Swap", json!({"Type": "ChangeActiveSlot", "TargetSlot": 3}))],
+        &[("Root", json!({"Interactions": ["Swap"]}))],
+    );
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            active_slot: Some(0),
+            ..ExecutionContext::default()
+        },
+    );
+    assert_eq!(
+        outcome.actions,
+        vec![WorldAction::ChangeActiveSlot { target_slot: 3 }]
+    );
+
+    let outcome = execute_root(
+        &catalog,
+        "Root",
+        &ExecutionContext {
+            active_slot: Some(3),
+            ..ExecutionContext::default()
+        },
+    );
+    assert!(outcome.actions.is_empty());
+}
+
+#[test]
+fn place_flags_follow_the_selected_place_mode_branch() {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        eprintln!("HYTALE_TEST_ASSETS disables the asset-backed test");
+        return;
+    }
+    let pack = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Assets/Assets.zip");
+    if !pack.is_file() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let pack = hytale_assets::AssetPack::open(pack).expect("open pack");
+    let catalog = InteractionCatalog::load(&pack).expect("load interactions");
+
+    let default = catalog
+        .place_block_flags_with_context(
+            "Block_Secondary",
+            &ExecutionContext {
+                game_mode: GameMode::Creative,
+                place_mode: PlaceMode::Default,
+                ..ExecutionContext::default()
+            },
+        )
+        .expect("default place flags");
+    assert!(!default.quick_replace);
+    assert!(!default.quick_retype);
+    assert!(!default.no_physics);
+
+    let replace = catalog
+        .place_block_flags_with_context(
+            "Block_Secondary",
+            &ExecutionContext {
+                game_mode: GameMode::Creative,
+                place_mode: PlaceMode::Replace,
+                ..ExecutionContext::default()
+            },
+        )
+        .expect("replace place flags");
+    assert!(replace.quick_replace);
+    assert!(replace.no_physics);
+
+    let retype = catalog
+        .place_block_flags_with_context(
+            "Block_Secondary",
+            &ExecutionContext {
+                game_mode: GameMode::Creative,
+                place_mode: PlaceMode::Retype,
+                ..ExecutionContext::default()
+            },
+        )
+        .expect("retype place flags");
+    assert!(retype.quick_retype);
+    assert!(retype.no_physics);
 }

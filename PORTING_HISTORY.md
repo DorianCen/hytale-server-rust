@@ -2709,3 +2709,33 @@ This file records phase-2 sessions only.
 - **Follow-ups:** Java's fuzzy-distance suggestion tail and plugin chat
   formatters remain unported; the debug/editor/builder command set stays out of
   scope (T61).
+
+## Session 100 — T71 interaction long tail (2026-11-11)
+
+- **Goal:** close the interaction graph's remaining branch maps, place-mode and
+  active-slot semantics, and missing-id sentinel gaps.
+- **Graph:** `ExecutionContext` now carries place mode, memories level, charge
+  value/failure, chaining/flag index and active slot. The executor selects
+  `Chaining.Next`/sorted `Flags`, the closest `Charging`/`Wielding` threshold (or
+  failed branch), `MemoriesCondition.Next`, and the creative-only
+  `PlaceModeSelect` branch with Default fallback. `ChangeActiveSlot` is emitted as
+  a world action.
+- **Assets:** `Charging.Next`, `Wielding.Next` and `MemoriesCondition.Next`
+  inline children are registered under Java's generated keys and encoded into
+  `chargedNext`/`memoriesNext`. `CancelChain` now has its protocol encoder.
+  `ChangeActiveSlot` uses Java's `Integer.MIN_VALUE` UNSET sentinel. The shared
+  `ASSET_NOT_FOUND`/`INTERACTION_NOT_FOUND` constant is documented and tested
+  distinct from id 0.
+- **Session:** `SyncPlayerPreferences.place_mode` is stored per session and
+  passed into placement-flag resolution; `Block_Secondary` now selects the
+  creative Replace/Retype/Extrude/SurfaceDraw/FastPlace branch. An interaction
+  `ChangeActiveSlot` updates the hotbar, sends `SetActiveSlot` and rebroadcasts
+  held items.
+- **Tests:** 20 `hytale-interactions` tests (synthetic chaining/charging/
+  wielding/memories/place-mode/active-slot plus real `Block_Secondary` flags),
+  7 `interaction_packets` tests (next-map children, protocol variants,
+  sentinels), 24 `block_item_packets`, 58 server library tests and the ignored
+  block-interaction loopback (2 passed, 51.90 s).
+- **Verified:** `./tools/test.sh fast` (1646 passed, 29 skipped), clippy and fmt.
+- **Follow-ups:** persistent server-side charge/fork state and a release-client
+  trace for a live place-mode desync remain; see T71 deviations.

@@ -6,8 +6,8 @@
 
 use std::collections::BTreeMap;
 
-use hytale_protocol::generated::common::{GameMode, InteractionType};
-use serde_json::Value;
+use hytale_protocol::generated::common::{GameMode, InteractionType, PlaceMode};
+use serde_json::{Map, Value};
 
 use crate::catalog::InteractionCatalog;
 
@@ -42,6 +42,11 @@ pub enum WorldAction {
     BreakBlock,
     /// Place the held block at the target.
     PlaceBlock,
+    /// Change the sender's active hotbar slot.
+    ChangeActiveSlot {
+        /// Target hotbar slot.
+        target_slot: i32,
+    },
 }
 
 /// Runtime conditions visible to the graph.
@@ -63,6 +68,20 @@ pub struct ExecutionContext {
     pub gliding: bool,
     /// Original interaction type.
     pub interaction_type: InteractionType,
+    /// Creative placement mode from `SyncPlayerPreferences`.
+    pub place_mode: PlaceMode,
+    /// Current memories level from the gameplay config.
+    pub memories_level: Option<i32>,
+    /// Charge duration in seconds for `Charging`/`Wielding`.
+    pub charge_value: f32,
+    /// Whether the charging interaction was cancelled/failed.
+    pub charge_failed: bool,
+    /// Client-selected `Chaining.Next` index, when the chain carries one.
+    pub chaining_index: Option<usize>,
+    /// Client-selected `Chaining.Flags` index, when the chain carries one.
+    pub flag_index: Option<usize>,
+    /// Current active hotbar slot, if known.
+    pub active_slot: Option<i32>,
     /// Interaction variable substitutions.
     pub vars: BTreeMap<String, String>,
 }
@@ -78,6 +97,13 @@ impl Default for ExecutionContext {
             flying: false,
             gliding: false,
             interaction_type: InteractionType::Use,
+            place_mode: PlaceMode::Default,
+            memories_level: None,
+            charge_value: 0.0,
+            charge_failed: false,
+            chaining_index: None,
+            flag_index: None,
+            active_slot: None,
             vars: BTreeMap::new(),
         }
     }
@@ -206,13 +232,58 @@ fn execute_node(
                 None => ExecutionOutcome::default(),
             };
         }
-        "Serial" | "Parallel" | "Chaining" => {
+        "Serial" | "Parallel" => {
             return execute_interactions(
                 catalog,
                 node.get("Interactions").or_else(|| node.get("Next")),
                 context,
                 depth + 1,
             );
+        }
+        "Chaining" => {
+            let branch = chaining_branch(node, context);
+            let mut outcome = execute_optional(catalog, branch, context, depth + 1);
+            outcome.success = branch.is_some();
+            return outcome;
+        }
+        "Charging" | "Wielding" => {
+            let branch = if context.charge_failed {
+                node.get("Failed")
+            } else {
+                charging_branch(node, context.charge_value).or_else(|| node.get("Failed"))
+            };
+            let mut outcome = execute_optional(catalog, branch, context, depth + 1);
+            outcome.success = branch.is_some() && !context.charge_failed;
+            return outcome;
+        }
+        "MemoriesCondition" => {
+            let branch = memories_branch(node, context.memories_level);
+            let mut outcome = execute_optional(catalog, branch, context, depth + 1);
+            outcome.success = branch.is_some();
+            return outcome;
+        }
+        "PlaceModeSelect" => {
+            let branch = place_mode_branch(node, context);
+            let mut outcome = execute_optional(catalog, branch, context, depth + 1);
+            if let Some(next) = node.get("Next") {
+                let next_outcome = execute_interactions(catalog, Some(next), context, depth + 1);
+                outcome.actions.extend(next_outcome.actions);
+                outcome.success &= next_outcome.success;
+            }
+            return outcome;
+        }
+        "ChangeActiveSlot" => {
+            let target = node
+                .get("TargetSlot")
+                .and_then(Value::as_i64)
+                .map(|slot| slot as i32)
+                .or(context.active_slot)
+                .unwrap_or(i32::MIN);
+            if target != i32::MIN && Some(target) != context.active_slot {
+                outcome.actions.push(WorldAction::ChangeActiveSlot {
+                    target_slot: target,
+                });
+            }
         }
         "Repeat" => {
             return execute_interactions(
@@ -248,6 +319,7 @@ fn execute_node(
             });
         }
         "OpenContainer" => outcome.actions.push(WorldAction::OpenContainer),
+        "OpenBench" => outcome.actions.push(WorldAction::OpenBench),
         "PlaceBlock" => outcome.actions.push(WorldAction::PlaceBlock),
         "BreakBlock" | "DestroyBlock" => outcome.actions.push(WorldAction::BreakBlock),
         _ => {}
@@ -268,7 +340,116 @@ fn execute_node(
     outcome
 }
 
-fn condition_matches(node: &Value, context: &ExecutionContext) -> bool {
+fn execute_optional(
+    catalog: &InteractionCatalog,
+    value: Option<&Value>,
+    context: &ExecutionContext,
+    depth: usize,
+) -> ExecutionOutcome {
+    value.map_or_else(ExecutionOutcome::default, |value| {
+        execute_value(catalog, value, context, depth + 1)
+    })
+}
+
+/// Select the `Chaining.Next`/`Flags` branch for this context.
+pub(crate) fn chaining_branch<'a>(
+    node: &'a Value,
+    context: &ExecutionContext,
+) -> Option<&'a Value> {
+    if let Some(flag_index) = context.flag_index {
+        let flags = node.get("Flags").and_then(Value::as_object)?;
+        let mut keys: Vec<&String> = flags.keys().collect();
+        keys.sort();
+        return keys.get(flag_index).and_then(|key| flags.get(*key));
+    }
+    let next = node.get("Next").and_then(Value::as_array)?;
+    next.get(context.chaining_index.unwrap_or(0))
+}
+
+/// Select the closest charge branch at or below `charge_value`.
+pub(crate) fn charging_branch(node: &Value, charge_value: f32) -> Option<&Value> {
+    let next = node.get("Next")?;
+    let Some(map) = next.as_object() else {
+        // `Wielding.Next` is a single child and always runs at 0 seconds.
+        return Some(next);
+    };
+    if is_interaction_object(map) {
+        return Some(next);
+    }
+    map.iter()
+        .filter_map(|(key, value)| {
+            key.parse::<f32>()
+                .ok()
+                .filter(|key| *key <= charge_value)
+                .map(|key| (key, value))
+        })
+        .max_by(|left, right| left.0.total_cmp(&right.0))
+        .map(|(_, value)| value)
+}
+
+/// Select the exact memories level branch, or the failed branch.
+pub(crate) fn memories_branch(node: &Value, memories_level: Option<i32>) -> Option<&Value> {
+    let level = memories_level.unwrap_or(0);
+    node.get("Next")
+        .and_then(Value::as_object)
+        .and_then(|next| next.get(&level.to_string()))
+        .or_else(|| node.get("Failed"))
+}
+
+/// Select the `PlaceModeSelect` branch for this context.
+pub(crate) fn place_mode_branch<'a>(
+    node: &'a Value,
+    context: &ExecutionContext,
+) -> Option<&'a Value> {
+    let field = if context.game_mode == GameMode::Creative {
+        match context.place_mode {
+            PlaceMode::Replace => "ReplaceInteractions",
+            PlaceMode::Retype => "RetypeInteractions",
+            PlaceMode::Extrude => "ExtrudeInteractions",
+            PlaceMode::SurfaceDraw => "SurfaceDrawInteractions",
+            PlaceMode::FastPlace => "FastPlaceInteractions",
+            PlaceMode::Default => "DefaultInteractions",
+        }
+    } else {
+        "DefaultInteractions"
+    };
+    node.get(field)
+        .filter(|value| !value.is_null())
+        .or_else(|| node.get("DefaultInteractions"))
+}
+
+fn is_interaction_object(map: &Map<String, Value>) -> bool {
+    map.contains_key("Type")
+        || map.contains_key("Parent")
+        || map.contains_key("Interactions")
+        || map.contains_key("Next")
+        || map.contains_key("Failed")
+}
+
+/// Select the branch a specialized interaction would execute, for tree walks.
+pub(crate) fn selected_branch<'a>(
+    node: &'a Value,
+    context: &ExecutionContext,
+) -> Option<Option<&'a Value>> {
+    match node.get("Type").and_then(Value::as_str).unwrap_or("Simple") {
+        "Chaining" => Some(chaining_branch(node, context)),
+        "Charging" | "Wielding" => Some(if context.charge_failed {
+            node.get("Failed")
+        } else {
+            charging_branch(node, context.charge_value).or_else(|| node.get("Failed"))
+        }),
+        "MemoriesCondition" => Some(memories_branch(node, context.memories_level)),
+        "PlaceModeSelect" => Some(place_mode_branch(node, context)),
+        "Condition" => Some(if condition_matches(node, context) {
+            node.get("Next")
+        } else {
+            node.get("Failed")
+        }),
+        _ => None,
+    }
+}
+
+pub(crate) fn condition_matches(node: &Value, context: &ExecutionContext) -> bool {
     if let Some(required) = node.get("RequiredGameMode").and_then(Value::as_str) {
         let mode = match required {
             "Adventure" => GameMode::Adventure,

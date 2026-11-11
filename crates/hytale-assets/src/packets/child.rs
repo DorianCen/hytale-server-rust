@@ -23,11 +23,13 @@ use hytale_protocol::generated::common::{
 use hytale_protocol::generated::wire::Vector3f;
 use serde_json::Value;
 
-use crate::packets::{color, invalid, next_id, AssetPacket, AssetPacketError, Result};
+use crate::packets::{
+    color, invalid, next_id, AssetPacket, AssetPacketError, Result, ASSET_NOT_FOUND,
+};
 use crate::registry::AssetRegistry;
 
 /// Java `AssetMapWithIndexes.NOT_FOUND`.
-const NOT_FOUND: i32 = i32::MIN;
+const NOT_FOUND: i32 = ASSET_NOT_FOUND;
 
 impl AssetRegistry {
     /// `UpdateBlockBreakingDecals` (id 45) from the `BlockBreakingDecal` store.

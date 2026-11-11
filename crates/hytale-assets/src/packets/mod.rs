@@ -41,7 +41,7 @@ use hytale_protocol::generated::common::{
     ApplyForceInteraction, AudioCategoryDuckingRule, BarBeatDuration, BarBeatPosition, BeamConfig,
     BenchRequirement, BenchType, BlockConditionInteraction, BlockGroup, BlockSet, BlockTextures,
     BlockTypeConnectedBlockShape, BreakBlockInteraction, BuilderToolInteraction, CameraAxis,
-    CameraNode, CameraSettings, ChainFlagInteraction, ChainingInteraction,
+    CameraNode, CameraSettings, CancelChainInteraction, ChainFlagInteraction, ChainingInteraction,
     ChangeActiveSlotInteraction, ChangeBlockInteraction, ChangeStatBehaviour,
     ChangeStatInteraction, ChangeStateInteraction, ChargingDelay, ChargingInteraction,
     ClearEntityEffectInteraction, CollisionType, Color, ColorAlpha, ColorLight,
@@ -2252,12 +2252,19 @@ fn connected_block_rule_set(
     }
 }
 
-/// Java `AssetMapWithIndexes.NOT_FOUND`.
+/// Java `AssetMapWithIndexes.NOT_FOUND` (`Integer.MIN_VALUE`).
 ///
-/// Optional asset references are sent as this sentinel. `0` is a real
-/// interaction id, so using it for "no interaction" makes the client follow the
-/// first interaction instead of stopping, which can loop forever on a chain.
-pub const INTERACTION_NOT_FOUND: i32 = i32::MIN;
+/// Optional indexed-asset references use this sentinel; `0` is a real asset id
+/// and must never mean "missing". The interaction, child-store and unarmed
+/// encoders share this value.
+pub const ASSET_NOT_FOUND: i32 = i32::MIN;
+
+/// Interaction id-space alias for [`ASSET_NOT_FOUND`].
+///
+/// `0` is a real interaction id, so using it for "no interaction" makes the
+/// client follow the first interaction instead of stopping, which can loop
+/// forever on a chain.
+pub const INTERACTION_NOT_FOUND: i32 = ASSET_NOT_FOUND;
 
 fn nested_interaction_index(
     registry: &AssetRegistry,
@@ -2602,6 +2609,74 @@ fn chaining_next(registry: &AssetRegistry, key: &str, value: Option<&Value>) -> 
 
 /// Resolve a `ChainingInteraction.Flags` map. Inline objects use Java's generated
 /// key `*<parent>_Flags_<flag>`; string values are direct interaction ids.
+/// Resolve a numeric-keyed child map (`Charging.Next`,
+/// `MemoriesCondition.Next`). Java's `generateKey` includes the map key, e.g.
+/// `*<parent>_Next_0.5` or `*<parent>_Next_2`.
+fn interaction_keyed_children(
+    registry: &AssetRegistry,
+    parent_key: &str,
+    field: &str,
+    value: Option<&Value>,
+) -> Vec<(String, i32)> {
+    let Some(map) = value.and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    map.iter()
+        .map(|(map_key, value)| {
+            let id = match value {
+                Value::String(id) => registry
+                    .interactions
+                    .id_of(id)
+                    .unwrap_or(INTERACTION_NOT_FOUND),
+                Value::Object(_) => registry
+                    .interactions
+                    .id_of(&format!("*{parent_key}_{field}_{map_key}"))
+                    .unwrap_or(INTERACTION_NOT_FOUND),
+                _ => INTERACTION_NOT_FOUND,
+            };
+            (map_key.clone(), id)
+        })
+        .collect()
+}
+
+/// Resolve `Charging.Next`/`Wielding.Next` into the protocol's float/int pairs.
+fn charged_next(
+    registry: &AssetRegistry,
+    key: &str,
+    value: Option<&Value>,
+) -> Option<Vec<(f32, i32)>> {
+    let value = value?;
+    if let Some(map) = value.as_object() {
+        // Wielding's `Next` is a single child object, while Charging's `Next`
+        // is a float-keyed map of children.
+        if map.contains_key("Type")
+            || map.contains_key("Parent")
+            || map.contains_key("Interactions")
+            || map.contains_key("Next")
+            || map.contains_key("Failed")
+        {
+            let id = nested_interaction_index(registry, key, "Next", Some(value));
+            return Some(vec![(0.0, id)]);
+        }
+        let mut next = interaction_keyed_children(registry, key, "Next", Some(value))
+            .into_iter()
+            .filter_map(|(seconds, id)| seconds.parse::<f32>().ok().map(|seconds| (seconds, id)))
+            .collect::<Vec<_>>();
+        next.sort_by(|left, right| left.0.total_cmp(&right.0));
+        return (!next.is_empty()).then_some(next);
+    }
+    let id = nested_interaction_index(registry, key, "Next", Some(value));
+    Some(vec![(0.0, id)])
+}
+
+/// Resolve `MemoriesCondition.Next` into a level -> interaction map.
+fn memories_next(registry: &AssetRegistry, key: &str, value: Option<&Value>) -> BTreeMap<i32, i32> {
+    interaction_keyed_children(registry, key, "Next", value)
+        .into_iter()
+        .filter_map(|(level, id)| level.parse::<i32>().ok().map(|level| (level, id)))
+        .collect()
+}
+
 fn chaining_flags(
     registry: &AssetRegistry,
     key: &str,
@@ -2864,7 +2939,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 json,
                 "MouseSensitivityAdjustmentDuration",
             ) as f32,
-            charged_next: None,
+            charged_next: charged_next(registry, key, json.get("Next")),
             forks: root_interaction_map(registry, key, "Forks", json.get("Forks")),
             charging_delay: charging_delay(json.get("Delay")),
         }),
@@ -2891,7 +2966,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 .unwrap_or(false),
             mouse_sensitivity_adjustment_target: 0.0,
             mouse_sensitivity_adjustment_duration: 0.0,
-            charged_next: None,
+            charged_next: charged_next(registry, key, json.get("Next")),
             forks: root_interaction_map(registry, key, "Forks", json.get("Forks")),
             charging_delay: None,
             blocked_effects: None,
@@ -3432,7 +3507,7 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 rules: base.rules,
                 tags: base.tags,
                 camera: base.camera,
-                memories_next: BTreeMap::new(),
+                memories_next: memories_next(registry, key, json.get("Next")),
                 failed: base.failed,
             })
         }
@@ -3786,6 +3861,24 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
             failed: base.failed,
             cooldown: interaction_cooldown(json.get("Cooldown")),
         }),
+        "CancelChain" => Interaction::CancelChainInteraction(CancelChainInteraction {
+            wait_for_data_from: base.wait_for_data_from,
+            effects: base.effects,
+            horizontal_speed_multiplier: base.horizontal_speed_multiplier,
+            run_time: base.run_time,
+            on_item_change_behavior: base.on_item_change_behavior,
+            settings: base.settings,
+            rules: base.rules,
+            tags: base.tags,
+            camera: base.camera,
+            next: base.next,
+            failed: base.failed,
+            chain_id: json
+                .get("ChainId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        }),
         "ChangeActiveSlot" => {
             Interaction::ChangeActiveSlotInteraction(ChangeActiveSlotInteraction {
                 wait_for_data_from: base.wait_for_data_from,
@@ -3797,7 +3890,12 @@ fn interaction_node(registry: &AssetRegistry, key: &str, json: &Value) -> Intera
                 rules: base.rules,
                 tags: base.tags,
                 camera: base.camera,
-                target_slot: json.get("TargetSlot").and_then(Value::as_i64).unwrap_or(0) as i32,
+                // Java `ChangeActiveSlotInteraction.UNSET_INT`; the chain
+                // supplies the slot when the asset has no explicit target.
+                target_slot: json
+                    .get("TargetSlot")
+                    .and_then(Value::as_i64)
+                    .map_or(i32::MIN, |slot| slot as i32),
             })
         }
         _ if is_simple_block_type(node_type) => {
@@ -5840,7 +5938,7 @@ fn model_particles(value: Option<&Value>) -> Result<Vec<ModelParticle>> {
 }
 
 /// Java `AssetMapWithIndexes.NOT_FOUND`.
-const NOT_FOUND: i32 = i32::MIN;
+const NOT_FOUND: i32 = ASSET_NOT_FOUND;
 
 /// Java `Fluid.processConfig` FluidFX index.
 fn resolve_fluid_fx(registry: &AssetRegistry, json: &Value) -> i32 {

@@ -351,9 +351,9 @@ asset-bring-up list:
    and placement `BlockHolder` component persistence. Remaining mirror,
    placement-rotation and component-golden work is
    [T76](tasks/T76-placement-followups.md).
-3. **Interaction long tail:** chaining/memories/charging/wielding next maps,
-   place-mode selection details, change-active-slot details, and a consistency
-   pass over missing-id sentinels (`NOT_FOUND`/`-1` vs `0`). Filed as
+3. **Interaction long tail (T71, done session 100):** chaining/memories/
+   charging/wielding next maps, place-mode selection, active-slot changes and
+   the missing-id sentinel audit are landed. See
    [T71](tasks/T71-interaction-long-tail.md).
 4. **Multi-player and persistence smoke (T70, done session 97):** two clients,
    held-item/NPC visibility, save/reload, disconnect/reconnect and world restart

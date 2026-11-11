@@ -89,8 +89,10 @@ block/item golden tests**, a clean
   CustomTemplate fence/wall and Stair/Roof connected-block variants, including
   roof valley/topper/wide-roof splitting, the creative quick-placement flags and
   placement block-entity metadata. T70 (session 97) adds the two-client
-  held-item/NPC and world-restart persistence smoke. Remaining close-out work is
-  the long-tail interaction payloads and other deferred placement follow-ups.
+  held-item/NPC and world-restart persistence smoke. T71 (session 100) closes
+  the interaction branch maps, creative place-mode selection, active-slot
+  changes and missing-id sentinels; remaining close-out work is tracked by the
+  filed T72–T77 packets.
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,
