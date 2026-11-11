@@ -320,9 +320,11 @@ asset-bring-up list:
 1. **Command long tail (T67 follow-ups):** dynamic argument-value suggestions
    (Java `argTypeId` sync), runtime `maxplayers`/`maxviewradius` changes, rich
    chat formatting, and the remaining Java debug/editor/builder command set.
-2. **Block placement fidelity:** rotation and placement settings, face/connect
-   rules, deco and physics updates, connected-block neighbour updates, block
-   entity/metadata persistence, and the `/setblock`-style admin path.
+2. **Block placement fidelity (T69, done session 96):** client block rotation is
+   stored/broadcast/acked, `/setblock` is authoritative, neighbour
+   support/falling and save/reload rotation are covered. Remaining:
+   server-side `ConnectedBlockRuleSet` state variants, `quickReplace`/
+   `quickRetype`/`noPhysics` flags, and block-entity metadata beyond containers.
 3. **Interaction long tail:** chaining/memories/charging/wielding next maps,
    place-mode selection details, change-active-slot details, and a consistency
    pass over missing-id sentinels (`NOT_FOUND`/`-1` vs `0`).

@@ -46,13 +46,13 @@ use hytale_protocol::generated::assets::UpdateTranslations;
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
-    BenchType, BlockFace, BlockPosition, ChatType, ComponentUpdate, DisconnectType,
+    BenchType, BlockFace, BlockPosition, BlockRotation, ChatType, ComponentUpdate, DisconnectType,
     EntityEffectsUpdate, EntityStatUpdate, EntityStatsUpdate, FormattedMessage, GameMode,
     HudComponent, InstantData, InteractionState, InteractionSyncData, InteractionType, MapChunk,
     MapMarker, MapMarkerIconSize, MouseButtonEvent, MouseButtonState, MouseButtonType,
     MovementSettings, MovementStates, MovementStatesUpdate, PlayerSkin, PongType,
-    Position as ProtocolPosition, SyncInteractionChain, Transform as ProtocolTransform, UpdateType,
-    WindowAction, WorldInteraction,
+    Position as ProtocolPosition, Rotation as BlockRotationAxis, SyncInteractionChain,
+    Transform as ProtocolTransform, UpdateType, WindowAction, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -3694,7 +3694,7 @@ async fn run_game_loop(
                     }
                     MouseInteraction::ID => {
                         let interaction: MouseInteraction = frame.decode()?;
-                        match handle_block_interaction(
+                        let outcome = handle_block_interaction(
                             thread,
                             &players,
                             transform,
@@ -3703,7 +3703,8 @@ async fn run_game_loop(
                             &interaction,
                             None,
                             options.block_break_damage,
-                        ) {
+                        );
+                        match outcome {
                             BlockInteractionOutcome::Edit { consumed, .. } => {
                                 report.block_edits += 1;
                                 if consumed {
@@ -4377,6 +4378,65 @@ async fn run_game_loop(
                                                 }
                                             }
                                         }
+                                        CommandEffect::SetBlock {
+                                            x,
+                                            y,
+                                            z,
+                                            block,
+                                            rotation,
+                                        } => {
+                                            let block_id = block
+                                                .parse::<i32>()
+                                                .ok()
+                                                .or_else(|| {
+                                                    active_thread
+                                                        .block_type_id(&block)
+                                                        .ok()
+                                                        .flatten()
+                                                })
+                                                .filter(|id| *id > 0);
+                                            let Some(block_id) = block_id else {
+                                                send_server_message(
+                                                    writer,
+                                                    &format!("unknown block `{block}`"),
+                                                    options,
+                                                )
+                                                .await?;
+                                                continue;
+                                            };
+                                            let rotation = rotation.unwrap_or(0).rem_euclid(64);
+                                            match active_thread
+                                                .set_block_rotated(x, y, z, block_id, rotation)
+                                            {
+                                                Ok((before, after)) => {
+                                                    players.broadcast_block(ServerSetBlock {
+                                                        x,
+                                                        y,
+                                                        z,
+                                                        block_id: after,
+                                                        filler: 0,
+                                                        rotation: rotation as i8,
+                                                    });
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!(
+                                                            "Set block ({x}, {y}, {z}) to {after} \
+                                                             rotation {rotation} (was {before})"
+                                                        ),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                                Err(error) => {
+                                                    send_server_message(
+                                                        writer,
+                                                        &format!("setblock failed: {error}"),
+                                                        options,
+                                                    )
+                                                    .await?;
+                                                }
+                                            }
+                                        }
                                         CommandEffect::SaveWorld => {
                                             active_thread.save_player_state(
                                                 player_uuid,
@@ -4810,7 +4870,7 @@ async fn run_game_loop(
 /// Invalid targets, out-of-reach positions and non-block items are rejected
 /// without propagating an error, so a bad interaction cannot kill the session.
 /// A validated left/right mouse interaction for a block.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum BlockEdit {
     /// Break the block at `(x, y, z)`.
     Break { x: i32, y: i32, z: i32 },
@@ -4820,7 +4880,36 @@ enum BlockEdit {
         y: i32,
         z: i32,
         item_id: String,
+        /// Client-predicted block rotation (Java `blockRotation`).
+        rotation: Option<BlockRotation>,
     },
+}
+
+fn block_rotation_index(rotation: &BlockRotation) -> i32 {
+    let roll = rotation.rotation_roll.value() as i32;
+    let pitch = rotation.rotation_pitch.value() as i32;
+    let yaw = rotation.rotation_yaw.value() as i32;
+    roll * 16 + pitch * 4 + yaw
+}
+
+fn block_rotation_from_index(index: i32) -> BlockRotation {
+    let index = index.rem_euclid(64);
+    BlockRotation {
+        rotation_yaw: BlockRotationAxis::from_value(i64::from(index % 4)).unwrap_or_default(),
+        rotation_pitch: BlockRotationAxis::from_value(i64::from((index / 4) % 4))
+            .unwrap_or_default(),
+        rotation_roll: BlockRotationAxis::from_value(i64::from(index / 16)).unwrap_or_default(),
+    }
+}
+
+fn chain_block_rotation(update: &SyncInteractionChain) -> Option<BlockRotation> {
+    update
+        .interaction_data
+        .as_ref()?
+        .iter()
+        .flatten()
+        .rev()
+        .find_map(|entry| entry.block_rotation.clone())
 }
 
 fn block_target(
@@ -4869,6 +4958,10 @@ fn parse_block_edit(
                 y,
                 z,
                 item_id: item_id.to_string(),
+                rotation: interaction
+                    .world_interaction
+                    .as_ref()
+                    .and_then(|world| world.block_rotation.clone()),
             })
         }
         MouseButtonType::Middle | MouseButtonType::X1 | MouseButtonType::X2 => None,
@@ -4916,7 +5009,7 @@ fn block_interaction_from_chain(update: &SyncInteractionChain) -> Option<MouseIn
                 y: block_position.y,
                 z: block_position.z,
             }),
-            block_rotation: None,
+            block_rotation: chain_block_rotation(update),
         }),
     })
 }
@@ -5161,6 +5254,7 @@ fn patched_interaction_data(
                 z: placed.z,
             });
             entry.placed_block_id = placed.block_id;
+            entry.block_rotation = Some(block_rotation_from_index(placed.rotation));
         }
     }
     Some(data)
@@ -5183,6 +5277,7 @@ struct PlacedBlock {
     y: i32,
     z: i32,
     block_id: i32,
+    rotation: i32,
 }
 
 #[derive(Debug)]
@@ -5281,10 +5376,17 @@ fn handle_block_interaction(
                     y,
                     z,
                     block_id: 0,
+                    rotation: 0,
                 }),
             }
         }
-        Some(BlockEdit::Place { x, y, z, item_id }) => {
+        Some(BlockEdit::Place {
+            x,
+            y,
+            z,
+            item_id,
+            rotation,
+        }) => {
             // The inventory is authoritative. The packet's item id remains a
             // compatibility fallback for sessions/tests without a saved
             // inventory (creative/debug joins).
@@ -5299,12 +5401,14 @@ fn handle_block_interaction(
             // directly. Some clients send the clicked face instead, so keep the
             // normal-adjusted cell as a fallback rather than the primary target.
             let mut target = (x, y, z);
-            let mut placed = thread.place_block(x, y, z, block_id);
+            let rotation = rotation.as_ref().map(block_rotation_index).unwrap_or(0);
+            let mut placed = thread.place_block_rotated(x, y, z, block_id, rotation);
             if matches!(placed, Ok(None)) {
                 if let Some(position) = placement_position {
                     if (position.x, position.y, position.z) != (x, y, z) {
                         target = (position.x, position.y, position.z);
-                        placed = thread.place_block(target.0, target.1, target.2, block_id);
+                        placed = thread
+                            .place_block_rotated(target.0, target.1, target.2, block_id, rotation);
                     }
                 }
             }
@@ -5320,7 +5424,7 @@ fn handle_block_interaction(
                 z: target.2,
                 block_id: after,
                 filler: 0,
-                rotation: 0,
+                rotation: rotation as i8,
             });
             BlockInteractionOutcome::Edit {
                 consumed: from_inventory,
@@ -5329,6 +5433,7 @@ fn handle_block_interaction(
                     y: target.1,
                     z: target.2,
                     block_id: after,
+                    rotation,
                 }),
             }
         }
@@ -5396,7 +5501,7 @@ fn try_block_use(
                         z,
                         block_id: after,
                         filler: 0,
-                        rotation: 0,
+                        rotation: thread.block_rotation(x, y, z).ok().flatten().unwrap_or(0) as i8,
                     });
                     if before != after {
                         state_changes += 1;
@@ -5415,7 +5520,7 @@ fn try_block_use(
                         z,
                         block_id: after,
                         filler: 0,
-                        rotation: 0,
+                        rotation: thread.block_rotation(x, y, z).ok().flatten().unwrap_or(0) as i8,
                     });
                     if before != after {
                         state_changes += 1;
@@ -6242,6 +6347,54 @@ mod tests {
     }
 
     #[test]
+    fn block_rotation_packs_and_unpacks_the_java_tuple_index() {
+        let rotation = BlockRotation {
+            rotation_yaw: BlockRotationAxis::Ninety,
+            rotation_pitch: BlockRotationAxis::OneEighty,
+            rotation_roll: BlockRotationAxis::TwoSeventy,
+        };
+        let index = block_rotation_index(&rotation);
+        assert_eq!(index, 3 * 16 + 2 * 4 + 1);
+        assert_eq!(
+            block_rotation_index(&block_rotation_from_index(index)),
+            index
+        );
+        assert_eq!(
+            block_rotation_index(&block_rotation_from_index(65)),
+            1,
+            "the tuple index wraps to its low six bits"
+        );
+    }
+
+    #[test]
+    fn chain_placement_uses_the_client_block_rotation() {
+        let mut update = chain_update(
+            InteractionType::Use,
+            Some(BlockPosition { x: 1, y: 2, z: 3 }),
+        );
+        let rotation = BlockRotation {
+            rotation_yaw: BlockRotationAxis::TwoSeventy,
+            rotation_pitch: BlockRotationAxis::Ninety,
+            rotation_roll: BlockRotationAxis::None,
+        };
+        update.interaction_data = Some(vec![Some(InteractionSyncData {
+            block_rotation: Some(rotation.clone()),
+            ..InteractionSyncData::default()
+        })]);
+        let interaction = block_interaction_from_chain(&update).expect("chain interaction");
+        assert_eq!(
+            parse_block_edit(&transform(), &interaction),
+            Some(BlockEdit::Place {
+                x: 1,
+                y: 2,
+                z: 3,
+                item_id: "Rock_Stone".to_string(),
+                rotation: Some(rotation),
+            })
+        );
+    }
+
+    #[test]
     fn block_edit_parses_valid_break_and_place() {
         let transform = transform();
         assert_eq!(
@@ -6274,7 +6427,8 @@ mod tests {
                 x: 1,
                 y: 2,
                 z: 3,
-                item_id: "Rock_Stone".to_string()
+                item_id: "Rock_Stone".to_string(),
+                rotation: None,
             })
         );
     }
@@ -6413,7 +6567,8 @@ mod tests {
                 x: 1,
                 y: 2,
                 z: 3,
-                item_id: "Rock_Stone".to_string()
+                item_id: "Rock_Stone".to_string(),
+                rotation: None,
             })
         );
 
@@ -6499,6 +6654,7 @@ mod tests {
             y: 3,
             z: 3,
             block_id: 3014,
+            rotation: 1,
         };
         let data = patched_interaction_data(&update, Some(&placed), InteractionState::Finished)
             .expect("patched data");
@@ -6509,6 +6665,10 @@ mod tests {
         assert!(data.iter().flatten().any(|entry| {
             entry.placed_block_id == 3014
                 && entry.block_position == Some(BlockPosition { x: 1, y: 3, z: 3 })
+                && entry
+                    .block_rotation
+                    .as_ref()
+                    .is_some_and(|rotation| block_rotation_index(rotation) == 1)
         }));
 
         let mut forked = update.clone();

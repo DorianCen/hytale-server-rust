@@ -404,6 +404,30 @@ impl ConsoleEffects for ServerConsole {
         Ok(format!("World `{name}` is ready"))
     }
 
+    fn set_block(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block: &str,
+        rotation: Option<i32>,
+    ) -> Result<String, String> {
+        let block_id = block
+            .parse::<i32>()
+            .ok()
+            .or_else(|| self.thread.block_type_id(block).ok().flatten())
+            .filter(|id| *id > 0)
+            .ok_or_else(|| format!("unknown block `{block}`"))?;
+        let rotation = rotation.unwrap_or(0).rem_euclid(64);
+        let (before, after) = self
+            .thread
+            .set_block_rotated(x, y, z, block_id, rotation)
+            .map_err(|error| error.to_string())?;
+        Ok(format!(
+            "Set block ({x}, {y}, {z}) to {after} rotation {rotation} (was {before})"
+        ))
+    }
+
     fn unsupported(&mut self, _effect: &CommandEffect) -> Result<String, String> {
         Err("not available from the console".to_string())
     }

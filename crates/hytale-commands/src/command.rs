@@ -144,6 +144,19 @@ pub enum CommandEffect {
         /// World name or UUID.
         world: String,
     },
+    /// Authoritatively replace one block (operator `/setblock`).
+    SetBlock {
+        /// Block X coordinate.
+        x: i32,
+        /// Block Y coordinate.
+        y: i32,
+        /// Block Z coordinate.
+        z: i32,
+        /// Block id or block type key.
+        block: String,
+        /// Java rotation tuple index, when explicitly requested.
+        rotation: Option<i32>,
+    },
 }
 
 /// The runtime state a command may inspect.

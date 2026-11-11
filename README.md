@@ -88,11 +88,11 @@ block/item golden tests**, a clean
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,
-  `kick`, `world`, `maxplayers` and `maxviewradius`, with a prompted stdin
-  console (automatic on a terminal), `hytale-core` permission/op groups
-  (`--op`), plain-chat relay, player-name targets and live world switching. Dynamic argument-value suggestions and the
-  remaining Java debug/editor command set are follow-ups
-  ([T67](tasks/T67-commands.md)).
+  `kick`, `world`, `maxplayers`, `maxviewradius` and `setblock`, with a prompted
+  stdin console (automatic on a terminal), `hytale-core` permission/op groups
+  (`--op`), plain-chat relay, player-name targets and live world switching.
+  Dynamic argument-value suggestions and the remaining Java debug/editor command
+  set are follow-ups ([T67](tasks/T67-commands.md)).
 - **One stored player identity.** The join currently uses the world's stored
   player record rather than necessarily the authenticated UUID. Per-join
   identity and the full Java `SpawnProvider` behavior remain future work.

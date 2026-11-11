@@ -1139,6 +1139,21 @@ writers) enforce the Java channel policy, and server/client QUIC endpoints use
 chains, SPKI/HTTP parsing, a loopback TLS request, and ignored loopback
 wrong-channel frames.
 
+### T69 — Block placement fidelity
+
+**Status:** done (session 96)
+**Package:** `hytale-server`, `hytale-commands`, `hytale-world`, `tools/client-bot`
+**Depends on:** T46, T50, T52, T56, T66
+**Agent fit:** low/medium
+**Goal:** preserve the client's block rotation, make placement drive neighbour
+simulation, add an authoritative `/setblock` path and prove rotation persistence.
+See [`tasks/T69-block-placement-fidelity.md`](tasks/T69-block-placement-fidelity.md).
+**Landed:** `place_block_rotated`/`set_block_rotated` store the Java rotation
+tuple index (from `InteractionSyncData.blockRotation` or `/setblock`), broadcasts
+and chain acks carry it, `/setblock` resolves ids/keys, and chunk save/reload
+plus support/falling-neighbour tests cover the observable contract. Connected
+rule-set state mutation stays with the interaction long tail.
+
 ---
 
 ## M7 — Production hardening

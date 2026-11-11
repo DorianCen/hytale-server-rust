@@ -127,6 +127,7 @@ async fn the_bot_runs_commands_over_chat() {
                 "/whereami".to_string(),
                 "/gamemode creative".to_string(),
                 "/nope".to_string(),
+                "/setblock 0 200 0 Rock_Stone 90".to_string(),
                 // Plain chat is relayed to every player (including the sender).
                 "hello chat".to_string(),
             ],
@@ -187,6 +188,7 @@ async fn the_bot_runs_commands_over_chat() {
         "Game mode set to creative",
         "unknown command `nope`",
         "CommandBot: hello chat",
+        "Set block (0, 200, 0)",
     ] {
         assert!(
             report
@@ -208,6 +210,15 @@ async fn the_bot_runs_commands_over_chat() {
         report.observation.teleports
     );
 
+    let setblock = report
+        .observation
+        .block_updates
+        .iter()
+        .find(|update| (update.x, update.y, update.z) == (0, 200, 0))
+        .expect("the /setblock ServerSetBlock");
+    assert!(setblock.block_id > 0);
+    assert_eq!(setblock.rotation, 1, "90 degrees is yaw index 1");
+
     session.connection().close(0u32.into(), b"done");
     let report = tokio::time::timeout(Duration::from_secs(10), server_task)
         .await
@@ -215,7 +226,7 @@ async fn the_bot_runs_commands_over_chat() {
         .expect("server task");
     assert!(report.game.join_world, "join state: {report:?}");
     assert!(
-        report.game_loop.commands >= 12,
+        report.game_loop.commands >= 13,
         "commands handled: {}",
         report.game_loop.commands
     );

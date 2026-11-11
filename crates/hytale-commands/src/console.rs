@@ -26,6 +26,15 @@ pub trait ConsoleEffects {
     fn kick(&mut self, target: &str, reason: Option<&str>) -> Result<String, String>;
     /// Switch a player (or the console) to another world.
     fn switch_world(&mut self, world: &str) -> Result<String, String>;
+    /// Authoritatively replace one block.
+    fn set_block(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block: &str,
+        rotation: Option<i32>,
+    ) -> Result<String, String>;
     /// Apply/report an effect the console cannot perform directly.
     fn unsupported(&mut self, effect: &CommandEffect) -> Result<String, String>;
 }
@@ -61,6 +70,13 @@ pub fn execute_console_line(
                         effects.kick(&target, reason.as_deref())
                     }
                     CommandEffect::SwitchWorld { world, .. } => effects.switch_world(&world),
+                    CommandEffect::SetBlock {
+                        x,
+                        y,
+                        z,
+                        block,
+                        rotation,
+                    } => effects.set_block(x, y, z, &block, rotation),
                     other => effects.unsupported(&other),
                 };
                 match message {
@@ -127,6 +143,7 @@ mod tests {
         broadcasts: Vec<String>,
         kicks: Vec<(String, Option<String>)>,
         worlds: Vec<String>,
+        set_blocks: Vec<(i32, i32, i32, String, Option<i32>)>,
         unsupported: Vec<String>,
     }
 
@@ -166,6 +183,18 @@ mod tests {
             Ok(format!("Switched to {world}"))
         }
 
+        fn set_block(
+            &mut self,
+            x: i32,
+            y: i32,
+            z: i32,
+            block: &str,
+            rotation: Option<i32>,
+        ) -> Result<String, String> {
+            self.set_blocks.push((x, y, z, block.to_string(), rotation));
+            Ok(format!("Set block ({x}, {y}, {z}) to {block}"))
+        }
+
         fn unsupported(&mut self, effect: &CommandEffect) -> Result<String, String> {
             self.unsupported.push(format!("{effect:?}"));
             Err("not available from the console".to_string())
@@ -197,6 +226,11 @@ mod tests {
         );
         execute_console_line(&registry, "world Nether", &mut recorder);
         assert_eq!(recorder.worlds, ["Nether"]);
+        execute_console_line(&registry, "setblock 1 64 -2 Rock_Stone 90", &mut recorder);
+        assert_eq!(
+            recorder.set_blocks,
+            [(1, 64, -2, "Rock_Stone".to_string(), Some(1))]
+        );
     }
 
     #[test]

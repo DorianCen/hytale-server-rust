@@ -140,6 +140,7 @@ async fn a_wall_correction_is_sent_but_a_free_walk_is_not() {
             y: wall.y,
             z: wall.z,
             block_id: 347,
+            rotation: 0,
         }],
         "the wall must be placed before the collision walk"
     );

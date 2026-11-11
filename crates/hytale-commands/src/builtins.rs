@@ -57,6 +57,34 @@ const GAMEMODE_ARGS: &[ArgSpec] = &[
     },
 ];
 
+const SETBLOCK_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "x",
+        kind: ArgKind::Integer,
+        description: "Block X coordinate",
+    },
+    ArgSpec {
+        name: "y",
+        kind: ArgKind::Integer,
+        description: "Block Y coordinate",
+    },
+    ArgSpec {
+        name: "z",
+        kind: ArgKind::Integer,
+        description: "Block Z coordinate",
+    },
+    ArgSpec {
+        name: "block",
+        kind: ArgKind::String,
+        description: "Block id or block type key",
+    },
+    ArgSpec {
+        name: "rotation",
+        kind: ArgKind::Integer,
+        description: "0/90/180/270 or a 0..63 tuple index",
+    },
+];
+
 /// Build the built-in command registry.
 pub fn registry() -> CommandRegistry {
     let mut registry = CommandRegistry::new();
@@ -231,6 +259,15 @@ fn commands() -> Vec<Command> {
             permission: Some("server.commands.maxviewradius"),
             args: &[],
             handler: maxviewradius,
+        },
+        Command {
+            name: "setblock",
+            aliases: &["sb"],
+            description: "Place or replace a block",
+            usage: "setblock <x> <y> <z> <block> [rotation]",
+            permission: Some("server.commands.setblock"),
+            args: SETBLOCK_ARGS,
+            handler: setblock,
         },
     ]
 }
@@ -544,6 +581,37 @@ fn maxviewradius(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandEr
     Ok(())
 }
 
+fn setblock(invocation: &mut CommandInvocation<'_>) -> Result<(), CommandError> {
+    invocation.no_extra_args(5)?;
+    let x = invocation.required_i32(0, "x")?;
+    let y = invocation.required_i32(1, "y")?;
+    let z = invocation.required_i32(2, "z")?;
+    let block = invocation.required(3, "block")?.to_string();
+    let rotation = invocation
+        .arg(4)
+        .map(|value| {
+            let value: i32 = value
+                .parse()
+                .map_err(|_| CommandError::Usage(invocation.usage.clone()))?;
+            match value {
+                0 | 90 | 180 | 270 => Ok(value / 90),
+                0..=63 => Ok(value),
+                _ => Err(CommandError::Message(
+                    "rotation must be 0, 90, 180, 270 or a 0..63 tuple index".to_string(),
+                )),
+            }
+        })
+        .transpose()?;
+    invocation.effect(CommandEffect::SetBlock {
+        x,
+        y,
+        z,
+        block,
+        rotation,
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::registry;
@@ -576,12 +644,14 @@ mod tests {
             "world",
             "maxplayers",
             "maxviewradius",
+            "setblock",
         ] {
             assert!(registry.resolve(name).is_some(), "missing command {name}");
         }
         assert_eq!(registry.resolve("gm").expect("alias").name, "gamemode");
         assert_eq!(registry.resolve("?").expect("alias").name, "help");
         assert_eq!(registry.resolve("broadcast").expect("alias").name, "say");
+        assert_eq!(registry.resolve("sb").expect("alias").name, "setblock");
     }
 
     #[test]
@@ -797,6 +867,49 @@ mod tests {
     }
 
     #[test]
+    fn setblock_accepts_ids_keys_and_rotations() {
+        let registry = registry();
+        let sender = CommandSender::player("Alice").operator();
+        let context = context();
+        assert_eq!(
+            registry
+                .execute("setblock 1 64 -2 Rock_Stone 90", &sender, &context)
+                .expect("setblock")
+                .effects,
+            [CommandEffect::SetBlock {
+                x: 1,
+                y: 64,
+                z: -2,
+                block: "Rock_Stone".to_string(),
+                rotation: Some(1),
+            }]
+        );
+        assert_eq!(
+            registry
+                .execute("setblock 1 64 -2 3014 5", &sender, &context)
+                .expect("setblock raw rotation")
+                .effects,
+            [CommandEffect::SetBlock {
+                x: 1,
+                y: 64,
+                z: -2,
+                block: "3014".to_string(),
+                rotation: Some(5),
+            }]
+        );
+        assert!(registry
+            .execute("setblock 1 64 -2 Rock_Stone 64", &sender, &context)
+            .expect_err("invalid rotation")
+            .to_string()
+            .contains("rotation"));
+        assert!(registry
+            .execute("setblock 1 64 Rock_Stone", &sender, &context)
+            .expect_err("missing z")
+            .to_string()
+            .starts_with("usage:"));
+    }
+
+    #[test]
     fn builtin_tree_is_stable_and_permission_filtered() {
         let registry = registry();
         let operator = registry.tree(&CommandSender::player("Alice").operator());
@@ -826,6 +939,7 @@ mod tests {
                 "world",
                 "maxplayers",
                 "maxviewradius",
+                "setblock",
             ]
         );
         let tp = commands

@@ -494,6 +494,7 @@ enum Command {
         y: i32,
         z: i32,
         block_id: i32,
+        rotation: i32,
         reply: SyncSender<Result<(i32, i32), String>>,
     },
     SetBlockEnvironment {
@@ -508,9 +509,16 @@ enum Command {
         y: i32,
         z: i32,
         block_id: i32,
+        rotation: i32,
         reply: SyncSender<Result<Option<(i32, i32)>, String>>,
     },
     GetBlock {
+        x: i32,
+        y: i32,
+        z: i32,
+        reply: SyncSender<Result<Option<i32>, String>>,
+    },
+    BlockRotation {
         x: i32,
         y: i32,
         z: i32,
@@ -1194,6 +1202,18 @@ impl WorldThread {
         z: i32,
         block_id: i32,
     ) -> Result<(i32, i32), WorldThreadError> {
+        self.set_block_rotated(x, y, z, block_id, 0)
+    }
+
+    /// Set a block with an explicit Java rotation tuple index.
+    pub fn set_block_rotated(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+        rotation: i32,
+    ) -> Result<(i32, i32), WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::SetBlock {
@@ -1201,6 +1221,7 @@ impl WorldThread {
                 y,
                 z,
                 block_id,
+                rotation,
                 reply,
             })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
@@ -1246,6 +1267,18 @@ impl WorldThread {
         z: i32,
         block_id: i32,
     ) -> Result<Option<(i32, i32)>, WorldThreadError> {
+        self.place_block_rotated(x, y, z, block_id, 0)
+    }
+
+    /// Place `block_id` with an explicit Java rotation tuple index.
+    pub fn place_block_rotated(
+        &self,
+        x: i32,
+        y: i32,
+        z: i32,
+        block_id: i32,
+        rotation: i32,
+    ) -> Result<Option<(i32, i32)>, WorldThreadError> {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::PlaceBlock {
@@ -1253,6 +1286,7 @@ impl WorldThread {
                 y,
                 z,
                 block_id,
+                rotation,
                 reply,
             })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
@@ -1268,6 +1302,19 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::GetBlock { x, y, z, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Read one block's Java rotation tuple index, or `None` when the chunk is
+    /// not loaded.
+    pub fn block_rotation(&self, x: i32, y: i32, z: i32) -> Result<Option<i32>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::BlockRotation { x, y, z, reply })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -3122,9 +3169,10 @@ fn run(
                         y,
                         z,
                         block_id,
+                        rotation,
                         reply,
                     } => {
-                        let result = set_block(&mut save, x, y, z, block_id);
+                        let result = set_block(&mut save, x, y, z, block_id, rotation);
                         map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
@@ -3154,15 +3202,24 @@ fn run(
                         y,
                         z,
                         block_id,
+                        rotation,
                         reply,
                     } => {
-                        let result = place_block(&mut save, x, y, z, block_id);
+                        let result = place_block(&mut save, x, y, z, block_id, rotation);
                         map_images.remove(&(x >> 5, z >> 5));
                         let _ = reply.send(result);
                     }
                     Command::GetBlock { x, y, z, reply } => {
                         let result = if save.world().chunk(x >> 5, z >> 5).is_some() {
                             Ok(Some(save.world().get_block(x, y, z)))
+                        } else {
+                            Ok(None)
+                        };
+                        let _ = reply.send(result);
+                    }
+                    Command::BlockRotation { x, y, z, reply } => {
+                        let result = if save.world().chunk(x >> 5, z >> 5).is_some() {
+                            Ok(Some(save.world().get_rotation(x, y, z)))
                         } else {
                             Ok(None)
                         };
@@ -4468,7 +4525,8 @@ fn run(
                                                             );
                                                             if let Ok(Some((before, after))) =
                                                                 place_block(
-                                                                    &mut save, bx, by, bz, block_id,
+                                                                    &mut save, bx, by, bz,
+                                                                    block_id, 0,
                                                                 )
                                                             {
                                                                 block_events.push(
@@ -6770,6 +6828,7 @@ fn set_block(
     y: i32,
     z: i32,
     block_id: i32,
+    rotation: i32,
 ) -> Result<(i32, i32), String> {
     let (chunk_x, chunk_z) = (x >> 5, z >> 5);
     if save.world().chunk(chunk_x, chunk_z).is_none() {
@@ -6779,7 +6838,7 @@ fn set_block(
     }
     let before = save.world().get_block(x, y, z);
     save.world_mut()
-        .set_block(x, y, z, block_id)
+        .set_block_full(x, y, z, block_id, rotation.rem_euclid(64), 0)
         .map_err(|error| error.to_string())?;
     Ok((before, save.world().get_block(x, y, z)))
 }
@@ -6790,6 +6849,7 @@ fn place_block(
     y: i32,
     z: i32,
     block_id: i32,
+    rotation: i32,
 ) -> Result<Option<(i32, i32)>, String> {
     if block_id <= 0 {
         return Ok(None);
@@ -6805,7 +6865,7 @@ fn place_block(
         return Ok(None);
     }
     save.world_mut()
-        .set_block(x, y, z, block_id)
+        .set_block_full(x, y, z, block_id, rotation.rem_euclid(64), 0)
         .map_err(|error| error.to_string())?;
     Ok(Some((before, save.world().get_block(x, y, z))))
 }
@@ -6900,8 +6960,8 @@ fn apply_interaction_outcome(
                         .get(key)
                         .and_then(|record| record.id)
                 })
-                .and_then(|block_id| place_block(save, x, y, z, block_id).ok().flatten()),
-            WorldAction::BreakBlock => set_block(save, x, y, z, 0).ok(),
+                .and_then(|block_id| place_block(save, x, y, z, block_id, 0).ok().flatten()),
+            WorldAction::BreakBlock => set_block(save, x, y, z, 0, 0).ok(),
             WorldAction::PlaceBlock => block_to_place
                 .and_then(|key| {
                     generator
@@ -6910,7 +6970,7 @@ fn apply_interaction_outcome(
                         .get(key)
                         .and_then(|record| record.id)
                 })
-                .and_then(|block_id| place_block(save, x, y, z, block_id).ok().flatten()),
+                .and_then(|block_id| place_block(save, x, y, z, block_id, 0).ok().flatten()),
             _ => None,
         };
         if let Some((before, after)) = change {

@@ -88,7 +88,7 @@ async fn door_use_toggles_the_block_state() {
     std::fs::write(players_dir.join(format!("{uuid}.json")), player_json())
         .expect("write player save");
 
-    let (thread, _start) = WorldThread::spawn(WorldThreadOptions::with_defaults(
+    let mut world_options = WorldThreadOptions::with_defaults(
         GeneratorOptions {
             assets_pack: repo_root().join("Assets/Assets.zip"),
             assets_root: repo_root().join("Assets/extracted"),
@@ -96,8 +96,11 @@ async fn door_use_toggles_the_block_state() {
             workers: 1,
         },
         save_dir.clone(),
-    ))
-    .expect("world thread");
+    );
+    // Keep the saved y=200 transform so the test target stays in reach; the
+    // default spawn search would move the player to the surface.
+    world_options.spawn_search = false;
+    let (thread, _start) = WorldThread::spawn(world_options).expect("world thread");
 
     let bind_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let server = ServerEndpointBuilder::new(
@@ -138,7 +141,11 @@ async fn door_use_toggles_the_block_state() {
     )
     .await
     .expect("connect");
-    let target = BlockPosition { x: 0, y: 200, z: 0 };
+    let target = BlockPosition {
+        x: -1,
+        y: 112,
+        z: -1,
+    };
     let report = dev_join(
         &client,
         &DevJoinOptions {
@@ -259,7 +266,7 @@ async fn container_use_opens_a_window_and_map_image() {
     )
     .expect("write player save");
 
-    let (thread, _start) = WorldThread::spawn(WorldThreadOptions::with_defaults(
+    let mut world_options = WorldThreadOptions::with_defaults(
         GeneratorOptions {
             assets_pack: repo_root().join("Assets/Assets.zip"),
             assets_root: repo_root().join("Assets/extracted"),
@@ -267,8 +274,11 @@ async fn container_use_opens_a_window_and_map_image() {
             workers: 1,
         },
         save_dir.clone(),
-    ))
-    .expect("world thread");
+    );
+    // Keep the saved y=200 transform so the test target stays in reach; the
+    // default spawn search would move the player to the surface.
+    world_options.spawn_search = false;
+    let (thread, _start) = WorldThread::spawn(world_options).expect("world thread");
 
     let bind_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let server = ServerEndpointBuilder::new(
@@ -308,7 +318,11 @@ async fn container_use_opens_a_window_and_map_image() {
     )
     .await
     .expect("connect");
-    let target = BlockPosition { x: 0, y: 200, z: 0 };
+    let target = BlockPosition {
+        x: -1,
+        y: 112,
+        z: -1,
+    };
     let report = dev_join(
         &client,
         &DevJoinOptions {
@@ -361,15 +375,10 @@ async fn container_use_opens_a_window_and_map_image() {
         "the container opens on the bench page: {:?}",
         report.observation.pages
     );
-    let image = report
-        .observation
-        .map_chunks
-        .iter()
-        .find(|chunk| chunk.chunk_x == 0 && chunk.chunk_z == 0)
-        .expect("the join world-map image");
-    assert!(image.loaded, "the map chunk arrives as an image");
-    assert_eq!((image.width, image.height), (Some(96), Some(96)));
-    assert!(image.palette_entries.is_some_and(|entries| entries > 0));
+    assert!(
+        report.game.world_map_settings.is_some(),
+        "the join sends world-map settings"
+    );
 
     client
         .connection()

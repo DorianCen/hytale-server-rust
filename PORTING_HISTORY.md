@@ -2588,3 +2588,28 @@ This file records phase-2 sessions only.
   `./tools/test.sh fast` (1613 passed, 28 skipped), clippy and fmt.
 - **Follow-ups:** loopback QUIC throughput parity if benchmarks show it
   matters, bundled JWKS for offline auth, and the asset-pack refresh.
+
+## Session 96 — T69 block placement fidelity (2026-11-11)
+
+- **Goal:** preserve the client's block rotation, make placement drive neighbour
+  simulation, add an authoritative `/setblock` path, and prove persistence.
+- **Rotation:** `WorldThread::place_block_rotated`/`set_block_rotated` store the
+  Java `RotationTuple` index (`roll*16 + pitch*4 + yaw`). The session reads
+  `InteractionSyncData.blockRotation` from the placement chain (or a direct
+  `MouseInteraction`) and carries it into `ServerSetBlock` and the interaction
+  chain ack; state/door broadcasts preserve the stored rotation.
+- **Admin path:** `/setblock <x> <y> <z> <block> [rotation]` resolves numeric
+  ids or block type keys, accepts `0/90/180/270` or a raw `0..63` index,
+  broadcasts the edit, and works from the session or stdin console.
+- **Neighbours:** `set_block_full` marks the changed cell, so the existing
+  simulation schedules the 3x3x3 neighbourhood on the next tick. Tests cover
+  support removal making a falling block move.
+- **Persistence:** the chunk section codec keeps the rotation tuple through
+  save/reopen.
+- **Tests:** commands 27, server library 57, world suites (including
+  `placement.rs`), ignored `client-bot` block interactions 2 (fixture updated
+  for the spawn resolver and the dedicated WorldMap stream), fast tier 1618
+  passed/28 skipped, clippy and fmt.
+- **Follow-ups:** server-side `ConnectedBlockRuleSet` state variants,
+  `quickReplace`/`quickRetype`/`noPhysics`, and block-entity metadata beyond
+  containers.

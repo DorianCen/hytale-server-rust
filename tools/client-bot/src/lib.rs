@@ -418,6 +418,8 @@ pub struct ObservedBlockUpdate {
     pub z: i32,
     /// New block id.
     pub block_id: i32,
+    /// New block rotation tuple index.
+    pub rotation: i8,
 }
 
 /// One block-health change seen on the chunks stream.
@@ -925,6 +927,7 @@ async fn observe_players(
                                 y: update.y,
                                 z: update.z,
                                 block_id: update.block_id,
+                                rotation: update.rotation,
                             });
                         }
                         UpdateBlockDamage::ID => {
