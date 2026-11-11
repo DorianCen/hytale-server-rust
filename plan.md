@@ -1154,6 +1154,17 @@ and chain acks carry it, `/setblock` resolves ids/keys, and chunk save/reload
 plus support/falling-neighbour tests cover the observable contract. Connected
 rule-set state mutation stays with the interaction long tail.
 
+### T69b — Block placement follow-ups
+
+**Status:** proposed (filed 2026-11-11)
+**Package:** `hytale-server`, `hytale-assets`, `hytale-interactions`,
+`hytale-world`
+**Depends on:** T50, T66, T69
+**Goal:** close T69's deliberate limits: server-side
+`ConnectedBlockRuleSet` state variants, `quickReplace`/`quickRetype`/
+`noPhysics`, and block-entity components beyond containers. See
+[`tasks/T69b-block-placement-followups.md`](tasks/T69b-block-placement-followups.md).
+
 ---
 
 ## M7 — Production hardening

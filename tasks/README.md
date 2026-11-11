@@ -48,6 +48,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T66](T66-live-client-assets.md) | Live-client config-asset completeness | T35, T39, T60b, T65 | medium | done (session 93; release-client break/drop/pickup/place verified) |
 | [T67](T67-commands.md) | Command framework and in-game commands | T42, T48 | medium | done (session 94; console, permissions, chat and targets) |
 | [T69](T69-block-placement-fidelity.md) | Block placement fidelity | T46, T50, T52, T56, T66 | low/medium | done (session 96; rotation, setblock, neighbour simulation, persistence) |
+| [T69b](T69b-block-placement-followups.md) | Block placement follow-ups: connected variants, flags, block entities | T50, T66, T69 | medium/high | proposed (2026-11-11) |
 | [T68](T68-upstream-transport-auth-hardening.md) | Upstream transport/auth hardening | T62, T65, T66 | medium | done (session 95; TLS deny-list, channel validation, QUIC ceiling) |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |

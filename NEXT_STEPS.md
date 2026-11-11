@@ -325,6 +325,7 @@ asset-bring-up list:
    support/falling and save/reload rotation are covered. Remaining:
    server-side `ConnectedBlockRuleSet` state variants, `quickReplace`/
    `quickRetype`/`noPhysics` flags, and block-entity metadata beyond containers.
+   Those are filed as [T69b](tasks/T69b-block-placement-followups.md).
 3. **Interaction long tail:** chaining/memories/charging/wielding next maps,
    place-mode selection details, change-active-slot details, and a consistency
    pass over missing-id sentinels (`NOT_FOUND`/`-1` vs `0`).

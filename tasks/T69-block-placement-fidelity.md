@@ -121,7 +121,9 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Server-side `ConnectedBlockRuleSet` state variants and connect updates.
-- Full `PlaceBlockInteraction` flags (`quickReplace`, `quickRetype`,
-  `noPhysics`) if a client scenario needs them.
-- Block-entity component metadata beyond containers/state variants.
+- The deferred placement work is filed as
+  [T69b](T69b-block-placement-followups.md): server-side
+  `ConnectedBlockRuleSet` state variants, `quickReplace`/`quickRetype`/
+  `noPhysics`, and block-entity components beyond containers.
+- `RandomRotation`/`RotationYawPlacementOffset` parity if a client scenario
+  exposes it.
