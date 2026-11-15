@@ -99,9 +99,9 @@ block/item golden tests**, a clean
   (session 104) removes the synthetic boot player and adds Java spawn-provider
   parity with per-UUID documents. T76 (session 106) adds `CustomTemplate`
   mirrors/filler rotation, the real fence/wall mirror regression and the
-  explicit `RotationYawPlacementOffset`; it is blocked on a release-client
-  `RandomRotation` trace and a canonical Java component-holder dump. The T77
-  packet remains.
+  explicit `RotationYawPlacementOffset`, and pins the canonical Java
+  component-holder golden; it is blocked only on a release-client
+  `RandomRotation` trace. The T77 packet remains.
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,

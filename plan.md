@@ -1226,9 +1226,9 @@ state plus a fresh post-restart join.
   documents.
 - [T76](tasks/T76-placement-followups.md) — partially landed (session 106):
   `CustomTemplate` mirror/filler expansion, `FlipType.flipYaw`, the real
-  fence/wall mirror regression and the explicit yaw offset are done. Blocked on
-  a release-client `RandomRotation` trace and a canonical Java component-holder
-  dump.
+  fence/wall mirror regression, the explicit yaw offset and the canonical Java
+  component-holder golden are done. Blocked only on a release-client
+  `RandomRotation` trace.
 - [T77](tasks/T77-command-completion-polish.md) — fuzzy suggestion ranking and
   console history/tab completion.
 

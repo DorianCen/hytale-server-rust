@@ -57,7 +57,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T73](T73-universe-restart-handoff.md) | Universe restart and multi-world handoff smoke | T41, T60b, T70 | low/medium | done (session 102; restart, two live worlds, portal, rejoin) |
 | [T74](T74-presentation-gaps.md) | Presentation gaps: map parity, windows, particles/audio/weather | T57b, T60b, T66 | low/medium | done (session 103; map refresh, window distance, weather fields) |
 | [T75](T75-player-identity-spawn-providers.md) | Per-join identity and Java spawn providers | T44, T65, T66 | medium | done (session 104; no synthetic boot player, provider spawns, per-UUID docs) |
-| [T76](T76-placement-followups.md) | Placement follow-ups: mirrors, rotation RNG, component goldens | T69b, T66 | medium | blocked (session 106; mirrors/filler/yaw offset/wall regression done; RandomRotation + component holder golden need external traces/tooling) |
+| [T76](T76-placement-followups.md) | Placement follow-ups: mirrors, rotation RNG, component goldens | T69b, T66 | medium | blocked (session 107; mirrors/filler/yaw offset/wall regression and Java component-holder golden done; only release-client RandomRotation trace open) |
 | [T77](T77-command-completion-polish.md) | Command completion polish: fuzzy ranking, history, tab completion | T67b | medium | proposed |
 | T61 | [Editor/builder/machinima/voice/cosmetics scope](T61-editor-builder-scope.md) | T60 | low | done (session 66) |
 | T62 | [Security, fuzzing and rate limits](T62-security-fuzzing-rate-limits.md) | T48 | medium | done (session 67) |
@@ -66,9 +66,9 @@ context. The main agent owns sequencing and shared-file edits.
 
 Task files for T43–T77 are created when their milestone starts; the milestone
 scope is in [`../plan.md`](../plan.md). T71–T75 (sessions 100–104) are done,
-T76 (session 106) is partially landed and blocked on a client `RandomRotation`
-trace plus a canonical Java component-holder dump, and the `proposed` T77 packet
-is ready to start. T65 closed live authentication; T66
+T76 (session 107) is partially landed and blocked only on a client
+`RandomRotation` trace; the canonical Java component-holder golden now exists.
+The `proposed` T77 packet is ready to start. T65 closed live authentication; T66
 completed the real-client asset/interaction follow-up (session 93): the
 unmodified release client joins, moves, breaks blocks, picks up drops and
 places blocks. Sessions 70–93 landed the item/block encoders, the release-client

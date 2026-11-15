@@ -350,9 +350,9 @@ asset-bring-up list:
    quick-retype/quick-replace/no-physics flags preserving target shape/rotation,
    and placement `BlockHolder` component persistence. T76 (session 106) adds
    `CustomTemplate` mirror/filler expansion, `FlipType.flipYaw`, the real
-   fence/wall mirror regression and the explicit yaw offset; it remains blocked
-   on a release-client `RandomRotation` trace and a canonical Java
-   component-holder dump. The command completion polish is
+   fence/wall mirror regression, the explicit yaw offset and the canonical Java
+   component-holder golden; it remains blocked only on a release-client
+   `RandomRotation` trace. The command completion polish is
    [T77](tasks/T77-command-completion-polish.md).
 3. **Interaction long tail (T71, done session 100):** chaining/memories/
    charging/wielding next maps, place-mode selection, active-slot changes and

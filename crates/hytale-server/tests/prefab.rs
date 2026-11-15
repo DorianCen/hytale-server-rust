@@ -93,6 +93,17 @@ fn a_real_prefab_pastes_entities_and_components_and_survives_reload() {
         &component.components, source_components,
         "the persisted BlockHolder document matches the real prefab"
     );
+    // The canonical Java registry dump is the committed golden, not the
+    // hand-authored prefab JSON alone.
+    let golden: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(repo_root().join("testdata/golden/server/block-components/hunt-site.json"))
+            .expect("read the block-component golden"),
+    )
+    .expect("block-component golden JSON");
+    assert_eq!(
+        &component.components, &golden,
+        "the persisted BlockHolder document matches the Java registry golden"
+    );
     assert_eq!(
         component
             .components

@@ -1,6 +1,6 @@
 # T76 — Placement follow-ups
 
-**Status:** blocked (session 106): mirrors/filler/yaw-offset/wall regression landed; `RandomRotation` selection and the block-component holder golden need external traces/tooling
+**Status:** blocked (session 107): mirrors/filler/yaw-offset/wall regression and the canonical block-component holder golden are landed; only the release-client `RandomRotation` trace is open
 **Package:** `hytale-world`, `hytale-server`, `tools/client-bot`, docs
 **Depends on:** T69b, T66
 **Agent fit:** medium
@@ -71,11 +71,17 @@ client-prediction parity, and `RandomRotation`/`RotationYawPlacementOffset`.
   `RandomRotation` is parsed but **not applied**: the reference server never
   computes it and the client renderer's selection has no local trace (see
   Blockers).
-- **Block components:** no typed component codec was invented, and no canonical
-  Java holder dump is committed. `crates/hytale-server/tests/prefab.rs` asserts
-  that the pasted opaque `BlockHolder` document is the real
-  `Hunt/Generic/Site.prefab.json` `Components` object verbatim. A Java dumper
-  attempt was blocked by the local Java toolchain (see Blockers).
+- **Block components:** no typed component codec was invented, but the opaque
+  holder now has a canonical Java golden.
+  `tools/java-dumper/run-block-components.sh` compiles
+  `BlockComponentDumper` against the installed release `HytaleServer.jar`,
+  registers the real `BlockMapMarker` codec, and
+  deserializes/reserializes the real `Hunt/Generic/Site.prefab.json`
+  `components` document through `ChunkStore.REGISTRY`.
+  `testdata/golden/server/block-components/hunt-site.json` is committed and
+  `crates/hytale-server/tests/prefab.rs` asserts the persisted opaque
+  `BlockHolder` equals it verbatim. `run-block-components.sh --check` proves the
+  dump is deterministic.
 - **Client prediction:** no release-client trace is available locally and the
   bot does not run the client renderer's connected-shape prediction. Recorded
   as a negative result; the real-asset server tests remain the gate.
@@ -87,15 +93,13 @@ client-prediction parity, and `RandomRotation`/`RotationYawPlacementOffset`.
    not in the reference sources. The Rust server therefore does not guess it.
    Closing this needs a release-client trace (or equivalent client-side
    reference) covering `None`, `YawPitchRollStep1`, `YawStep1`, `YawStep1XZ` and
-   `YawStep90`.
-2. **Block-component holder golden.** The full prefab deserializer used by
-   `tools/java-dumper` deliberately skips block component holders. A dedicated
-   `ChunkStore.REGISTRY` dump needs a healthy Java dumper jar set; the local
-   untracked module jars were rebuilt by the attempted tool run and no longer
-   compile the dumper (missing record accessors / cross-module type
-   mismatches). Regenerate/test the jars in the normal dumper environment
-   before committing the `BlockComponentDumper`.
-3. **Full `world_thread` suite.** Four failures
+   `YawStep90`. The trace seam is ready: set
+   `HYTALE_PLACEMENT_TRACE=target/trace/placements.jsonl` on `serve`, place each
+   target block at several positions in one client session, then run
+   `tools/parse-placement-trace.py target/trace/placements.jsonl`. The
+   authenticated server/client run needs the live session tokens only the user
+   can provide.
+2. **Full `world_thread` suite.** Four failures
    (`config_assets_are_cached_per_world`,
    `block_edits_resolve_items_and_survive_save_reload`,
    `ticks_the_view_and_unloads_chunks_that_leave_it`,
@@ -103,7 +107,38 @@ client-prediction parity, and `RandomRotation`/`RotationYawPlacementOffset`.
    They are pre-existing and tracked separately from T76; the targeted
    placement tests pass.
 
-## Verification (session 106)
+## Release-client `RandomRotation` runbook
+
+The server-side seam and parser are ready; the remaining step is one
+authenticated release-client session (the live session tokens are user-owned).
+
+1. Start the server with the placement trace enabled and a creative world:
+   ```sh
+   HYTALE_PLACEMENT_TRACE=target/trace/placements.jsonl \
+     ./target/debug/hytale-server serve \
+       --universe target/universe --world T76 \
+       --auth-mode authenticated --bind 127.0.0.1:5520 --view-radius 4
+   ```
+2. Launch the release client through the Hytale launcher and join
+   `localhost:5520` (the launcher supplies the authenticated session).
+3. Place at least eight copies of each target block without rotating the
+   preview, so the requested tuple is `0`:
+   - `Deco_Target` — `None`
+   - `Deco_Bone_Pile` — `YawStep1`
+   - `Deco_Bone_Spike_Large` — `YawStep90`
+   - `Deco_SpiderWeb_Full` — `YawPitchRollStep1`
+   - `Deco_Trash_Banana_Peel` — `YawStep1XZ`
+   Use `/gamemode creative` and `/give` (or the creative inventory).
+4. Stop the server and summarize the capture:
+   ```sh
+   tools/parse-placement-trace.py target/trace/placements.jsonl
+   ```
+5. For each block type, compare the observed tuples with the candidate
+   algorithms (position-seeded LCG, `HashUtil`/`FastRandom`, or a per-placement
+   client RNG). Commit the trace-derived fixture and the selected model; do not
+   infer from the client renderer.
+
+## Verification (session 107)
 
 ```sh
 cargo test -p hytale-world --lib                              # 86 passed
@@ -112,6 +147,8 @@ cargo test -p hytale-server --lib                             # 59 passed
 cargo test -p hytale-server --test world_thread server_placements_apply_yaw_offset_and_keep_client_rotation
 cargo test -p hytale-server --test world_thread placement_flags_preserve_shape_and_block_components
 cargo test -p hytale-server --test prefab                     # 1 passed
+cargo test -p hytale-server --test placement_trace            # 1 passed
+tools/java-dumper/run-block-components.sh --check             # deterministic
 cargo test -p client-bot --test block_interactions -- --ignored # 2 passed
 ./tools/test.sh fast                                          # 1668 passed, 34 skipped
 cargo clippy --workspace --all-targets -- -D warnings
@@ -126,8 +163,8 @@ cargo fmt --all -- --check
   verified.
 - Multi-cell output filler is not applied by the Rust connected mutation path
   (it stores filler 0); the mirror/filler rotation is used for rule matching.
-- Block-component codecs remain opaque until a canonical Java holder dump
-  exists.
+- Block-component codecs remain opaque; the canonical holder golden gates the
+  persisted document, not a typed Rust component layout.
 
 ## Read first
 

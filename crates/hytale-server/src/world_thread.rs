@@ -7173,6 +7173,16 @@ fn place_block_with_connected(
             [x, y, z],
         );
     }
+    trace_placement(
+        generator,
+        x,
+        y,
+        z,
+        options.rotation.rem_euclid(64),
+        rotation,
+        target_block,
+        options,
+    );
     let preserve_state = options.quick_replace || options.quick_retype;
     let old_component = preserve_state
         .then(|| save.world().block_component(x, y, z).cloned())
@@ -7214,6 +7224,54 @@ fn place_block_with_connected(
         rotation: change.rotation as i8,
     }));
     Ok(Some((before, save.world().get_block(x, y, z))))
+}
+
+/// Optional JSONL placement trace (`HYTALE_PLACEMENT_TRACE=<path>`).
+///
+/// This is the release-client seam for T76: the server logs the block type and
+/// the final rotation the client sent, so a captured run can establish the
+/// client's `RandomRotation` selection without guessing it.
+#[allow(clippy::too_many_arguments)]
+fn trace_placement(
+    generator: &WorldGenerator,
+    x: i32,
+    y: i32,
+    z: i32,
+    requested_rotation: i32,
+    final_rotation: i32,
+    block_id: i32,
+    options: &PlaceBlockOptions,
+) {
+    let Ok(path) = std::env::var("HYTALE_PLACEMENT_TRACE") else {
+        return;
+    };
+    let Some(record) = generator.assets().block_types.get_by_id(block_id) else {
+        return;
+    };
+    let metadata = hytale_world::placement::PlacementRotation::from_block_type(&record.value.json);
+    let line = serde_json::json!({
+        "block_id": block_id,
+        "block_key": record.key,
+        "x": x,
+        "y": y,
+        "z": z,
+        "requested_rotation": requested_rotation,
+        "final_rotation": final_rotation,
+        "client_rotation": options.client_rotation,
+        "random_rotation": format!("{:?}", metadata.random),
+        "yaw_offset": format!("{:?}", metadata.yaw_offset),
+        "quick_replace": options.quick_replace,
+        "quick_retype": options.quick_retype,
+        "no_physics": options.no_physics,
+    });
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
+    }
 }
 
 fn place_block(

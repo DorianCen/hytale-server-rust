@@ -2908,3 +2908,23 @@ This file records phase-2 sessions only.
   in-crate), connected blocks 9, `hytale-server` lib 59, targeted world-thread
   placement/yaw-offset tests, prefab golden, ignored block interactions (2),
   fast 1668 passed / 34 skipped, clippy/fmt clean.
+
+## Session 107 — T76 canonical component holder and rotation trace seam (2026-11-15)
+
+- **Canonical block-component golden:** `tools/java-dumper/run-block-components.sh`
+  compiles `BlockComponentDumper` against the installed release
+  `HytaleServer.jar`, registers the real `BlockMapMarker` codec and runs the
+  prefab `components` document through `ChunkStore.REGISTRY.deserialize` /
+  `serialize`. The output is committed as
+  `testdata/golden/server/block-components/hunt-site.json`; the Rust prefab test
+  compares the persisted opaque `BlockHolder` to it and the script's `--check`
+  mode proves determinism.
+- **Release-client seam:** `serve` now writes optional JSONL placement records
+  when `HYTALE_PLACEMENT_TRACE` is set (block type, position, requested/final
+  rotation, client-authoritative flag, parsed `RandomRotation`/yaw offset).
+  `tools/parse-placement-trace.py` summarizes the captured client placements,
+  and `crates/hytale-server/tests/placement_trace.rs` proves the record shape
+  without needing a client. The T76 runbook covers the authenticated client
+  session; live session tokens remain user-owned.
+- T76 remains blocked only on the authenticated release-client run needed to
+  capture each `RandomRotation` enum value.
