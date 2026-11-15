@@ -40,8 +40,8 @@ use hytale_npc::spawn_special::{
 };
 use hytale_npc::spawn_suppression::{SpawnSuppressionIndex, SpawnSuppressionZone};
 use hytale_protocol::generated::common::{
-    BlockDamageCmd, BlockMaterial, BlockPosition, EntityStatUpdate, FlyMode, InventorySection,
-    MapImage, MovementSettings,
+    BlockDamageCmd, BlockMaterial, BlockPosition, EntityStatUpdate, FlyMode, GameMode,
+    InventorySection, MapImage, MovementSettings,
 };
 use hytale_protocol::generated::world::WorldGameplayConfig;
 use hytale_protocol::generated::world::{UpdateBlockDamage, UpdateBlockDamages};
@@ -84,6 +84,18 @@ pub use hytale_world::world_clock::WorldClockState as WorldTimeState;
 pub const DEFAULT_PLAYER_MASS: f64 = 68.0;
 /// Java `PhysicsValues.DEFAULT_DRAG_COEFFICIENT`.
 pub const DEFAULT_PLAYER_DRAG_COEFFICIENT: f64 = 0.5;
+
+/// Resolve the world's configured `GameMode` (`WorldConfig.game_mode`).
+///
+/// Java's `WorldConfig` stores the enum by name and omits it for the server
+/// default (Adventure). Unknown values also fall back to Adventure so a
+/// hand-edited config cannot put the session into an unsupported mode.
+pub fn configured_game_mode(config: &hytale_world::world_config::WorldConfig) -> GameMode {
+    match config.game_mode.as_deref() {
+        Some(mode) if mode.eq_ignore_ascii_case("creative") => GameMode::Creative,
+        _ => GameMode::Adventure,
+    }
+}
 
 /// All block components as `(position, component)` pairs, coordinate ordered.
 pub type BlockComponentList = Vec<((i32, i32, i32), BlockComponent)>;
@@ -149,6 +161,8 @@ pub struct WorldStartReport {
     pub world_uuid: String,
     /// World seed.
     pub seed: i64,
+    /// Initial game mode from the world config (`GameMode`).
+    pub game_mode: GameMode,
     /// Player UUID.
     pub player_uuid: String,
     /// True when the thread created the player file.
@@ -5827,13 +5841,17 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         .get(&gameplay_asset.player.movement_config)
         .map(|record| record.value.clone())
         .unwrap_or_default();
+    let game_mode = configured_game_mode(save.config());
     let mut movement_settings = movement_asset.settings;
     movement_settings.mass = DEFAULT_PLAYER_MASS as f32;
     movement_settings.drag_coefficient = DEFAULT_PLAYER_DRAG_COEFFICIENT as f32;
     movement_settings.inverted_gravity = false;
-    // The server joins players in Adventure. A future per-player game mode
-    // re-derives this in `MovementManager.resetFly`.
-    movement_settings.fly = movement_asset.fly.unwrap_or(FlyMode::Disabled);
+    // Java `MovementManager.deriveFly`: an explicit config override wins,
+    // otherwise Creative allows flight and Adventure disables it.
+    movement_settings.fly = movement_asset.fly.unwrap_or(match game_mode {
+        GameMode::Creative => FlyMode::Allowed,
+        GameMode::Adventure => FlyMode::Disabled,
+    });
     let collision = BlockCollisionTable::from_assets(generator.assets());
     let mut simulation = BlockSimulation::new(
         SimulationTables::from_assets(generator.assets()),
@@ -5974,6 +5992,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         config_created,
         world_uuid: save.config().uuid.to_string(),
         seed: save.config().seed,
+        game_mode,
         player_uuid: player_uuid.map(|uuid| uuid.to_string()).unwrap_or_default(),
         player_created,
         stored_chunks,
@@ -7493,6 +7512,22 @@ fn block_to_chunk(value: f64) -> i32 {
 mod tests {
     use super::*;
     use hytale_world::world::WorldStorage;
+
+    #[test]
+    fn world_config_game_mode_maps_to_the_protocol_enum() {
+        let mut config = hytale_world::world_config::WorldConfig::new(
+            WorldUuid::derive(0, "GameModeTest"),
+            0,
+            None,
+        );
+        assert_eq!(configured_game_mode(&config), GameMode::Adventure);
+        config.game_mode = Some("Creative".to_string());
+        assert_eq!(configured_game_mode(&config), GameMode::Creative);
+        config.game_mode = Some("creative".to_string());
+        assert_eq!(configured_game_mode(&config), GameMode::Creative);
+        config.game_mode = Some("Survival".to_string());
+        assert_eq!(configured_game_mode(&config), GameMode::Adventure);
+    }
 
     #[test]
     fn block_damage_entries_group_by_section_and_keep_the_java_index() {

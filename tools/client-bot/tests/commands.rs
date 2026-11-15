@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use client_bot::{dev_join, DevJoinOptions};
 use hytale_net::{connect, ServerEndpointBuilder, TlsIdentity};
+use hytale_protocol::generated::common::{FlyMode, GameMode};
 use hytale_protocol::io::Uuid;
 use hytale_server::PermissionRegistry;
 use hytale_server::{
@@ -216,6 +217,20 @@ async fn the_bot_runs_commands_over_chat() {
             report.observation.server_messages
         );
     }
+    assert_eq!(
+        report.game.game_mode,
+        Some(GameMode::Creative),
+        "`/gamemode creative` must send SetGameMode"
+    );
+    assert_eq!(
+        report
+            .game
+            .movement_settings
+            .as_ref()
+            .map(|settings| settings.fly),
+        Some(FlyMode::Allowed),
+        "`/gamemode creative` must re-send UpdateMovementSettings for flight"
+    );
     assert_eq!(runtime_limits.max_players(), 25);
     assert_eq!(runtime_limits.max_view_radius(), 2);
 

@@ -14,7 +14,9 @@ use std::time::Duration;
 
 use hytale_net::{connect, ChunkStreamReader, ServerEndpointBuilder, TlsIdentity};
 use hytale_protocol::generated::wire::Packet;
-use hytale_protocol::generated::world::{SetChunk, SetChunkEnvironments, SetColumn, UnloadChunk};
+use hytale_protocol::generated::world::{
+    SetChunk, SetChunkEnvironments, SetColumn, SetFluids, UnloadChunk,
+};
 use hytale_server::{serve_chunk_connection, GeneratorOptions, WorldThread, WorldThreadOptions};
 use hytale_world::chunk::stream::DEFAULT_COMPRESSION_LEVEL;
 
@@ -52,7 +54,7 @@ async fn the_server_streams_a_generated_chunk_to_a_client() {
     }
 
     let save_dir = temp_dir("serve");
-    let options = WorldThreadOptions::with_defaults(
+    let mut options = WorldThreadOptions::with_defaults(
         GeneratorOptions {
             assets_pack: repo_root().join("Assets/Assets.zip"),
             assets_root: repo_root().join("Assets/extracted"),
@@ -61,6 +63,10 @@ async fn the_server_streams_a_generated_chunk_to_a_client() {
         },
         save_dir.clone(),
     );
+    // The spawn search loads a 3x3 neighbourhood; the demo view is radius 0, so
+    // leaving it on would turn the first view change into eight extra unloads.
+    options.spawn_search = false;
+    options.create_default_player = false;
     let (thread, start) = WorldThread::spawn(options).expect("world thread");
 
     let bind_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -109,7 +115,14 @@ async fn the_server_streams_a_generated_chunk_to_a_client() {
         20
     );
     assert_eq!(ids.iter().filter(|id| **id == UnloadChunk::ID).count(), 1);
-    assert_eq!(ids.len(), 43);
+    let fluids = ids.iter().filter(|id| **id == SetFluids::ID).count();
+    assert!(
+        fluids > 0,
+        "generated water sections must reach the client snapshot"
+    );
+    // Data-less sections also carry an explicit `SetAbsentChunks` marker; only
+    // the Java load-query subset has a fixed packet count.
+    assert!(ids.contains(&hytale_protocol::generated::world::SetAbsentChunks::ID));
 
     session
         .connection()
@@ -117,8 +130,8 @@ async fn the_server_streams_a_generated_chunk_to_a_client() {
     let report = server_task.await.expect("server task");
     assert_eq!(report.chunks, 2);
     assert_eq!(report.unloaded, 1);
-    assert_eq!(report.packets, 43);
-    assert_eq!(report.frames, 43);
+    assert_eq!(report.packets, ids.len());
+    assert_eq!(report.frames, ids.len());
 
     std::fs::remove_dir_all(save_dir).ok();
 }

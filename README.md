@@ -331,7 +331,7 @@ Read [`PORTING.md`](PORTING.md) before contributing code and
 | [`PORTING.md`](PORTING.md) / [`PORTING_HISTORY.md`](PORTING_HISTORY.md) | Porting conventions and session history |
 | [`TESTING.md`](TESTING.md) | Test tiers, timings, E2E and CI |
 | [`CONNECTION_DEBUG.md`](CONNECTION_DEBUG.md) | Live release-client diagnosis log and evidence |
-| [`CREATIVE_MODE_BUGS.md`](CREATIVE_MODE_BUGS.md) | Live creative-mode regressions: inventory, placement desync, water, flight |
+| [`CREATIVE_MODE_BUGS.md`](CREATIVE_MODE_BUGS.md) | Fixed creative-mode regressions: inventory, placement desync, water, flight |
 | [`GOLDEN_DATA.md`](GOLDEN_DATA.md) | Java oracle and golden fixture layout |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | Performance and memory baselines |
 | [`PACKAGING.md`](PACKAGING.md) | Release artifacts and deployment |

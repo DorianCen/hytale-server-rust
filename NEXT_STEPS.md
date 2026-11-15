@@ -334,10 +334,12 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
 T66 is complete; the next work should be chosen by scope, not by the old
 asset-bring-up list.
 
-**Known live-client regressions (2026-11-15):** a release-client creative
+**Live-client creative regressions (2026-11-15, fixed):** a release-client
 session exposed an empty creative inventory, survival-style break drops and
-placement desync, missing water and no creative flight. The join path hardcodes
-`SetGameMode { Adventure }`; the evidence and follow-up checks are recorded in
+placement desync, missing water and no creative flight. The join path now uses
+the world config's `GameMode`, creative inventory packets are handled, creative
+breaks skip drops, and the client chunk snapshot carries `SetFluids`. The
+evidence, fixes and regression tests are recorded in
 [`CREATIVE_MODE_BUGS.md`](CREATIVE_MODE_BUGS.md).
 
 1. **Command long tail (T67/T67b, done sessions 94/99):** dynamic

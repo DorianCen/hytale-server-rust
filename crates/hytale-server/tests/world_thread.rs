@@ -592,6 +592,46 @@ fn player_snapshot_round_trips_a_session_transform() {
 }
 
 #[test]
+fn creative_world_config_reaches_the_join_report_and_flight() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+
+    let save_dir = temp_dir("creative-mode");
+    let mut config = WorldConfig::new(WorldUuid::derive(0, "CreativeMode"), 0, None);
+    config.game_mode = Some("Creative".to_string());
+    config
+        .save(WorldConfig::path_in(&save_dir))
+        .expect("write creative config");
+
+    let (thread, start) = WorldThread::spawn(WorldThreadOptions::with_defaults(
+        hytale_server::GeneratorOptions {
+            assets_pack: repo_root().join("Assets/Assets.zip"),
+            assets_root: repo_root().join("Assets/extracted"),
+            world_dir: repo_root().join("testdata/Default"),
+            workers: 1,
+        },
+        save_dir.clone(),
+    ))
+    .expect("spawn the world thread");
+
+    assert_eq!(
+        start.game_mode,
+        hytale_protocol::generated::common::GameMode::Creative,
+        "the session join must send the world's configured game mode"
+    );
+    assert_eq!(
+        thread.movement_settings().expect("movement settings").fly,
+        hytale_protocol::generated::common::FlyMode::Allowed,
+        "creative must derive fly=Allowed like MovementManager.resetFly"
+    );
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn world_clock_progresses_pauses_and_survives_save_reload() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

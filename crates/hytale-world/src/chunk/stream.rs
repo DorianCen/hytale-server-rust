@@ -13,9 +13,10 @@
 //!   SetFluids                   (when the section holds fluid)
 //! ```
 //!
-//! The initial join set matches CoreServer's load-query systems: `SetColumn`,
-//! all section `SetChunk` and `SetChunkEnvironments`. Tint and fluid packets are
-//! update-only, exactly as in the golden manifest.
+//! The Java load-query subset in the golden manifest contains `SetColumn`, all
+//! section `SetChunk` and `SetChunkEnvironments`. The live client snapshot also
+//! carries non-empty `SetFluids` payloads: Java builds that packet on update,
+//! but without it a joining client never learns about generated water.
 
 use hytale_protocol::frame::{compress_payload, encode_frame};
 use hytale_protocol::generated::wire::{NetworkChannel, Packet, Wire};
@@ -91,12 +92,12 @@ pub struct ChunkPacketBatch {
 impl ChunkPacketBatch {
     /// The initial join set: `SetColumn` + all `SetChunk`/`SetChunkEnvironments`.
     pub fn initial(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
-        Self::build(column, false, false)
+        Self::build(column, false, false, false)
     }
 
     /// The full update set, including tint and fluid packets.
     pub fn full(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
-        Self::build(column, true, false)
+        Self::build(column, true, false, true)
     }
 
     /// The initial set used by the live chunk stream.
@@ -104,19 +105,25 @@ impl ChunkPacketBatch {
     /// Data-less sections also carry an explicit `SetAbsentChunks` marker, as
     /// Java's `ChunkTracker` does; the payload-less `SetChunk` stays for the
     /// client path that treats it as loaded.
+    ///
+    /// Non-empty fluid sections carry their `SetFluids` payload. Java only
+    /// builds that packet on update, but the client never receives the
+    /// generated water otherwise: a load-time snapshot that omits it leaves
+    /// oceans and lakes invisible.
     pub fn initial_for_client(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
-        Self::build(column, false, true)
+        Self::build(column, false, true, true)
     }
 
     /// The full update set used by the live chunk stream.
     pub fn full_for_client(column: &ChunkColumn) -> Result<Self, ChunkStreamError> {
-        Self::build(column, true, true)
+        Self::build(column, true, true, true)
     }
 
     fn build(
         column: &ChunkColumn,
         include_updates: bool,
         absent_packets: bool,
+        include_fluids: bool,
     ) -> Result<Self, ChunkStreamError> {
         let mut packets = Vec::with_capacity(SECTION_COUNT * 4 + 2);
         push(&column.set_column_packet()?, &mut packets)?;
@@ -141,7 +148,7 @@ impl ChunkPacketBatch {
                     &mut packets,
                 )?;
             }
-            if include_updates {
+            if include_fluids {
                 if let Some(fluids) = column.set_fluids_packet(section_y) {
                     push(&fluids, &mut packets)?;
                 }
@@ -281,6 +288,39 @@ mod tests {
             .packets
             .iter()
             .all(|packet| packet.id != SetAbsentChunks::ID));
+    }
+
+    #[test]
+    fn client_initial_batch_carries_generated_fluids() {
+        let mut column = ChunkColumn::new(0, 0);
+        column
+            .set_fluid(1, 100, 2, 2, 1)
+            .expect("set the water fluid");
+        assert_eq!(column.get_fluid_id(1, 100, 2), 2);
+
+        let client = ChunkPacketBatch::initial_for_client(&column).expect("client batch");
+        let fluids: Vec<_> = client
+            .packets
+            .iter()
+            .filter(|packet| packet.id == SetFluids::ID)
+            .collect();
+        assert_eq!(
+            fluids.len(),
+            1,
+            "the client snapshot must carry the non-empty fluid section"
+        );
+        let decoded = SetFluids::decode(&mut Reader::new(fluids[0].payload())).expect("SetFluids");
+        assert_eq!((decoded.x, decoded.y, decoded.z), (0, 3, 0));
+        assert!(decoded.data.is_some_and(|data| !data.is_empty()));
+
+        assert!(
+            ChunkPacketBatch::initial(&column)
+                .expect("raw Java batch")
+                .packets
+                .iter()
+                .all(|packet| packet.id != SetFluids::ID),
+            "the Java load-query subset stays unchanged"
+        );
     }
 
     #[test]

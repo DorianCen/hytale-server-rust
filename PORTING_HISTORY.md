@@ -2928,3 +2928,24 @@ This file records phase-2 sessions only.
   session; live session tokens remain user-owned.
 - T76 remains blocked only on the authenticated release-client run needed to
   capture each `RandomRotation` enum value.
+
+## Session 108 — Creative-mode fixes and generated fluids (2026-11-16)
+
+- **Configured game mode:** `WorldStartReport.game_mode` resolves
+  `WorldConfig.game_mode` (Adventure default, Creative opt-in); the join
+  `SetGameMode`, live game loop, placement flags, break path and movement
+  settings all use it instead of a hardcoded Adventure. `/gamemode` re-sends
+  `UpdateMovementSettings` with Java's derived fly mode, and creative breaks
+  clear the block without spawning survival drops.
+- **Creative inventory:** the game loop now handles `SetCreativeItem`,
+  `DropCreativeItem` and `SmartGiveCreativeItem` with Java
+  `InventoryPacketHandler` semantics (max-stack clamp, slot merge/replace,
+  hotbar/storage/backpack pickup, creative-only drop).
+- **Water transport:** `ChunkPacketBatch::initial_for_client` includes
+  `SetFluids` for non-empty generated sections. The generator already produced
+  water; the joining client never received the update-only fluid packet.
+  The Java load-query subset (`initial`) and chunk golden manifest are
+  unchanged.
+- **Regressions:** world-config Creative join/fly test, creative inventory
+  helper tests, initial-batch fluid test, loopback `/gamemode creative`
+  `SetGameMode`/fly assertions, and the chunk-serve `SetFluids` assertion.

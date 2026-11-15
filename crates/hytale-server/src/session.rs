@@ -47,12 +47,13 @@ use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, Serv
 use hytale_protocol::generated::common::ServerPlayerListPlayer;
 use hytale_protocol::generated::common::{
     BenchType, BlockFace, BlockPosition, BlockRotation, ChatType, ComponentUpdate, DisconnectType,
-    EntityEffectsUpdate, EntityStatUpdate, EntityStatsUpdate, FormattedMessage, GameMode,
+    EntityEffectsUpdate, EntityStatUpdate, EntityStatsUpdate, FlyMode, FormattedMessage, GameMode,
     HudComponent, InstantData, InteractionState, InteractionSyncData, InteractionType, MapChunk,
     MapMarker, MapMarkerIconSize, MouseButtonEvent, MouseButtonState, MouseButtonType,
     MovementSettings, MovementStates, MovementStatesUpdate, PlaceMode, PlayerSkin, PongType,
-    Position as ProtocolPosition, Rotation as BlockRotationAxis, SyncInteractionChain,
-    Transform as ProtocolTransform, UpdateType, WindowAction, WorldInteraction,
+    Position as ProtocolPosition, Rotation as BlockRotationAxis, SmartMoveType,
+    SyncInteractionChain, Transform as ProtocolTransform, UpdateType, WindowAction,
+    WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, Ping, Pong,
@@ -67,7 +68,8 @@ use hytale_protocol::generated::interface_::{
     ServerInfo, ServerMessage, SetPage, UpdateBossBar, UpdateVisibleHudComponents,
 };
 use hytale_protocol::generated::inventory::{
-    DropItemStack, MoveItemStack, SetActiveSlot, UpdatePlayerInventory,
+    DropCreativeItem, DropItemStack, MoveItemStack, SetActiveSlot, SetCreativeItem,
+    SmartGiveCreativeItem, UpdatePlayerInventory,
 };
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction,
@@ -524,6 +526,7 @@ struct EnterGame {
     world_uuid: Uuid,
     radius: u32,
     network_id: i32,
+    game_mode: GameMode,
     player_transform: PlayerTransform,
     appearance: PlayerAppearance,
     skin: Option<PlayerSkin>,
@@ -755,6 +758,7 @@ pub async fn serve_connection_with_registry(
                 world_uuid,
                 radius,
                 network_id: join.network_id,
+                game_mode: start.game_mode,
                 player_transform,
                 appearance,
                 skin,
@@ -1552,6 +1556,7 @@ async fn enter_game(
         world_uuid,
         radius,
         network_id,
+        game_mode,
         player_transform,
         appearance,
         skin,
@@ -1801,15 +1806,11 @@ async fn enter_game(
         game.weather = true;
     }
     writer
-        .write_packet(
-            &SetGameMode {
-                game_mode: GameMode::Adventure,
-            },
-            options.chunk_compression_level,
-        )
+        .write_packet(&SetGameMode { game_mode }, options.chunk_compression_level)
         .await?;
     // Java `MovementManager.update` sends the selected movement config to the
-    // client; it is the same data the server validates/clamps against.
+    // client; it is the same data the server validates/clamps against. The
+    // world thread already derived `fly` from the configured game mode.
     writer
         .write_packet(
             &UpdateMovementSettings { movement_settings },
@@ -2014,6 +2015,73 @@ fn target_is_self(target: &Option<String>, username: &str) -> bool {
         .is_none_or(|name| name.eq_ignore_ascii_case(username))
 }
 
+/// Build the creative packet's stack with Java's max-stack clamp
+/// (`InventoryPacketHandler.getItemStackFromQuantity`).
+fn creative_item_stack(
+    rules: &dyn hytale_inventory::ItemRules,
+    item_id: &str,
+    quantity: i32,
+) -> Option<ItemStack> {
+    if quantity <= 0 {
+        return None;
+    }
+    let quantity = quantity.min(rules.max_stack(item_id)).max(1);
+    ItemStack::new(item_id.to_string(), quantity, rules).ok()
+}
+
+/// Apply `SetCreativeItem`: add to the combined hotbar/storage/backpack or
+/// merge/replace one section slot. Returns the overflow to drop.
+fn apply_set_creative_item(
+    inventory: &mut PlayerInventory,
+    rules: &dyn hytale_inventory::ItemRules,
+    packet: &SetCreativeItem,
+) -> Option<ItemStack> {
+    if packet.item.quantity <= 0 {
+        if packet.r#override {
+            if let Some(section) = Section::from_section_id(packet.inventory_section_id) {
+                if let Ok(slot) = u16::try_from(packet.slot_id) {
+                    let _ = inventory.container_mut(section).set_slot(slot, None);
+                }
+            }
+        }
+        return None;
+    }
+    let stack = creative_item_stack(rules, &packet.item.item_id, packet.item.quantity)?;
+    if packet.slot_id < 0 {
+        return inventory.pickup(stack, rules);
+    }
+    let section = Section::from_section_id(packet.inventory_section_id)?;
+    let slot = u16::try_from(packet.slot_id).ok()?;
+    let container = inventory.container_mut(section);
+    if packet.r#override {
+        let _ = container.set_slot(slot, Some(stack));
+        return None;
+    }
+    let existing = container.get_slot(slot).ok().flatten().cloned();
+    if existing.is_some_and(|existing| existing.is_stackable_with(&stack, rules)) {
+        let _ = container.add_to_slot(slot, stack, rules);
+    } else {
+        let _ = container.set_slot(slot, Some(stack));
+    }
+    None
+}
+
+/// Apply `SmartGiveCreativeItem`. The release client only sends
+/// `PutInHotbarOrWindow` from the creative item grid; `EquipOrMergeStack` and
+/// `PutInHotbarOrBackpack` fall back to the same hotbar/storage pickup.
+fn apply_smart_give_creative_item(
+    inventory: &mut PlayerInventory,
+    rules: &dyn hytale_inventory::ItemRules,
+    packet: &SmartGiveCreativeItem,
+) -> Option<ItemStack> {
+    let stack = creative_item_stack(rules, &packet.item.item_id, packet.item.quantity)?;
+    match packet.move_type {
+        SmartMoveType::EquipOrMergeStack
+        | SmartMoveType::PutInHotbarOrWindow
+        | SmartMoveType::PutInHotbarOrBackpack => inventory.pickup(stack, rules),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn apply_give_item(
     writer: &mut FrameWriter,
@@ -2081,6 +2149,7 @@ async fn apply_game_mode(
     writer: &mut FrameWriter,
     options: &SessionOptions,
     mode: &str,
+    movement_settings: &mut MovementSettings,
 ) -> Result<GameMode, SessionError> {
     let game_mode = if mode == "creative" {
         GameMode::Creative
@@ -2090,6 +2159,23 @@ async fn apply_game_mode(
     writer
         .write_packet(&SetGameMode { game_mode }, options.chunk_compression_level)
         .await?;
+    // Java `Player.setGameModeInternal` calls `MovementManager.resetFly` and
+    // re-sends `UpdateMovementSettings`, which is what makes creative flight
+    // possible. A forced config stays forced in either mode.
+    if movement_settings.fly != FlyMode::Forced {
+        movement_settings.fly = match game_mode {
+            GameMode::Creative => FlyMode::Allowed,
+            GameMode::Adventure => FlyMode::Disabled,
+        };
+        writer
+            .write_packet(
+                &UpdateMovementSettings {
+                    movement_settings: movement_settings.clone(),
+                },
+                options.chunk_compression_level,
+            )
+            .await?;
+    }
     send_server_message(writer, &format!("Game mode set to {mode}"), options).await?;
     Ok(game_mode)
 }
@@ -3236,7 +3322,8 @@ async fn run_game_loop(
         runtime_limits,
     } = live;
     let mut report = GameLoopReport::default();
-    let mut game_mode = GameMode::Adventure;
+    let mut game_mode = thread.start_report().game_mode;
+    let mut movement_settings = thread.movement_settings()?;
     let mut place_mode = PlaceMode::Default;
     let mut ticker = std::time::Instant::now();
     let mut last_activity = std::time::Instant::now();
@@ -3382,7 +3469,9 @@ async fn run_game_loop(
                             .await?;
                         }
                         ControlAction::SetGameMode { mode } => {
-                            game_mode = apply_game_mode(writer, options, &mode).await?;
+                            game_mode =
+                                apply_game_mode(writer, options, &mode, &mut movement_settings)
+                                    .await?;
                         }
                         ControlAction::Kill => {
                             apply_kill(writer, options, active_thread, network_id).await?;
@@ -4502,8 +4591,13 @@ async fn run_game_loop(
                                         }
                                         CommandEffect::SetGameMode { target, mode } => {
                                             if target_is_self(&target, &username) {
-                                                game_mode =
-                                                    apply_game_mode(writer, options, &mode).await?;
+                                                game_mode = apply_game_mode(
+                                                    writer,
+                                                    options,
+                                                    &mode,
+                                                    &mut movement_settings,
+                                                )
+                                                .await?;
                                             } else if let Some(target_name) = target.as_deref() {
                                                 if let Some(id) =
                                                     players.network_id_for(target_name)
@@ -4908,6 +5002,68 @@ async fn run_game_loop(
                         {
                             report.inventory_updates += 1;
                         }
+                    }
+                    SetCreativeItem::ID => {
+                        let packet: SetCreativeItem = frame.decode()?;
+                        if game_mode != GameMode::Creative {
+                            continue;
+                        }
+                        let assets = active_thread.asset_registry()?;
+                        let rules = AssetItemRules::new(&assets);
+                        if let Some(remainder) = apply_set_creative_item(inventory, &rules, &packet)
+                        {
+                            let position = transform.position;
+                            let _ = active_thread.spawn_item_stack_entity(
+                                remainder,
+                                position.x,
+                                position.y + 0.5,
+                                position.z,
+                            );
+                        }
+                        send_inventory(writer, inventory, options.chunk_compression_level).await?;
+                        report.inventory_updates += 1;
+                        broadcast_held_items(&players, network_id, inventory);
+                    }
+                    DropCreativeItem::ID => {
+                        let packet: DropCreativeItem = frame.decode()?;
+                        if game_mode != GameMode::Creative {
+                            continue;
+                        }
+                        let assets = active_thread.asset_registry()?;
+                        let rules = AssetItemRules::new(&assets);
+                        if let Some(stack) =
+                            creative_item_stack(&rules, &packet.item.item_id, packet.item.quantity)
+                        {
+                            let position = transform.position;
+                            let _ = active_thread.spawn_item_stack_entity(
+                                stack,
+                                position.x,
+                                position.y + 0.5,
+                                position.z,
+                            );
+                        }
+                    }
+                    SmartGiveCreativeItem::ID => {
+                        let packet: SmartGiveCreativeItem = frame.decode()?;
+                        if game_mode != GameMode::Creative {
+                            continue;
+                        }
+                        let assets = active_thread.asset_registry()?;
+                        let rules = AssetItemRules::new(&assets);
+                        if let Some(remainder) =
+                            apply_smart_give_creative_item(inventory, &rules, &packet)
+                        {
+                            let position = transform.position;
+                            let _ = active_thread.spawn_item_stack_entity(
+                                remainder,
+                                position.x,
+                                position.y + 0.5,
+                                position.z,
+                            );
+                        }
+                        send_inventory(writer, inventory, options.chunk_compression_level).await?;
+                        report.inventory_updates += 1;
+                        broadcast_held_items(&players, network_id, inventory);
                     }
                     CloseWindow::ID => {
                         let packet: CloseWindow = frame.decode()?;
@@ -5859,11 +6015,15 @@ fn handle_block_interaction(
 
     match parse_block_edit(transform, interaction) {
         Some(BlockEdit::Break { x, y, z }) => {
-            // Block health is authoritative. The default damage breaks a full
-            // health block in one hit (pre-T57b behavior); a lower configured
-            // value sends partial damage and keeps the block until health hits
-            // zero.
-            let damage = block_break_damage.clamp(f32::EPSILON, 1.0);
+            // Block health is authoritative. Java Creative calls
+            // `performBlockBreak` directly, so a creative hit always clears the
+            // block; Adventure uses the configured damage and may keep a full
+            // health block alive until later hits.
+            let damage = if game_mode == GameMode::Creative {
+                1.0
+            } else {
+                block_break_damage.clamp(f32::EPSILON, 1.0)
+            };
             let remaining = match thread.damage_block(x, y, z, damage) {
                 Ok(remaining) => remaining,
                 Err(_) => return BlockInteractionOutcome::Rejected,
@@ -5906,15 +6066,20 @@ fn handle_block_interaction(
                 filler: 0,
                 rotation: 0,
             });
-            if let Ok(drops) = thread.player_block_drops(before) {
-                for (item_id, quantity) in drops {
-                    let _ = thread.spawn_item_entity(
-                        item_id,
-                        quantity,
-                        f64::from(x) + 0.5,
-                        f64::from(y) + 0.5,
-                        f64::from(z) + 0.5,
-                    );
+            // Java `BreakBlockInteraction` uses `performBlockBreak` for a
+            // Creative player, and `BlockHarvestUtils` marks creative breaks
+            // `NO_DROP_ITEMS` because only Adventure is a natural action.
+            if game_mode != GameMode::Creative {
+                if let Ok(drops) = thread.player_block_drops(before) {
+                    for (item_id, quantity) in drops {
+                        let _ = thread.spawn_item_entity(
+                            item_id,
+                            quantity,
+                            f64::from(x) + 0.5,
+                            f64::from(y) + 0.5,
+                            f64::from(z) + 0.5,
+                        );
+                    }
                 }
             }
             BlockInteractionOutcome::Edit {
@@ -6525,6 +6690,102 @@ mod tests {
         assert!(packet.hide);
         assert_eq!(packet.entity_network_id, players::runtime_network_id(42));
         assert_eq!(last, None);
+    }
+
+    #[test]
+    fn creative_set_item_merges_a_slot_and_clamps_to_the_max_stack() {
+        struct Rules;
+        impl hytale_inventory::ItemRules for Rules {
+            fn item_exists(&self, item_id: &str) -> bool {
+                !item_id.is_empty()
+            }
+            fn max_stack(&self, _item_id: &str) -> i32 {
+                100
+            }
+            fn max_durability(&self, _item_id: &str) -> f64 {
+                0.0
+            }
+        }
+
+        let mut inventory = PlayerInventory::new();
+        let packet = SetCreativeItem {
+            inventory_section_id: Section::Hotbar.section_id(),
+            slot_id: 2,
+            item: hytale_protocol::generated::common::ItemQuantity {
+                item_id: "Rock_Stone".to_string(),
+                quantity: 150,
+            },
+            r#override: false,
+        };
+        assert!(apply_set_creative_item(&mut inventory, &Rules, &packet).is_none());
+        let stack = inventory
+            .hotbar
+            .container
+            .get_slot(2)
+            .expect("slot")
+            .expect("stack");
+        assert_eq!(stack.item_id, "Rock_Stone");
+        assert_eq!(stack.quantity, 100, "Java clamps to Item.maxStack");
+
+        // A compatible stack merges into the same slot.
+        let packet = SetCreativeItem {
+            item: hytale_protocol::generated::common::ItemQuantity {
+                item_id: "Rock_Stone".to_string(),
+                quantity: 20,
+            },
+            ..packet
+        };
+        assert!(apply_set_creative_item(&mut inventory, &Rules, &packet).is_none());
+        assert_eq!(
+            inventory
+                .hotbar
+                .container
+                .get_slot(2)
+                .expect("slot")
+                .expect("stack")
+                .quantity,
+            100,
+            "the slot stays capped at the item's max stack"
+        );
+    }
+
+    #[test]
+    fn creative_give_packets_populate_the_inventory() {
+        struct Rules;
+        impl hytale_inventory::ItemRules for Rules {
+            fn item_exists(&self, item_id: &str) -> bool {
+                !item_id.is_empty()
+            }
+            fn max_stack(&self, _item_id: &str) -> i32 {
+                100
+            }
+            fn max_durability(&self, _item_id: &str) -> f64 {
+                0.0
+            }
+        }
+
+        let mut inventory = PlayerInventory::new();
+        let set = SetCreativeItem {
+            inventory_section_id: -1,
+            slot_id: -1,
+            item: hytale_protocol::generated::common::ItemQuantity {
+                item_id: "Rock_Stone".to_string(),
+                quantity: 3,
+            },
+            r#override: false,
+        };
+        assert!(apply_set_creative_item(&mut inventory, &Rules, &set).is_none());
+        assert_eq!(inventory.count_item("Rock_Stone"), 3);
+
+        let smart = SmartGiveCreativeItem {
+            item: hytale_protocol::generated::common::ItemQuantity {
+                item_id: "Wood_Amber_Trunk".to_string(),
+                quantity: 4,
+            },
+            move_type: SmartMoveType::PutInHotbarOrWindow,
+        };
+        assert!(apply_smart_give_creative_item(&mut inventory, &Rules, &smart).is_none());
+        assert_eq!(inventory.count_item("Wood_Amber_Trunk"), 4);
     }
 
     #[test]

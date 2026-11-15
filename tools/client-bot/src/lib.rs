@@ -26,10 +26,10 @@ use hytale_protocol::generated::assets::{
 use hytale_protocol::generated::auth::{AuthGrant, AuthToken, ConnectAccept, ServerAuthToken};
 use hytale_protocol::generated::common::{
     Asset, BlockDamageCmd, BlockPosition, ClientDisconnectReason, ComponentUpdate, DisconnectType,
-    FormattedMessage, InteractionChainData, InteractionState, InteractionSyncData, InteractionType,
-    MapMarker, MouseButtonEvent, MouseButtonState, MouseButtonType, MovementSettings, Page,
-    PlaceMode, PlayerSkin, PongType, Position, SyncInteractionChain, TeleportAck, WindowType,
-    WorldInteraction,
+    FormattedMessage, GameMode, InteractionChainData, InteractionState, InteractionSyncData,
+    InteractionType, MapMarker, MouseButtonEvent, MouseButtonState, MouseButtonType,
+    MovementSettings, Page, PlaceMode, PlayerSkin, PongType, Position, SyncInteractionChain,
+    TeleportAck, WindowType, WorldInteraction,
 };
 use hytale_protocol::generated::connection::{
     ClientDisconnect, ClientType, Connect, InsecurePlayerOptions, NetworkTick, Ping, Pong,
@@ -44,7 +44,7 @@ use hytale_protocol::generated::interface_::{
 use hytale_protocol::generated::inventory::{SetActiveSlot, UpdatePlayerInventory};
 use hytale_protocol::generated::player::{
     ClientMovement, ClientReady, ClientTeleport, JoinWorld, MouseInteraction, SetClientId,
-    SyncPlayerPreferences, UpdateMovementSettings,
+    SetGameMode, SyncPlayerPreferences, UpdateMovementSettings,
 };
 use hytale_protocol::generated::setup::{
     AssetFinalize, AssetInitialize, AssetPart, RequestAssets, RequestCommonAssetsRebuild,
@@ -394,6 +394,8 @@ pub struct GameJoinReport {
     pub gameplay_config: Option<WorldGameplayConfig>,
     /// Latest `UpdateMovementSettings` payload.
     pub movement_settings: Option<MovementSettings>,
+    /// Latest `SetGameMode` value.
+    pub game_mode: Option<GameMode>,
     /// Latest `UpdatePlayerInventory` payload.
     pub inventory: Option<UpdatePlayerInventory>,
     /// Latest `SetActiveSlot` selections keyed by inventory section id.
@@ -977,6 +979,10 @@ async fn observe_players(
                     UpdateMovementSettings::ID => {
                         let packet: UpdateMovementSettings = frame.decode()?;
                         game.movement_settings = Some(packet.movement_settings);
+                    }
+                    SetGameMode::ID => {
+                        let packet: SetGameMode = frame.decode()?;
+                        game.game_mode = Some(packet.game_mode);
                     }
                     UpdateWorldMapSettings::ID => {
                         game.world_map_settings = Some(frame.decode()?);
@@ -1781,6 +1787,10 @@ async fn enter_game_client(
                 let packet: UpdateMovementSettings = frame.decode()?;
                 game.movement_settings = Some(packet.movement_settings);
             }
+            SetGameMode::ID => {
+                let packet: SetGameMode = frame.decode()?;
+                game.game_mode = Some(packet.game_mode);
+            }
             UpdatePlayerInventory::ID => {
                 game.inventory = Some(frame.decode()?);
             }
@@ -1904,6 +1914,10 @@ async fn finish_game(
             UpdateMovementSettings::ID => {
                 let packet: UpdateMovementSettings = frame.decode()?;
                 game.movement_settings = Some(packet.movement_settings);
+            }
+            SetGameMode::ID => {
+                let packet: SetGameMode = frame.decode()?;
+                game.game_mode = Some(packet.game_mode);
             }
             UpdatePlayerInventory::ID => {
                 game.inventory = Some(frame.decode()?);
