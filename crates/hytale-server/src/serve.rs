@@ -108,6 +108,9 @@ pub struct ServeOptions {
     pub universe_root: PathBuf,
     /// World name/UUID to serve; defaults to the universe default.
     pub world: Option<String>,
+    /// Additional catalogued worlds to start at listener boot, before any
+    /// session can switch to them.
+    pub prestart_worlds: Vec<String>,
     /// Generator options for a world that has to start.
     pub generator: GeneratorOptions,
     /// QUIC bind address (port 0 selects an OS port).
@@ -149,6 +152,7 @@ impl ServeOptions {
         Self {
             universe_root: universe_root.into(),
             world: None,
+            prestart_worlds: Vec::new(),
             generator,
             bind_addr,
             max_connections: 20,
@@ -546,6 +550,13 @@ where
     }
     let descriptor = runtime.universe().resolve(&world_name)?.clone();
     runtime.start_world(&world_name)?;
+    for prestart in &options.prestart_worlds {
+        if prestart == &world_name {
+            continue;
+        }
+        runtime.start_world(prestart)?;
+        println!("prestarted world {prestart}");
+    }
     let thread = runtime.world_thread(&world_name)?;
     let thread_uuid = descriptor.uuid;
     if options.auto_population {

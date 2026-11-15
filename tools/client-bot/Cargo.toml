@@ -21,4 +21,5 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
+hytale-inventory = { path = "../../crates/hytale-inventory" }
 hytale-world = { path = "../../crates/hytale-world" }

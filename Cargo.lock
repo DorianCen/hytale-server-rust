@@ -543,6 +543,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "hytale-auth",
+ "hytale-inventory",
  "hytale-net",
  "hytale-protocol",
  "hytale-server",

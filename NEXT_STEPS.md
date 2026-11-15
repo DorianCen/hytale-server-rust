@@ -359,9 +359,10 @@ asset-bring-up list:
    held-item/NPC visibility, save/reload, disconnect/reconnect and world restart
    are covered by `client-bot/tests/multiplayer_persistence.rs`. The concurrent
    10/50/100-player generator is [T72](tasks/T72-concurrent-load-generator.md)
-   (done session 101; release baseline in `BENCHMARKS.md`); universe-level
-   restart and multi-world handoff are
-   [T73](tasks/T73-universe-restart-handoff.md).
+   (done session 101; release baseline in `BENCHMARKS.md`). Universe-level
+   restart, two live worlds, a portal return and post-restart rejoin are
+   [T73](tasks/T73-universe-restart-handoff.md) (done session 102; restart
+   procedure in `BENCHMARKS.md`).
 5. **Presentation gaps:** chunk-map refresh/byte parity, window-distance
    validation, particle/audio/weather presentation and first-person/held-item
    polish are filed as [T74](tasks/T74-presentation-gaps.md).

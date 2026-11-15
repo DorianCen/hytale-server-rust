@@ -349,6 +349,9 @@ struct ServeArgs {
     /// World name or UUID to serve; defaults to the universe default.
     #[arg(long)]
     world: Option<String>,
+    /// Additional catalogued world to start at listener boot (repeatable).
+    #[arg(long = "prestart-world")]
+    prestart_worlds: Vec<String>,
     /// Asset pack (zip or unpacked directory).
     #[arg(long, default_value = "Assets/Assets.zip")]
     assets_pack: PathBuf,
@@ -745,6 +748,7 @@ fn run_serve_command(args: ServeArgs, builtin: BuiltinRuntime) -> ExitCode {
     let options = ServeOptions {
         universe_root: args.universe,
         world: args.world,
+        prestart_worlds: args.prestart_worlds,
         generator: GeneratorOptions {
             assets_pack: args.assets_pack,
             assets_root: args.assets_root,

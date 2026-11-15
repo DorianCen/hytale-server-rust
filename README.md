@@ -92,8 +92,10 @@ block/item golden tests**, a clean
   held-item/NPC and world-restart persistence smoke. T71 (session 100) closes
   the interaction branch maps, creative place-mode selection, active-slot
   changes and missing-id sentinels. T72 (session 101) adds the 10/50/100-player
-  concurrent load harness and release baseline; remaining close-out work is
-  tracked by the filed T73–T77 packets.
+  concurrent load harness and release baseline. T73 (session 102) proves a
+  listener-owned universe survives restart with two live worlds, a portal
+  return and post-restart rejoin. Remaining work is tracked by the filed
+  T74–T77 packets.
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,

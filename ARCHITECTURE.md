@@ -627,10 +627,11 @@ not part of v1.
   and unloads chunks. Teardown always saves the session transform, removes its
   view and unregisters the player. A reconnect loads the per-UUID player
   snapshot before the registry join.
-  `hytale-server::serve` now owns the persistent listener: one universe/world
-  thread, one independent task per connection, a shared per-world config cache,
-  one shared `PlayerRegistry`, connection limits, idle timeout and graceful
-  shutdown. The registry fans player-list and view-filtered entity
+  `hytale-server::serve` now owns the persistent listener: one universe, one
+  independent task per connection, a shared per-world config cache, one shared
+  `PlayerRegistry`, connection limits, idle timeout and graceful shutdown. The
+  primary world starts at boot and `--prestart-world`/`/world` can run extra
+  catalogued worlds alongside it. The registry fans player-list and view-filtered entity
   spawn/movement/removal messages into each session's queue; the game loop
   drains that queue on its 50 ms tick.
 - Packet tracing: `hytale-net::trace` is a `PacketTraceSink` hook on both framed

@@ -1,6 +1,6 @@
 # T73 — Universe restart and multi-world handoff smoke
 
-**Status:** proposed (filed session 99)
+**Status:** done (session 102)
 **Package:** `hytale-server`, `tools/client-bot`, docs
 **Depends on:** T41, T60b, T70
 **Agent fit:** low/medium
@@ -30,6 +30,35 @@ restarts one `WorldThread`; T60b proves portal transfer; neither covers a
   `universe.json`, world directories) in `NEXT_STEPS.md`/`BENCHMARKS.md`.
 - Keep the test asset-backed and `#[ignore]`d, like T70.
 
+## Landed (session 102)
+
+- New ignored `tools/client-bot/tests/universe_restart.rs` drives the full
+  lifecycle: two catalogued worlds (`Default` plus the `Goblin_Breach`
+  instance), a player portal transfer and return, a second player left in the
+  instance, block edits and NPCs in both worlds, a full `UniverseRuntime`
+  shutdown, a restart from the same root with all state asserted, one listener
+  with both worlds live and a connected shutdown, then a second listener that
+  reconnects both players without stale registry/thread state.
+- `ServeOptions::prestart_worlds` (CLI `--prestart-world`, repeatable) starts
+  extra catalogued worlds at listener boot so `/world` switches do not pay the
+  first-start cost inside a session.
+- The test pre-generates the instance arrival chunk before shutdown so the
+  post-restart switch streams a stored chunk rather than generating portal
+  terrain while the client waits.
+- `portal_transfer` now reads the returned player's stored transform outside
+  the join spawn-search radius; the return itself was already correct and the
+  near-origin read intentionally re-resolves terrain spawns.
+
+## Verification (session 102)
+
+```sh
+cargo test -p client-bot --test universe_restart -- --ignored --nocapture # 1 passed (313.47 s)
+cargo test -p hytale-server --test portal_transfer                       # 3 passed (95.22 s)
+./tools/test.sh fast                                                     # 1649 passed, 32 skipped
+cargo clippy -p hytale-server -p client-bot --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
 ## Read first
 
 - `crates/hytale-server/src/universe_runtime.rs`
@@ -56,6 +85,16 @@ cargo fmt --all -- --check
 - Two worlds and their player documents remain distinct across the restart.
 - Portal transfer/return still preserves the source transform and inventory.
 - No stale sessions/views remain after restart.
+
+## Deviations
+
+- Portal return points/entries are live `UniverseRuntime` session state and are
+  not persisted in `universe.json`. After a restart the returned player
+  document, transform, inventory and world location are asserted from the
+  per-world player files; an active in-flight return point would be rebuilt by
+  re-entering the portal.
+- The restart listener binds a fresh ephemeral port; the universe root, world
+  names, UUIDs and files are unchanged.
 
 ## Notes
 

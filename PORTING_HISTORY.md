@@ -2772,3 +2772,30 @@ This file records phase-2 sessions only.
 - **Follow-ups:** the 100-player asset burst needs a wider stagger/window to
   keep every session concurrent at peak (97/100); per-session world ticking
   means the tick-rate metric is aggregate simulation load, not independent TPS.
+
+## Session 102 — T73 universe restart and multi-world handoff (2026-11-15)
+
+- **Goal:** prove a listener-owned universe survives a process-level restart
+  with two live worlds, while a portal transfer/return and per-player documents,
+  blocks and NPCs persist.
+- **Test:** new ignored `client-bot/tests/universe_restart.rs` creates Default
+  plus the `Goblin_Breach` instance, moves one player through the portal and
+  back (restoring transform and stripping the ephemeral key), leaves a second
+  player in the instance, edits blocks and spawns an NPC in both worlds, shuts
+  `UniverseRuntime` down, reopens the same root and asserts the catalog,
+  layouts, player documents, edits and NPCs. Two listeners then join both worlds
+  through one endpoint, switch the second client with `/world`, shut down with
+  clients connected and reconnect through a fresh listener.
+- **Listener:** `ServeOptions::prestart_worlds` (CLI `--prestart-world`,
+  repeatable) starts additional catalogued worlds at boot so `/world` does not
+  pay the first worldgen cost inside the session. The test also pre-generates
+  the instance arrival chunk before restart.
+- **Regression fix:** the portal return test now reads the stored transform
+  outside the join spawn-search radius; the near-origin read intentionally
+  re-resolves terrain spawns, which had masked the return assertion.
+- **Verified:** `universe_restart` 1 passed (313.47 s), `portal_transfer`
+  3 passed (95.22 s), `./tools/test.sh fast` 1649 passed / 32 skipped, clippy
+  and fmt.
+- **Deviation:** portal return points/entry counts are live session state and
+  are not written to `universe.json`; persisted player documents/locations are
+  asserted after restart.

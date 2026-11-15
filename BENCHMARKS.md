@@ -225,3 +225,41 @@ Notes:
   is a correctness check, not a baseline: debug worldgen/asset decode makes the
   10-bot join latency much larger. It asserts full joins, zero rejected/queued
   overflow, chunk counters, block edits, ticks and RSS.
+
+## T73 — Universe restart procedure — 2026-11-15
+
+A listener-owned universe is a directory:
+
+```text
+<universe-root>/
+  universe.json              # default_world + world UUID -> provider map
+  <WorldName>/config.json    # per-world seed/display name/provider config
+  <WorldName>/players/*.json # complete player documents
+  <WorldName>/chunks/        # region files flushed on graceful shutdown
+  Portals_Portals_Goblins/   # portal instance worlds use sanitized names
+```
+
+Restart procedure used by `client-bot/tests/universe_restart.rs`:
+
+```sh
+# Start the primary and any world sessions may switch to.
+hytale-server serve --universe <root> --world Default \
+  --prestart-world Portals_Portals_Goblins --bind 127.0.0.1:5520
+
+# Send /stop (or Ctrl-C), then run the same command again. The listener
+# reopens universe.json, reloads the same world directories and player files,
+# and clients can rejoin Default or use `/world <name>` for the second world.
+```
+
+- A graceful shutdown waits for sessions, closes connections, saves every
+  running world through `WorldThread::shutdown` and drops the listener's
+  `PlayerRegistry`/`WorldThread` handles; a restart starts from clean state.
+- `--prestart-world` avoids paying the first-start/worldgen cost inside a
+  session. Without it `/world <name>` starts the catalogued world on demand.
+- Portal transfer/return rewrites the player document in the target world and
+  deletes the source copy; the returned document, transform, inventory and
+  chosen world are what persist. Portal return points and entry counts are
+  in-memory session state (same as Java's live instance bookkeeping).
+- The verified test uses a fresh ephemeral port for the second listener; the
+  universe root, world names/UUIDs, `universe.json` and save directories are
+  unchanged.

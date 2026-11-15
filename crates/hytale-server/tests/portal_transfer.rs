@@ -68,7 +68,10 @@ fn returning_from_an_instance_restores_the_source_and_strips_ephemeral_items() {
     let player_uuid: WorldUuid = "12345678-1234-5678-9abc-def012345678"
         .parse()
         .expect("player uuid");
-    let source_transform = transform(4.0, 81.0, 4.0);
+    // Keep the source transform outside the join spawn-search radius: the
+    // return must preserve the stored document, while `player_snapshot` would
+    // intentionally resolve a near-origin/terrain transform on read.
+    let source_transform = transform(20.5, 120.0, 20.5);
     let mut inventory = PlayerInventory::new();
     inventory
         .hotbar
