@@ -73,6 +73,26 @@ fn a_real_prefab_pastes_entities_and_components_and_survives_reload() {
         .expect("read the block component")
         .expect("the Hunt_Trap component");
     assert_eq!(component.block_id, report_block_id(&thread, "Hunt_Trap"));
+    // The real prefab document is the component golden: the opaque
+    // `BlockHolder` store must preserve its `Components` object verbatim.
+    let prefab: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            repo_root().join("Assets/extracted/Server/Prefabs/Hunt/Generic/Site.prefab.json"),
+        )
+        .expect("read the real prefab"),
+    )
+    .expect("prefab JSON");
+    let source_components = prefab["blocks"]
+        .as_array()
+        .expect("prefab blocks")
+        .iter()
+        .find(|block| block["name"] == "Hunt_Trap")
+        .and_then(|block| block.get("components"))
+        .expect("Hunt_Trap block components");
+    assert_eq!(
+        &component.components, source_components,
+        "the persisted BlockHolder document matches the real prefab"
+    );
     assert_eq!(
         component
             .components

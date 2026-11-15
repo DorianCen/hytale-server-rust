@@ -14,6 +14,7 @@ pub mod connected;
 pub mod containers;
 pub mod crafting;
 pub mod instance;
+pub mod placement;
 pub mod player_data;
 pub mod prefab;
 pub mod registry;

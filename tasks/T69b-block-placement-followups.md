@@ -158,10 +158,11 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Expand `CustomTemplate` mirror transforms if a release-client scenario
-  exercises them.
-- Components that still lack a Java golden/dumper.
-- Client prediction parity for connected shapes if a release-client trace shows
-  a divergence.
-- Remaining `RandomRotation`/`RotationYawPlacementOffset` parity if a client
-  scenario exposes it.
+- Mirror transforms, filler un-rotation, placement rotation metadata and the
+  real-prefab component golden are closed by
+  [T76](T76-placement-followups.md) (session 105).
+- Components that still lack a Java dumper remain opaque by design.
+- Connected-shape client prediction still has no local release-client trace; the
+  real-asset server tests are the gate.
+- Non-interactive `RandomRotation` uses the documented position-seeded model
+  until a client trace pins the renderer's exact selection.

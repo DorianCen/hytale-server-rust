@@ -826,6 +826,106 @@ fn block_containers_open_with_their_block_capacity() {
 }
 
 #[test]
+fn server_placements_apply_block_type_rotation_metadata() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let save_dir = temp_dir("placement-rotation");
+    let options = || {
+        WorldThreadOptions::with_defaults(
+            hytale_server::GeneratorOptions {
+                assets_pack: repo_root().join("Assets/Assets.zip"),
+                assets_root: repo_root().join("Assets/extracted"),
+                world_dir: repo_root().join("testdata/Default"),
+                workers: 1,
+            },
+            save_dir.clone(),
+        )
+    };
+    let (thread, start) = WorldThread::spawn(options()).expect("spawn the world thread");
+    while thread.tick().expect("tick").remaining > 0 {}
+    let base_x = start.player_chunk.0 * 32 + 8;
+    let base_z = start.player_chunk.1 * 32 + 8;
+    let y = 200;
+
+    // Furniture_Goblin_Brazier carries RotationYawPlacementOffset=TwoSeventy.
+    let brazier = thread
+        .block_type_id("Furniture_Goblin_Brazier")
+        .expect("resolve brazier")
+        .expect("brazier block");
+    thread
+        .set_block(base_x, y, base_z, 0)
+        .expect("clear brazier target");
+    assert!(thread
+        .place_block_with_options(base_x, y, base_z, brazier, PlaceBlockOptions::new(0))
+        .expect("server-authored brazier placement")
+        .is_some());
+    assert_eq!(
+        thread
+            .block_rotation(base_x, y, base_z)
+            .expect("brazier rotation"),
+        Some(3),
+        "the server applies the block type's 270-degree yaw offset"
+    );
+
+    // A client-provided rotation is authoritative and must not be offset again.
+    thread
+        .set_block(base_x, y, base_z, 0)
+        .expect("clear brazier target");
+    let mut client_rotation = PlaceBlockOptions::new(1);
+    client_rotation.client_rotation = true;
+    assert!(thread
+        .place_block_with_options(base_x, y, base_z, brazier, client_rotation)
+        .expect("client-authored brazier placement")
+        .is_some());
+    assert_eq!(
+        thread
+            .block_rotation(base_x, y, base_z)
+            .expect("client rotation"),
+        Some(1),
+        "interactive placements keep the client's final rotation"
+    );
+
+    // Deco_Bone_Pile uses RandomRotation=YawStep1. The same coordinate must
+    // resolve the same yaw across reloads (position-seeded placement RNG).
+    let bones = thread
+        .block_type_id("Deco_Bone_Pile")
+        .expect("resolve bone pile")
+        .expect("bone pile block");
+    let (bone_x, bone_z) = (base_x + 2, base_z + 2);
+    thread
+        .set_block(bone_x, y, bone_z, 0)
+        .expect("clear bone target");
+    assert!(thread
+        .place_block_with_options(bone_x, y, bone_z, bones, PlaceBlockOptions::new(0))
+        .expect("bone placement")
+        .is_some());
+    let first = thread
+        .block_rotation(bone_x, y, bone_z)
+        .expect("bone rotation")
+        .expect("bone rotation value");
+    assert!((0..4).contains(&first), "YawStep1 only adds yaw: {first}");
+    thread
+        .set_block(bone_x, y, bone_z, 0)
+        .expect("clear bone target again");
+    assert!(thread
+        .place_block_with_options(bone_x, y, bone_z, bones, PlaceBlockOptions::new(0))
+        .expect("repeat bone placement")
+        .is_some());
+    assert_eq!(
+        thread
+            .block_rotation(bone_x, y, bone_z)
+            .expect("repeat bone rotation"),
+        Some(first),
+        "the placement RNG is deterministic for the block coordinate"
+    );
+
+    thread.shutdown().expect("shutdown");
+    std::fs::remove_dir_all(save_dir).ok();
+}
+
+#[test]
 fn placement_flags_preserve_shape_and_block_components() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");

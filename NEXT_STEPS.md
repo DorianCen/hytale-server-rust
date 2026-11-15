@@ -348,9 +348,10 @@ asset-bring-up list:
    templates and `Stair`/`Roof` (templated shapes, face tags,
    `Shape`/`And`/`Or`/`Not`, roof valley/topper/wide-roof splitting), creative
    quick-retype/quick-replace/no-physics flags preserving target shape/rotation,
-   and placement `BlockHolder` component persistence. Remaining mirror,
-   placement-rotation and component-golden work is
-   [T76](tasks/T76-placement-followups.md).
+   and placement `BlockHolder` component persistence. T76 (session 105) adds
+   `CustomTemplate` mirror/filler expansion, `FlipType.flipYaw`, placement
+   rotation metadata and the real-prefab component golden. The remaining
+   command completion polish is [T77](tasks/T77-command-completion-polish.md).
 3. **Interaction long tail (T71, done session 100):** chaining/memories/
    charging/wielding next maps, place-mode selection, active-slot changes and
    the missing-id sentinel audit are landed. See

@@ -393,6 +393,11 @@ pub struct PlaceBlockOptions {
     pub no_physics: bool,
     /// Placement-created block entity components (Java `BlockHolder` document).
     pub block_components: Option<serde_json::Value>,
+    /// The rotation came from the client's `BlockRotation` (already includes
+    /// `RandomRotation`/`RotationYawPlacementOffset`). Real Java sessions keep
+    /// the client rotation verbatim; server-authored placements leave this
+    /// `false` and apply the block type metadata here.
+    pub client_rotation: bool,
 }
 
 impl PlaceBlockOptions {
@@ -4639,8 +4644,8 @@ fn run(
                                                             );
                                                             if let Ok(Some((before, after))) =
                                                                 place_block(
-                                                                    &mut save, bx, by, bz,
-                                                                    block_id, 0,
+                                                                    &mut save, &generator, bx, by,
+                                                                    bz, block_id, 0,
                                                                 )
                                                             {
                                                                 block_events.push(
@@ -7160,6 +7165,13 @@ fn place_block_with_connected(
                 target_block = variant;
             }
         }
+    } else if !options.client_rotation {
+        rotation = hytale_world::placement::block_placement_rotation(
+            generator.assets(),
+            target_block,
+            rotation,
+            [x, y, z],
+        );
     }
     let preserve_state = options.quick_replace || options.quick_retype;
     let old_component = preserve_state
@@ -7206,6 +7218,7 @@ fn place_block_with_connected(
 
 fn place_block(
     save: &mut WorldSave,
+    generator: &WorldGenerator,
     x: i32,
     y: i32,
     z: i32,
@@ -7225,8 +7238,14 @@ fn place_block(
     if before != 0 {
         return Ok(None);
     }
+    let rotation = hytale_world::placement::block_placement_rotation(
+        generator.assets(),
+        block_id,
+        rotation,
+        [x, y, z],
+    );
     save.world_mut()
-        .set_block_full(x, y, z, block_id, rotation.rem_euclid(64), 0)
+        .set_block_full(x, y, z, block_id, rotation, 0)
         .map_err(|error| error.to_string())?;
     Ok(Some((before, save.world().get_block(x, y, z))))
 }
@@ -7321,7 +7340,11 @@ fn apply_interaction_outcome(
                         .get(key)
                         .and_then(|record| record.id)
                 })
-                .and_then(|block_id| place_block(save, x, y, z, block_id, 0).ok().flatten()),
+                .and_then(|block_id| {
+                    place_block(save, generator, x, y, z, block_id, 0)
+                        .ok()
+                        .flatten()
+                }),
             WorldAction::BreakBlock => set_block(save, x, y, z, 0, 0).ok(),
             WorldAction::PlaceBlock => block_to_place
                 .and_then(|key| {
@@ -7331,7 +7354,11 @@ fn apply_interaction_outcome(
                         .get(key)
                         .and_then(|record| record.id)
                 })
-                .and_then(|block_id| place_block(save, x, y, z, block_id, 0).ok().flatten()),
+                .and_then(|block_id| {
+                    place_block(save, generator, x, y, z, block_id, 0)
+                        .ok()
+                        .flatten()
+                }),
             _ => None,
         };
         if let Some((before, after)) = change {

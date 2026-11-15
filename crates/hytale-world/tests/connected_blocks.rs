@@ -363,3 +363,49 @@ fn a_wide_roof_splits_the_old_corner_arm() {
 
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn a_rail_slope_uses_the_mirrored_custom_template_transform() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
+    let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open pack");
+    let assets = AssetRegistry::load_phase2(&pack).expect("load phase-2 assets");
+    let catalog = ConnectedBlockCatalog::from_assets(&assets);
+    let rail = assets.block_types.id_of("Rail").expect("rail base");
+    let slope = assets
+        .block_types
+        .id_of("*Rail_State_Definitions_Slope")
+        .expect("rail slope state");
+    let (mut world, dir) = world("rail-mirror");
+
+    // RailsConnectedBlockTemplate's Slope pattern allows MirrorZ. Its base
+    // rule checks (0, 1, -1); the mirrored transform checks (0, 1, +1) and
+    // un-mirrors the neighbour yaw through Rail's FlipType. Only the +Z
+    // neighbour exists, so the allocation can only come from the mirror.
+    world
+        .set_block_full(10, 64, 10, rail, 0, 0)
+        .expect("origin rail");
+    world
+        .set_block_full(10, 65, 11, rail, 0, 0)
+        .expect("forward rail connection");
+
+    let changes = catalog.apply(&mut world, &assets, 10, 64, 10, 0, [0, 1, 0], true);
+    assert!(
+        changes.iter().any(|change| {
+            (change.x, change.y, change.z) == (10, 64, 10)
+                && change.after == slope
+                && change.rotation == 2
+        }),
+        "the mirrored Slope transform should rotate the state to yaw 180: {changes:?}"
+    );
+    assert_eq!(world.get_block(10, 64, 10), slope);
+    assert_eq!(
+        world.get_rotation(10, 64, 10),
+        2,
+        "the result block's Symmetric FlipType mirrors yaw 0 to 180"
+    );
+
+    std::fs::remove_dir_all(dir).ok();
+}

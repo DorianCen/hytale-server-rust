@@ -5965,6 +5965,7 @@ fn handle_block_interaction(
             let remove_item_in_hand = place_flags
                 .map(|flags| flags.remove_item_in_hand)
                 .unwrap_or(true);
+            let client_rotation = rotation.is_some();
             let rotation = rotation.as_ref().map(block_rotation_index).unwrap_or(0);
             let options = crate::world_thread::PlaceBlockOptions {
                 rotation,
@@ -5973,6 +5974,7 @@ fn handle_block_interaction(
                 quick_retype,
                 no_physics,
                 block_components,
+                client_rotation,
             };
             // Java's `PlaceBlockInteraction` uses the packet's block position
             // directly. Some clients send the clicked face instead, so keep the

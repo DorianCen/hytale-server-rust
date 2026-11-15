@@ -2854,3 +2854,31 @@ This file records phase-2 sessions only.
 - **Deferred:** command-path `/respawn` still resets at the current position;
   automatic death respawn uses the provider. Real portal overrides are Global;
   Individual/Fit are covered by the provider codec and transfer path.
+
+## Session 105 — T76 placement follow-ups (2026-11-15)
+
+- **Custom-template mirrors:** `connected.rs` expands `PatternRotationDefinition`
+  in Java order, flips rule coordinates, un-rotates/un-mirrors neighbour yaw via
+  `BlockFlipType.flipYaw`, rotates packed 5-bit fillers, and composes the result
+  block's pattern rotation, yaw offset, mirror and total rotation (including the
+  orthogonal upside-down adjustment). `BlockPattern` outputs are parsed with
+  weights and per-entry rotations and selected with a hash-seeded `FastRandom`
+  (Java `WeightedMap` semantics).
+- **Placement rotation:** new `hytale-world::placement` parses
+  `RandomRotation`, `RotationYawPlacementOffset` and `FlipType`; server-authored
+  placements apply a position-seeded rotation choice plus the yaw offset.
+  `PlaceBlockOptions.client_rotation` keeps interactive placements
+  byte-for-byte client-authoritative, matching the Java server.
+- **Components:** no new typed codec; the real `Hunt/Generic/Site.prefab.json`
+  `Components` object is asserted against the persisted opaque `BlockHolder`.
+  The Java prefab dumper still skips component holders, so there is no canonical
+  component dump to gate a codec against.
+- **Tests:** `hytale-world` lib 87, connected blocks 9 (including the real rail
+  `MirrorZ` slope), `hytale-server` lib 59, world-thread placement metadata and
+  prefab component goldens, ignored block interactions (2), fast 1668 passed /
+  34 skipped, workspace clippy/fmt clean.
+- **Deferred:** multi-cell output filler is not applied by the Rust connected
+  mutation path; the client renderer's `RandomRotation` selection has no local
+  trace, so the server uses the documented deterministic model. Client
+  connected-shape prediction parity remains unverified without a release-client
+  trace.

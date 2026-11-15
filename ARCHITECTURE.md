@@ -434,7 +434,14 @@ hotbar stack (legacy sessions without saved inventory keep the packet-item
 fallback) and resyncs `UpdatePlayerInventory`. `PlayerRegistry::broadcast_block`
 sends the authoritative `ServerSetBlock` on each interested session's chunks
 stream, including the editor. Concurrent writes are serialized by the single
-world thread; network broadcasts are queued per session.
+world thread; network broadcasts are queued per session. The
+`hytale-world::connected` evaluator resolves patterned pipes and
+`CustomTemplate` fences/walls/rails/chests/doors, including
+`PatternRotationDefinition` mirror expansion, `BlockFlipType.flipYaw`, packed
+5-bit filler un-rotation and weighted `BlockPattern` output selection.
+Interactive placements keep the client's final `BlockRotation`; server-authored
+placements apply the block type's `RandomRotation` (position-seeded) and
+`RotationYawPlacementOffset`.
 
 Block `Use` interactions are resolved from the merged `BlockType` JSON and the
 loaded root/interaction catalog before placement. The executor supports

@@ -10,8 +10,11 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use hytale_assets::AssetRegistry;
+use hytale_math::fast_random::FastRandom;
+use hytale_math::hash_util::hash3;
 use serde_json::Value;
 
+use crate::placement::{FlipType, MirrorAxis};
 use crate::world::World;
 
 const MAX_UPDATE_DEPTH: usize = 3;
@@ -129,6 +132,8 @@ impl FaceTags {
 struct BlockBinding {
     kind: BindingKind,
     shape_by_block: BTreeMap<i32, String>,
+    /// Custom-template output patterns keyed by shape name.
+    shape_patterns: BTreeMap<String, Vec<BlockPatternEntry>>,
 }
 
 #[derive(Debug, Clone)]
@@ -224,12 +229,33 @@ struct CustomTemplateShape {
 struct CustomTemplatePattern {
     rules: Vec<CustomTemplateRule>,
     transform_orientation: bool,
-    cardinal: bool,
-    mirror_x: bool,
-    mirror_z: bool,
+    transforms: Vec<PatternTransform>,
     only_on_placement: bool,
     only_on_update: bool,
     yaw_offset: i32,
+}
+
+/// One Java `PatternRotationDefinition` entry (pattern yaw + mirror axis).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct PatternTransform {
+    yaw: i32,
+    mirror: MirrorAxis,
+}
+
+/// One resolved `BlockPattern` entry (Java `BlockPattern.BlockEntry` + weight).
+#[derive(Debug, Clone, PartialEq)]
+struct BlockPatternEntry {
+    block_id: i32,
+    rotation: i32,
+    weight: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuleMatch {
+    Matched(bool),
+    /// Java returns `Optional.empty()` for a missing chunk/section, aborting
+    /// the whole pattern evaluation.
+    Missing,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -238,8 +264,16 @@ struct CustomTemplateRule {
     include: bool,
     placement_normals: Option<Vec<[i32; 3]>>,
     face_tags: FaceTags,
-    shapes: Vec<(String, i32)>,
+    shapes: Vec<CustomShapeEntry>,
     block_types: Vec<String>,
+}
+
+/// Java `BlockPattern.BlockEntry` used by custom-template shape rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CustomShapeEntry {
+    name: String,
+    rotation: i32,
+    filler: i32,
 }
 
 struct Context<'a> {
@@ -878,44 +912,70 @@ impl ConnectedBlockCatalog {
                 {
                     continue;
                 }
-                for pattern_rotation in template_pattern_rotations(pattern) {
+                for transform in &pattern.transforms {
                     let total_rotation = if pattern.transform_orientation {
-                        compose(rotation, pattern_rotation)
+                        add_rotations(rotation, transform.yaw)
                     } else {
-                        pattern_rotation
+                        transform.yaw.rem_euclid(64)
                     };
-                    if pattern.rules.iter().all(|rule| {
-                        self.custom_template_rule_matches(
+                    let mut aborted = false;
+                    let matched = pattern.rules.iter().all(|rule| {
+                        match self.custom_template_rule_matches(
                             assets,
                             world,
                             coordinate,
                             rule,
                             total_rotation,
+                            transform.mirror,
                             placement_normal,
-                        )
-                    }) {
-                        let output = binding
-                            .shape_by_block
-                            .iter()
-                            .find_map(|(id, shape)| (shape == shape_name).then_some(*id))?;
-                        return Some((output, compose(total_rotation, pattern.yaw_offset)));
+                        ) {
+                            RuleMatch::Matched(matched) => matched,
+                            RuleMatch::Missing => {
+                                aborted = true;
+                                false
+                            }
+                        }
+                    });
+                    if aborted {
+                        // Java returns Optional.empty() for an unloaded
+                        // neighbour, aborting every remaining transform.
+                        return None;
                     }
+                    if !matched {
+                        continue;
+                    }
+                    let entries = binding.shape_patterns.get(shape_name)?;
+                    let entry = select_block_pattern(entries, coordinate)?;
+                    let flip_type = flip_type_for(assets, entry.block_id);
+                    let mut result_rotation =
+                        add_yaw(entry.rotation, pattern.yaw_offset.rem_euclid(4));
+                    if transform.mirror != MirrorAxis::None {
+                        result_rotation = with_yaw(
+                            result_rotation,
+                            flip_type.flip_yaw(result_rotation % 4, transform.mirror),
+                        );
+                    }
+                    result_rotation = add_rotations(result_rotation, total_rotation);
+                    // Java's orthogonal upside-down workaround.
+                    if (result_rotation / 4) % 4 == 2 && flip_type == FlipType::Orthogonal {
+                        result_rotation = add_yaw(result_rotation, -1);
+                    }
+                    return Some((entry.block_id, result_rotation));
                 }
             }
         }
 
         if let Some(default) = &template.default_shape {
-            if let Some(output) = binding
-                .shape_by_block
-                .iter()
-                .find_map(|(id, shape)| (shape == default).then_some(*id))
-            {
-                return Some((output, rotation));
+            if let Some(entries) = binding.shape_patterns.get(default) {
+                if let Some(entry) = select_block_pattern(entries, coordinate) {
+                    return Some((entry.block_id, add_rotations(entry.rotation, rotation)));
+                }
             }
         }
         None
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn custom_template_rule_matches(
         &self,
         assets: &AssetRegistry,
@@ -923,28 +983,44 @@ impl ConnectedBlockCatalog {
         origin: [i32; 3],
         rule: &CustomTemplateRule,
         total_rotation: i32,
+        mirror: MirrorAxis,
         placement_normal: [i32; 3],
-    ) -> bool {
+    ) -> RuleMatch {
         if let Some(normals) = &rule.placement_normals {
             if !normals.contains(&placement_normal) {
-                return false;
+                return RuleMatch::Missing;
             }
         }
-        let coordinate = add(origin, apply_rotation(total_rotation, rule.position));
-        let Some(neighbor) = local_block_at(world, coordinate) else {
-            return false;
+        // Java flips the pattern coordinate before rotating it to world space.
+        let mut position = rule.position;
+        match mirror {
+            MirrorAxis::X => position[0] = -position[0],
+            MirrorAxis::Z => position[2] = -position[2],
+            MirrorAxis::None => {}
+        }
+        let coordinate = add(origin, apply_rotation(total_rotation, position));
+        let Some((neighbor, neighbor_filler)) = local_block_with_filler(world, coordinate) else {
+            return RuleMatch::Missing;
         };
         let neighbor_rotation = world.get_rotation(coordinate[0], coordinate[1], coordinate[2]);
-        let local_rotation = compose_inverse(total_rotation, neighbor_rotation);
+        // Java subtracts the total rotation component-wise, un-rotates the
+        // filler, then un-mirrors the neighbour's yaw through its FlipType.
+        let mut local_rotation = subtract_rotations(neighbor_rotation, total_rotation);
+        let mut local_filler = unrotate_filler(neighbor_filler, total_rotation);
+        if mirror != MirrorAxis::None {
+            let yaw = flip_type_for(assets, neighbor).flip_yaw(local_rotation % 4, mirror);
+            local_filler = rotate_filler_yaw(local_filler, yaw - local_rotation % 4);
+            local_rotation = with_yaw(local_rotation, yaw);
+        }
         let neighbor_shape = self.shape_for_block(assets, neighbor);
         let mut matched = false;
 
         if !rule.face_tags.faces.is_empty() {
             let Some(shape) = &neighbor_shape else {
-                return !rule.include;
+                return RuleMatch::Matched(!rule.include);
             };
             let Some(face_tags) = self.shape_face_tags(assets, neighbor, shape) else {
-                return !rule.include;
+                return RuleMatch::Matched(!rule.include);
             };
             let yaw_only = local_rotation % 4;
             for (direction, tags) in rule.face_tags.directions() {
@@ -958,10 +1034,11 @@ impl ConnectedBlockCatalog {
 
         if !rule.shapes.is_empty() {
             if let Some(shape) = neighbor_shape {
-                matched |= rule
-                    .shapes
-                    .iter()
-                    .any(|(name, rotation)| name == &shape && *rotation == local_rotation);
+                matched |= rule.shapes.iter().any(|entry| {
+                    entry.name == *shape
+                        && entry.rotation == local_rotation
+                        && entry.filler == local_filler
+                });
             }
         }
 
@@ -971,11 +1048,7 @@ impl ConnectedBlockCatalog {
             }
         }
 
-        if matched {
-            rule.include
-        } else {
-            !rule.include
-        }
+        RuleMatch::Matched(if matched { rule.include } else { !rule.include })
     }
 
     fn connected_stair_type(
@@ -1551,12 +1624,73 @@ fn pack_filler(x: i32, y: i32, z: i32) -> i32 {
     (x & MASK) | ((z & MASK) << BITS) | ((y & MASK) << (BITS * 2))
 }
 
+/// Java `FillerBlockUtil.unpackX/Y/Z` (5-bit sign-extended axes).
+fn unpack_filler(value: i32) -> [i32; 3] {
+    const BITS: i32 = 5;
+    const MASK: i32 = (1 << BITS) - 1;
+    let sign_extend = |axis: i32| {
+        let value = axis & MASK;
+        if value & (1 << (BITS - 1)) != 0 {
+            value | (!0 << BITS)
+        } else {
+            value
+        }
+    };
+    [
+        sign_extend(value),
+        sign_extend(value >> (BITS * 2)),
+        sign_extend(value >> BITS),
+    ]
+}
+
+/// Java `Rotation.rotateX/Y/Z` on a packed filler.
+fn rotate_filler_axis(filler: i32, axis: u8, steps: i32) -> i32 {
+    let [x, y, z] = unpack_filler(filler);
+    let (x, y, z) = match (axis, steps.rem_euclid(4)) {
+        (1, 1) => (x, -z, y),
+        (1, 2) => (x, -y, -z),
+        (1, 3) => (x, z, -y),
+        (2, 1) => (z, y, -x),
+        (2, 2) => (-x, y, -z),
+        (2, 3) => (-z, y, x),
+        (3, 1) => (-y, x, z),
+        (3, 2) => (-x, -y, z),
+        (3, 3) => (y, -x, z),
+        _ => (x, y, z),
+    };
+    pack_filler(x, y, z)
+}
+
+/// Java's filler un-rotation (`tempRotation - neighbourRotation` per axis).
+fn unrotate_filler(filler: i32, total_rotation: i32) -> i32 {
+    let pitch = -((total_rotation / 4) % 4);
+    let yaw = -(total_rotation % 4);
+    let roll = -((total_rotation / 16) % 4);
+    let filler = rotate_filler_axis(filler, 1, pitch);
+    let filler = rotate_filler_axis(filler, 2, yaw);
+    rotate_filler_axis(filler, 3, roll)
+}
+
+fn rotate_filler_yaw(filler: i32, steps: i32) -> i32 {
+    rotate_filler_axis(filler, 2, steps)
+}
+
 fn local_block_at(world: &World, coordinate: [i32; 3]) -> Option<i32> {
     world.chunk(coordinate[0] >> 5, coordinate[2] >> 5)?;
     if world.get_filler(coordinate[0], coordinate[1], coordinate[2]) != 0 {
         return None;
     }
     Some(world.get_block(coordinate[0], coordinate[1], coordinate[2]))
+}
+
+/// Custom-template rules need the filler cell's block id and packed filler;
+/// unlike the patterned/stair paths they do not skip filler cells.
+fn local_block_with_filler(world: &World, coordinate: [i32; 3]) -> Option<(i32, i32)> {
+    world.chunk(coordinate[0] >> 5, coordinate[2] >> 5)?;
+    Some((
+        world.get_block(coordinate[0], coordinate[1], coordinate[2]),
+        world.get_filler(coordinate[0], coordinate[1], coordinate[2]),
+    ))
 }
 
 fn block_below_supports_up(assets: &AssetRegistry, world: &World, coordinate: [i32; 3]) -> bool {
@@ -1574,15 +1708,6 @@ fn block_below_supports_up(assets: &AssetRegistry, world: &World, coordinate: [i
         .and_then(|supporting| supporting.get("Up"))
         .and_then(Value::as_array)
         .is_some_and(|entries| !entries.is_empty())
-}
-
-fn template_pattern_rotations(pattern: &CustomTemplatePattern) -> Vec<i32> {
-    let _mirrors = (pattern.mirror_x, pattern.mirror_z);
-    if pattern.cardinal {
-        vec![0, 1, 2, 3]
-    } else {
-        vec![0]
-    }
 }
 
 fn block_binding(
@@ -1614,6 +1739,7 @@ fn block_binding(
             Some(BlockBinding {
                 kind: BindingKind::Patterned { rule_set_id },
                 shape_by_block,
+                shape_patterns: BTreeMap::new(),
             })
         }
         "CustomTemplate" => {
@@ -1623,6 +1749,7 @@ fn block_binding(
                 .to_ascii_lowercase();
             catalog.templates.get(&template_id)?;
             let mut shape_by_block = BTreeMap::new();
+            let mut shape_patterns = BTreeMap::new();
             if let Some(outputs) = json
                 .get("TemplateShapeBlockPatterns")
                 .and_then(Value::as_object)
@@ -1631,14 +1758,22 @@ fn block_binding(
                     let Some(pattern) = pattern.as_str() else {
                         continue;
                     };
-                    if let Some(id) = resolve_block_pattern(assets, pattern) {
-                        shape_by_block.insert(id, shape.clone());
+                    let entries = parse_block_pattern(assets, pattern);
+                    if entries.is_empty() {
+                        continue;
                     }
+                    for entry in &entries {
+                        shape_by_block
+                            .entry(entry.block_id)
+                            .or_insert_with(|| shape.clone());
+                    }
+                    shape_patterns.insert(shape.clone(), entries);
                 }
             }
             Some(BlockBinding {
                 kind: BindingKind::CustomTemplate { template_id },
                 shape_by_block,
+                shape_patterns,
             })
         }
         "Stair" => {
@@ -1647,6 +1782,7 @@ fn block_binding(
             Some(BlockBinding {
                 kind: BindingKind::Stair { data },
                 shape_by_block,
+                shape_patterns: BTreeMap::new(),
             })
         }
         "Roof" => {
@@ -1691,6 +1827,7 @@ fn block_binding(
                     },
                 },
                 shape_by_block,
+                shape_patterns: BTreeMap::new(),
             })
         }
         _ => None,
@@ -1767,14 +1904,97 @@ fn resolve_output(
     assets.block_types.id_of(&key)
 }
 
-fn resolve_block_pattern(assets: &AssetRegistry, pattern: &str) -> Option<i32> {
-    let first = pattern.split(',').next()?.trim();
-    let key = first
-        .split('|')
-        .next()
-        .unwrap_or(first)
-        .trim_start_matches('*');
-    assets.block_types.id_of(key)
+/// Parse a Java `BlockPattern` string into weighted block entries.
+///
+/// Java splits on `,` (with `;` as an alternate separator) and `%<chance>`
+/// prefixes; each entry may carry `|Yaw=`, `|Pitch=` and `|Roll=` offsets.
+/// Filler tuples are not used by custom-template outputs in the release pack.
+fn parse_block_pattern(assets: &AssetRegistry, pattern: &str) -> Vec<BlockPatternEntry> {
+    let pattern = pattern.replace(';', ",");
+    let mut entries = Vec::new();
+    for argument in pattern.split(',') {
+        let argument = argument.trim();
+        if argument.is_empty() {
+            continue;
+        }
+        let (weight, encoded) = match argument.split_once('%') {
+            Some((chance, rest)) => match chance.parse::<f64>() {
+                Ok(chance) => (chance, rest),
+                Err(_) => continue,
+            },
+            None => (100.0, argument),
+        };
+        let mut parts = encoded.split('|');
+        let Some(key) = parts.next() else {
+            continue;
+        };
+        let key = key.trim();
+        // State variants keep their canonical `*` prefix in the registry;
+        // plain keys do not. Java accepts both spellings.
+        let Some(block_id) = assets
+            .block_types
+            .id_of(key)
+            .or_else(|| assets.block_types.id_of(key.trim_start_matches('*')))
+        else {
+            continue;
+        };
+        let mut rotation = 0;
+        for part in parts {
+            let Some((axis, degrees)) = part.split_once('=') else {
+                continue;
+            };
+            let Ok(degrees) = degrees.trim().parse::<i32>() else {
+                continue;
+            };
+            let step = degrees.rem_euclid(360) / 90;
+            rotation += match axis.trim() {
+                "Yaw" => step,
+                "Pitch" => step * 4,
+                "Roll" => step * 16,
+                _ => 0,
+            };
+        }
+        entries.push(BlockPatternEntry {
+            block_id,
+            rotation: rotation.rem_euclid(64),
+            weight,
+        });
+    }
+    entries
+}
+
+/// Java `BlockPattern.nextBlockTypeKey` with the block-pattern RNG.
+fn select_block_pattern(
+    entries: &[BlockPatternEntry],
+    position: [i32; 3],
+) -> Option<&BlockPatternEntry> {
+    let first = entries.first()?;
+    if entries.len() == 1 {
+        return Some(first);
+    }
+    let sum: f64 = entries.iter().map(|entry| entry.weight).sum();
+    let mut random = FastRandom::new(hash3(
+        i64::from(position[0]),
+        i64::from(position[1]),
+        i64::from(position[2]),
+    ));
+    // Java `WeightedMap.get(random)`: 0.99999 epsilon and 1e-5 comparison.
+    let mut remaining = random.next_double().min(0.99999) * sum;
+    for entry in entries {
+        remaining -= entry.weight;
+        if remaining <= 1.0e-5 {
+            return Some(entry);
+        }
+    }
+    None
+}
+
+fn flip_type_for(assets: &AssetRegistry, block_id: i32) -> FlipType {
+    assets
+        .block_types
+        .get_by_id(block_id)
+        .map(|record| FlipType::from_value(record.value.json.get("FlipType")))
+        .unwrap_or_default()
 }
 fn parse_custom_template(value: &Value) -> CustomTemplateData {
     let object = value.as_object();
@@ -1813,11 +2033,54 @@ fn parse_template_shape(value: &Value) -> CustomTemplateShape {
     }
 }
 
+/// Java `PatternRotationDefinition.getRotations` expansion.
+///
+/// Index order is the Java `ROTATIONS` list: no mirror, then mirror X, then
+/// mirror Z; cardinal rotations follow each mirror's `None` entry.
+fn pattern_transforms(cardinal: bool, mirror_x: bool, mirror_z: bool) -> Vec<PatternTransform> {
+    let mut transforms = vec![PatternTransform {
+        yaw: 0,
+        mirror: MirrorAxis::None,
+    }];
+    if cardinal {
+        for yaw in 1..4 {
+            transforms.push(PatternTransform {
+                yaw,
+                mirror: MirrorAxis::None,
+            });
+        }
+    }
+    for (enabled, mirror) in [(mirror_x, MirrorAxis::X), (mirror_z, MirrorAxis::Z)] {
+        if !enabled {
+            continue;
+        }
+        transforms.push(PatternTransform { yaw: 0, mirror });
+        if cardinal {
+            for yaw in 1..4 {
+                transforms.push(PatternTransform { yaw, mirror });
+            }
+        }
+    }
+    transforms
+}
+
 fn parse_template_pattern(value: &Value) -> CustomTemplatePattern {
     let object = value.as_object();
     let pattern_rotation = object
         .and_then(|object| object.get("AllowedPatternTransformations"))
         .and_then(Value::as_object);
+    let cardinal = pattern_rotation
+        .and_then(|rotation| rotation.get("IsCardinallyRotatable"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mirror_x = pattern_rotation
+        .and_then(|rotation| rotation.get("MirrorX"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mirror_z = pattern_rotation
+        .and_then(|rotation| rotation.get("MirrorZ"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     CustomTemplatePattern {
         rules: object
             .and_then(|object| object.get("RulesToMatch"))
@@ -1828,18 +2091,7 @@ fn parse_template_pattern(value: &Value) -> CustomTemplatePattern {
             .and_then(|object| object.get("TransformRulesToOrientation"))
             .and_then(Value::as_bool)
             .unwrap_or(false),
-        cardinal: pattern_rotation
-            .and_then(|rotation| rotation.get("IsCardinallyRotatable"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        mirror_x: pattern_rotation
-            .and_then(|rotation| rotation.get("MirrorX"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        mirror_z: pattern_rotation
-            .and_then(|rotation| rotation.get("MirrorZ"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        transforms: pattern_transforms(cardinal, mirror_x, mirror_z),
         only_on_placement: object
             .and_then(|object| object.get("OnlyOnPlacement"))
             .and_then(Value::as_bool)
@@ -1901,15 +2153,26 @@ fn parse_template_rule(value: &Value) -> CustomTemplateRule {
     }
 }
 
-fn parse_template_shape_entry(value: &str) -> (String, i32) {
+fn parse_template_shape_entry(value: &str) -> CustomShapeEntry {
     let mut parts = value.split('|');
     let name = parts.next().unwrap_or(value).to_string();
     let mut rotation: i32 = 0;
+    let mut filler = 0;
     for part in parts {
-        let Some((axis, degrees)) = part.split_once('=') else {
+        let Some((axis, value)) = part.split_once('=') else {
             continue;
         };
-        let step = match degrees.trim().parse::<i32>().unwrap_or(0).rem_euclid(360) {
+        if axis.trim() == "Filler" {
+            let coordinates = value
+                .split(',')
+                .filter_map(|coordinate| coordinate.trim().parse::<i32>().ok())
+                .collect::<Vec<_>>();
+            if let [x, y, z] = coordinates.as_slice() {
+                filler = pack_filler(*x, *y, *z);
+            }
+            continue;
+        }
+        let step = match value.trim().parse::<i32>().unwrap_or(0).rem_euclid(360) {
             0 => 0,
             90 => 1,
             180 => 2,
@@ -1923,7 +2186,11 @@ fn parse_template_shape_entry(value: &str) -> (String, i32) {
             _ => 0,
         };
     }
-    (name, rotation.rem_euclid(64))
+    CustomShapeEntry {
+        name,
+        rotation: rotation.rem_euclid(64),
+        filler,
+    }
 }
 
 fn rotation_index_for_name(value: &str) -> i32 {
@@ -2139,6 +2406,33 @@ fn add(left: [i32; 3], right: [i32; 3]) -> [i32; 3] {
     [left[0] + right[0], left[1] + right[1], left[2] + right[2]]
 }
 
+/// Java `Rotation3D.add`: component-wise quarter-turn addition.
+fn add_rotations(left: i32, right: i32) -> i32 {
+    let yaw = (left % 4 + right % 4).rem_euclid(4);
+    let pitch = ((left / 4) % 4 + (right / 4) % 4).rem_euclid(4);
+    let roll = ((left / 16) % 4 + (right / 16) % 4).rem_euclid(4);
+    yaw + pitch * 4 + roll * 16
+}
+
+/// Java `Rotation3D.subtract`: component-wise quarter-turn subtraction.
+fn subtract_rotations(left: i32, right: i32) -> i32 {
+    let yaw = (left % 4 - right % 4).rem_euclid(4);
+    let pitch = ((left / 4) % 4 - (right / 4) % 4).rem_euclid(4);
+    let roll = ((left / 16) % 4 - (right / 16) % 4).rem_euclid(4);
+    yaw + pitch * 4 + roll * 16
+}
+
+/// Add a yaw-only offset (`Rotation.add` on the yaw component).
+fn add_yaw(index: i32, yaw: i32) -> i32 {
+    with_yaw(index, (index % 4 + yaw).rem_euclid(4))
+}
+
+fn with_yaw(index: i32, yaw: i32) -> i32 {
+    let pitch = (index / 4) % 4;
+    let roll = (index / 16) % 4;
+    yaw.rem_euclid(4) + pitch * 4 + roll * 16
+}
+
 fn matrix(index: i32) -> [[i32; 3]; 3] {
     let index = index.rem_euclid(64);
     let yaw = index % 4;
@@ -2270,5 +2564,101 @@ mod tests {
             assert_eq!(undo_rotation(index, apply_rotation(index, vector)), vector);
             assert_eq!(compose_inverse(index, compose(index, 5)), 5);
         }
+    }
+
+    #[test]
+    fn pattern_transforms_follow_the_java_rotation_definition_order() {
+        assert_eq!(
+            pattern_transforms(false, false, false),
+            vec![PatternTransform {
+                yaw: 0,
+                mirror: MirrorAxis::None
+            }]
+        );
+        assert_eq!(
+            pattern_transforms(true, false, false)
+                .iter()
+                .map(|transform| transform.yaw)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(
+            pattern_transforms(false, true, false),
+            vec![
+                PatternTransform {
+                    yaw: 0,
+                    mirror: MirrorAxis::None
+                },
+                PatternTransform {
+                    yaw: 0,
+                    mirror: MirrorAxis::X
+                }
+            ]
+        );
+        let transforms = pattern_transforms(true, true, true);
+        assert_eq!(transforms.len(), 12, "cardinal + two mirrors");
+        assert_eq!(transforms[4].mirror, MirrorAxis::X);
+        assert_eq!(transforms[4].yaw, 0);
+        assert_eq!(transforms[8].mirror, MirrorAxis::Z);
+        assert_eq!(transforms[8].yaw, 0);
+        assert_eq!(
+            transforms[11],
+            PatternTransform {
+                yaw: 3,
+                mirror: MirrorAxis::Z
+            }
+        );
+    }
+
+    #[test]
+    fn rotation_add_and_subtract_are_component_wise() {
+        let yaw_90_pitch_180_roll_270 = 1 + 2 * 4 + 3 * 16;
+        assert_eq!(
+            add_rotations(yaw_90_pitch_180_roll_270, 1),
+            2 + 2 * 4 + 3 * 16
+        );
+        assert_eq!(
+            subtract_rotations(yaw_90_pitch_180_roll_270, 1),
+            2 * 4 + 3 * 16
+        );
+        assert_eq!(add_yaw(yaw_90_pitch_180_roll_270, 3), 2 * 4 + 3 * 16);
+    }
+
+    #[test]
+    fn custom_template_filler_offsets_rotate_with_the_pattern() {
+        assert_eq!(pack_filler(-1, 0, 0), 31);
+        assert_eq!(unpack_filler(31), [-1, 0, 0]);
+        // Inverse yaw 90 on (-1,0,0): (x,z) -> (z,-x) = (0,0,-1).
+        let packed = pack_filler(-1, 0, 0);
+        assert_eq!(unrotate_filler(packed, 1), pack_filler(0, 0, -1));
+        // Mirroring yaw 0 -> 180 flips the filler X axis.
+        assert_eq!(rotate_filler_yaw(packed, 2), pack_filler(1, 0, 0));
+        assert_eq!(unrotate_filler(packed, 0), packed);
+    }
+
+    #[test]
+    fn weighted_block_pattern_selection_is_deterministic() {
+        let entries = vec![
+            BlockPatternEntry {
+                block_id: 1,
+                rotation: 0,
+                weight: 1.0,
+            },
+            BlockPatternEntry {
+                block_id: 2,
+                rotation: 0,
+                weight: 1.0,
+            },
+        ];
+        let first = select_block_pattern(&entries, [3, 64, 7]).expect("pattern entry");
+        let again = select_block_pattern(&entries, [3, 64, 7]).expect("pattern entry");
+        assert_eq!(first, again);
+        // Different coordinates can select the other entry.
+        let different = select_block_pattern(&entries, [4, 64, 7]).expect("pattern entry");
+        assert!(different.block_id == 1 || different.block_id == 2);
+        assert_eq!(
+            select_block_pattern(&entries[..1], [0, 0, 0]).map(|entry| entry.block_id),
+            Some(1)
+        );
     }
 }

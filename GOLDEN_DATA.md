@@ -372,7 +372,11 @@ block edit survive.
 
 The sidecars are asserted for Rust round-trip only; they are not a Java codec
 golden. Java-readable runtime entity saves require the `EntityStore`/
-`ChunkStore` ECS codec and remain deferred.
+`ChunkStore` ECS codec and remain deferred. The prefab deserializer used by the
+dumper intentionally skips block component holders, so the real prefab
+`Components` object is the component golden (T76 asserts the persisted opaque
+`BlockHolder` equals it verbatim). No typed component codec is added until the
+dumper can boot and dump those holders.
 
 ### 3.12 Block-health, runtime-entity and map presentation
 
