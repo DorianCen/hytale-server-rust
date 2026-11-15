@@ -2799,3 +2799,32 @@ This file records phase-2 sessions only.
 - **Deviation:** portal return points/entry counts are live session state and
   are not written to `universe.json`; persisted player documents/locations are
   asserted after restart.
+
+## Session 103 — T74 presentation gaps (2026-11-15)
+
+- **Map refresh:** sessions track chunks from block/fluid broadcasts and
+  re-render those map images on the next one-second cadence, independent of
+  view changes; world switches use the active world thread. client-bot now
+  accepts and decodes the dedicated `WorldMap` stream
+  (`hytale_net::WorldMapStreamReader`), so images are observable in loopback.
+- **Windows:** container/bench opens use Java `BlockWindow.MAX_DISTANCE` (7
+  blocks), live windows close when the player moves out of range or the block
+  is replaced, and the session reports `window_open_rejections`,
+  `window_distance_closes` and `windows_closed`.
+- **Weather:** `UpdateWeathers` now materializes clouds, sunlight/sun/moon
+  color and scale timelines, sky/fog colors, fog height/density, screen-effect
+  colors, color filters, water tints, weather particles and `FogOptions`,
+  including the `rgba(#hex, alpha)` form.
+- **Tests:** the ignored block-interaction loopback asserts an edit refreshes
+  the map image, a far container use is rejected and moving away closes the
+  live window. New ignored `presentation` loopback forces a mid-session weather
+  change and asserts the client transition. `entity_packets` checks the new
+  weather fields.
+- **Verified:** `block_interactions` 2 passed, `presentation` 1 passed,
+  `entity_packets` 2 passed, server lib 59 passed, fast 1650 passed / 33
+  skipped, assets 381 passed, workspace clippy and fmt clean. The slow tier
+  still reports the same `world_boot`/world-thread failures as parent `9869ca5`
+  (pre-existing).
+- **Deferred:** map byte parity still has no Java `MapImage` dumper; the exact
+  shading/quantisation tuning is documented in `GOLDEN_DATA.md`. First-person
+  drift needs a release-client trace; none was available.

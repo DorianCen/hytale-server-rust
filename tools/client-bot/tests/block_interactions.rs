@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use client_bot::{dev_join, DevJoinOptions};
 use hytale_net::{connect, ServerEndpointBuilder, TlsIdentity};
-use hytale_protocol::generated::common::BlockPosition;
+use hytale_protocol::generated::common::{BlockPosition, Position};
 use hytale_protocol::io::Uuid;
 use hytale_server::{
     serve_session_connection, GeneratorOptions, SessionOptions, WorldThread, WorldThreadOptions,
@@ -241,7 +241,7 @@ fn container_player_json() -> String {
       "ActiveSlot": 0
     },
     "Transform": {
-      "Position": {"X": 0.0, "Y": 200.0, "Z": 0.0},
+      "Position": {"X": 0.0, "Y": 112.0, "Z": -1.0},
       "Rotation": {"Pitch": 0.0, "Yaw": 0.0, "Roll": 0.0}
     },
     "UUID": {"UUID": {"$binary": "AAAAAAAAAAYAAAAAAAAAAg==", "$type": "04"}},
@@ -282,6 +282,14 @@ async fn container_use_opens_a_window_and_map_image() {
     // default spawn search would move the player to the surface.
     world_options.spawn_search = false;
     let (thread, _start) = WorldThread::spawn(world_options).expect("world thread");
+    thread.load_chunk(-1, -1).expect("load container platform");
+    let far_chest = thread
+        .block_id_for_item("Furniture_Crude_Chest_Large")
+        .expect("far chest lookup")
+        .expect("far chest block");
+    thread
+        .set_block(-10, 112, -10, far_chest)
+        .expect("place the out-of-reach chest");
 
     let bind_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let server = ServerEndpointBuilder::new(
@@ -326,17 +334,26 @@ async fn container_use_opens_a_window_and_map_image() {
         y: 112,
         z: -1,
     };
+    let far_target = BlockPosition {
+        x: -10,
+        y: 112,
+        z: -10,
+    };
     let report = dev_join(
         &client,
         &DevJoinOptions {
-            commands_after_join: Vec::new(),
+            commands_after_join: vec!["/setblock -2 112 -2 Rock_Stone".to_string()],
             uuid,
             username: "ContainerBot".to_string(),
             view_radius_chunks: 0,
             skin: None,
             movement_after_join: None,
-            movement_after_edits: None,
-            observe_after_join: Some(Duration::from_secs(3)),
+            movement_after_edits: Some(Position {
+                x: 20.0,
+                y: 200.0,
+                z: 20.0,
+            }),
+            observe_after_join: Some(Duration::from_secs(4)),
             disconnect_after: None,
             keep_alive: false,
             place_block_after_join: Some((
@@ -344,7 +361,7 @@ async fn container_use_opens_a_window_and_map_image() {
                 "Furniture_Crude_Chest_Large".to_string(),
             )),
             break_block_after_join: None,
-            use_block_after_join: vec![target.clone()],
+            use_block_after_join: vec![target.clone(), far_target],
             send_ready_for_gameplay: true,
             arg_value_requests_after_join: Vec::new(),
             place_mode_after_join: None,
@@ -354,12 +371,14 @@ async fn container_use_opens_a_window_and_map_image() {
     .await
     .expect("container join");
 
-    let open = report
+    let opens: Vec<_> = report
         .observation
         .windows
         .iter()
-        .find(|window| window.event == client_bot::ObservedWindowEvent::Open)
-        .expect("the container OpenWindow");
+        .filter(|window| window.event == client_bot::ObservedWindowEvent::Open)
+        .collect();
+    assert_eq!(opens.len(), 1, "the out-of-reach chest must not open");
+    let open = opens[0];
     assert_eq!(
         open.window_type,
         Some(hytale_protocol::generated::common::WindowType::Container)
@@ -385,6 +404,15 @@ async fn container_use_opens_a_window_and_map_image() {
         report.game.world_map_settings.is_some(),
         "the join sends world-map settings"
     );
+    assert!(
+        report
+            .observation
+            .map_chunks
+            .iter()
+            .any(|chunk| chunk.loaded && chunk.chunk_x == -1 && chunk.chunk_z == -1),
+        "the block edit must refresh the map chunk: {:?}",
+        report.observation.map_chunks
+    );
 
     client
         .connection()
@@ -393,9 +421,23 @@ async fn container_use_opens_a_window_and_map_image() {
         .await
         .expect("server shutdown deadline")
         .expect("server task");
-    assert_eq!(server_report.game.map_chunks, 1);
+    assert!(
+        server_report.game_loop.map_chunks >= 1,
+        "the block edit must refresh a map image: {:?}",
+        server_report.game_loop
+    );
     assert_eq!(server_report.game_loop.windows_opened, 1);
+    assert!(
+        server_report.game_loop.block_edit_rejections >= 1,
+        "the out-of-reach chest use is rejected: {:?}",
+        server_report.game_loop
+    );
     assert_eq!(server_report.game_loop.windows_closed, 1);
+    assert_eq!(
+        server_report.game_loop.window_distance_closes, 1,
+        "moving away must close the live window: {:?}",
+        server_report.game_loop
+    );
 
     std::fs::remove_dir_all(save_dir).ok();
 }

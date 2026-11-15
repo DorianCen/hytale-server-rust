@@ -94,8 +94,9 @@ block/item golden tests**, a clean
   changes and missing-id sentinels. T72 (session 101) adds the 10/50/100-player
   concurrent load harness and release baseline. T73 (session 102) proves a
   listener-owned universe survives restart with two live worlds, a portal
-  return and post-restart rejoin. Remaining work is tracked by the filed
-  T74–T77 packets.
+  return and post-restart rejoin. T74 (session 103) adds map edit refresh,
+  window-distance validation and the remaining weather presentation fields.
+  Remaining work is tracked by the filed T75–T77 packets.
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,

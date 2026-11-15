@@ -387,8 +387,12 @@ pub struct GameLoopReport {
     pub block_state_changes: usize,
     /// Block-container windows opened.
     pub windows_opened: usize,
-    /// Block-container windows closed by the client or teardown.
+    /// Block-container windows closed by the client, distance validation or teardown.
     pub windows_closed: usize,
+    /// Container/bench opens rejected by the Java block-distance rule.
+    pub window_open_rejections: usize,
+    /// Windows closed because the player moved out of reach.
+    pub window_distance_closes: usize,
     /// World-map chunk images written while the player moved.
     pub map_chunks: usize,
     /// World-map chunk images unloaded while the player moved.
@@ -565,7 +569,19 @@ struct OpenContainerWindow {
     id: i32,
     position: (i32, i32, i32),
     kind: OpenWindowKind,
+    block_item_id: String,
     bench_id: Option<String>,
+}
+
+/// Java `BlockWindow.MAX_DISTANCE`: a block-affiliated window closes when the
+/// player is farther than this from the block's integer position.
+const MAX_WINDOW_DISTANCE: f64 = 7.0;
+
+fn window_in_reach(transform: &PlayerTransform, (x, y, z): (i32, i32, i32)) -> bool {
+    let dx = transform.position.x - f64::from(x);
+    let dy = transform.position.y - f64::from(y);
+    let dz = transform.position.z - f64::from(z);
+    dx * dx + dy * dy + dz * dz <= MAX_WINDOW_DISTANCE * MAX_WINDOW_DISTANCE
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -837,12 +853,14 @@ pub async fn serve_connection_with_registry(
                 .await?;
         }
         let mut map_chunks = BTreeSet::new();
-        let (map_added, map_removed) = send_world_map_images(
+        let mut map_refresh = BTreeSet::new();
+        let (map_added, map_removed, _) = send_world_map_images(
             thread,
             &mut world_map,
             player_chunk,
             radius,
             &mut map_chunks,
+            &mut map_refresh,
             options.chunk_compression_level,
         )
         .await?;
@@ -2269,8 +2287,9 @@ async fn send_world_map_images(
     center: (i32, i32),
     radius: u32,
     map_chunks: &mut BTreeSet<(i32, i32)>,
+    refresh: &mut BTreeSet<(i32, i32)>,
     compression_level: i32,
-) -> Result<(usize, usize), SessionError> {
+) -> Result<(usize, usize, usize), SessionError> {
     const MAX_CHUNKS_PER_PACKET: usize = 32;
     let radius = i32::try_from(radius).unwrap_or(i32::MAX);
     let desired: BTreeSet<(i32, i32)> = thread
@@ -2279,9 +2298,29 @@ async fn send_world_map_images(
         .filter(|(x, z)| (x - center.0).abs() <= radius && (z - center.1).abs() <= radius)
         .collect();
     let removed: Vec<(i32, i32)> = map_chunks.difference(&desired).copied().collect();
+    // Chunks touched by a block/fluid edit are re-rendered even when their
+    // view membership has not changed. Only chunks already on the map are
+    // refreshed; a not-yet-sent chunk is covered by `added`.
+    let refreshed: Vec<(i32, i32)> = refresh
+        .iter()
+        .filter(|chunk| desired.contains(chunk) && map_chunks.contains(chunk))
+        .copied()
+        .collect();
+    refresh.clear();
     let added: Vec<(i32, i32)> = desired.difference(map_chunks).copied().collect();
 
     let mut updates = Vec::new();
+    let mut refreshed_count = 0;
+    for (x, z) in refreshed {
+        if let Some(image) = thread.map_chunk_image(x, z)? {
+            updates.push(MapChunk {
+                chunk_x: x,
+                chunk_z: z,
+                image: Some(image),
+            });
+            refreshed_count += 1;
+        }
+    }
     let mut added_count = 0;
     for (x, z) in added {
         if let Some(image) = thread.map_chunk_image(x, z)? {
@@ -2317,7 +2356,7 @@ async fn send_world_map_images(
             .await?;
     }
 
-    Ok((added_count, removed_count))
+    Ok((added_count, removed_count, refreshed_count))
 }
 
 /// Map an encounter target id (runtime NPC id or high-bit player id) to the
@@ -2743,7 +2782,7 @@ async fn open_container_window(
                 id: window_id,
                 window_type: WindowType::Container,
                 window_data: Some(
-                    serde_json::json!({ "blockItemId": open.block_item_id }).to_string(),
+                    serde_json::json!({ "blockItemId": open.block_item_id.clone() }).to_string(),
                 ),
                 inventory: Some(open.section),
                 extra_resources: None,
@@ -2755,6 +2794,7 @@ async fn open_container_window(
         id: window_id,
         position: (x, y, z),
         kind: OpenWindowKind::Container,
+        block_item_id: open.block_item_id,
         bench_id: None,
     }))
 }
@@ -2866,6 +2906,7 @@ async fn open_bench_window(
         id: window_id,
         position: (x, y, z),
         kind: OpenWindowKind::Bench,
+        block_item_id,
         bench_id,
     }))
 }
@@ -3195,6 +3236,7 @@ async fn run_game_loop(
     let mut next_window_id = 1i32;
     let mut boss_bar_entity: Option<i32> = None;
     let mut last_map_view = (center, radius);
+    let mut map_refresh: BTreeSet<(i32, i32)> = BTreeSet::new();
     let mut active_thread = thread;
     #[allow(unused_assignments)]
     let mut owned_target: Option<Arc<WorldThread>> = None;
@@ -3381,6 +3423,15 @@ async fn run_game_loop(
                     }
                 }
                 other => {
+                    match &other {
+                        PlayerMessage::BlockUpdate(update) => {
+                            map_refresh.insert((update.x >> 5, update.z >> 5));
+                        }
+                        PlayerMessage::FluidUpdate(update) => {
+                            map_refresh.insert((update.x >> 5, update.z >> 5));
+                        }
+                        _ => {}
+                    }
                     players::write_message(
                         writer,
                         chunks,
@@ -3826,7 +3877,9 @@ async fn run_game_loop(
                                     }
                                 }
                                 if let Some(position) = open_container {
-                                    if let Some(opened) = open_container_window(
+                                    if !window_in_reach(transform, position) {
+                                        report.window_open_rejections += 1;
+                                    } else if let Some(opened) = open_container_window(
                                         thread,
                                         writer,
                                         &players,
@@ -3841,7 +3894,9 @@ async fn run_game_loop(
                                         report.windows_opened += 1;
                                     }
                                 } else if let Some(bench) = open_bench {
-                                    if let Some(opened) = open_bench_window(
+                                    if !window_in_reach(transform, bench.position) {
+                                        report.window_open_rejections += 1;
+                                    } else if let Some(opened) = open_bench_window(
                                         thread,
                                         writer,
                                         &players,
@@ -5031,6 +5086,31 @@ async fn run_game_loop(
             pending_movement = false;
         }
 
+        // Java `WindowManager.validateWindows` runs on movement/teleport: a
+        // block-affiliated window closes when the player leaves the block's
+        // 7-block reach or the block is replaced.
+        if let Some(open) = open_window.as_ref() {
+            let in_reach = window_in_reach(transform, open.position);
+            let same_block = active_thread
+                .block_type_json(open.position.0, open.position.1, open.position.2)
+                .ok()
+                .flatten()
+                .is_some_and(|(key, _)| key == open.block_item_id);
+            if !in_reach || !same_block {
+                let open = open_window.take().expect("open window was just checked");
+                close_container_window(
+                    active_thread,
+                    writer,
+                    &players,
+                    open,
+                    options.chunk_compression_level,
+                )
+                .await?;
+                report.windows_closed += 1;
+                report.window_distance_closes += 1;
+            }
+        }
+
         if time_ticker.elapsed() >= Duration::from_secs(1) {
             let (visible, discovered) =
                 map_markers_for_player(thread, revealed_markers, transform.position)?;
@@ -5054,17 +5134,18 @@ async fn run_game_loop(
                 }
                 revealed_markers.extend(discovered);
             }
-            if last_map_view != (center, radius) {
-                let (added, removed) = send_world_map_images(
-                    thread,
+            if last_map_view != (center, radius) || !map_refresh.is_empty() {
+                let (added, removed, refreshed) = send_world_map_images(
+                    active_thread,
                     world_map,
                     center,
                     radius,
                     map_chunks,
+                    &mut map_refresh,
                     options.chunk_compression_level,
                 )
                 .await?;
-                report.map_chunks += added;
+                report.map_chunks += added + refreshed;
                 report.map_chunks_unloaded += removed;
                 last_map_view = (center, radius);
             }
@@ -6606,6 +6687,7 @@ mod tests {
             id: 4,
             position: (1, 2, 3),
             kind: OpenWindowKind::Container,
+            block_item_id: "Furniture_Crude_Chest_Large".to_string(),
             bench_id: None,
         };
         assert_eq!(slot_source(4, Some(&window)), Some(SlotSource::Window));
@@ -7257,5 +7339,27 @@ mod tests {
         assert!(target_is_self(&None, "Bob"));
         assert!(target_is_self(&Some("bob".to_string()), "Bob"));
         assert!(!target_is_self(&Some("Alice".to_string()), "Bob"));
+    }
+
+    #[test]
+    fn block_windows_close_outside_the_java_seven_block_reach() {
+        let transform = hytale_world::player_data::PlayerTransform::new(
+            hytale_world::player_data::Position {
+                x: 0.5,
+                y: 200.0,
+                z: 0.5,
+            },
+            hytale_world::player_data::Rotation {
+                pitch: 0.0,
+                yaw: 0.0,
+                roll: 0.0,
+            },
+        );
+        assert!(window_in_reach(&transform, (0, 200, 1)));
+        assert!(window_in_reach(&transform, (7, 200, 0)));
+        assert!(!window_in_reach(&transform, (8, 200, 0)));
+        assert!(!window_in_reach(&transform, (0, 193, 0)));
+        // Block position, not the block centre, matches Java's distance check.
+        assert!(window_in_reach(&transform, (0, 200, 7)));
     }
 }

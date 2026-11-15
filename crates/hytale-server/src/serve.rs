@@ -196,6 +196,12 @@ pub struct SessionSummary {
     pub block_edit_rejections: usize,
     /// Block-use interactions handled.
     pub block_uses: usize,
+    /// Block-container/bench windows opened.
+    pub windows_opened: usize,
+    /// Block-container/bench opens rejected by the distance rule.
+    pub window_open_rejections: usize,
+    /// Windows closed because the player moved out of range.
+    pub window_distance_closes: usize,
     /// Queued player/entity/block messages written.
     pub player_messages: usize,
     /// The client disconnected cleanly.
@@ -256,6 +262,9 @@ impl From<&SessionReport> for SessionSummary {
             block_edits: report.game_loop.block_edits,
             block_edit_rejections: report.game_loop.block_edit_rejections,
             block_uses: report.game_loop.block_uses,
+            windows_opened: report.game_loop.windows_opened,
+            window_open_rejections: report.game_loop.window_open_rejections,
+            window_distance_closes: report.game_loop.window_distance_closes,
             player_messages: report.game_loop.player_messages,
             disconnected: report.game_loop.disconnected,
             idle_timeout: report.game_loop.idle_timeout,

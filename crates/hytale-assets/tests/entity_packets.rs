@@ -91,9 +91,65 @@ fn entity_stat_and_effect_packets_decode_and_carry_the_store() {
         UpdateWeathers::decode(&mut Reader::new(&weather_bytes.payload)).expect("decode weathers");
     let weathers = weathers.weathers.expect("weather map");
     assert!(!weathers.is_empty());
-    assert!(weathers
+    let blood_moon = weathers
         .values()
-        .any(|weather| weather.id.as_deref() == Some("Blood_Moon")));
+        .find(|weather| weather.id.as_deref() == Some("Blood_Moon"))
+        .expect("Blood_Moon weather");
+    assert!(
+        blood_moon
+            .clouds
+            .as_ref()
+            .is_some_and(|clouds| !clouds.is_empty()),
+        "cloud documents are materialized"
+    );
+    assert!(
+        blood_moon
+            .sky_top_colors
+            .as_ref()
+            .is_some_and(|colors| !colors.is_empty()),
+        "sky colour timelines are materialized"
+    );
+    assert!(
+        blood_moon
+            .sun_scales
+            .as_ref()
+            .is_some_and(|scales| !scales.is_empty()),
+        "sun scale timelines are materialized"
+    );
+    assert!(
+        blood_moon
+            .moon_colors
+            .as_ref()
+            .is_some_and(|colors| colors.iter().any(|(_, color)| color.alpha != 0)),
+        "rgba() moon colours carry their alpha"
+    );
+
+    let void = weathers
+        .values()
+        .find(|weather| weather.id.as_deref() == Some("Void"))
+        .expect("Void weather");
+    let fog = void.fog_options.as_ref().expect("Void fog options");
+    assert!(fog.fog_height_camera_overriden);
+    assert!((fog.fog_height_camera_fixed - 0.5).abs() < 1e-6);
+
+    let temple = weathers
+        .values()
+        .find(|weather| weather.id.as_deref() == Some("Forgotten_Temple"))
+        .expect("Forgotten_Temple weather");
+    assert!(
+        temple
+            .particle
+            .as_ref()
+            .is_some_and(|particle| particle.system_id.as_deref() == Some("Magic_Sparks_Temple_GS")),
+        "weather particle documents are materialized"
+    );
+    assert!(
+        temple
+            .fog_densities
+            .as_ref()
+            .is_some_and(|density| !density.is_empty()),
+        "fog density timelines are materialized"
+    );
 }
 
 #[test]

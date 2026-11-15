@@ -363,9 +363,11 @@ asset-bring-up list:
    restart, two live worlds, a portal return and post-restart rejoin are
    [T73](tasks/T73-universe-restart-handoff.md) (done session 102; restart
    procedure in `BENCHMARKS.md`).
-5. **Presentation gaps:** chunk-map refresh/byte parity, window-distance
-   validation, particle/audio/weather presentation and first-person/held-item
-   polish are filed as [T74](tasks/T74-presentation-gaps.md).
+5. **Presentation gaps (T74, done session 103):** map edit refresh, the
+   dedicated map stream in client-bot, window-distance validation and the
+   remaining weather document fields are landed. See
+   [T74](tasks/T74-presentation-gaps.md); map byte parity remains a semantic
+   gate documented in `GOLDEN_DATA.md`.
 6. **Per-join player identity and real spawn providers:** per-auth-UUID identity
    and Java `SpawnProvider` parity are filed as
    [T75](tasks/T75-player-identity-spawn-providers.md).

@@ -393,16 +393,22 @@ T57 reuses the real block-health state from T52d and the real
 | Revealed markers survive player save/reopen | `crates/hytale-server/tests/world_thread.rs` |
 | Map palette encoding/round-trip and transparent void pixels | `crates/hytale-server/src/map_image.rs` unit tests |
 | Loaded chunks produce 96×96 images with opaque terrain and cache hits | `crates/hytale-server/tests/world_thread.rs` |
+| Client-bot accepts the dedicated `WorldMap` stream and decodes `MapImage` | `tools/client-bot/src/lib.rs` (`WorldMapStreamReader`) |
+| A block edit re-renders the edited chunk at the 1 s map cadence | `tools/client-bot/tests/block_interactions.rs` (`#[ignore]`, assets + loopback) |
 | Container inventories persist through `block-containers.json` | `crates/hytale-world` `containers::tests` |
 | Chest capacity/block item and removal come from the real `BlockType` | `crates/hytale-server/tests/world_thread.rs` |
 | Join sends `UpdateWorldMap.chunks` and a container window/page | `tools/client-bot/tests/block_interactions.rs` (`#[ignore]`, assets + loopback) |
 
-Map images are a semantic gate, not a byte golden: Java's `ImageBuilder` shading
-and quantisation tuning are not reproduced exactly, but the palette/bit-pack
-form, 96×96 size, height shading, transparency and fluid blending follow the
-reference. Map image chunks, marker discovery/reveal, dynamic entity transforms
-and the stat/effect/projectile/weather asset packets are not gated by T57; T57b
-owns their encoder/config-burst gates (landed in sessions 48–49).
+Map images are a semantic gate, not a byte golden: no Java dumper currently
+produces `MapImage` bytes for a fixed region. The Rust image keeps Java's
+palette form, 96×96 size, legacy-heightmap sampling, height shading,
+transparency, biome/tint and fluid blending. The remaining possible byte
+differences are the exact `ImageBuilder` quantisation/shading tuning (palette
+values and per-pixel index order after quantisation), not the packet layout or
+image dimensions. T74 adds the edit-refresh gate; the dedicated `WorldMap`
+stream is now decoded by client-bot so future Java dumper output can be compared
+directly. Marker discovery/reveal, dynamic entity transforms and the
+stat/effect/projectile/weather asset packets are gated by T57b.
 
 ### 3.13 NPC navigation, steering, expressions, damage and perception
 

@@ -12,7 +12,7 @@ use std::time::Duration;
 use hytale_auth::{AuthService, SCOPE_CLIENT};
 use hytale_net::{
     ChunkFrame, ChunkStreamError, ChunkStreamReader, ClientSession, FrameReader, FrameStreamError,
-    FrameWriter,
+    FrameWriter, WorldMapStreamReader,
 };
 use hytale_protocol::frame::{decode_frame, encode_frame, MAX_PACKET_SIZE};
 use hytale_protocol::generated::assets::{
@@ -56,7 +56,7 @@ use hytale_protocol::generated::wire::{Packet, Vector2f, Wire};
 use hytale_protocol::generated::world::{
     ServerSetBlock, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
     UnloadChunk, UpdateBlockDamage, UpdateBlockDamages, UpdateTime, UpdateTimeSettings,
-    WorldGameplayConfig,
+    UpdateWeather, WorldGameplayConfig,
 };
 use hytale_protocol::generated::worldmap::{UpdateWorldMap, UpdateWorldMapSettings};
 use hytale_protocol::io::{ProtocolError, Reader, Uuid, Writer};
@@ -561,6 +561,8 @@ pub struct PlayerObservation {
     pub formatted_messages: Vec<FormattedMessage>,
     /// `ServerMessage.rawText` values received after the join.
     pub server_messages: Vec<String>,
+    /// `UpdateWeather` transitions received after the join.
+    pub weather_updates: Vec<(i32, f32)>,
     /// `SyncInteractionChains` updates received after the join.
     pub interaction_chains: Vec<SyncInteractionChain>,
     /// `ArgValuesResponse` payloads received after the join.
@@ -684,6 +686,9 @@ pub async fn dev_join(
     }
 
     let (mut game, mut chunks, mut pending) = enter_game_client(session, &mut reader, &mut writer)
+        .await
+        .map_err(|error| DevJoinError::Game(error.to_string()))?;
+    let mut world_map = WorldMapStreamReader::accept(session.connection())
         .await
         .map_err(|error| DevJoinError::Game(error.to_string()))?;
     let chunk_packets =
@@ -819,6 +824,7 @@ pub async fn dev_join(
                 &mut reader,
                 &mut writer,
                 &mut chunks,
+                &mut world_map,
                 game.client_id,
                 window,
                 disconnect_at,
@@ -829,7 +835,7 @@ pub async fn dev_join(
         None => PlayerObservation::default(),
     };
     if options.keep_alive {
-        tokio::spawn(keep_alive(reader, writer, chunks));
+        tokio::spawn(keep_alive(reader, writer, chunks, world_map));
     }
 
     Ok(DevJoinReport {
@@ -850,8 +856,10 @@ async fn keep_alive(
     mut reader: FrameReader,
     mut writer: FrameWriter,
     mut chunks: ChunkStreamReader,
+    mut world_map: WorldMapStreamReader,
 ) {
     let mut chunks_open = true;
+    let mut world_map_open = true;
     loop {
         tokio::select! {
             frame = reader.next_frame() => match frame {
@@ -866,6 +874,10 @@ async fn keep_alive(
                 Ok(Some(_)) => {}
                 Ok(None) | Err(_) => chunks_open = false,
             },
+            frame = world_map.next_frame(), if world_map_open => match frame {
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => world_map_open = false,
+            },
         }
     }
 }
@@ -874,10 +886,12 @@ async fn keep_alive(
 ///
 /// A closed connection ends the observation gracefully: the collected data is
 /// still returned so a disconnect test can assert what the other client saw.
+#[allow(clippy::too_many_arguments)]
 async fn observe_players(
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
     chunks: &mut ChunkStreamReader,
+    world_map: &mut WorldMapStreamReader,
     self_id: Option<i32>,
     window: Duration,
     mut disconnect_at: Option<tokio::time::Instant>,
@@ -886,6 +900,7 @@ async fn observe_players(
     let mut observation = PlayerObservation::default();
     let deadline = tokio::time::Instant::now() + window;
     let mut chunks_open = true;
+    let mut world_map_open = true;
     loop {
         if let Some(at) = disconnect_at {
             if tokio::time::Instant::now() >= at {
@@ -962,27 +977,7 @@ async fn observe_players(
                     }
                     UpdateWorldMap::ID => {
                         let packet: UpdateWorldMap = frame.decode()?;
-                        if let Some(chunks) = packet.chunks {
-                            observation.map_chunks.extend(chunks.into_iter().map(|chunk| {
-                                let image = chunk.image;
-                                ObservedMapChunk {
-                                    chunk_x: chunk.chunk_x,
-                                    chunk_z: chunk.chunk_z,
-                                    loaded: image.is_some(),
-                                    width: image.as_ref().map(|image| image.width),
-                                    height: image.as_ref().map(|image| image.height),
-                                    palette_entries: image
-                                        .as_ref()
-                                        .and_then(|image| image.palette.as_ref())
-                                        .map(Vec::len),
-                                }
-                            }));
-                        }
-                        if let Some(markers) = packet.added_markers {
-                            observation.map_markers.extend(
-                                markers.into_iter().filter_map(observed_map_marker),
-                            );
-                        }
+                        record_world_map(packet, &mut observation);
                     }
                     OpenWindow::ID => {
                         let packet: OpenWindow = frame.decode()?;
@@ -1037,6 +1032,12 @@ async fn observe_players(
                         game.active_slots
                             .insert(packet.inventory_section_id, packet.active_slot);
                     }
+                    UpdateWeather::ID => {
+                        let packet: UpdateWeather = frame.decode()?;
+                        observation
+                            .weather_updates
+                            .push((packet.weather_index, packet.transition_seconds));
+                    }
                     SyncInteractionChains::ID => {
                         let packet: SyncInteractionChains = frame.decode()?;
                         observation.interaction_chains.extend(packet.updates);
@@ -1089,9 +1090,45 @@ async fn observe_players(
                     Ok(None) | Err(_) => chunks_open = false,
                 }
             }
+            frame = world_map.next_frame(), if world_map_open => {
+                match frame {
+                    Ok(Some(frame)) if frame.packet_id == UpdateWorldMap::ID => {
+                        let packet = UpdateWorldMap::decode(&mut Reader::new(&frame.payload))?;
+                        record_world_map(packet, &mut observation);
+                    }
+                    Ok(Some(_)) => {}
+                    Ok(None) | Err(_) => world_map_open = false,
+                }
+            }
         }
     }
     Ok(observation)
+}
+
+fn record_world_map(packet: UpdateWorldMap, observation: &mut PlayerObservation) {
+    if let Some(chunks) = packet.chunks {
+        observation
+            .map_chunks
+            .extend(chunks.into_iter().map(|chunk| {
+                let image = chunk.image;
+                ObservedMapChunk {
+                    chunk_x: chunk.chunk_x,
+                    chunk_z: chunk.chunk_z,
+                    loaded: image.is_some(),
+                    width: image.as_ref().map(|image| image.width),
+                    height: image.as_ref().map(|image| image.height),
+                    palette_entries: image
+                        .as_ref()
+                        .and_then(|image| image.palette.as_ref())
+                        .map(Vec::len),
+                }
+            }));
+    }
+    if let Some(markers) = packet.added_markers {
+        observation
+            .map_markers
+            .extend(markers.into_iter().filter_map(observed_map_marker));
+    }
 }
 
 async fn send_block_interaction(

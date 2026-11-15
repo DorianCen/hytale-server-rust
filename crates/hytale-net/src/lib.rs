@@ -67,7 +67,8 @@ pub mod transport;
 pub mod verify;
 
 pub use chunk_stream::{
-    ChunkFrame, ChunkStreamError, ChunkStreamReader, ChunkStreamWriter, WorldMapStreamWriter,
+    ChunkFrame, ChunkStreamError, ChunkStreamReader, ChunkStreamWriter, WorldMapStreamReader,
+    WorldMapStreamWriter,
 };
 pub use frame_stream::{
     Frame, FrameReader, FrameStreamError, FrameWriter,

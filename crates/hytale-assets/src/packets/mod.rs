@@ -44,7 +44,7 @@ use hytale_protocol::generated::common::{
     CameraNode, CameraSettings, CancelChainInteraction, ChainFlagInteraction, ChainingInteraction,
     ChangeActiveSlotInteraction, ChangeBlockInteraction, ChangeStatBehaviour,
     ChangeStatInteraction, ChangeStateInteraction, ChargingDelay, ChargingInteraction,
-    ClearEntityEffectInteraction, CollisionType, Color, ColorAlpha, ColorLight,
+    ClearEntityEffectInteraction, Cloud, CollisionType, Color, ColorAlpha, ColorLight,
     CombatTextEntityUIAnimationEventType, CombatTextEntityUIComponentAnimationEvent,
     ComparisonOperator, ConditionInteraction, ConnectedBlockFaceTags, ConnectedBlockMatchType,
     ConnectedBlockPattern, ConnectedBlockRule, ConnectedBlockRuleSetAsset, ConnectedBlockShape,
@@ -54,7 +54,7 @@ use hytale_protocol::generated::common::{
     EffectDirection, EmitShape, EntityEffect, EntityPart, EntityStatEffects,
     EntityStatResetBehavior, EntityStatType, EntityUIComponent, EntityUIType, EqualizerEffect,
     ExtrudePlaceBlockInteraction, FXRenderMode, FaceTagConnectedBlockRule, FadeCurve, FailOnType,
-    FirstClickInteraction, Fluid, FluidDrawType, FluidParticle, GameMode,
+    FirstClickInteraction, Fluid, FluidDrawType, FluidParticle, FogOptions, GameMode,
     GroundedConditionInteraction, Hitbox, HitboxCollisionConfig, HorizontalMusicContainer,
     HorizontalSelector, HorizontalSelectorDirection, InitialVelocity, Interaction,
     InteractionCooldown, InteractionTarget, InteractionType, IntersectionHighlight, ItemAnimation,
@@ -81,7 +81,7 @@ use hytale_protocol::generated::common::{
     SurfaceDrawPlaceBlockInteraction, SurfaceType, SwitchTo, SyncPoint,
     TagPatternConnectedBlockShape, TemplatedConnectedBlockShape, TempoSettings, Trail,
     TriggerCooldownInteraction, UVMotion, UVMotionCurveType, UpdateType, UseBlockInteraction,
-    UseEntityInteraction, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather,
+    UseEntityInteraction, ValueType, Vector2i, Vector3i, WaitForDataFrom, Weather, WeatherParticle,
     WieldingInteraction, WiggleWeights, WorldEnvironment,
 };
 use hytale_protocol::generated::wire::{Packet, Vector2f, Vector3f, Wire};
@@ -1728,6 +1728,103 @@ impl AssetRegistry {
 
     /// `UpdateWeathers` (id 47) from the `Weather` store.
     pub fn weathers_packet(&self, tags: &TagRegistry) -> Result<AssetPacket> {
+        fn time_float(value: Option<&Value>) -> Option<Vec<(f32, f32)>> {
+            let entries = value?.as_array()?;
+            let values: Vec<(f32, f32)> = entries
+                .iter()
+                .filter_map(|entry| {
+                    Some((
+                        entry.get("Hour").and_then(Value::as_f64)? as f32,
+                        entry.get("Value").and_then(Value::as_f64)? as f32,
+                    ))
+                })
+                .collect();
+            (!values.is_empty()).then_some(values)
+        }
+        fn time_color(value: Option<&Value>) -> Option<Vec<(f32, Color)>> {
+            let entries = value?.as_array()?;
+            let values: Vec<(f32, Color)> = entries
+                .iter()
+                .filter_map(|entry| {
+                    Some((
+                        entry.get("Hour").and_then(Value::as_f64)? as f32,
+                        color(entry.get("Color"))?,
+                    ))
+                })
+                .collect();
+            (!values.is_empty()).then_some(values)
+        }
+        fn time_color_alpha(value: Option<&Value>) -> Option<Vec<(f32, ColorAlpha)>> {
+            let entries = value?.as_array()?;
+            let values: Vec<(f32, ColorAlpha)> = entries
+                .iter()
+                .filter_map(|entry| {
+                    Some((
+                        entry.get("Hour").and_then(Value::as_f64)? as f32,
+                        color_alpha(entry.get("Color")?)?,
+                    ))
+                })
+                .collect();
+            (!values.is_empty()).then_some(values)
+        }
+        fn clouds(value: Option<&Value>) -> Option<Vec<Cloud>> {
+            let entries = value?.as_array()?;
+            let values: Vec<Cloud> = entries
+                .iter()
+                .map(|entry| Cloud {
+                    texture: entry
+                        .get("Texture")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    speeds: time_float(entry.get("Speeds")),
+                    colors: time_color_alpha(entry.get("Colors")),
+                })
+                .collect();
+            (!values.is_empty()).then_some(values)
+        }
+        fn particle(value: Option<&Value>) -> Option<WeatherParticle> {
+            let object = value?.as_object()?;
+            Some(WeatherParticle {
+                system_id: object
+                    .get("SystemId")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
+                color: color(object.get("Color")),
+                scale: object.get("Scale").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                is_overground_only: object
+                    .get("OvergroundOnly")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                position_offset_multiplier: object
+                    .get("PositionOffsetMultiplier")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
+            })
+        }
+        fn fog_options(value: Option<&Value>) -> Option<FogOptions> {
+            let object = value?.as_object()?;
+            let fixed = object
+                .get("FogHeightCameraFixed")
+                .and_then(Value::as_f64)
+                .map(|value| value as f32);
+            Some(FogOptions {
+                ignore_fog_limits: object
+                    .get("IgnoreFogLimits")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                effective_view_distance_multiplier: object
+                    .get("EffectiveViewDistanceMultiplier")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(1.0) as f32,
+                fog_far_view_distance: 0.0,
+                fog_height_camera_offset: object
+                    .get("FogHeightCameraOffset")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
+                fog_height_camera_overriden: fixed.is_some(),
+                fog_height_camera_fixed: fixed.unwrap_or(0.0),
+            })
+        }
         let mut weathers = BTreeMap::new();
         for record in self.weathers.iter() {
             let id = record.id.ok_or_else(|| AssetPacketError::MissingId {
@@ -1753,13 +1850,32 @@ impl AssetRegistry {
                     tag_indexes: tags.expanded(json.get("Tags")),
                     stars: text(json, "Stars"),
                     moons,
+                    clouds: clouds(json.get("Clouds")),
+                    sunlight_damping_multiplier: time_float(json.get("SunlightDampingMultipliers")),
+                    sunlight_colors: time_color(json.get("SunlightColors")),
+                    sky_top_colors: time_color_alpha(json.get("SkyTopColors")),
+                    sky_bottom_colors: time_color_alpha(json.get("SkyBottomColors")),
+                    sky_sunset_colors: time_color_alpha(json.get("SkySunsetColors")),
+                    sun_colors: time_color(json.get("SunColors")),
+                    sun_scales: time_float(json.get("SunScales")),
+                    sun_glow_colors: time_color_alpha(json.get("SunGlowColors")),
+                    moon_colors: time_color_alpha(json.get("MoonColors")),
+                    moon_scales: time_float(json.get("MoonScales")),
+                    moon_glow_colors: time_color_alpha(json.get("MoonGlowColors")),
+                    fog_colors: time_color(json.get("FogColors")),
+                    fog_height_falloffs: time_float(json.get("FogHeightFalloffs")),
+                    fog_densities: time_float(json.get("FogDensities")),
                     screen_effect: text(json, "ScreenEffect"),
+                    screen_effect_colors: time_color_alpha(json.get("ScreenEffectColors")),
+                    color_filters: time_color(json.get("ColorFilters")),
+                    water_tints: time_color(json.get("WaterTints")),
+                    particle: particle(json.get("Particle")),
+                    fog_options: fog_options(json.get("FogOptions")),
                     // Java always sends `NearFar(fogDistance[0], fogDistance[1])`
                     // with `DEFAULT_FOG_DISTANCE = {-96, 1024}`. The client's
                     // Weather clone dereferences `Fog` unconditionally, so a
                     // null here is a NullReferenceException on WorldLoadFinished.
                     fog: Some(weather_fog(json.get("FogDistance"))),
-                    ..Weather::default()
                 },
             );
         }
@@ -5710,6 +5826,24 @@ fn edge(value: &Value) -> Option<Edge> {
 
 fn color_alpha(value: &Value) -> Option<ColorAlpha> {
     let text = value.as_str()?;
+    // Weather assets use both `#RRGGBBAA` and Java's `rgba(#RRGGBB, 0.5)`.
+    if let Some(inner) = text
+        .strip_prefix("rgba(")
+        .and_then(|text| text.strip_suffix(')'))
+    {
+        let (hex, alpha) = inner.split_once(',')?;
+        let hex = hex.trim().strip_prefix('#').unwrap_or(hex.trim());
+        let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        let alpha = (alpha.trim().parse::<f64>().ok()?.clamp(0.0, 1.0) * 255.0).round() as u8;
+        return Some(ColorAlpha {
+            alpha: alpha as i8,
+            red: red as i8,
+            green: green as i8,
+            blue: blue as i8,
+        });
+    }
     let hex = text.strip_prefix('#').unwrap_or(text);
     let (alpha, rgb) = if hex.len() == 8 {
         (u8::from_str_radix(&hex[0..2], 16).ok()?, &hex[2..])

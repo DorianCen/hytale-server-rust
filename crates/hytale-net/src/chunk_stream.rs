@@ -227,6 +227,14 @@ impl ChunkStreamReader {
         })
     }
 
+    /// Consume this reader as the world-map reader.
+    pub fn into_world_map(self) -> WorldMapStreamReader {
+        WorldMapStreamReader {
+            recv: self.recv,
+            trace: self.trace,
+        }
+    }
+
     /// Attach a packet trace sink.
     pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
         self.trace = Some(trace);
@@ -273,6 +281,79 @@ impl ChunkStreamReader {
         if let Some(trace) = &self.trace {
             trace.record(
                 TraceStream::Chunks,
+                TraceDirection::Inbound,
+                packet_id,
+                &payload,
+            );
+        }
+        if info.compressed {
+            payload = decompress_payload(&payload, info.max_size as usize)?;
+        }
+        Ok(Some(ChunkFrame { packet_id, payload }))
+    }
+}
+
+/// Reader for the server-opened world-map stream.
+pub struct WorldMapStreamReader {
+    recv: RecvStream,
+    trace: Option<Arc<dyn PacketTraceSink>>,
+}
+
+impl WorldMapStreamReader {
+    /// Accept the next server-opened unidirectional stream as the world map.
+    pub async fn accept(connection: &Connection) -> Result<Self, TransportError> {
+        Ok(Self {
+            recv: connection.accept_uni().await?,
+            trace: None,
+        })
+    }
+
+    /// Attach a packet trace sink.
+    pub fn with_trace(mut self, trace: Arc<dyn PacketTraceSink>) -> Self {
+        self.trace = Some(trace);
+        self
+    }
+
+    /// Read the next frame, or `None` on a clean stream end.
+    pub async fn next_frame(&mut self) -> Result<Option<ChunkFrame>, ChunkStreamError> {
+        let mut header = [0u8; 8];
+        match self.recv.read_exact(&mut header).await {
+            Ok(()) => {}
+            Err(ReadExactError::FinishedEarly(0)) => return Ok(None),
+            Err(ReadExactError::FinishedEarly(_)) => return Err(ChunkStreamError::Truncated),
+            Err(error) => return Err(ChunkStreamError::Read(error)),
+        }
+
+        let length = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
+        let packet_id = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+        if length > MAX_PACKET_SIZE {
+            return Err(ChunkStreamError::Protocol(
+                ProtocolError::InvalidFrameLength {
+                    length,
+                    max: MAX_PACKET_SIZE,
+                },
+            ));
+        }
+        let info = packet_info(packet_id).ok_or(ChunkStreamError::UnknownPacket(packet_id))?;
+        require_channel(packet_id, info.channel, NetworkChannel::WorldMap)?;
+        if length > info.max_size {
+            return Err(ChunkStreamError::Protocol(ProtocolError::PayloadTooLarge {
+                packet_id,
+                length,
+                max: info.max_size,
+            }));
+        }
+
+        let mut payload = vec![0u8; length as usize];
+        match self.recv.read_exact(&mut payload).await {
+            Ok(()) => {}
+            Err(ReadExactError::FinishedEarly(_)) => return Err(ChunkStreamError::Truncated),
+            Err(error) => return Err(ChunkStreamError::Read(error)),
+        }
+
+        if let Some(trace) = &self.trace {
+            trace.record(
+                TraceStream::WorldMap,
                 TraceDirection::Inbound,
                 packet_id,
                 &payload,

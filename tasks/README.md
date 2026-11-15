@@ -55,7 +55,7 @@ context. The main agent owns sequencing and shared-file edits.
 | [T71](T71-interaction-long-tail.md) | Interaction long tail: next maps, place mode, sentinels | T50, T60b, T66 | medium | done (session 100; branch maps, place mode, active slot, sentinels) |
 | [T72](T72-concurrent-load-generator.md) | Concurrent 10/50/100-player load generator | T63, T70 | medium | done (session 101; 10/50/100 baseline, ignored load gate) |
 | [T73](T73-universe-restart-handoff.md) | Universe restart and multi-world handoff smoke | T41, T60b, T70 | low/medium | done (session 102; restart, two live worlds, portal, rejoin) |
-| [T74](T74-presentation-gaps.md) | Presentation gaps: map parity, windows, particles/audio/weather | T57b, T60b, T66 | low/medium | proposed |
+| [T74](T74-presentation-gaps.md) | Presentation gaps: map parity, windows, particles/audio/weather | T57b, T60b, T66 | low/medium | done (session 103; map refresh, window distance, weather fields) |
 | [T75](T75-player-identity-spawn-providers.md) | Per-join identity and Java spawn providers | T44, T65, T66 | medium | proposed |
 | [T76](T76-placement-followups.md) | Placement follow-ups: mirrors, rotation RNG, component goldens | T69b, T66 | medium | proposed |
 | [T77](T77-command-completion-polish.md) | Command completion polish: fuzzy ranking, history, tab completion | T67b | medium | proposed |
@@ -65,8 +65,8 @@ context. The main agent owns sequencing and shared-file edits.
 | T64 | [Packaging, docs and plugin/mod API](T64-packaging-docs-plugin-api.md) | T60 | medium | done (session 69) |
 
 Task files for T43–T77 are created when their milestone starts; the milestone
-scope is in [`../plan.md`](../plan.md). T71–T73 (sessions 100–102) are done; the
-`proposed` T74–T77 packets are the remaining post-T70 follow-ups and are ready to
+scope is in [`../plan.md`](../plan.md). T71–T74 (sessions 100–103) are done; the
+`proposed` T75–T77 packets are the remaining post-T70 follow-ups and are ready to
 start in the listed dependency order. T65 closed live authentication; T66
 completed the real-client asset/interaction follow-up (session 93): the
 unmodified release client joins, moves, breaks blocks, picks up drops and
