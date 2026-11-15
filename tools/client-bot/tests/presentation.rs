@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use client_bot::{dev_join, DevJoinOptions};
 use hytale_net::{connect, ServerEndpointBuilder, TlsIdentity};
+use hytale_npc::encounter::BeaconMessage;
 use hytale_protocol::io::Uuid;
 use hytale_server::{
     serve_session_connection, GeneratorOptions, SessionOptions, WorldThread, WorldThreadOptions,
@@ -45,7 +46,7 @@ fn player_json() -> String {
     r#"{
   "Components": {
     "Transform": {
-      "Position": {"X": 0.0, "Y": 200.0, "Z": 0.0},
+      "Position": {"X": 4.5, "Y": 81.0, "Z": 4.5},
       "Rotation": {"Pitch": 0.0, "Yaw": 0.0, "Roll": 0.0}
     },
     "UUID": {"UUID": {"$binary": "AAAAAAAAAAYAAAAAAAAAAw==", "$type": "04"}},
@@ -80,6 +81,19 @@ async fn forced_weather_sends_the_presentation_transition() {
     );
     world_options.spawn_search = false;
     let (thread, _start) = WorldThread::spawn(world_options).expect("world thread");
+    thread.load_chunk(0, 0).expect("load presentation platform");
+    let soil = thread
+        .block_id_for_item("Soil_Grass")
+        .expect("block lookup")
+        .expect("Soil_Grass block");
+    for x in 0..=8 {
+        for z in 0..=8 {
+            thread.set_block(x, 80, z, soil).expect("floor");
+            for y in 81..=84 {
+                thread.set_block(x, y, z, 0).expect("headroom");
+            }
+        }
+    }
     let weather_index = thread
         .asset_registry()
         .expect("assets")
@@ -120,6 +134,36 @@ async fn forced_weather_sends_the_presentation_transition() {
         weather_thread
             .force_weather(Some("Blood_Moon"))
             .expect("force Blood_Moon");
+        weather_thread
+            .spawn_encounter("Example_Boss")
+            .expect("spawn the boss encounter");
+        weather_thread
+            .spawn_encounter("Combat_Music_Encounter_Deepworks")
+            .expect("spawn the combat-music encounter");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        weather_thread
+            .send_encounter_beacon(
+                "Combat_Music_Encounter_Deepworks",
+                BeaconMessage::new("Combat_Ping"),
+            )
+            .expect("send the combat ping");
+        weather_thread
+            .spawn_npc(
+                "Bear_Voidtaken_Tentacle_Marker",
+                hytale_world::player_data::PlayerTransform::new(
+                    hytale_world::player_data::Position {
+                        x: 6.5,
+                        y: 81.0,
+                        z: 6.5,
+                    },
+                    hytale_world::player_data::Rotation {
+                        pitch: 0.0,
+                        yaw: 0.0,
+                        roll: 0.0,
+                    },
+                ),
+            )
+            .expect("spawn the particle-marking NPC");
     });
 
     let client = connect(
@@ -140,8 +184,8 @@ async fn forced_weather_sends_the_presentation_transition() {
             skin: None,
             movement_after_join: None,
             movement_after_edits: None,
-            observe_after_join: Some(Duration::from_secs(6)),
-            disconnect_after: Some(Duration::from_secs(5)),
+            observe_after_join: Some(Duration::from_secs(12)),
+            disconnect_after: Some(Duration::from_secs(11)),
             keep_alive: false,
             use_block_after_join: Vec::new(),
             send_ready_for_gameplay: true,
@@ -162,6 +206,26 @@ async fn forced_weather_sends_the_presentation_transition() {
             .any(|(index, transition)| *index == weather_index && (*transition - 10.0).abs() < 1e-6),
         "the forced weather transition must reach the client: {:?}",
         report.observation.weather_updates
+    );
+    assert!(
+        report
+            .observation
+            .particle_systems
+            .iter()
+            .any(
+                |(id, _)| id.as_deref() == Some("Bear_Voidtaken_Tentacle_Indicator")
+                    || id.as_deref() == Some("Alerted")
+            ),
+        "the NPC presentation particle must reach the client: {:?}",
+        report.observation.particle_systems
+    );
+    assert!(
+        !report.observation.audio_states.is_empty(),
+        "the encounter audio state must reach the client"
+    );
+    assert!(
+        !report.observation.sound_events.is_empty(),
+        "the encounter PlaySound must reach the client"
     );
 
     client

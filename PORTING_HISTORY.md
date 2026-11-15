@@ -2818,8 +2818,10 @@ This file records phase-2 sessions only.
 - **Tests:** the ignored block-interaction loopback asserts an edit refreshes
   the map image, a far container use is rejected and moving away closes the
   live window. New ignored `presentation` loopback forces a mid-session weather
-  change and asserts the client transition. `entity_packets` checks the new
-  weather fields.
+  change, spawns `Example_Boss`, pings `Combat_Music_Encounter_Deepworks` and
+  spawns `Bear_Voidtaken_Tentacle_Marker`, then asserts `UpdateWeather`,
+  `SpawnParticleSystem`, `SetAudioState` and `PlaySoundEvent3D` on the client.
+  `entity_packets` checks the new weather fields.
 - **Verified:** `block_interactions` 2 passed, `presentation` 1 passed,
   `entity_packets` 2 passed, server lib 59 passed, fast 1650 passed / 33
   skipped, assets 381 passed, workspace clippy and fmt clean. The slow tier

@@ -71,9 +71,11 @@ presentation, and first-person/held-item polish if a new client build exposes it
   weather particles and `FogOptions`, including Java's `rgba(#hex, alpha)`
   color form.
 - **Scripted presentation:** new ignored `client-bot/tests/presentation.rs`
-  forces a weather change mid-session and asserts the `UpdateWeather`
-  transition on the client. Encounter particle/sound/boss-bar packets keep
-  their existing unit coverage.
+  forces a weather change, spawns `Example_Boss`, pings
+  `Combat_Music_Encounter_Deepworks` and spawns the real
+  `Bear_Voidtaken_Tentacle_Marker` role. It asserts the `UpdateWeather`
+  transition, `SpawnParticleSystem`, `SetAudioState` and `PlaySoundEvent3D`
+  packets on the client.
 - **First-person/held-item:** no new release-client build/trace was available;
   the existing self-spawn equipment and held-item loopbacks remain the
   regression (see deviations).
@@ -82,7 +84,7 @@ presentation, and first-person/held-item polish if a new client build exposes it
 
 ```sh
 cargo test -p client-bot --test block_interactions -- --ignored # 2 passed (52.91 s)
-cargo test -p client-bot --test presentation -- --ignored       # 1 passed (52.89 s)
+cargo test -p client-bot --test presentation -- --ignored       # 1 passed (62.20 s)
 cargo test -p hytale-assets --test entity_packets               # 2 passed (23.32 s)
 cargo test -p hytale-server --lib                               # 59 passed
 ./tools/test.sh fast                                            # 1650 passed, 33 skipped
@@ -140,8 +142,10 @@ cargo fmt --all -- --check
 - `./tools/test.sh slow` reports the same `world_boot`/world-thread failures on
   the parent commit `9869ca5` (for example `requested_chunks 0 != 1`), so they
   are pre-existing and unrelated to the presentation changes.
-- Particles/audio are exercised by the session's encounter packet unit tests;
-  the new loopback covers the weather producer.
+- Particles/audio now come from real encounter/role producers in the
+  presentation loopback: `Bear_Voidtaken_Tentacle_Marker` emits
+  `SpawnParticleSystem`, `Combat_Music_Encounter_Deepworks` emits
+  `SetAudioState`, and `Example_Boss` emits `PlaySoundEvent3D`.
 
 ## Notes
 

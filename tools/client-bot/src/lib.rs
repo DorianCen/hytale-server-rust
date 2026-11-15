@@ -54,9 +54,9 @@ use hytale_protocol::generated::setup::{
 use hytale_protocol::generated::window::{CloseWindow, OpenWindow, UpdateWindow};
 use hytale_protocol::generated::wire::{Packet, Vector2f, Wire};
 use hytale_protocol::generated::world::{
-    ServerSetBlock, SetChunk, SetChunkEnvironments, SetChunkTintmap, SetColumn, SetFluids,
-    UnloadChunk, UpdateBlockDamage, UpdateBlockDamages, UpdateTime, UpdateTimeSettings,
-    UpdateWeather, WorldGameplayConfig,
+    PlaySoundEvent3D, ServerSetBlock, SetAudioState, SetChunk, SetChunkEnvironments,
+    SetChunkTintmap, SetColumn, SetFluids, SpawnParticleSystem, UnloadChunk, UpdateBlockDamage,
+    UpdateBlockDamages, UpdateTime, UpdateTimeSettings, UpdateWeather, WorldGameplayConfig,
 };
 use hytale_protocol::generated::worldmap::{UpdateWorldMap, UpdateWorldMapSettings};
 use hytale_protocol::io::{ProtocolError, Reader, Uuid, Writer};
@@ -563,6 +563,12 @@ pub struct PlayerObservation {
     pub server_messages: Vec<String>,
     /// `UpdateWeather` transitions received after the join.
     pub weather_updates: Vec<(i32, f32)>,
+    /// `SpawnParticleSystem` ids/positions received after the join.
+    pub particle_systems: Vec<(Option<String>, Option<Position>)>,
+    /// `SetAudioState` (audio state index, value index) pairs.
+    pub audio_states: Vec<(i32, i32)>,
+    /// `PlaySoundEvent3D` sound event indexes.
+    pub sound_events: Vec<i32>,
     /// `SyncInteractionChains` updates received after the join.
     pub interaction_chains: Vec<SyncInteractionChain>,
     /// `ArgValuesResponse` payloads received after the join.
@@ -1037,6 +1043,22 @@ async fn observe_players(
                         observation
                             .weather_updates
                             .push((packet.weather_index, packet.transition_seconds));
+                    }
+                    SpawnParticleSystem::ID => {
+                        let packet: SpawnParticleSystem = frame.decode()?;
+                        observation
+                            .particle_systems
+                            .push((packet.particle_system_id, packet.position));
+                    }
+                    SetAudioState::ID => {
+                        let packet: SetAudioState = frame.decode()?;
+                        observation
+                            .audio_states
+                            .push((packet.audio_state_index, packet.value_index));
+                    }
+                    PlaySoundEvent3D::ID => {
+                        let packet: PlaySoundEvent3D = frame.decode()?;
+                        observation.sound_events.push(packet.sound_event_index);
                     }
                     SyncInteractionChains::ID => {
                         let packet: SyncInteractionChains = frame.decode()?;

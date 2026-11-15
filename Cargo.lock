@@ -545,6 +545,7 @@ dependencies = [
  "hytale-auth",
  "hytale-inventory",
  "hytale-net",
+ "hytale-npc",
  "hytale-protocol",
  "hytale-server",
  "hytale-world",

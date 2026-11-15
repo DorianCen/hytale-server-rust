@@ -398,6 +398,7 @@ T57 reuses the real block-health state from T52d and the real
 | Container inventories persist through `block-containers.json` | `crates/hytale-world` `containers::tests` |
 | Chest capacity/block item and removal come from the real `BlockType` | `crates/hytale-server/tests/world_thread.rs` |
 | Join sends `UpdateWorldMap.chunks` and a container window/page | `tools/client-bot/tests/block_interactions.rs` (`#[ignore]`, assets + loopback) |
+| Real encounter/role producers emit `SpawnParticleSystem`, `SetAudioState`, `PlaySoundEvent3D` and `UpdateWeather` | `tools/client-bot/tests/presentation.rs` (`#[ignore]`, assets + loopback) |
 
 Map images are a semantic gate, not a byte golden: no Java dumper currently
 produces `MapImage` bytes for a fixed region. The Rust image keeps Java's

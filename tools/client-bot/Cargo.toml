@@ -22,4 +22,5 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 hytale-inventory = { path = "../../crates/hytale-inventory" }
+hytale-npc = { path = "../../crates/hytale-npc" }
 hytale-world = { path = "../../crates/hytale-world" }
