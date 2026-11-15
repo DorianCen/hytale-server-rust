@@ -2878,7 +2878,33 @@ This file records phase-2 sessions only.
   prefab component goldens, ignored block interactions (2), fast 1668 passed /
   34 skipped, workspace clippy/fmt clean.
 - **Deferred:** multi-cell output filler is not applied by the Rust connected
-  mutation path; the client renderer's `RandomRotation` selection has no local
-  trace, so the server uses the documented deterministic model. Client
-  connected-shape prediction parity remains unverified without a release-client
-  trace.
+  mutation path. `RandomRotation` selection was initially position-seeded; it
+  has no Java/reference trace and was removed again in session 106 (see below).
+  Client connected-shape prediction parity remains unverified without a
+  release-client trace.
+
+## Session 106 — T76 closure review: blocked items (2026-11-15)
+
+- **Fence/wall mirror regression:** `connected::wall_mirror_tests` drives the
+  real `Deco_Iron_Bars` fence blocks through the parsed
+  `WallConnectedBlockTemplate` with `MirrorX` added in the test (the release
+  template has no mirror flags). It resolves the real Corner block at yaw 90,
+  alongside the existing real `Rail` `MirrorZ` slope test.
+- **`RandomRotation`:** the inferred position-seeded selection was removed from
+  the placement path. The enum values are still parsed and tested, but
+  server-authored placements no longer guess a client-renderer rotation; they
+  keep the requested tuple and only apply the explicit
+  `RotationYawPlacementOffset`. T76 records a formal blocker on a release-client
+  `RandomRotation` trace.
+- **Block components:** no canonical Java holder dump was committed. The
+  dedicated `ChunkStore.REGISTRY` dumper attempt was blocked by the local
+  untracked Java tool jars after they were rebuilt (missing record accessors and
+  cross-module type mismatches); T76 records the dumper/toolchain blocker and
+  keeps the real-prefab `Components` object as the Rust opaque-holder gate.
+- T76 remains **blocked** (not done): mirrors, filler matching, `FlipType`,
+  explicit yaw offset and the fence/wall regression are landed; the client
+  `RandomRotation` selection and canonical component-holder golden are open.
+- **Tests (session 106):** `hytale-world` lib 86 (the real wall mirror test is
+  in-crate), connected blocks 9, `hytale-server` lib 59, targeted world-thread
+  placement/yaw-offset tests, prefab golden, ignored block interactions (2),
+  fast 1668 passed / 34 skipped, clippy/fmt clean.

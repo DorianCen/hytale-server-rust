@@ -1,6 +1,6 @@
 # T76 — Placement follow-ups
 
-**Status:** done (session 105; mirrors, filler, placement rotation, component golden)
+**Status:** blocked (session 106): mirrors/filler/yaw-offset/wall regression landed; `RandomRotation` selection and the block-component holder golden need external traces/tooling
 **Package:** `hytale-world`, `hytale-server`, `tools/client-bot`, docs
 **Depends on:** T69b, T66
 **Agent fit:** medium
@@ -45,9 +45,9 @@ client-prediction parity, and `RandomRotation`/`RotationYawPlacementOffset`.
   - otherwise record the negative result and keep the real-asset server tests.
 - Update T69b follow-ups and verification notes.
 
-## Landed (session 105)
+## Landed (sessions 105–106)
 
-- **`CustomTemplate` mirrors:** `connected.rs` now expands
+- **`CustomTemplate` mirrors:** `connected.rs` expands
   `PatternRotationDefinition` in Java order (no mirror, mirror X, mirror Z,
   with the cardinal variants after each mirror), flips rule coordinates before
   rotation, un-rotates/un-mirrors the neighbour yaw through its `FlipType`,
@@ -56,64 +56,78 @@ client-prediction parity, and `RandomRotation`/`RotationYawPlacementOffset`.
   (including Java's orthogonal upside-down yaw adjustment). `BlockPattern`
   output strings are parsed with weights and `|Yaw/Pitch/Roll` offsets and
   selected with Java's hash-seeded `FastRandom`/`WeightedMap` semantics.
-  The new real-asset regression is `a_rail_slope_uses_the_mirrored_custom_template_transform`:
-  `Rail`'s `Slope` shape only matches through `MirrorZ` and resolves to the
-  `Slope` state at yaw 180. The release pack's fence/wall templates do not set
-  `MirrorX`/`MirrorZ`; rails are the real mirror case.
-- **Placement rotation:** new `hytale-world::placement` parses
-  `RandomRotation`, `RotationYawPlacementOffset` and `FlipType`, implements
-  `BlockFlipType.flipYaw`, and provides a position-seeded deterministic
-  `RandomRotation` selection plus the additive yaw offset. `PlaceBlockOptions`
-  gained `client_rotation`: real session placements keep the client's final
-  rotation (matching the Java server, which never recomputes it), while
-  server-authored placements (NPC interactions/admin/test seams) apply the
-  block-type metadata. Unit tests cover every enum value and the
-  `world_thread` regression uses the real `Furniture_Goblin_Brazier`
-  (`TwoSeventy`) and `Deco_Bone_Pile` (`YawStep1`) assets.
-- **Block components:** no typed component codec was invented. The canonical
-  prefab deserializer used by `tools/java-dumper` deliberately skips block
-  component holders, so there is no Java component dump to gate a codec
-  against. `crates/hytale-server/tests/prefab.rs` now asserts that the pasted
-  `BlockHolder` document is byte-for-byte the `Components` object in the real
-  `Hunt/Generic/Site.prefab.json`; the opaque store remains the runtime path.
+  - Real-asset mirror regressions:
+    `a_rail_slope_uses_the_mirrored_custom_template_transform` (the only used
+    release template with `MirrorZ`) and
+    `connected::wall_mirror_tests::a_mirrored_wall_template_resolves_a_fence_corner`.
+    The release fence/wall template itself has no mirror flags, so the wall
+    test adds `MirrorX` to the parsed real template and drives real
+    `Deco_Iron_Bars` blocks through it; it resolves the Corner block at yaw 90.
+- **Placement rotation:** new `hytale-world::placement` parses every
+  `RandomRotation` value, `RotationYawPlacementOffset` and `FlipType`, and
+  implements `BlockFlipType.flipYaw`. `RotationYawPlacementOffset` is applied
+  only to server-authored placements (NPC/admin/test seams); real session
+  placements keep the client's final rotation, matching the Java server.
+  `RandomRotation` is parsed but **not applied**: the reference server never
+  computes it and the client renderer's selection has no local trace (see
+  Blockers).
+- **Block components:** no typed component codec was invented, and no canonical
+  Java holder dump is committed. `crates/hytale-server/tests/prefab.rs` asserts
+  that the pasted opaque `BlockHolder` document is the real
+  `Hunt/Generic/Site.prefab.json` `Components` object verbatim. A Java dumper
+  attempt was blocked by the local Java toolchain (see Blockers).
 - **Client prediction:** no release-client trace is available locally and the
-  bot does not run the client renderer's connected-shape prediction. This is
-  recorded as a negative result; the real-asset server tests remain the gate.
+  bot does not run the client renderer's connected-shape prediction. Recorded
+  as a negative result; the real-asset server tests remain the gate.
 
-## Verification (session 105)
+## Blockers
+
+1. **`RandomRotation` selection.** The Java server only forwards the client's
+   `BlockRotation`; the selection algorithm lives in the client renderer and is
+   not in the reference sources. The Rust server therefore does not guess it.
+   Closing this needs a release-client trace (or equivalent client-side
+   reference) covering `None`, `YawPitchRollStep1`, `YawStep1`, `YawStep1XZ` and
+   `YawStep90`.
+2. **Block-component holder golden.** The full prefab deserializer used by
+   `tools/java-dumper` deliberately skips block component holders. A dedicated
+   `ChunkStore.REGISTRY` dump needs a healthy Java dumper jar set; the local
+   untracked module jars were rebuilt by the attempted tool run and no longer
+   compile the dumper (missing record accessors / cross-module type
+   mismatches). Regenerate/test the jars in the normal dumper environment
+   before committing the `BlockComponentDumper`.
+3. **Full `world_thread` suite.** Four failures
+   (`config_assets_are_cached_per_world`,
+   `block_edits_resolve_items_and_survive_save_reload`,
+   `ticks_the_view_and_unloads_chunks_that_leave_it`,
+   `an_extracted_asset_pack_can_boot_a_world`) reproduce at parent `05fc66a`.
+   They are pre-existing and tracked separately from T76; the targeted
+   placement tests pass.
+
+## Verification (session 106)
 
 ```sh
-cargo test -p hytale-world --lib                              # 87 passed
+cargo test -p hytale-world --lib                              # 86 passed
 cargo test -p hytale-world --test connected_blocks            # 9 passed
 cargo test -p hytale-server --lib                             # 59 passed
-cargo test -p hytale-server --test world_thread server_placements_apply_block_type_rotation_metadata
+cargo test -p hytale-server --test world_thread server_placements_apply_yaw_offset_and_keep_client_rotation
 cargo test -p hytale-server --test world_thread placement_flags_preserve_shape_and_block_components
-# The full world_thread suite still has 4 pre-existing failures
-# (config cache ordering, save/reload, view unload, extracted-pack boot);
-# they reproduce at parent 05fc66a and are unrelated to T76.
 cargo test -p hytale-server --test prefab                     # 1 passed
 cargo test -p client-bot --test block_interactions -- --ignored # 2 passed
 ./tools/test.sh fast                                          # 1668 passed, 34 skipped
-cargo clippy -p hytale-world -p hytale-server --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
 ## Deviations
 
-- The Java reference server does not recompute `RandomRotation` or
-  `RotationYawPlacementOffset` for player placements; it stores the client's
-  `BlockRotation`. Rust keeps that behavior when `client_rotation` is set and
-  only applies the metadata to server-authored placements. The random
-  selection is position-seeded (`HashUtil.hash(x,y,z)` + `FastRandom`) because
-  the client-side renderer algorithm has no server source or local trace.
-  `YawStep1` and `YawStep90` collapse to the same candidate set because the
-  wire `Rotation` only has 90-degree steps.
-- Multi-cell output filler is not applied by the Rust placement path (it
-  stores filler 0 for connected mutations); the mirror/filler rotation is used
-  for rule matching. Existing T69b filler-layout coverage remains the only
-  placement-filler gate.
-- Block-component codecs remain opaque until the Java dumper can boot and dump
-  the component holders.
+- `RandomRotation` is parse-only until the client trace exists; server-authored
+  decoration placements keep the requested tuple instead of guessing.
+- `YawStep1`/`YawStep90` semantics are not claimed; only the enum wire names are
+  verified.
+- Multi-cell output filler is not applied by the Rust connected mutation path
+  (it stores filler 0); the mirror/filler rotation is used for rule matching.
+- Block-component codecs remain opaque until a canonical Java holder dump
+  exists.
 
 ## Read first
 

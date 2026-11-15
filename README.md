@@ -97,10 +97,11 @@ block/item golden tests**, a clean
   return and post-restart rejoin. T74 (session 103) adds map edit refresh,
   window-distance validation and the remaining weather presentation fields. T75
   (session 104) removes the synthetic boot player and adds Java spawn-provider
-  parity with per-UUID documents. T76 (session 105) adds `CustomTemplate`
-  mirrors/filler rotation, placement `RandomRotation`/`RotationYawPlacementOffset`
-  for server-authored edits and the real-prefab component golden. Remaining
-  work is tracked by the filed T77 packet.
+  parity with per-UUID documents. T76 (session 106) adds `CustomTemplate`
+  mirrors/filler rotation, the real fence/wall mirror regression and the
+  explicit `RotationYawPlacementOffset`; it is blocked on a release-client
+  `RandomRotation` trace and a canonical Java component-holder dump. The T77
+  packet remains.
 - **Commands are complete for the core set.** `ChatMessage` command lines and
   `CommandTreeSync` work for `help`, `tp`, `give`, `gamemode`, `save`, `stop`,
   `whereami`, `whoami`, `who`, `kill`, `respawn`, `time`, `version`, `say`,

@@ -1211,7 +1211,7 @@ checks a shared passive NPC and held items, propagates edits, saves, reconnects,
 restarts the same `WorldThread` save, and verifies the persisted block/player/NPC
 state plus a fresh post-restart join.
 
-### Post-T70 follow-up packets (T71–T76 done; T77 filed)
+### Post-T70 follow-up packets (T71–T75 done; T76 blocked; T77 filed)
 
 - [T71](tasks/T71-interaction-long-tail.md) — done (session 100): interaction
   next maps, place-mode/active-slot details and missing-id sentinels.
@@ -1224,9 +1224,11 @@ state plus a fresh post-restart join.
 - [T75](tasks/T75-player-identity-spawn-providers.md) — done (session 104):
   listener boot without a synthetic player, Java provider spawns and per-UUID
   documents.
-- [T76](tasks/T76-placement-followups.md) — done (session 105): `CustomTemplate`
-  mirror/filler expansion, `FlipType.flipYaw`, placement rotation metadata and
-  the real-prefab component golden.
+- [T76](tasks/T76-placement-followups.md) — partially landed (session 106):
+  `CustomTemplate` mirror/filler expansion, `FlipType.flipYaw`, the real
+  fence/wall mirror regression and the explicit yaw offset are done. Blocked on
+  a release-client `RandomRotation` trace and a canonical Java component-holder
+  dump.
 - [T77](tasks/T77-command-completion-polish.md) — fuzzy suggestion ranking and
   console history/tab completion.
 

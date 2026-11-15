@@ -2662,3 +2662,81 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod wall_mirror_tests {
+    use super::*;
+    use crate::chunk::column::ChunkColumn;
+    use crate::world::{World, WorldStorage};
+    use hytale_assets::{AssetPack, AssetRegistry};
+    use std::path::PathBuf;
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    #[test]
+    fn a_mirrored_wall_template_resolves_a_fence_corner() {
+        if !repo_root().join("Assets/Assets.zip").is_file() {
+            eprintln!("the base-game asset pack is not available — the test is skipped");
+            return;
+        }
+        let pack = AssetPack::open(repo_root().join("Assets/Assets.zip")).expect("open pack");
+        let assets = AssetRegistry::load_phase2(&pack).expect("load phase-2 assets");
+        let mut catalog = ConnectedBlockCatalog::from_assets(&assets);
+        // The release WallConnectedBlockTemplate has cardinal Corner rules only.
+        // Add the MirrorX expansion to prove the fence rule/rotation path.
+        let template = catalog
+            .templates
+            .get_mut("wallconnectedblocktemplate")
+            .expect("wall template");
+        let (_, corner) = template
+            .shapes
+            .iter_mut()
+            .find(|(name, _)| name == "Corner")
+            .expect("Corner shape");
+        let pattern = corner.patterns.first_mut().expect("Corner pattern");
+        pattern.transforms = pattern_transforms(true, true, false);
+
+        let base = assets
+            .block_types
+            .id_of("Deco_Iron_Bars")
+            .expect("base fence");
+        let corner_block = assets
+            .block_types
+            .id_of("Deco_Iron_Bars_Corner")
+            .expect("corner fence");
+        let dir = std::env::temp_dir().join(format!(
+            "hytale-wall-mirror-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut world = World::new(WorldStorage::new(&dir));
+        world.insert_chunk(ChunkColumn::new(0, 0));
+        world
+            .set_block_full(10, 64, 10, base, 0, 0)
+            .expect("origin fence");
+        world
+            .set_block_full(11, 64, 10, base, 0, 0)
+            .expect("east fence");
+        world
+            .set_block_full(10, 64, 11, corner_block, 2, 0)
+            .expect("south corner");
+        let changes = catalog.apply(&mut world, &assets, 10, 64, 10, 0, [0, 1, 0], true);
+        eprintln!(
+            "wall mirror changes={changes:?} now={} rot={}",
+            world.get_block(10, 64, 10),
+            world.get_rotation(10, 64, 10)
+        );
+        assert!(
+            changes.iter().any(|change| {
+                (change.x, change.y, change.z) == (10, 64, 10) && change.after == corner_block
+            }),
+            "mirrored wall Corner should resolve: {changes:?}"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+}

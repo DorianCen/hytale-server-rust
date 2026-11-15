@@ -440,8 +440,9 @@ world thread; network broadcasts are queued per session. The
 `PatternRotationDefinition` mirror expansion, `BlockFlipType.flipYaw`, packed
 5-bit filler un-rotation and weighted `BlockPattern` output selection.
 Interactive placements keep the client's final `BlockRotation`; server-authored
-placements apply the block type's `RandomRotation` (position-seeded) and
-`RotationYawPlacementOffset`.
+placements apply the block type's explicit `RotationYawPlacementOffset`.
+`RandomRotation` is parsed but not computed server-side: its selection belongs
+to the client renderer and remains blocked on a release-client trace.
 
 Block `Use` interactions are resolved from the merged `BlockType` JSON and the
 loaded root/interaction catalog before placement. The executor supports

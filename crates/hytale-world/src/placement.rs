@@ -8,19 +8,17 @@
 //! server-authored placements (NPC interactions, admin/test paths) have no
 //! client rotation and need the metadata applied here.
 //!
-//! `RandomRotation` is only defined by the client renderer; the protocol has
-//! 90-degree yaw/pitch/roll steps, so this port selects one deterministic
-//! quarter-turn tuple seeded from the block position. The selection is
-//! documented per variant and covered by unit tests. `RotationYawPlacementOffset`
-//! is an unambiguous additive yaw offset and is ported directly from
+//! `RandomRotation` is a client-renderer instruction and the reference server
+//! never applies it. The Rust port parses every enum value but deliberately
+//! does **not** invent a selection algorithm: without a release-client trace the
+//! placement rotation stays unchanged (see the T76 blocker). The
+//! `RotationYawPlacementOffset` field is ported directly from
 //! `BlockType.getRotationYawPlacementOffset`.
 //!
 //! Ported from: `CoreServer/.../asset/type/blocktype/config/BlockType.java`,
 //! `RotationYawPlacementOffset`, `RandomRotation`, `FlipType`.
 
 use hytale_assets::AssetRegistry;
-use hytale_math::fast_random::FastRandom;
-use hytale_math::hash_util::hash3;
 use serde_json::Value;
 
 /// Java `RandomRotation` (protocol wire values 0..=4).
@@ -55,36 +53,6 @@ impl RandomRotation {
     /// Decode the `RandomRotation` field of a merged block-type document.
     pub fn from_value(value: Option<&Value>) -> Self {
         Self::from_name(value.and_then(Value::as_str))
-    }
-
-    /// Every quarter-turn offset this mode can add to the requested rotation.
-    pub fn offsets(self) -> Vec<(i32, i32, i32)> {
-        match self {
-            Self::None => vec![(0, 0, 0)],
-            Self::YawStep1 | Self::YawStep90 => (0..4).map(|yaw| (yaw, 0, 0)).collect(),
-            Self::YawStep1XZ => {
-                let mut offsets = Vec::with_capacity(16);
-                for yaw in 0..4 {
-                    for pitch in [0, 2] {
-                        for roll in [0, 2] {
-                            offsets.push((yaw, pitch, roll));
-                        }
-                    }
-                }
-                offsets
-            }
-            Self::YawPitchRollStep1 => {
-                let mut offsets = Vec::with_capacity(64);
-                for roll in 0..4 {
-                    for pitch in 0..4 {
-                        for yaw in 0..4 {
-                            offsets.push((yaw, pitch, roll));
-                        }
-                    }
-                }
-                offsets
-            }
-        }
     }
 }
 
@@ -242,24 +210,15 @@ impl PlacementRotation {
 
     /// Apply this policy to a requested Java rotation tuple index.
     ///
-    /// Server-authored placements pass the rotation they want (usually `0`);
-    /// the position seed makes the random component stable across reloads.
-    pub fn apply(self, requested: i32, position: [i32; 3]) -> i32 {
+    /// The selected `RandomRotation` is parsed metadata only: its client-side
+    /// selection is blocked on a release-client trace, so this method leaves
+    /// the requested yaw/pitch/roll unchanged and applies only the explicit
+    /// `RotationYawPlacementOffset` to yaw.
+    pub fn apply(self, requested: i32, _position: [i32; 3]) -> i32 {
         let requested = requested.rem_euclid(64);
-        let offsets = self.random.offsets();
-        let (yaw_step, pitch_step, roll_step) = if offsets.len() == 1 {
-            offsets[0]
-        } else {
-            let mut random = FastRandom::new(hash3(
-                i64::from(position[0]),
-                i64::from(position[1]),
-                i64::from(position[2]),
-            ));
-            offsets[random.next_int_bound(offsets.len() as i32) as usize]
-        };
-        let yaw = (requested % 4 + yaw_step + self.yaw_offset.steps()).rem_euclid(4);
-        let pitch = ((requested / 4) % 4 + pitch_step).rem_euclid(4);
-        let roll = ((requested / 16) % 4 + roll_step).rem_euclid(4);
+        let yaw = (requested % 4 + self.yaw_offset.steps()).rem_euclid(4);
+        let pitch = (requested / 4) % 4;
+        let roll = (requested / 16) % 4;
         yaw + pitch * 4 + roll * 16
     }
 }
@@ -304,21 +263,6 @@ mod tests {
     }
 
     #[test]
-    fn every_random_rotation_mode_has_the_expected_candidate_set() {
-        assert_eq!(RandomRotation::None.offsets(), vec![(0, 0, 0)]);
-        for mode in [RandomRotation::YawStep1, RandomRotation::YawStep90] {
-            let offsets = mode.offsets();
-            assert_eq!(offsets.len(), 4);
-            for (index, offset) in offsets.iter().enumerate() {
-                assert_eq!(*offset, (index as i32, 0, 0));
-            }
-        }
-        assert_eq!(RandomRotation::YawStep1XZ.offsets().len(), 16);
-        assert_eq!(RandomRotation::YawPitchRollStep1.offsets().len(), 64);
-        assert!(!RandomRotation::YawStep1.offsets().is_empty());
-    }
-
-    #[test]
     fn yaw_placement_offset_values_parse_and_map_to_quarter_turns() {
         for (name, steps) in [
             ("None", 0),
@@ -356,87 +300,37 @@ mod tests {
     }
 
     #[test]
-    fn every_random_rotation_mode_stays_inside_its_candidate_set() {
-        let arbitrary = 1 + 2 * 4 + 3 * 16; // yaw 90, pitch 180, roll 270
-        assert_eq!(
-            PlacementRotation::default().apply(arbitrary, [0, 0, 0]),
-            arbitrary,
-            "None preserves the requested tuple"
-        );
-        let requested = 0;
-        for mode in [
-            RandomRotation::None,
-            RandomRotation::YawPitchRollStep1,
-            RandomRotation::YawStep1,
-            RandomRotation::YawStep1XZ,
-            RandomRotation::YawStep90,
-        ] {
-            let policy = PlacementRotation {
-                random: mode,
-                yaw_offset: YawPlacementOffset::None,
-                ..PlacementRotation::default()
-            };
-            for x in 0..8 {
-                let index = policy.apply(requested, [x, 64, x]);
-                let yaw = index % 4;
-                let pitch = (index / 4) % 4;
-                let roll = (index / 16) % 4;
-                match mode {
-                    RandomRotation::None => assert_eq!(index, requested),
-                    RandomRotation::YawStep1 | RandomRotation::YawStep90 => {
-                        assert_eq!(pitch, 0);
-                        assert_eq!(roll, 0);
-                        assert!((0..4).contains(&yaw));
-                    }
-                    RandomRotation::YawStep1XZ => {
-                        assert!(pitch == 0 || pitch == 2);
-                        assert!(roll == 0 || roll == 2);
-                    }
-                    RandomRotation::YawPitchRollStep1 => {
-                        assert!((0..64).contains(&index));
-                    }
-                }
-            }
-        }
-        for (offset, steps) in [
-            (YawPlacementOffset::None, 0),
-            (YawPlacementOffset::Ninety, 1),
-            (YawPlacementOffset::OneEighty, 2),
-            (YawPlacementOffset::TwoSeventy, 3),
-        ] {
-            let policy = PlacementRotation {
-                random: RandomRotation::None,
-                yaw_offset: offset,
-                ..PlacementRotation::default()
-            };
-            assert_eq!(policy.apply(3, [0, 0, 0]), (3 + steps) % 4);
-        }
-    }
-
-    #[test]
-    fn server_authored_placement_applies_the_offset_and_is_position_stable() {
+    fn server_authored_placement_applies_only_the_explicit_yaw_offset() {
         let block = json!({
             "RandomRotation": "YawStep1",
             "RotationYawPlacementOffset": "OneEighty"
         });
         let policy = PlacementRotation::from_block_type(&block);
-        let first = policy.apply(0, [4, 70, 9]);
-        let again = policy.apply(0, [4, 70, 9]);
-        assert_eq!(first, again, "the position seed must be deterministic");
-        let other = policy.apply(0, [5, 70, 9]);
-        assert!([0, 1, 2, 3].iter().any(|yaw| other % 4 == (yaw + 2) % 4));
-        assert!([0, 1, 2, 3].contains(&(first % 4)));
-        assert_eq!(policy.apply(0, [4, 70, 9]) / 4, 0, "pitch/roll untouched");
-
-        let ypr = PlacementRotation::from_block_type(&json!({
-            "RandomRotation": "YawPitchRollStep1"
-        }));
-        let index = ypr.apply(0, [4, 70, 9]);
-        assert!((0..64).contains(&index));
+        assert_eq!(policy.random, RandomRotation::YawStep1);
+        assert_eq!(
+            policy.apply(0, [4, 70, 9]),
+            2,
+            "the explicit offset applies"
+        );
+        assert_eq!(
+            policy.apply(0, [4, 70, 9]),
+            policy.apply(0, [5, 70, 9]),
+            "RandomRotation is not guessed from the position"
+        );
 
         let none = PlacementRotation::from_block_type(&json!({
             "RotationYawPlacementOffset": "TwoSeventy"
         }));
         assert_eq!(none.apply(1, [0, 0, 0]), 0, "yaw 1 + 3 wraps to 0");
+
+        let arbitrary = 1 + 2 * 4 + 3 * 16;
+        assert_eq!(
+            PlacementRotation::from_block_type(&json!({
+                "RandomRotation": "YawPitchRollStep1"
+            }))
+            .apply(arbitrary, [0, 0, 0]),
+            arbitrary,
+            "the blocked random mode leaves the requested tuple unchanged"
+        );
     }
 }

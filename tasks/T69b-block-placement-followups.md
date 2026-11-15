@@ -158,11 +158,12 @@ cargo fmt --all -- --check
 
 ## Follow-ups
 
-- Mirror transforms, filler un-rotation, placement rotation metadata and the
-  real-prefab component golden are closed by
-  [T76](T76-placement-followups.md) (session 105).
-- Components that still lack a Java dumper remain opaque by design.
+- Mirror transforms, filler un-rotation, the real fence/wall mirror regression
+  and the explicit `RotationYawPlacementOffset` are landed in
+  [T76](T76-placement-followups.md) (session 106).
+- Components that still lack a canonical Java holder dump remain opaque by
+  design; T76 records the dumper blocker.
 - Connected-shape client prediction still has no local release-client trace; the
   real-asset server tests are the gate.
-- Non-interactive `RandomRotation` uses the documented position-seeded model
-  until a client trace pins the renderer's exact selection.
+- `RandomRotation` selection is blocked on a release-client trace; the server
+  does not guess it.

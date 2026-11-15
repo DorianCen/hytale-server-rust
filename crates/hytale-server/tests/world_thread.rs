@@ -826,7 +826,7 @@ fn block_containers_open_with_their_block_capacity() {
 }
 
 #[test]
-fn server_placements_apply_block_type_rotation_metadata() {
+fn server_placements_apply_yaw_offset_and_keep_client_rotation() {
     if !assets_available() {
         eprintln!("the base-game asset pack is not available — the test is skipped");
         return;
@@ -887,8 +887,9 @@ fn server_placements_apply_block_type_rotation_metadata() {
         "interactive placements keep the client's final rotation"
     );
 
-    // Deco_Bone_Pile uses RandomRotation=YawStep1. The same coordinate must
-    // resolve the same yaw across reloads (position-seeded placement RNG).
+    // Deco_Bone_Pile uses RandomRotation=YawStep1. That selection belongs to
+    // the client renderer; the server must not guess it without a release
+    // client trace, so a server-authored placement keeps the requested tuple.
     let bones = thread
         .block_type_id("Deco_Bone_Pile")
         .expect("resolve bone pile")
@@ -901,24 +902,12 @@ fn server_placements_apply_block_type_rotation_metadata() {
         .place_block_with_options(bone_x, y, bone_z, bones, PlaceBlockOptions::new(0))
         .expect("bone placement")
         .is_some());
-    let first = thread
-        .block_rotation(bone_x, y, bone_z)
-        .expect("bone rotation")
-        .expect("bone rotation value");
-    assert!((0..4).contains(&first), "YawStep1 only adds yaw: {first}");
-    thread
-        .set_block(bone_x, y, bone_z, 0)
-        .expect("clear bone target again");
-    assert!(thread
-        .place_block_with_options(bone_x, y, bone_z, bones, PlaceBlockOptions::new(0))
-        .expect("repeat bone placement")
-        .is_some());
     assert_eq!(
         thread
             .block_rotation(bone_x, y, bone_z)
-            .expect("repeat bone rotation"),
-        Some(first),
-        "the placement RNG is deterministic for the block coordinate"
+            .expect("bone rotation"),
+        Some(0),
+        "RandomRotation selection is blocked on a client trace"
     );
 
     thread.shutdown().expect("shutdown");
