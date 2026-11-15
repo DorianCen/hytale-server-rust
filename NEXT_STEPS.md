@@ -332,7 +332,13 @@ worldgen/world-boot (`slow`) and serial E2E tiers.
 ## What's next after T66
 
 T66 is complete; the next work should be chosen by scope, not by the old
-asset-bring-up list:
+asset-bring-up list.
+
+**Known live-client regressions (2026-11-15):** a release-client creative
+session exposed an empty creative inventory, survival-style break drops and
+placement desync, missing water and no creative flight. The join path hardcodes
+`SetGameMode { Adventure }`; the evidence and follow-up checks are recorded in
+[`CREATIVE_MODE_BUGS.md`](CREATIVE_MODE_BUGS.md).
 
 1. **Command long tail (T67/T67b, done sessions 94/99):** dynamic
    argument-value suggestions (Java `argTypeId` + `ArgValuesRequest`/response and
