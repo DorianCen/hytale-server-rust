@@ -1119,27 +1119,21 @@ impl WorldSave {
     }
 
     fn default_spawn(&self) -> PlayerTransform {
-        let position = self
+        if let Some(point) = self
             .config
-            .spawn_provider
-            .as_ref()
-            .and_then(|provider| provider.get("SpawnPoint"))
-            .and_then(|point| {
-                Some(Position {
-                    x: point.get("X")?.as_f64()?,
-                    y: point.get("Y")?.as_f64()?,
-                    z: point.get("Z")?.as_f64()?,
-                })
-            })
-            .unwrap_or(Position {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-            });
+            .spawn_provider()
+            .and_then(|provider| provider.spawn_points().into_iter().next())
+        {
+            return point;
+        }
         // The config's spawn rotation is stored in degrees (Transform.CODEC_DEGREES);
         // a new player starts facing the default direction.
         PlayerTransform::new(
-            position,
+            Position {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
             Rotation {
                 pitch: 0.0,
                 yaw: 0.0,

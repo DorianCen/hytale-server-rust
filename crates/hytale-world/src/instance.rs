@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::player_data::{PlayerTransform, Position, Rotation};
+use crate::player_data::{PlayerTransform, Rotation};
+use crate::spawn::SpawnProvider;
 /// Portal asset folder below an extracted asset root.
 pub const PORTAL_TYPES_ROOT: &str = "Server/PortalTypes";
 /// Instance save folder below an extracted asset root.
@@ -61,8 +62,8 @@ pub struct PortalType {
     pub instance_id: String,
     /// Gameplay config override.
     pub gameplay_config: Option<String>,
-    /// Spawn point defined by the portal type, if any.
-    pub spawn: Option<Position>,
+    /// Spawn provider override defined by the portal type, if any.
+    pub spawn_provider: Option<SpawnProvider>,
     /// Close the instance when the last player leaves.
     pub close_when_empty: bool,
     /// Void invasion toggle.
@@ -88,14 +89,10 @@ impl PortalType {
                 field: "InstanceId",
             })?
             .to_string();
-        let spawn = value.get("Spawn").and_then(|spawn| {
-            let point = spawn.get("SpawnProviderOverride")?.get("SpawnPoint")?;
-            Some(Position {
-                x: point.get("X")?.as_f64()?,
-                y: point.get("Y")?.as_f64()?,
-                z: point.get("Z")?.as_f64()?,
-            })
-        });
+        let spawn_provider = value
+            .get("Spawn")
+            .and_then(|spawn| spawn.get("SpawnProviderOverride"))
+            .and_then(SpawnProvider::from_value);
         Ok(Self {
             key: key.to_string(),
             instance_id,
@@ -103,7 +100,7 @@ impl PortalType {
                 .get("GameplayConfig")
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned),
-            spawn,
+            spawn_provider,
             close_when_empty: value
                 .get("CloseWhenEmpty")
                 .and_then(Value::as_bool)
@@ -282,6 +279,8 @@ pub struct PortalTransportPlan {
     pub gameplay_config: Option<String>,
     /// Target spawn transform.
     pub spawn: PlayerTransform,
+    /// Provider override used to resolve a per-player spawn.
+    pub spawn_provider: Option<SpawnProvider>,
     /// Instance time limit.
     pub time_limit_seconds: Option<f64>,
     /// Items removed on return.
@@ -299,14 +298,16 @@ pub struct PortalTransportPlan {
 impl PortalTransportPlan {
     fn from_portal(portal: &PortalType, fallback: PlayerTransform) -> Self {
         let spawn = portal
-            .spawn
-            .map(|position| PlayerTransform::new(position, neutral_rotation()))
-            .unwrap_or(fallback);
+            .spawn_provider
+            .as_ref()
+            .and_then(|provider| provider.spawn_points().into_iter().next())
+            .unwrap_or_else(|| PlayerTransform::new(fallback.position, neutral_rotation()));
         Self {
             portal: portal.key.clone(),
             instance_id: portal.instance_id.clone(),
             gameplay_config: portal.gameplay_config.clone(),
             spawn,
+            spawn_provider: portal.spawn_provider.clone(),
             time_limit_seconds: portal.time_limit_seconds,
             ephemeral_items: portal.ephemeral_items.clone(),
             allowed_entry_count: portal.allowed_entry_count,
@@ -372,6 +373,7 @@ fn walk(root: &Path, visit: &mut impl FnMut(&Path)) -> Result<(), InstanceError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::player_data::Position;
 
     fn assets_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Assets/extracted")
@@ -388,14 +390,14 @@ mod tests {
         let portal = catalog.get("Goblin_Breach").expect("Goblin_Breach");
         assert_eq!(portal.instance_id, "Portals/Portals_Goblins");
         assert_eq!(portal.gameplay_config.as_deref(), Some("PortalsGoblins"));
-        assert_eq!(
-            portal.spawn,
-            Some(Position {
-                x: 0.5,
-                y: 149.0,
-                z: 290.5
-            })
-        );
+        let spawn = portal
+            .spawn_provider
+            .as_ref()
+            .and_then(|provider| provider.spawn_points().into_iter().next())
+            .expect("spawn provider point");
+        assert_eq!(spawn.position.x, 0.5);
+        assert_eq!(spawn.position.y, 149.0);
+        assert_eq!(spawn.position.z, 290.5);
         assert_eq!(portal.time_limit_seconds, Some(600.0));
         assert_eq!(portal.ephemeral_items, vec!["Coffer_Key"]);
         assert!(!portal.close_when_empty);
@@ -429,7 +431,16 @@ mod tests {
         let portal = catalog.get("The_Deepworks").expect("The_Deepworks");
         assert!(portal.allow_players_to_leave_via_map);
         assert!(!portal.close_when_empty);
-        assert_eq!(portal.spawn.expect("spawn").y, 288.0);
+        assert_eq!(
+            portal
+                .spawn_provider
+                .as_ref()
+                .and_then(|provider| provider.spawn_points().into_iter().next())
+                .expect("spawn")
+                .position
+                .y,
+            288.0
+        );
         assert_eq!(portal.time_limit_seconds, None);
     }
 

@@ -2830,3 +2830,27 @@ This file records phase-2 sessions only.
 - **Deferred:** map byte parity still has no Java `MapImage` dumper; the exact
   shading/quantisation tuning is documented in `GOLDEN_DATA.md`. First-person
   drift needs a release-client trace; none was available.
+
+## Session 104 — T75 per-join identity and spawn providers (2026-11-15)
+
+- **Identity:** listener worlds now start with `create_default_player: false`.
+  No synthetic player document is written at boot; the session snapshot creates
+  only the joining UUID. CLI `world-boot`/`chunk-serve` keep their explicit
+  default-player behavior.
+- **Spawn providers:** new `hytale-world::spawn` parses Java `Global`,
+  `Individual` (deterministic `HashUtil.hashUuid`) and `FitToHeightMap`
+  providers, with `isWithinSpawnDistance` and `NO_HEIGHT` fitting. Fixtures live
+  in `testdata/spawn_providers/`.
+- **Resolution:** `WorldConfig::spawn_provider`, `World` default spawn and
+  `WorldThread` new/legacy-player snapshots use the provider. `spawn_point` and
+  `resolve_spawn_provider` commands expose it; automatic death respawn teleports
+  to the provider point, and the map emits Java's `SpawnMarkerProvider` marker.
+  Portal `SpawnProviderOverride` is decoded through the same codec and resolved
+  per UUID during transfer.
+- **Tests:** `hytale-world` provider fixtures (3), `hytale-server` boot/provider
+  tests (2), ignored `player_identity` two-UUID loopback (79.02 s), portal
+  transfer (3), portal session (1), multiplayer persistence (1), fast 1657
+  passed / 34 skipped, workspace clippy and fmt clean.
+- **Deferred:** command-path `/respawn` still resets at the current position;
+  automatic death respawn uses the provider. Real portal overrides are Global;
+  Individual/Fit are covered by the provider codec and transfer path.

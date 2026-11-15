@@ -25,6 +25,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+use crate::spawn::SpawnProvider;
+
 /// Current `WorldConfig` codec version (`WorldConfig.VERSION`).
 pub const WORLD_CONFIG_VERSION: i32 = 4;
 
@@ -67,6 +69,15 @@ pub enum WorldConfigError {
 
 /// Result alias for world config operations.
 pub type Result<T> = std::result::Result<T, WorldConfigError>;
+
+impl WorldConfig {
+    /// Resolve the configured Java `SpawnProvider`, when present.
+    pub fn spawn_provider(&self) -> Option<SpawnProvider> {
+        self.spawn_provider
+            .as_ref()
+            .and_then(|provider| SpawnProvider::from_value(&Value::Object(provider.0.clone())))
+    }
+}
 
 /// A world UUID in the Java extended-JSON shape
 /// `{"$binary":"<base64>","$type":"04"}`.

@@ -1,6 +1,6 @@
 # T75 — Per-join player identity and spawn providers
 
-**Status:** proposed (filed session 99)
+**Status:** done (session 104)
 **Package:** `hytale-server`, `hytale-world`, `tools/client-bot`, docs
 **Depends on:** T44, T65, T66
 **Agent fit:** medium
@@ -45,6 +45,45 @@ Each authenticated UUID must get its own player document and Java-selected spawn
     reconnect and restart preserve each one.
 - Docs: update `NEXT_STEPS.md`, `ARCHITECTURE.md`, task board.
 
+## Landed (session 104)
+
+- New `hytale-world::spawn` parses Java `Global`, `Individual` and
+  `FitToHeightMap` providers, implements Java `HashUtil.hashUuid` selection,
+  `isWithinSpawnDistance`, per-UUID spawn resolution and the `NO_HEIGHT`
+  heightmap fit. Fixtures live under `testdata/spawn_providers/`.
+- `WorldConfig::spawn_provider()` exposes the parsed provider; `World`'s default
+  spawn uses the provider's first point.
+- `WorldThreadOptions::create_default_player` defaults to `true` for CLI
+  `world-boot`/`chunk-serve`, but `UniverseRuntime::start_world` sets it to
+  `false`: listener boot creates no synthetic player. Session snapshots create
+  only the joining UUID, using the provider for new/legacy `(0,0,0)` players.
+- New `WorldThread::spawn_point`/`resolve_spawn_provider` commands resolve the
+  provider for the world or a portal override, including heightmap fitting.
+  Automatic death respawn now teleports to the provider point.
+- Portal `SpawnProviderOverride` is decoded through the same provider codec and
+  per-UUID selection is applied during transfer. The map gains Java's
+  `SpawnMarkerProvider` marker at the player's provider spawn.
+- Regression tests: provider fixtures/unit tests, a world-thread test proving no
+  synthetic player plus per-UUID global/individual spawns, and the ignored
+  `player_identity` loopback: two UUIDs get distinct provider spawns, only their
+  documents exist, and restart/reconnect preserves both.
+
+## Verification (session 104)
+
+```sh
+cargo test -p hytale-world --test spawn_providers                 # 3 passed
+cargo test -p hytale-server --test spawn_providers                # 2 passed
+cargo test -p hytale-server --lib                                 # 59 passed
+cargo test -p client-bot --test player_identity -- --ignored      # 1 passed (79.02 s)
+cargo test -p hytale-server --test portal_transfer                # 3 passed (61.97 s)
+cargo test -p client-bot --test portal_session -- --ignored       # 1 passed (92.39 s)
+cargo test -p client-bot --test multiplayer_persistence -- --ignored # 1 passed (119.14 s)
+cargo test -p client-bot --test universe_restart -- --ignored       # 1 passed (304.85 s)
+./tools/test.sh fast                                              # 1657 passed, 34 skipped
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
 ## Read first
 
 - Java:
@@ -83,6 +122,17 @@ cargo fmt --all -- --check
 - Reconnect and universe restart restore the correct per-UUID player.
 - Java provider fixtures select the same spawn as Java; portal overrides win.
 - Existing world-boot/chunk-serve CLI defaults remain usable.
+
+## Deviations
+
+- `/respawn` from the command/control path still resets health at the current
+  position; automatic death respawn uses the provider. A full command respawn
+  teleport can reuse `WorldThread::spawn_point` in a follow-up.
+- Individual portal overrides are resolved per UUID; `FitToHeightMap` portal
+  overrides are fitted through the target world's provider resolver. Real
+  portal assets currently use `Global`.
+- Spawn markers are per-player provider markers; block-authored map markers
+  keep their existing discovery/reveal behavior.
 
 ## Notes
 

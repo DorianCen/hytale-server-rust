@@ -104,6 +104,7 @@ pub fn run(options: &WorldBootOptions) -> Result<WorldBootReport, WorldBootError
         display_name: options.display_name.clone(),
         world_uuid: options.world_uuid.clone(),
         player_uuid: options.player_uuid.clone(),
+        create_default_player: true,
         view_radius: options.view_radius,
         spawn_search: true,
         chunks_per_tick: options.chunks_per_tick.max(1),

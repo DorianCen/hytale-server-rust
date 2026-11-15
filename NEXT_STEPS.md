@@ -368,8 +368,9 @@ asset-bring-up list:
    remaining weather document fields are landed. See
    [T74](tasks/T74-presentation-gaps.md); map byte parity remains a semantic
    gate documented in `GOLDEN_DATA.md`.
-6. **Per-join player identity and real spawn providers:** per-auth-UUID identity
-   and Java `SpawnProvider` parity are filed as
+6. **Per-join player identity and real spawn providers (T75, done session 104):**
+   listener worlds no longer create a synthetic player, and `Global`/
+   `Individual`/`FitToHeightMap` provider spawns resolve per UUID. See
    [T75](tasks/T75-player-identity-spawn-providers.md).
 7. **Upstream hardening (T68, done session 95):** the 2026-11-05 Java shared
    source adds an outbound TLS SPKI deny-list, packet channel validation and a

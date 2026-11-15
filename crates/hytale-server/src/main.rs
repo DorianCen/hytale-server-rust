@@ -858,6 +858,7 @@ fn run_chunk_serve_command(args: ChunkServeArgs, builtin: BuiltinRuntime) -> Exi
             display_name: args.name,
             world_uuid: args.uuid,
             player_uuid: args.player_uuid,
+            create_default_player: true,
             view_radius: args.view_radius,
             spawn_search: true,
             chunks_per_tick: args.chunks_per_tick,

@@ -103,6 +103,10 @@ pub struct WorldThreadOptions {
     pub world_uuid: Option<String>,
     /// Player to load or create.
     pub player_uuid: Option<String>,
+    /// Create/load a default player at boot. Listeners disable this so worlds
+    /// start without a synthetic player; explicit CLI player selection keeps it
+    /// enabled.
+    pub create_default_player: bool,
     /// Initial view radius around the player chunk.
     pub view_radius: u32,
     /// Search for a flat spawn near the origin instead of using the raw column.
@@ -123,6 +127,7 @@ impl WorldThreadOptions {
             display_name: None,
             world_uuid: None,
             player_uuid: None,
+            create_default_player: true,
             view_radius: 0,
             spawn_search: true,
             chunks_per_tick: 1,
@@ -969,6 +974,15 @@ enum Command {
     PlayerSnapshot {
         uuid: WorldUuid,
         reply: SyncSender<Result<PlayerSnapshot, String>>,
+    },
+    SpawnPoint {
+        uuid: WorldUuid,
+        reply: SyncSender<Result<Option<PlayerTransform>, String>>,
+    },
+    ResolveSpawn {
+        provider: hytale_world::spawn::SpawnProvider,
+        uuid: WorldUuid,
+        reply: SyncSender<Result<Option<PlayerTransform>, String>>,
     },
     PlayerDocument {
         uuid: WorldUuid,
@@ -2775,6 +2789,41 @@ impl WorldThread {
         let (reply, response) = mpsc::sync_channel(1);
         self.commands
             .send(Command::PlayerSnapshot { uuid, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Resolve the configured world `SpawnProvider` point for one player UUID.
+    pub fn spawn_point(
+        &self,
+        uuid: WorldUuid,
+    ) -> Result<Option<PlayerTransform>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::SpawnPoint { uuid, reply })
+            .map_err(|_| WorldThreadError::ChannelClosed)?;
+        response
+            .recv()
+            .map_err(|_| WorldThreadError::ChannelClosed)?
+            .map_err(WorldThreadError::Thread)
+    }
+
+    /// Resolve one explicit spawn provider (for portal overrides).
+    pub fn resolve_spawn_provider(
+        &self,
+        provider: hytale_world::spawn::SpawnProvider,
+        uuid: WorldUuid,
+    ) -> Result<Option<PlayerTransform>, WorldThreadError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::ResolveSpawn {
+                provider,
+                uuid,
+                reply,
+            })
             .map_err(|_| WorldThreadError::ChannelClosed)?;
         response
             .recv()
@@ -5484,6 +5533,25 @@ fn run(
                             player_snapshot(&mut save, &generator, uuid, options.spawn_search);
                         let _ = reply.send(result);
                     }
+                    Command::SpawnPoint { uuid, reply } => {
+                        let result = save
+                            .config()
+                            .spawn_provider()
+                            .map(|provider| {
+                                resolve_provider_spawn(&mut save, &generator, &provider, uuid)
+                            })
+                            .transpose()
+                            .map(Option::flatten);
+                        let _ = reply.send(result);
+                    }
+                    Command::ResolveSpawn {
+                        provider,
+                        uuid,
+                        reply,
+                    } => {
+                        let result = resolve_provider_spawn(&mut save, &generator, &provider, uuid);
+                        let _ = reply.send(result);
+                    }
                     Command::PlayerDocument { uuid, reply } => {
                         let result = save
                             .load_or_create_player(uuid)
@@ -5659,11 +5727,14 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         options.display_name.clone(),
         world_uuid,
     )?;
+    let create_player = options.player_uuid.is_some() || options.create_default_player;
     let player_uuid = match &options.player_uuid {
-        Some(value) => value
-            .parse()
-            .map_err(|_| WorldThreadError::InvalidUuid(value.clone()))?,
-        None => {
+        Some(value) => Some(
+            value
+                .parse()
+                .map_err(|_| WorldThreadError::InvalidUuid(value.clone()))?,
+        ),
+        None if create_player => Some({
             let stored = save.players().players()?;
             stored.first().copied().unwrap_or_else(|| {
                 WorldUuid::derive(
@@ -5674,11 +5745,22 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
                     ),
                 )
             })
-        }
+        }),
+        None => None,
     };
-    let (mut player, player_created) = save.load_or_create_player(player_uuid)?;
-    let mut player_transform = player.transform();
-    let mut player_appearance = player.appearance();
+    let (mut player, player_created) = match player_uuid {
+        Some(uuid) => {
+            let (player, created) = save.load_or_create_player(uuid)?;
+            (Some(player), created)
+        }
+        None => (None, false),
+    };
+    let spawn_provider = save.config().spawn_provider();
+    let mut player_transform = player.as_ref().and_then(|player| player.transform());
+    let mut player_appearance = player
+        .as_ref()
+        .map(|player| player.appearance())
+        .unwrap_or_default();
     player_appearance.model_packet = generator.assets().player_model.clone();
     player_appearance.resolve_items(|id| generator.assets().items.get(id).is_some());
 
@@ -5686,28 +5768,42 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     // generated universes have no provider, so a new (or legacy `(0,0,0)`)
     // player would otherwise start inside the terrain. Load the spawn column,
     // then place the player one block above its highest non-air block.
-    let spawn_hint = player_transform.unwrap_or_else(|| {
-        PlayerTransform::new(
-            Position {
-                x: 0.5,
-                y: 0.0,
-                z: 0.5,
-            },
-            Rotation {
-                pitch: 0.0,
-                yaw: 0.0,
-                roll: 0.0,
-            },
-        )
-    });
-    let near_origin = spawn_hint.position.x.abs() <= 8.0 && spawn_hint.position.z.abs() <= 8.0;
-    if player_transform.is_none() || near_origin {
-        let surface =
-            resolve_spawn(&mut save, &generator, spawn_hint).map_err(WorldThreadError::Thread)?;
-        player.set_transform(surface);
-        player_transform = Some(surface);
+    if let (Some(uuid), Some(player)) = (player_uuid, player.as_mut()) {
+        let spawn_hint = player_transform.unwrap_or_else(|| {
+            PlayerTransform::new(
+                Position {
+                    x: 0.5,
+                    y: 0.0,
+                    z: 0.5,
+                },
+                Rotation {
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    roll: 0.0,
+                },
+            )
+        });
+        let near_origin = spawn_hint.position.x.abs() <= 8.0 && spawn_hint.position.z.abs() <= 8.0;
+        if player_transform.is_none() || player_created || near_origin {
+            let surface = match spawn_provider.as_ref() {
+                Some(provider) => {
+                    let provider_spawn =
+                        resolve_provider_spawn(&mut save, &generator, provider, uuid)
+                            .map_err(WorldThreadError::Thread)?;
+                    match provider_spawn {
+                        Some(spawn) => spawn,
+                        None => resolve_spawn(&mut save, &generator, spawn_hint)
+                            .map_err(WorldThreadError::Thread)?,
+                    }
+                }
+                None => resolve_spawn(&mut save, &generator, spawn_hint)
+                    .map_err(WorldThreadError::Thread)?,
+            };
+            player.set_transform(surface);
+            player_transform = Some(surface);
+        }
+        save.save_player(uuid, player)?;
     }
-    save.save_player(player_uuid, &player)?;
 
     // The gameplay config id comes from `config.json`; a missing asset (or a
     // pack that fails to load it) falls back to Java `GameplayConfig.DEFAULT`.
@@ -5774,15 +5870,30 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
     );
 
     let stored_chunks = save.world().storage().stored_chunk_coordinates()?.len();
-    let player_chunk = player
-        .transform()
-        .map(|transform| {
-            (
-                block_to_chunk(transform.position.x),
-                block_to_chunk(transform.position.z),
-            )
+    let view_anchor = player_transform
+        .or_else(|| {
+            spawn_provider
+                .as_ref()
+                .and_then(|provider| provider.spawn_points().into_iter().next())
         })
-        .unwrap_or((0, 0));
+        .unwrap_or_else(|| {
+            PlayerTransform::new(
+                Position {
+                    x: 0.5,
+                    y: 0.0,
+                    z: 0.5,
+                },
+                Rotation {
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    roll: 0.0,
+                },
+            )
+        });
+    let player_chunk = (
+        block_to_chunk(view_anchor.position.x),
+        block_to_chunk(view_anchor.position.z),
+    );
     let npc_entities: Vec<_> = save
         .world()
         .entities()
@@ -5858,7 +5969,7 @@ fn start(options: &WorldThreadOptions) -> Result<Started, WorldThreadError> {
         config_created,
         world_uuid: save.config().uuid.to_string(),
         seed: save.config().seed,
-        player_uuid: player_uuid.to_string(),
+        player_uuid: player_uuid.map(|uuid| uuid.to_string()).unwrap_or_default(),
         player_created,
         stored_chunks,
         player_chunk,
@@ -6049,6 +6160,37 @@ fn flat_spawn_height(world: &hytale_world::world::World, x: i32, z: i32) -> Opti
 /// origin is exactly that), which leaves the client unable to move. Load a 3x3
 /// chunk area, then pick the nearest column with a two-block air gap and
 /// flat-enough neighbours.
+fn resolve_provider_spawn(
+    save: &mut WorldSave,
+    generator: &WorldGenerator,
+    provider: &hytale_world::spawn::SpawnProvider,
+    uuid: WorldUuid,
+) -> Result<Option<PlayerTransform>, String> {
+    let Some(mut point) = provider.spawn_point(uuid) else {
+        return Ok(None);
+    };
+    let needs_fit = matches!(
+        provider,
+        hytale_world::spawn::SpawnProvider::FitToHeightMap(_)
+    ) || point.position.y == f64::from(hytale_world::spawn::NO_HEIGHT);
+    if needs_fit {
+        let x = point.position.x.floor() as i32;
+        let z = point.position.z.floor() as i32;
+        let (chunk_x, chunk_z) = (
+            block_to_chunk(point.position.x),
+            block_to_chunk(point.position.z),
+        );
+        if save.world().chunk(chunk_x, chunk_z).is_none() {
+            let column = generator
+                .generate(save.config().seed as i32, chunk_x, chunk_z)
+                .map_err(|error| error.to_string())?;
+            save.world_mut().insert_chunk(column);
+        }
+        point.position.y = f64::from(highest_non_air(save.world(), x, z).max(0) + 1);
+    }
+    Ok(Some(point))
+}
+
 fn resolve_spawn(
     save: &mut WorldSave,
     generator: &WorldGenerator,
@@ -6808,11 +6950,23 @@ fn player_snapshot(
     // near the origin leaves the client stuck with no movement. Resolve a flat
     // surface spot for every join near the world spawn (and for new players).
     let near_origin = transform.position.x.abs() <= 8.0 && transform.position.z.abs() <= 8.0;
-    if spawn_search && (near_origin || _created) {
-        transform = resolve_spawn(save, generator, transform)?;
-        player.set_transform(transform);
-        save.save_player(uuid, &player)
-            .map_err(|error| error.to_string())?;
+    if near_origin || _created {
+        let provider = save.config().spawn_provider();
+        let resolved = match provider.as_ref() {
+            Some(provider) => resolve_provider_spawn(save, generator, provider, uuid)?,
+            None => None,
+        };
+        let resolved = match (resolved, spawn_search) {
+            (Some(transform), _) => Some(transform),
+            (None, true) => Some(resolve_spawn(save, generator, transform)?),
+            (None, false) => None,
+        };
+        if let Some(resolved) = resolved {
+            transform = resolved;
+            player.set_transform(transform);
+            save.save_player(uuid, &player)
+                .map_err(|error| error.to_string())?;
+        }
     }
     let mut appearance = player.appearance();
     appearance.model_packet = generator.assets().player_model.clone();

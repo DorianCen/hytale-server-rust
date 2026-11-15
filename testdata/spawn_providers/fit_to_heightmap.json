@@ -1,0 +1,11 @@
+{
+  "Id": "FitToHeightMap",
+  "SpawnProvider": {
+    "Id": "Global",
+    "SpawnPoint": {
+      "X": 4.5,
+      "Y": -2147483648,
+      "Z": 7.5
+    }
+  }
+}

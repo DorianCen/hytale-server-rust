@@ -825,8 +825,12 @@ pub async fn serve_connection_with_registry(
             }
         }
         game.runtime_entities = runtime_entities;
-        let (visible_markers, new_markers) =
-            map_markers_for_player(thread, &revealed_markers, player_transform.position)?;
+        let (visible_markers, new_markers) = map_markers_for_player(
+            thread,
+            player_uuid,
+            &revealed_markers,
+            player_transform.position,
+        )?;
         if !visible_markers.is_empty() {
             world_map
                 .write_packet(
@@ -2207,12 +2211,37 @@ fn world_map_settings_packet() -> UpdateWorldMapSettings {
 
 fn map_markers_for_player(
     thread: &WorldThread,
+    player_uuid: WorldUuid,
     revealed: &BTreeSet<String>,
     position: hytale_world::player_data::Position,
 ) -> Result<(Vec<MapMarker>, Vec<String>), WorldThreadError> {
     const DISCOVERY_RADIUS: f64 = 32.0;
     let mut visible = Vec::new();
     let mut discovered = Vec::new();
+    // Java `SpawnMarkerProvider`: one marker at the player's provider spawn,
+    // independent of the saved transform.
+    if let Some(spawn) = thread.spawn_point(player_uuid)? {
+        visible.push(MapMarker {
+            id: "spawn".to_string(),
+            name: Some(FormattedMessage {
+                message_id: Some("server.general.spawn".to_string()),
+                ..FormattedMessage::default()
+            }),
+            marker_image: "Spawn.png".to_string(),
+            transform: ProtocolTransform {
+                position: Some(ProtocolPosition {
+                    x: spawn.position.x,
+                    y: spawn.position.y,
+                    z: spawn.position.z,
+                }),
+                orientation: None,
+            },
+            context_menu_items: None,
+            components: None,
+            icon_size: MapMarkerIconSize::Default,
+            compass_image: None,
+        });
+    }
     for ((x, y, z), component) in thread.block_components()? {
         let Some(marker) = map_marker_from_component(x, y, z, &component.components) else {
             continue;
@@ -3478,6 +3507,21 @@ async fn run_game_loop(
         let effect_updates = active_thread.tick_player_gameplay(network_id, 0.05)?;
         if npc_report.player_deaths > 0 {
             let _ = active_thread.respawn_player(network_id);
+            if let Some(spawn) = active_thread.spawn_point(player_uuid)? {
+                *transform = spawn;
+                let next = (
+                    block_to_chunk(transform.position.x),
+                    block_to_chunk(transform.position.z),
+                );
+                active_thread.update_view(view, next.0, next.1, radius)?;
+                center = next;
+                registry_center = next;
+                last_map_view = (next, radius);
+                players.update_transform(network_id, *transform);
+                send_client_teleport(writer, *transform, options).await?;
+                teleport_sent = true;
+                report.teleport_sent = true;
+            }
             report.player_respawns += 1;
         }
         let respawn_effects = active_thread.take_player_effect_updates(network_id)?;
@@ -5113,7 +5157,7 @@ async fn run_game_loop(
 
         if time_ticker.elapsed() >= Duration::from_secs(1) {
             let (visible, discovered) =
-                map_markers_for_player(thread, revealed_markers, transform.position)?;
+                map_markers_for_player(thread, player_uuid, revealed_markers, transform.position)?;
             if !discovered.is_empty() {
                 let discovered: BTreeSet<String> = discovered.into_iter().collect();
                 let added: Vec<MapMarker> = visible

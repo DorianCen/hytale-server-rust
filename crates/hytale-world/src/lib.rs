@@ -19,6 +19,7 @@ pub mod prefab;
 pub mod registry;
 pub mod runtime;
 pub mod simulation;
+pub mod spawn;
 pub mod universe;
 pub mod view;
 pub mod weather;

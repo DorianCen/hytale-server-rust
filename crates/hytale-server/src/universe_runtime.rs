@@ -168,6 +168,7 @@ impl UniverseRuntime {
             display_name: Some(descriptor.name.clone()),
             world_uuid: Some(descriptor.uuid.to_string()),
             player_uuid: None,
+            create_default_player: false,
             view_radius: self.view_radius,
             spawn_search: true,
             chunks_per_tick: self.chunks_per_tick,
@@ -336,7 +337,13 @@ impl UniverseRuntime {
                 );
             }
         }
-        document.set_transform(arrival.plan.spawn);
+        let spawn = match &arrival.plan.spawn_provider {
+            Some(provider) => target
+                .resolve_spawn_provider(provider.clone(), player_uuid)?
+                .unwrap_or(arrival.plan.spawn),
+            None => arrival.plan.spawn,
+        };
+        document.set_transform(spawn);
         target.save_player_document(player_uuid, document.clone())?;
         source.delete_player_document(player_uuid)?;
         if let Ok(mut entries) = self.portal_entries.lock() {

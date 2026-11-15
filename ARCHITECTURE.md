@@ -628,7 +628,10 @@ not part of v1.
   `update_view`/`send_updates` from `ClientMovement` so a moving player loads
   and unloads chunks. Teardown always saves the session transform, removes its
   view and unregisters the player. A reconnect loads the per-UUID player
-  snapshot before the registry join.
+  snapshot before the registry join. T75 makes listener worlds start without a
+  synthetic player and resolves the world/portal `SpawnProvider` per joining
+  UUID (`Global`, deterministic `Individual`, and `FitToHeightMap`), including
+  the per-player world-map spawn marker.
   `hytale-server::serve` now owns the persistent listener: one universe, one
   independent task per connection, a shared per-world config cache, one shared
   `PlayerRegistry`, connection limits, idle timeout and graceful shutdown. The
