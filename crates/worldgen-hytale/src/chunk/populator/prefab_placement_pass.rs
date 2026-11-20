@@ -155,6 +155,12 @@ pub(crate) trait PlacementContext {
 /// PrefabRotation rotation, IPrefabBuffer buffer, WorldGenPrefabSupplier
 /// supplier, PrefabContainer.PrefabContainerEntry entry,
 /// PrefabPatternGenerator generator)`.
+///
+/// The query buckets clone candidates (the `Rc`s make that cheap) so that a
+/// window's bucket can be passed to
+/// [`PlacementCollector::invalidate_candidates`] while the original indices
+/// stay available.
+#[derive(Clone)]
 pub(crate) struct Candidate {
     /// Java `int x`.
     pub(crate) x: i32,
