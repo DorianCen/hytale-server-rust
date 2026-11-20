@@ -22,6 +22,7 @@
 
 pub mod block_populator;
 pub mod cave_populator;
+pub(crate) mod prefab_placement_pass;
 pub mod prefab_populator;
 pub mod water_populator;
 
