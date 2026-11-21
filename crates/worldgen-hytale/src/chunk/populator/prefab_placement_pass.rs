@@ -136,6 +136,16 @@ pub(crate) trait PlacementContext {
     /// lookup and the height queries).
     fn generator(&self) -> &ChunkGenerator;
 
+    /// The zone+biome result of the column `(x, z)`.
+    ///
+    /// Defaults to a direct (generator-cached) lookup. [`PlacementContext`]
+    /// implementations may memoize it: the pass only reads the result's biome,
+    /// so a snapshot per column is exact. The feature query does, because one
+    /// query visits the same column once per (biome, entry) pair.
+    fn zone_biome_result_at(&self, seed: i32, x: i32, z: i32) -> ZoneBiomeResult {
+        self.generator().get_zone_biome_result_at(seed, x, z)
+    }
+
     /// The biomes known exactly for the window interior — the collection
     /// seeds its biome list with them (the populator: the chunk's core-data
     /// entries; a future query: empty, the region scan covers everything).
@@ -151,16 +161,60 @@ pub(crate) trait PlacementContext {
     fn base_check_height(&self, seed: i32, x: i32, z: i32) -> i32;
 }
 
+/// The rotated inclusive AABB of a prefab, relative to its placement origin
+/// (the candidate's block position).
+///
+/// Java's `Candidate` keeps the whole `IPrefabBuffer` alive; the Rust port
+/// stores the six bounds it would read from it instead. The accessors are pure
+/// reads of an immutable buffer, so the values are identical — but a
+/// `Candidate` no longer pins ~100 KB of prefab block data per placement (the
+/// prefab store's own cache keeps the shared buffers alive).
+///
+/// The fields are the values of `PrefabBufferAccessor::get_min_x(rotation)`,
+/// `get_min_y()`, `get_min_z(rotation)`, `get_max_x(rotation)`,
+/// `get_max_y()` and `get_max_z(rotation)` — **already rotated** for the
+/// candidate's [`PrefabRotation`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PrefabFootprint {
+    /// The rotated minimum x relative to the placement origin.
+    pub(crate) min_x: i32,
+    /// The minimum y relative to the placement origin.
+    pub(crate) min_y: i32,
+    /// The rotated minimum z relative to the placement origin.
+    pub(crate) min_z: i32,
+    /// The rotated maximum x relative to the placement origin.
+    pub(crate) max_x: i32,
+    /// The maximum y relative to the placement origin.
+    pub(crate) max_y: i32,
+    /// The rotated maximum z relative to the placement origin.
+    pub(crate) max_z: i32,
+}
+
+impl PrefabFootprint {
+    /// The footprint of `buffer` rotated by `rotation` — exactly the six
+    /// accessor reads [`PlacementCollector::rotated_bounds`] used to perform
+    /// lazily.
+    fn of(buffer: &PrefabBuffer, rotation: PrefabRotation) -> Self {
+        let access = buffer.new_access();
+        Self {
+            min_x: access.get_min_x(rotation),
+            min_y: access.get_min_y(),
+            min_z: access.get_min_z(rotation),
+            max_x: access.get_max_x(rotation),
+            max_y: access.get_max_y(),
+            max_z: access.get_max_z(rotation),
+        }
+    }
+}
+
 /// Java `private record Candidate(int x, int y, int z, int priority,
 /// PrefabRotation rotation, IPrefabBuffer buffer, WorldGenPrefabSupplier
 /// supplier, PrefabContainer.PrefabContainerEntry entry,
 /// PrefabPatternGenerator generator)`.
 ///
-/// The query buckets clone candidates (the `Rc`s make that cheap) so that a
-/// window's bucket can be passed to
-/// [`PlacementCollector::invalidate_candidates`] while the original indices
-/// stay available.
-#[derive(Clone)]
+/// The query buckets candidates by index and passes borrowed slices to
+/// [`PlacementCollector::invalidate_candidates`], so a candidate never needs to
+/// be cloned.
 pub(crate) struct Candidate {
     /// Java `int x`.
     pub(crate) x: i32,
@@ -172,8 +226,9 @@ pub(crate) struct Candidate {
     pub(crate) priority: i32,
     /// Java `PrefabRotation rotation`.
     pub(crate) rotation: PrefabRotation,
-    /// Java `IPrefabBuffer buffer`.
-    pub(crate) buffer: Rc<PrefabBuffer>,
+    /// The rotated AABB of the prefab's buffer (Java's `IPrefabBuffer
+    /// buffer`, reduced to the only values the pass reads from it).
+    pub(crate) footprint: PrefabFootprint,
     /// Java `WorldGenPrefabSupplier supplier`.
     pub(crate) supplier: Rc<WorldGenPrefabSupplier>,
     /// Java `PrefabContainer.PrefabContainerEntry entry`.
@@ -447,9 +502,7 @@ impl PlacementCollector {
             return;
         }
 
-        let result = ctx
-            .generator()
-            .get_zone_biome_result_at(self.world_seed, x, z);
+        let result = ctx.zone_biome_result_at(self.world_seed, x, z);
         if !Self::is_matching_biome(biome, &result) {
             return;
         }
@@ -470,6 +523,12 @@ impl PlacementCollector {
         };
 
         let rotation = Self::generate_rotation(x, z, &mut self.random, pattern_generator);
+
+        // The rotated AABB the pass needs later, extracted while the buffer is
+        // materialized. The local `Rc` drops at the end of this method; keeping
+        // only the six bounds keeps a candidate from pinning the prefab's block
+        // data (the prefab store caches the buffer itself).
+        let footprint = PrefabFootprint::of(&prefab, rotation);
 
         // Estimate the height at that position and check if the prefab should
         // spawn at that height.
@@ -511,16 +570,7 @@ impl PlacementCollector {
             return;
         }
 
-        if !Self::is_base_valid(
-            self.world_seed,
-            x,
-            z,
-            y,
-            rotation,
-            &prefab,
-            pattern_generator,
-            ctx,
-        ) {
+        if !Self::is_base_valid(self.world_seed, x, z, y, &footprint, pattern_generator, ctx) {
             log_util::debug(&format!(
                 "Prefab failed base-check at: /tp {x} {y} {z} [{}]",
                 supplier.get_prefab_name()
@@ -536,7 +586,7 @@ impl PlacementCollector {
             z,
             priority: category.priority,
             rotation,
-            buffer: prefab,
+            footprint,
             supplier: Rc::new(supplier),
             entry: Rc::clone(entry),
             generator: Rc::clone(pattern_generator),
@@ -555,7 +605,10 @@ impl PlacementCollector {
         if self.invalidated.len() < self.prefabs.len() {
             self.invalidated.resize(self.prefabs.len(), false);
         }
-        Self::invalidate_candidates(&self.prefabs, &mut self.invalidated, self.min_priority);
+        // `invalidate_candidates` only reads the candidates; hand it borrows
+        // (the query does the same over a bucket slice).
+        let candidates: Vec<&Candidate> = self.prefabs.iter().collect();
+        Self::invalidate_candidates(&candidates, &mut self.invalidated, self.min_priority);
     }
 
     /// The reusable core of `invalidatePrefabs`: marks every candidate that
@@ -563,14 +616,46 @@ impl PlacementCollector {
     ///
     /// `invalidated` must hold one bit per candidate (the caller sizes it);
     /// the bits that are already set are left alone.
+    ///
+    /// # Sweep equivalence
+    ///
+    /// The outer loop keeps the caller's slice order and the original skip
+    /// conditions (`priority <= min_priority`, or already invalidated *at that
+    /// point in the order*) exactly: an invalidated candidate must not
+    /// invalidate others, and that depends on the order the outer loop runs in.
+    /// Only the *discovery* of the inner candidates is accelerated: the pairs
+    /// are the same. For one outer candidate `i`, the original loop marks every
+    /// `j` with `priority_i > priority_j` and an AABB overlap; the inner visit
+    /// order is irrelevant because marking only sets bits, so walking the
+    /// candidates sorted by `min_x` and stopping at `min_x_j > max_x_i` yields
+    /// the identical bits (the x intervals are a necessary condition of the
+    /// full AABB test). No `j` is skipped by the sweep that the original pair
+    /// test would have marked.
     pub(crate) fn invalidate_candidates(
-        candidates: &[Candidate],
+        candidates: &[&Candidate],
         invalidated: &mut [bool],
         min_priority: i32,
     ) {
+        assert_eq!(
+            candidates.len(),
+            invalidated.len(),
+            "invalidate_candidates: one invalidation bit per candidate"
+        );
+        if candidates.is_empty() {
+            return;
+        }
+
+        // The bounds of every candidate and the x-start order are computed
+        // once; the outer loop below still walks `candidates` in slice order.
+        let bounds: Vec<(i32, i32, i32, i32, i32, i32)> = candidates
+            .iter()
+            .map(|candidate| Self::candidate_bounds(candidate))
+            .collect();
+        let mut by_min_x: Vec<usize> = (0..candidates.len()).collect();
+        by_min_x.sort_by_key(|&index| bounds[index].0);
+
         for i in 0..candidates.len() {
-            let candidate = &candidates[i];
-            let (min_x, min_y, min_z, max_x, max_y, max_z) = Self::candidate_bounds(candidate);
+            let candidate = candidates[i];
 
             // Skip if the candidate is already marked invalid or is too low
             // priority to invalidate any others.
@@ -578,17 +663,20 @@ impl PlacementCollector {
                 continue;
             }
 
-            // Mark any lower-priority candidates invalid if they overlap this
-            // one.
-            for j in 0..candidates.len() {
-                let other = &candidates[j];
+            let (min_x, min_y, min_z, max_x, max_y, max_z) = bounds[i];
 
-                if candidate.priority <= other.priority {
+            // Mark any lower-priority candidates invalid if they overlap this
+            // one. The x sweep stops as soon as a candidate starts right of
+            // this one; the y/z tests are the rest of the AABB test.
+            for &j in &by_min_x {
+                let (other_min_x, other_min_y, other_min_z, other_max_x, other_max_y, other_max_z) =
+                    bounds[j];
+                if other_min_x > max_x {
+                    break;
+                }
+                if other_max_x < min_x || candidate.priority <= candidates[j].priority {
                     continue;
                 }
-
-                let (other_min_x, other_min_y, other_min_z, other_max_x, other_max_y, other_max_z) =
-                    Self::candidate_bounds(other);
                 if Self::intersects(
                     min_x,
                     min_y,
@@ -612,13 +700,7 @@ impl PlacementCollector {
     /// The rotated inclusive AABB of `candidate`, in world coordinates:
     /// `(min_x, min_y, min_z, max_x, max_y, max_z)`.
     pub(crate) fn candidate_bounds(candidate: &Candidate) -> (i32, i32, i32, i32, i32, i32) {
-        Self::rotated_bounds(
-            candidate.x,
-            candidate.y,
-            candidate.z,
-            candidate.rotation,
-            &candidate.buffer,
-        )
+        Self::rotated_bounds(candidate.x, candidate.y, candidate.z, &candidate.footprint)
     }
 
     /// The rotated inclusive AABB of a prefab placed at `(x, y, z)`.
@@ -626,17 +708,15 @@ impl PlacementCollector {
         x: i32,
         y: i32,
         z: i32,
-        rotation: PrefabRotation,
-        buffer: &PrefabBuffer,
+        footprint: &PrefabFootprint,
     ) -> (i32, i32, i32, i32, i32, i32) {
-        let access = buffer.new_access();
         (
-            x.wrapping_add(access.get_min_x(rotation)),
-            y.wrapping_add(access.get_min_y()),
-            z.wrapping_add(access.get_min_z(rotation)),
-            x.wrapping_add(access.get_max_x(rotation)),
-            y.wrapping_add(access.get_max_y()),
-            z.wrapping_add(access.get_max_z(rotation)),
+            x.wrapping_add(footprint.min_x),
+            y.wrapping_add(footprint.min_y),
+            z.wrapping_add(footprint.min_z),
+            x.wrapping_add(footprint.max_x),
+            y.wrapping_add(footprint.max_y),
+            z.wrapping_add(footprint.max_z),
         )
     }
 
@@ -677,8 +757,7 @@ impl PlacementCollector {
         x: i32,
         z: i32,
         y: i32,
-        rotation: PrefabRotation,
-        buffer: &PrefabBuffer,
+        footprint: &PrefabFootprint,
         pattern: &PrefabPatternGenerator,
         ctx: &dyn PlacementContext,
     ) -> bool {
@@ -686,8 +765,7 @@ impl PlacementCollector {
             return true;
         }
 
-        let (min_x, min_y, min_z, max_x, _, max_z) =
-            Self::rotated_bounds(x, y, z, rotation, buffer);
+        let (min_x, min_y, min_z, max_x, _, max_z) = Self::rotated_bounds(x, y, z, footprint);
 
         let size_x = max_x.wrapping_sub(min_x);
         let size_z = max_z.wrapping_sub(min_z);
@@ -1137,8 +1215,7 @@ mod tests {
             0,
             0,
             0,
-            PrefabRotation::Rotation0,
-            &buffer,
+            &PrefabFootprint::of(&buffer, PrefabRotation::Rotation0),
             &pattern,
             &ctx
         ));
@@ -1162,8 +1239,7 @@ mod tests {
             100,
             100,
             60,
-            PrefabRotation::Rotation0,
-            &buffer,
+            &PrefabFootprint::of(&buffer, PrefabRotation::Rotation0),
             &pattern,
             &ctx
         ));
@@ -1175,8 +1251,7 @@ mod tests {
             100,
             100,
             100,
-            PrefabRotation::Rotation0,
-            &buffer,
+            &PrefabFootprint::of(&buffer, PrefabRotation::Rotation0),
             &pattern,
             &ctx
         ));
@@ -1199,8 +1274,7 @@ mod tests {
                 100,
                 100,
                 100,
-                PrefabRotation::Rotation0,
-                &buffer,
+                &PrefabFootprint::of(&buffer, PrefabRotation::Rotation0),
                 &pattern,
                 &ctx
             ),
@@ -1234,8 +1308,7 @@ mod tests {
             100,
             100,
             100,
-            PrefabRotation::Rotation0,
-            &buffer,
+            &PrefabFootprint::of(&buffer, PrefabRotation::Rotation0),
             &pattern,
             &ctx
         ));
@@ -1386,13 +1459,14 @@ mod tests {
     /// A candidate with the given position, priority and prefab size.
     fn candidate(x: i32, y: i32, z: i32, priority: i32, size: i32) -> Candidate {
         let blocks = vec![(0, 0, 0), (size, 0, 0), (0, 0, size), (size, 0, size)];
+        let buffer = test_buffer(&blocks);
         Candidate {
             x,
             y,
             z,
             priority,
             rotation: PrefabRotation::Rotation0,
-            buffer: test_buffer(&blocks),
+            footprint: PrefabFootprint::of(&buffer, PrefabRotation::Rotation0),
             supplier: Rc::new(test_supplier("PopulatorInvalidation", &blocks)),
             entry: Rc::new(PrefabContainerEntry::new(
                 supplier_map(Vec::new()),

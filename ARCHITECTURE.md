@@ -757,3 +757,16 @@ client ── QUIC frames ── hytale-protocol decode ── hytale-net sessio
 The next concrete step is in [`NEXT_STEPS.md`](NEXT_STEPS.md). Keep this file
 updated when a crate gains its first real module or a Java package is mapped to
 specific Rust files.
+
+---
+
+## 13. Headless feature query
+
+`worldgen_hytale::query` exposes `ChunkGenerator::features_in`: the populator's
+shared placement pass (`chunk::populator::prefab_placement_pass`) run against an
+arbitrary block rectangle instead of one chunk, without generating a block. It
+reports biome prefabs, unique prefabs and spawn points in deterministic order;
+the populator and the query therefore share one placement implementation, and
+the query's contract, deviations from a per-chunk run, per-window invalidation
+model and measured cost table live in [`QUERY.md`](QUERY.md). The performance
+probe is `cargo run --release -p worldgen-cli --bin feature_query_bench`.

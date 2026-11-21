@@ -7,6 +7,7 @@
 //! [`crate::chunk::populator::prefab_placement_pass`] against a rectangle
 //! instead of a chunk and never writes a block.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::BitOr;
 use std::rc::Rc;
@@ -19,6 +20,7 @@ use crate::chunk::chunk_generator::ChunkGenerator;
 use crate::chunk::populator::prefab_placement_pass::{
     Candidate, PlacementCollector, PlacementContext,
 };
+use crate::chunk::zone_biome_result::ZoneBiomeResult;
 use crate::container::unique_prefab_container::UniquePrefabEntry;
 use crate::prefab::prefab_category::PrefabCategory;
 use crate::prefab::prefab_rotation::PrefabRotation;
@@ -242,9 +244,28 @@ pub struct FeaturePlacement {
 /// artifact). The query has no execution and deliberately wants the idealized
 /// height. In the current Default fixture no prefab pattern declares
 /// `BaseChecks`, so the two agree on all fixture data.
+///
+/// # The zone-biome memo
+///
+/// The pass evaluates every (biome, entry) pair's lattice over the whole
+/// window; a lattice point of every pair asks for the same column's zone
+/// biome. The generator's own column cache holds only
+/// `GENERATOR_CACHE_MAX_SIZE` (50,000) entries, so on a large rectangle the
+/// pairs evict each other and a cold column costs tens of microseconds each
+/// time. The memo keeps the generator's snapshot per column for the lifetime
+/// of one query, deliberately *outliving* the generator's column cache: one
+/// query never recomputes a column it already resolved. It is bounded by the
+/// query's distinct density-passing lattice points (the pass only queries a
+/// column after the noise-density filter), and the pass reads the result only
+/// through `get_biome`, so a snapshot is exact.
 struct QueryCtx<'a> {
+    /// The generator the rectangle is queried against.
     generator: &'a ChunkGenerator,
+    /// The padded collection window (see [`ChunkGenerator::features_in`]).
     rect: BlockRect,
+    /// Memoized zone-biome results of the query, keyed by the column `(x, z)`
+    /// (the seed is fixed for one query).
+    zone_biomes: RefCell<HashMap<(i32, i32), ZoneBiomeResult>>,
 }
 
 impl PlacementContext for QueryCtx<'_> {
@@ -266,6 +287,15 @@ impl PlacementContext for QueryCtx<'_> {
 
     fn generator(&self) -> &ChunkGenerator {
         self.generator
+    }
+
+    fn zone_biome_result_at(&self, seed: i32, x: i32, z: i32) -> ZoneBiomeResult {
+        if let Some(result) = self.zone_biomes.borrow().get(&(x, z)) {
+            return result.clone();
+        }
+        let result = self.generator.get_zone_biome_result_at(seed, x, z);
+        self.zone_biomes.borrow_mut().insert((x, z), result.clone());
+        result
     }
 
     fn core_biomes(&self) -> Vec<Rc<dyn Biome>> {
@@ -349,6 +379,7 @@ impl ChunkGenerator {
                 let ctx = QueryCtx {
                     generator: self,
                     rect: window,
+                    zone_biomes: RefCell::new(HashMap::new()),
                 };
                 collector.collect_biomes(&ctx);
                 collector.collect_prefabs(&ctx, &unique_prefabs);
@@ -420,7 +451,11 @@ impl ChunkGenerator {
         // padded by the entry extents) contains its centre. That is exactly
         // the populator's per-chunk collection region, so a window's bucket is
         // the candidate list the populator would invalidate for that chunk.
-        let mut buckets: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+        //
+        // The buckets hold borrowed candidates and their original indices: the
+        // index keeps the cross-window dedup, and the reference keeps a bucket
+        // from cloning the candidate (the invalidation only borrows them).
+        let mut buckets: HashMap<(i32, i32), Vec<(usize, &Candidate)>> = HashMap::new();
         for (index, candidate) in candidates.iter().enumerate() {
             let extents = candidate.entry.get_extents();
             let low_cx = chunk_util::chunk_coordinate_i32(candidate.x - extents);
@@ -435,7 +470,10 @@ impl ChunkGenerator {
                     if cz < min_cz || cz > max_cz {
                         continue;
                     }
-                    buckets.entry((cx, cz)).or_default().push(index);
+                    buckets
+                        .entry((cx, cz))
+                        .or_default()
+                        .push((index, candidate));
                 }
             }
         }
@@ -444,16 +482,15 @@ impl ChunkGenerator {
         let mut placed_indices = Vec::new();
         for cx in min_cx..=max_cx {
             for cz in min_cz..=max_cz {
-                let Some(indices) = buckets.get(&(cx, cz)) else {
+                let Some(entries) = buckets.get(&(cx, cz)) else {
                     continue;
                 };
 
-                // `invalidate_candidates` takes a slice of candidates; the
-                // bucket clone keeps the original indices for the paste gate.
-                let bucket: Vec<Candidate> = indices
-                    .iter()
-                    .map(|&index| candidates[index].clone())
-                    .collect();
+                // `invalidate_candidates` takes a slice of candidate
+                // references; the bucket's indices stay available for the
+                // paste gate and the cross-window dedup below.
+                let bucket: Vec<&Candidate> =
+                    entries.iter().map(|&(_, candidate)| candidate).collect();
                 let min_priority = bucket
                     .iter()
                     .map(|candidate| candidate.priority)
@@ -462,7 +499,7 @@ impl ChunkGenerator {
                 let mut invalidated = vec![false; bucket.len()];
                 PlacementCollector::invalidate_candidates(&bucket, &mut invalidated, min_priority);
 
-                for (bit, &index) in indices.iter().enumerate() {
+                for (bit, &(index, _)) in entries.iter().enumerate() {
                     if invalidated[bit] {
                         continue;
                     }
