@@ -263,3 +263,39 @@ hytale-server serve --universe <root> --world Default \
 - The verified test uses a fresh ephemeral port for the second listener; the
   universe root, world names/UUIDs, `universe.json` and save directories are
   unchanged.
+
+## Surface-only generation mode — 2026-11-22
+
+Hardware: same dev box as the T63/T72 rows.
+Build: release, default features.
+Command:
+
+```sh
+cargo run --release -p worldgen-cli --bin surface_only_probe -- testdata/Default 0
+```
+
+Result (64 chunks at the origin, one generator, serial, seed 0):
+
+| Mode | Region (s) | Per chunk (s) |
+|---|---:|---:|
+| Full pipeline | 20.6–21.2 | 0.32–0.33 |
+| `surface_only` | 3.82–3.84 | 0.060 |
+
+Comparison: **5.4× on the cold run and 5.5× on an immediate warm rerun**
+(verified in both orders — the delta is the mode, not cache warmth). The
+full pipeline's own numbers match the T04/T63 chunk-path costs.
+
+Notes:
+- The mode skips the cave and prefab populators (per-request
+  `WorldGenRequest::surface_only`, default false). Every skipped stage
+  runs its own re-seeded stream, so the remaining voxels are
+  bit-identical to the full pipeline outside carved/placed space; the
+  golden parity test stays byte-identical and no `GENERATOR_VERSION` bump
+  applies.
+- Surface fidelity on Default seed 0 chunk (0,0): 847/1024 top-block
+  columns match the full pipeline and 1013/1024 top-fluid columns; every
+  differing column is the chunk's biome prefab (pinned by
+  `tests/surface_only.rs`).
+- Consumers: map-summary/placeholder queries only (the explorer's coarse
+  fill passes). `WorldGenStats` reports zero for the skipped stages —
+  averages across mixed modes must not read that as "caves became free".
