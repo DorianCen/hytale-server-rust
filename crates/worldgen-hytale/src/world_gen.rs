@@ -76,6 +76,41 @@ pub struct WorldGenRequest {
     pub priority: i32,
     /// The cooperative cancellation token (checked before every stage).
     pub cancel: Option<Arc<AtomicBool>>,
+    /// Surface-only **query mode**: skip the cave and prefab stages and run
+    /// only tint → environment → blocks → water.
+    ///
+    /// This is a *query mode for map summaries*, not a world-semantics
+    /// change: the default pipeline is untouched (a `false` request runs the
+    /// exact stage order the golden parity test pins, byte for byte). It
+    /// lives on the **request** rather than [`WorldGenOptions`] because a map
+    /// view mixes modes on one worker pool — coarse placeholder tiles are
+    /// surface-only, the refine pass is full.
+    ///
+    /// # Fidelity
+    ///
+    /// Surface-only chunks lack cave carves and placed prefabs, so their
+    /// surface band can differ wherever a cave breaches the surface or a
+    /// prefab sits on it. The explorer uses these chunks only for
+    /// placeholder-level tiles. The water stage still runs and may place
+    /// fluids differently than the full pipeline where caves/prefabs would
+    /// have carved space — inherent to the mode and accepted for placeholders.
+    ///
+    /// # Why skipping cannot perturb the remaining stages
+    ///
+    /// Every stage owns its random stream; none advances a stream another
+    /// stage reads. [`crate::chunk::populator::BlockPopulator`] seeds a
+    /// local `FastRandom` from `(seed, chunk_x, chunk_z)` on entry;
+    /// [`crate::chunk::populator::CavePopulator`] seeds a local
+    /// `FastRandom::new(0)` and reseeds it per cave node;
+    /// [`crate::chunk::populator::PrefabPopulator`] draws from the
+    /// `PlacementCollector` stream it reseeds per lattice point (and the paste
+    /// buffer is reseeded per paste); [`crate::chunk::populator::WaterPopulator`]
+    /// has no random draws at all. Tint/environment are deterministic noise
+    /// lookups keyed by `(seed, x, z)`. The shared
+    /// [`ChunkGeneratorResource`] random fields are not touched by any of
+    /// these stages, so removing caves/prefabs cannot change the
+    /// blocks/tint/environment/water voxels.
+    pub surface_only: bool,
 }
 
 impl WorldGenRequest {
@@ -87,6 +122,7 @@ impl WorldGenRequest {
             chunk_z,
             priority: 0,
             cancel: None,
+            surface_only: false,
         }
     }
 
@@ -99,6 +135,12 @@ impl WorldGenRequest {
     /// Installs a cancellation token.
     pub fn with_cancel(mut self, cancel: Arc<AtomicBool>) -> Self {
         self.cancel = Some(cancel);
+        self
+    }
+
+    /// Enables surface-only query mode (see [`Self::surface_only`]).
+    pub fn with_surface_only(mut self, surface_only: bool) -> Self {
+        self.surface_only = surface_only;
         self
     }
 
@@ -206,8 +248,12 @@ pub fn generate_chunk(
     );
     let mut execution =
         ChunkGeneratorExecution::with_registry(request.seed, Rc::clone(generator), chunk, registry);
-    let completed =
-        execution.execute_cancellable(request.seed, resource, request.cancel.as_deref());
+    let completed = execution.execute_with_mode(
+        request.seed,
+        resource,
+        request.cancel.as_deref(),
+        request.surface_only,
+    );
     if !completed || request.is_cancelled() {
         return Err(WorldGenError::Cancelled);
     }

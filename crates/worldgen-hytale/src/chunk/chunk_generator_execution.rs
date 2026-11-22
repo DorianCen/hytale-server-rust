@@ -177,6 +177,26 @@ impl ChunkGeneratorExecution {
         resource: &mut ChunkGeneratorResource,
         cancel: Option<&AtomicBool>,
     ) -> bool {
+        self.execute_with_mode(seed, resource, cancel, false)
+    }
+
+    /// Java `public void execute(int seed)` — the full stage order plus the
+    /// surface-only query mode of
+    /// [`WorldGenRequest::surface_only`](crate::world_gen::WorldGenRequest::surface_only).
+    ///
+    /// With `surface_only = true` the cave and the prefab stages (biome and
+    /// unique prefabs alike) are skipped, so the run is tint → environment →
+    /// blocks → water and the skipped stages report zero timings. The
+    /// default (`false`) path is the unchanged, bit-exact Java stage order.
+    /// See the request flag's docs for the fidelity caveats and why skipping
+    /// cannot perturb the remaining stages' random streams.
+    pub fn execute_with_mode(
+        &mut self,
+        seed: i32,
+        resource: &mut ChunkGeneratorResource,
+        cancel: Option<&AtomicBool>,
+        surface_only: bool,
+    ) -> bool {
         let started = Instant::now();
         macro_rules! stage {
             ($field:ident, $body:expr) => {{
@@ -199,14 +219,19 @@ impl ChunkGeneratorExecution {
         // Generate filling + layers + covers
         stage!(blocks_nanos, BlockPopulator::populate(seed, self, resource));
 
-        // Generate caves
-        stage!(caves_nanos, CavePopulator::populate(seed, self));
+        // Generate caves and prefabs. Surface-only map queries skip both
+        // stages: they are the expensive ones (~0.1 s of the ~0.111 s steady
+        // state) and a placeholder tile never shows their voxels. The
+        // default path is unchanged.
+        if !surface_only {
+            stage!(caves_nanos, CavePopulator::populate(seed, self));
 
-        // Generate prefabs
-        stage!(
-            prefabs_nanos,
-            PrefabPopulator::populate(seed, self, resource)
-        );
+            // Generate prefabs
+            stage!(
+                prefabs_nanos,
+                PrefabPopulator::populate(seed, self, resource)
+            );
+        }
 
         // Generate water
         stage!(water_nanos, WaterPopulator::populate(seed, self));
