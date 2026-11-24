@@ -139,8 +139,12 @@ fn main() {
         started.elapsed().as_secs_f64()
     );
 
+    // T27's cave-entrance kind is measured separately (it runs the cave
+    // stage's predicate and is dense in the Default world); this probe keeps
+    // the T22 prefab/unique/spawn measurement comparable to its recorded
+    // table.
     let filter = PlacementFilter {
-        kinds: PlacementKindMask::all(),
+        kinds: PlacementKindMask::all().without(PlacementKind::CaveEntrance),
         ..PlacementFilter::default()
     };
 

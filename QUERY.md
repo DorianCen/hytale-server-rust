@@ -126,7 +126,9 @@ parent block and the base checks.
 
 Measured on the Default fixture, seed 0, release build, one run per rect, rects
 centred on the origin (the rects are nested, so later runs re-cover earlier
-ground and start warmer). Command:
+ground and start warmer). The probe's filter excludes cave entrances
+(T27 measures those separately; the cave kind's density would otherwise
+dominate the table). Command:
 
 ```sh
 cargo run --release -p worldgen-cli --bin feature_query_bench
