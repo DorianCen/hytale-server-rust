@@ -85,9 +85,8 @@ impl BlockBounds {
 
 /// Kind of a placed feature.
 ///
-/// Reserved extension point: a `CaveEntrance` variant is planned for a later
-/// task, so the enum is `#[non_exhaustive]` — adding the variant is not a
-/// breaking change for downstream `match`es.
+/// `#[non_exhaustive]`: future generator queries can add kinds without
+/// breaking downstream `match`es.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PlacementKind {
@@ -97,6 +96,8 @@ pub enum PlacementKind {
     BiomePrefab,
     /// A spawn point derived from a unique prefab marked as a spawn location.
     Spawn,
+    /// A cave entrance candidate from a cave type's entry-point generator.
+    CaveEntrance,
 }
 
 impl PlacementKind {
@@ -106,6 +107,7 @@ impl PlacementKind {
             PlacementKind::UniquePrefab => 0,
             PlacementKind::BiomePrefab => 1,
             PlacementKind::Spawn => 2,
+            PlacementKind::CaveEntrance => 3,
         }
     }
 }
@@ -121,17 +123,31 @@ impl PlacementKindMask {
     pub const BIOME_PREFAB: PlacementKindMask = PlacementKindMask(1 << 1);
     /// The spawn-point bit.
     pub const SPAWN: PlacementKindMask = PlacementKindMask(1 << 2);
+    /// The cave-entrance bit.
+    pub const CAVE_ENTRANCE: PlacementKindMask = PlacementKindMask(1 << 3);
 
     /// Every kind (the [`Default`]).
     #[must_use]
     pub const fn all() -> PlacementKindMask {
-        PlacementKindMask((1 << 0) | (1 << 1) | (1 << 2))
+        PlacementKindMask((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3))
     }
 
     /// Whether the mask contains `kind`.
     #[must_use]
     pub const fn contains(self, kind: PlacementKind) -> bool {
         self.0 & (1 << kind.rank()) != 0
+    }
+
+    /// The mask without `kind` (a no-op when it was already absent).
+    #[must_use]
+    pub const fn without(self, kind: PlacementKind) -> PlacementKindMask {
+        PlacementKindMask(self.0 & !(1 << kind.rank()))
+    }
+
+    /// Whether the mask selects no kind.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
     }
 }
 
@@ -319,7 +335,9 @@ impl ChunkGenerator {
     ///
     /// The query runs the shared placement pass without generating any block;
     /// see the [`crate::query`] module docs for the contract, the cost and the
-    /// documented deviations from a real per-chunk run.
+    /// documented deviations from a real per-chunk run. Cave entrances are
+    /// answered by [`Self::cave_entrances_in`] (the cave stage's entrance
+    /// predicate, before cave generation).
     ///
     /// # Panics
     ///
@@ -399,6 +417,13 @@ impl ChunkGenerator {
             for transform in self.get_spawn_points(seed) {
                 Self::push_spawn_point(&transform, rect, &mut placements);
             }
+        }
+
+        // The cave-entrance query shares the cave stage's entrance predicate
+        // and stops before `get_cave`; it is cheap relative to the prefab
+        // pass, so it runs only when the mask asks for it.
+        if filter.kinds.contains(PlacementKind::CaveEntrance) {
+            placements.extend(self.cave_entrances_in(seed, rect));
         }
 
         let mut placements: Vec<FeaturePlacement> = placements

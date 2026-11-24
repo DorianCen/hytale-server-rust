@@ -120,20 +120,7 @@ impl CavePopulator {
         let chunk_generator = Rc::clone(execution.get_chunk_generator());
         let x = math_util::floor(dx);
         let z = math_util::floor(dz);
-        let result = chunk_generator.get_zone_biome_result_at(seed, x, z);
-
-        // Java: `result.getZoneResult().getZone() == zone` — the zone handles
-        // all come from the same pattern provider, so the Java record equality
-        // is the identity comparison here.
-        let same_zone = result
-            .get_zone_result()
-            .and_then(|zone_result| zone_result.get_zone())
-            .is_some_and(|result_zone| Rc::ptr_eq(result_zone, zone));
-
-        if same_zone
-            && cave_type.is_entry_threshold(seed, x, z)
-            && Self::is_matching_height_threshold(seed, x, z, &chunk_generator, cave_type)
-        {
+        if Self::entrance_height(seed, x, z, &chunk_generator, zone, cave_type).is_some() {
             let cave = chunk_generator
                 .get_cave(cave_type.as_ref(), seed, x, z)
                 .expect("CavePopulator.run: the zone has no cave generator (Java: NPE)");
@@ -233,22 +220,84 @@ impl CavePopulator {
         );
     }
 
-    /// Java `private static boolean isMatchingHeightThreshold(int seed, int x,
-    /// int z, @Nonnull ChunkGenerator chunkGenerator, @Nonnull CaveType
-    /// caveType)`.
-    fn is_matching_height_threshold(
+    /// The shared entrance predicate of the cave stage and the cave-entrance
+    /// query: the exact `CavePopulator.run` filter, without generating the
+    /// cave.
+    ///
+    /// A candidate `(x, z)` is an entrance for `zone`'s `cave_type` when the
+    /// column resolves to **that same zone** (identity, like the Java record
+    /// equality), the cave type's entry threshold matches, and the column's
+    /// height satisfies the cave type's height condition. Returns the
+    /// threshold height on a match; the query reports it as the entrance's Y,
+    /// and the populator uses it before calling `get_cave`.
+    pub(crate) fn entrance_height(
         seed: i32,
         x: i32,
         z: i32,
-        chunk_generator: &Rc<crate::chunk::chunk_generator::ChunkGenerator>,
+        chunk_generator: &crate::chunk::chunk_generator::ChunkGenerator,
+        zone: &Rc<Zone>,
         cave_type: &CaveType,
-    ) -> bool {
-        let height_condition = cave_type.get_height_condition();
+    ) -> Option<i32> {
+        let result = chunk_generator.get_zone_biome_result_at(seed, x, z);
+        if !entrance_zone(seed, x, z, &result, zone, cave_type) {
+            return None;
+        }
         let height = chunk_generator.get_height(seed, x, z);
-        // Java: `seed + 0xF5ACDEB5` — the literal is an `int`, so the addition
-        // wraps.
-        height_condition.eval3(seed.wrapping_add(0xF5ACDEB5u32 as i32), x, height, z)
+        entrance_height_matches(seed, x, z, height, cave_type).then_some(height)
     }
+}
+
+/// The zone half of the entrance predicate: the column resolves to exactly
+/// `zone` (identity, like the Java record equality) and the cave type's entry
+/// threshold matches. Split out so the cave-entrance query can memoize the
+/// column's zone result without duplicating the rule.
+pub(crate) fn entrance_zone(
+    seed: i32,
+    x: i32,
+    z: i32,
+    result: &crate::chunk::zone_biome_result::ZoneBiomeResult,
+    zone: &Rc<Zone>,
+    cave_type: &CaveType,
+) -> bool {
+    result
+        .get_zone_result()
+        .is_some_and(|zone_result| entrance_zone_result(seed, x, z, zone_result, zone, cave_type))
+}
+
+/// [`entrance_zone`] over a bare zone result — the query's cheap path (the
+/// zone stage alone, no biome/height work).
+pub(crate) fn entrance_zone_result(
+    seed: i32,
+    x: i32,
+    z: i32,
+    zone_result: &crate::zone::zone_generator_result::ZoneGeneratorResult,
+    zone: &Rc<Zone>,
+    cave_type: &CaveType,
+) -> bool {
+    // Java: `result.getZoneResult().getZone() == zone` — the zone handles
+    // all come from the same pattern provider, so the Java record equality
+    // is the identity comparison here.
+    let same_zone = zone_result
+        .get_zone()
+        .is_some_and(|result_zone| Rc::ptr_eq(result_zone, zone));
+    same_zone && cave_type.is_entry_threshold(seed, x, z)
+}
+
+/// The height half of the entrance predicate: the cave type's height
+/// condition, with the wrapped Java seed constant. Split out for the same
+/// memoization reason as [`entrance_zone`]; `seed` is the world seed, not the
+/// constant-adjusted one.
+pub(crate) fn entrance_height_matches(
+    seed: i32,
+    x: i32,
+    z: i32,
+    height: i32,
+    cave_type: &CaveType,
+) -> bool {
+    let height_condition = cave_type.get_height_condition();
+    // Java: `seed + 0xF5ACDEB5` — the literal is an `int`, so the addition
+    // wraps.
+    height_condition.eval3(seed.wrapping_add(0xF5ACDEB5u32 as i32), x, height, z)
 }
 
 /// Java `private static void generatePrefabAt(int seed, int x, int z, int y,

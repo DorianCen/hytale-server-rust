@@ -4,7 +4,19 @@
 rectangle?" without generating a block or a chunk. It runs the world generator's
 shared placement pass — the same pass `PrefabPopulator` runs per chunk — against
 an arbitrary block rectangle and returns the features it would place there:
-biome prefabs, per-seed unique prefabs and spawn points.
+biome prefabs, per-seed unique prefabs, spawn points and cave entrances.
+
+Cave entrances are also available directly:
+
+```rust
+let entrances = generator.cave_entrances_in(seed, rect);
+```
+
+`cave_entrances_in` runs the cave stage's placement predicate (the same
+zone/threshold/height filter `CavePopulator` uses) and stops **before**
+`get_cave`: no cave graph is compiled and no block is generated. A reported
+position is the surface column `(x, height, z)` the predicate accepted; the
+name is the cave type and the category is the owning zone.
 
 ```rust
 use worldgen_hytale::query::{BlockRect, PlacementFilter, PlacementKindMask};
@@ -69,6 +81,38 @@ is truncated at the rectangle's edge.
    fixture declares no `BaseChecks` prefab patterns, so on fixture data the two
    agree; a pack with `BaseChecks` can differ in the same way the shared pass
    documents.
+
+## Cave entrances
+
+`ChunkGenerator::cave_entrances_in(seed, rect)` (also reachable through
+`features_in` with `PlacementKind::CAVE_ENTRANCE`) reports the cave entry-point
+candidates whose surface column is inside `rect`. It runs the cave stage's
+shared predicate — the column resolves to the iterated zone by identity, the
+cave type's entry threshold matches, and the height condition matches
+`seed + 0xF5ACDEB5` — and returns `(x, height, z)` sorted by `(x, z, y, name)`.
+The name is the cave type, the category the zone.
+
+The collection is over the rect padded by the point generator's interval, not
+by the cave type's `maximum_size`: the query reports entry points inside the
+rect, and the populator's larger reach exists to find caves crossing into a
+chunk, not anchors inside a query rect. The query never calls `get_cave`.
+
+The Default world's cave point generators are **dense**: about 0.2 candidate
+columns per block², so a 512-block rect yields ~53,000 entrances. Measured on
+the Default fixture, seed 0, release build, one fresh query per rect:
+
+| rect (blocks per side) | entrances | seconds |
+|---|---:|---:|
+| 32 (one chunk) | 219 | 0.008 |
+| 128 | 3,311 | 0.08 |
+| 256 | 13,257 | 5.5 |
+| 512 | 52,941 | 78.6 |
+
+A 10,000-block rect is therefore a batch job (≈6.6–8 hours and ≈20 M
+placements at the measured density), not an overlay query. The explorer's
+adapter caps the overlay's cave kind at 256 blocks per side; the other kinds
+continue over the full rect. Larger cave views belong to T33's tiling/streaming
+work.
 
 ## Cost
 

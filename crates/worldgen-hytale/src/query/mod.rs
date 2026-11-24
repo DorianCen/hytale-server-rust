@@ -14,7 +14,11 @@
 //!   whose bounds intersect the rectangle,
 //! * **spawn points** — the per-seed
 //!   [`ChunkGenerator::get_spawn_points`](crate::chunk::chunk_generator::ChunkGenerator::get_spawn_points)
-//!   transforms inside the rectangle.
+//!   transforms inside the rectangle,
+//! * **cave entrances** — the cave types' entry points that pass the cave
+//!   stage's zone/threshold/height predicate
+//!   ([`ChunkGenerator::cave_entrances_in`](crate::chunk::chunk_generator::ChunkGenerator::cave_entrances_in)).
+//!   The query stops before `get_cave`, so no cave geometry is generated.
 //!
 //! # Contract
 //!
@@ -65,6 +69,7 @@
 //!    deviation the shared pass documents).
 //!
 
+mod cave_entrances;
 mod feature_placement;
 
 pub use feature_placement::{
