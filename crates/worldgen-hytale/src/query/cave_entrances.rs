@@ -4,9 +4,10 @@
 //! [`CavePopulator`](crate::chunk::populator::CavePopulator) collects the
 //! entry points of every zone's cave types and then, for each candidate that
 //! passes its zone/threshold/height filter, compiles and pastes the cave.
-//! This query runs the same collection and the same shared predicate
-//! ([`CavePopulator::entrance_height`]) over an arbitrary rectangle and stops
-//! **before** `get_cave`: no cave geometry is compiled and no block is
+//! This query runs the same collection and the shared predicate's rules
+//! (`entrance_zone_result` + `entrance_height_matches`, the same helpers the
+//! populator's `entrance_height` composes) over an arbitrary rectangle and
+//! stops **before** `get_cave`: no cave geometry is compiled and no block is
 //! generated.
 //!
 //! The reported `name` is the cave type's name and the reported `category` is
@@ -68,10 +69,10 @@ impl ChunkGenerator {
     /// Every zone with a cave generator is walked exactly like the
     /// [`CavePopulator`](crate::chunk::populator::CavePopulator): each cave
     /// type's entry-point generator is collected over `rect`, and a candidate
-    /// is kept only when the shared
-    /// [`CavePopulator::entrance_height`] predicate accepts it (same zone by
-    /// identity, entry threshold, height condition). Candidates are filtered
-    /// to the rect after collection.
+    /// is kept only when the shared predicate's rules accept it (same zone by
+    /// identity, entry threshold, height condition — the helpers the
+    /// populator's `entrance_height` composes). Candidates are filtered to
+    /// the rect after collection.
     ///
     /// The query never calls `get_cave`: this is the cheap placement pass,
     /// not cave generation. It is still not O(1) — the point generators and
