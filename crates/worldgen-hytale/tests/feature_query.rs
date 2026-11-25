@@ -5,6 +5,9 @@
 //! placement pass lives in the crate's `query` module (it needs `pub(crate)`
 //! internals); these tests cover the public contract and the rect/filter
 //! structure.
+//!
+//! The Default world's prefab containers reference the base-game asset pack,
+//! so the tests skip when that pack is absent (CI).
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -14,6 +17,20 @@ use worldgen_hytale::prefab::prefab_rotation::PrefabRotation;
 use worldgen_hytale::query::{
     BlockBounds, BlockRect, FeaturePlacement, PlacementFilter, PlacementKind, PlacementKindMask,
 };
+
+/// The Default world's prefab containers reference the base-game asset pack,
+/// which is git-ignored and absent in CI. Skip these end-to-end tests there.
+fn assets_available() -> bool {
+    if matches!(
+        std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+        Ok("0" | "false" | "off")
+    ) {
+        return false;
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../Assets/extracted/Server/Prefabs")
+        .is_dir()
+}
 
 /// The real Default world — the same loader chain the Java dumper and the
 /// vanilla provider use.
@@ -103,6 +120,10 @@ fn spawn_filter() -> PlacementFilter {
 
 #[test]
 fn query_unique_prefabs_match_the_per_seed_list() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     let entries = generator.get_unique_prefabs(seed);
@@ -170,6 +191,10 @@ fn query_unique_prefabs_match_the_per_seed_list() {
 
 #[test]
 fn query_spawn_points_match_the_per_seed_list() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     let transforms = generator.get_spawn_points(seed);
@@ -252,6 +277,10 @@ fn query_spawn_points_match_the_per_seed_list() {
 
 #[test]
 fn query_small_rect_returns_a_subset_of_a_large_rect() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     // Cave entrances have their own dense query and fixture tests; including
@@ -303,6 +332,10 @@ fn query_small_rect_returns_a_subset_of_a_large_rect() {
 
 #[test]
 fn query_negative_coordinates_and_chunk_edges() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     // The cave pass is dense enough to dominate this negative-rect check;
@@ -348,6 +381,10 @@ fn query_negative_coordinates_and_chunk_edges() {
 
 #[test]
 fn query_is_deterministic() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     let rect = BlockRect {
@@ -388,6 +425,10 @@ fn filter_rect() -> BlockRect {
 
 #[test]
 fn query_filters_kinds() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     let rect = filter_rect();
@@ -409,6 +450,10 @@ fn query_filters_kinds() {
 
 #[test]
 fn query_filters_category() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     let rect = filter_rect();
@@ -434,6 +479,10 @@ fn query_filters_category() {
 
 #[test]
 fn query_filters_name_contains() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     let rect = filter_rect();
@@ -461,6 +510,10 @@ fn query_filters_name_contains() {
 
 #[test]
 fn query_filters_min_size() {
+    if !assets_available() {
+        eprintln!("the base-game asset pack is not available — the test is skipped");
+        return;
+    }
     let generator = default_world();
     let seed = 0;
     let rect = filter_rect();
