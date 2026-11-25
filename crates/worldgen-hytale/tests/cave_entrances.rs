@@ -264,6 +264,36 @@ fn query_cave_entrances_kind_filter_matches_the_direct_query() {
 }
 
 #[test]
+fn query_cave_entrances_small_rect_is_a_subset_of_a_large() {
+    // The prefab/unique/spawn subset test in feature_query excludes the
+    // dense cave kind for CI time; this is the cave-specific subset check.
+    let generator = default_world();
+    let small = BlockRect {
+        min_x: 0,
+        min_z: 0,
+        max_x: 31,
+        max_z: 31,
+    };
+    let large = BlockRect {
+        min_x: -32,
+        min_z: -32,
+        max_x: 95,
+        max_z: 95,
+    };
+    let small_entrances = generator.cave_entrances_in(0, small);
+    let large_entrances = generator.cave_entrances_in(0, large);
+    assert!(!small_entrances.is_empty());
+    for placement in &small_entrances {
+        assert!(
+            large_entrances
+                .iter()
+                .any(|candidate| placement_key(candidate) == placement_key(placement)),
+            "a cave entrance of the small rect is missing from the large rect: {placement:?}",
+        );
+    }
+}
+
+#[test]
 fn query_cave_entrances_handles_negative_and_edge_rects() {
     let generator = default_world();
     let rect = rect_around_chunk(-12, -25);

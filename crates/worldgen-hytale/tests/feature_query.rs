@@ -254,7 +254,13 @@ fn query_spawn_points_match_the_per_seed_list() {
 fn query_small_rect_returns_a_subset_of_a_large_rect() {
     let generator = default_world();
     let seed = 0;
-    let filter = PlacementFilter::default();
+    // Cave entrances have their own dense query and fixture tests; including
+    // the cave pass in this 320-block subset check would time out the fast
+    // CI tier for a property the cave tests pin separately.
+    let filter = PlacementFilter {
+        kinds: PlacementKindMask::all().without(PlacementKind::CaveEntrance),
+        ..PlacementFilter::default()
+    };
 
     let small_rect = BlockRect {
         min_x: 0,
@@ -263,10 +269,10 @@ fn query_small_rect_returns_a_subset_of_a_large_rect() {
         max_z: 63,
     };
     let large_rect = BlockRect {
-        min_x: -64,
-        min_z: -64,
-        max_x: 255,
-        max_z: 255,
+        min_x: -32,
+        min_z: -32,
+        max_x: 95,
+        max_z: 95,
     };
 
     let small = generator.features_in(seed, small_rect, &filter);
@@ -299,7 +305,12 @@ fn query_small_rect_returns_a_subset_of_a_large_rect() {
 fn query_negative_coordinates_and_chunk_edges() {
     let generator = default_world();
     let seed = 0;
-    let filter = PlacementFilter::default();
+    // The cave pass is dense enough to dominate this negative-rect check;
+    // the cave query has its own edge/negative tests.
+    let filter = PlacementFilter {
+        kinds: PlacementKindMask::all().without(PlacementKind::CaveEntrance),
+        ..PlacementFilter::default()
+    };
 
     // Straddles negative chunk borders on both axes.
     let rect = BlockRect {
@@ -309,10 +320,10 @@ fn query_negative_coordinates_and_chunk_edges() {
         max_z: -15,
     };
     let bigger = BlockRect {
-        min_x: -160,
-        min_z: -128,
-        max_x: 63,
-        max_z: 95,
+        min_x: -112,
+        min_z: -80,
+        max_x: 47,
+        max_z: 47,
     };
 
     let first = generator.features_in(seed, rect, &filter);

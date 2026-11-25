@@ -119,6 +119,9 @@ impl ChunkRequest {
             chunk_z: self.chunk_z,
             priority: self.priority,
             cancel: self.cancel.clone(),
+            // The server generates full chunks; surface-only is a map-query
+            // mode, not a world-generation request.
+            surface_only: false,
         }
     }
 }
