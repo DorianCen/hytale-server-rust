@@ -72,6 +72,8 @@
 mod cave_entrances;
 mod feature_placement;
 
+pub use cave_entrances::{CAVE_QUERY_TILE, COLUMN_MEMO_CAP};
+
 pub use feature_placement::{
     BlockBounds, BlockRect, FeaturePlacement, PlacementFilter, PlacementKind, PlacementKindMask,
 };
