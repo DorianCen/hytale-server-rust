@@ -674,6 +674,21 @@ mod tests {
 
     use super::*;
 
+    /// Whether the base-game asset pack is present. The Default world's
+    /// prefab containers reference real prefabs, so loading it without the
+    /// pack panics; CI runs the fast tier with `HYTALE_TEST_ASSETS=0`.
+    fn assets_available() -> bool {
+        if matches!(
+            std::env::var("HYTALE_TEST_ASSETS").as_deref(),
+            Ok("0" | "false" | "off")
+        ) {
+            return false;
+        }
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../Assets/extracted/Server/Prefabs")
+            .is_dir()
+    }
+
     /// The real Default world (the same loader chain as the golden chunks).
     fn default_world() -> Rc<ChunkGenerator> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/Default");
@@ -775,6 +790,10 @@ mod tests {
 
     #[test]
     fn query_biome_prefabs_match_the_chunk_placement_pass() {
+        if !assets_available() {
+            eprintln!("skipping: the asset pack is not present");
+            return;
+        }
         let generator = default_world();
         let registries = Rc::new(Registries::load());
         let filter = PlacementFilter {
