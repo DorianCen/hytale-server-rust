@@ -301,6 +301,62 @@ fn query_cave_entrances_handles_negative_and_edge_rects() {
 }
 
 #[test]
+fn query_cave_entrances_capped_walk_is_bounded_and_inside() {
+    let generator = default_world();
+    let rect = rect_around_chunk(0, 0);
+    let full = generator.cave_entrances_in(0, rect);
+    let capped = generator.cave_entrances_in_capped(0, rect, 10);
+    assert_eq!(capped.len(), 10, "the cap is exact when the tile has more");
+    assert!(
+        capped.iter().all(|placement| full
+            .iter()
+            .any(|full| placement_key(full) == placement_key(placement))),
+        "a capped result is a placement of the uncapped query",
+    );
+    assert!(
+        generator.cave_entrances_in_capped(0, rect, 0).is_empty(),
+        "a zero cap returns nothing",
+    );
+}
+
+#[test]
+#[ignore = "release-only benchmark; run with --release -- --ignored query_cave_entrances_bench"]
+fn query_cave_entrances_bench_10k_capped() {
+    // The task-sanctioned cap path: a 10,000×10,000 rect walked center-first
+    // in 256-block tiles, stopped at 10,000 entrances. The full uncapped
+    // 10k query is a batch job (QUERY.md); this is the usable measured form.
+    let generator = default_world();
+    let side = 10_000;
+    let half = side / 2;
+    let rect = BlockRect {
+        min_x: -half,
+        min_z: -half,
+        max_x: half - 1,
+        max_z: half - 1,
+    };
+    // Warm the caches on a disjoint small rect first.
+    let warm = BlockRect {
+        min_x: 4096,
+        min_z: 4096,
+        max_x: 4159,
+        max_z: 4159,
+    };
+    let _ = generator.cave_entrances_in(0, warm);
+    let started = Instant::now();
+    let entrances = generator.cave_entrances_in_capped(0, rect, 10_000);
+    eprintln!(
+        "cave entrances 10000x10000 capped at 10000: {} in {:?}",
+        entrances.len(),
+        started.elapsed()
+    );
+    assert_eq!(entrances.len(), 10_000);
+    assert!(entrances.iter().all(|placement| {
+        (rect.min_x..=rect.max_x).contains(&placement.position.0)
+            && (rect.min_z..=rect.max_z).contains(&placement.position.2)
+    }));
+}
+
+#[test]
 #[ignore = "release-only benchmark; run with --release -- --ignored query_cave_entrances_bench"]
 fn query_cave_entrances_bench_512() {
     let generator = default_world();

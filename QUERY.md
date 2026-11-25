@@ -106,13 +106,16 @@ the Default fixture, seed 0, release build, one fresh query per rect:
 | 32 (one chunk) | 219 | 0.008 |
 | 128 | 3,311 | 0.08 |
 | 256 | 13,257 | 5.5 |
-| 512 | 52,941 | 78.6 |
+| 512 | 52,941 | 54.7 |
+| 10,000 × 10,000, capped at 10,000 entrances | 10,000 | 2.27 |
 
-A 10,000-block rect is therefore a batch job (≈6.6–8 hours and ≈20 M
-placements at the measured density), not an overlay query. The explorer's
-adapter caps the overlay's cave kind at 256 blocks per side; the other kinds
-continue over the full rect. Larger cave views belong to T33's tiling/streaming
-work.
+The full **uncapped** 10,000-block rect is a multi-hour batch job (≈20 M
+placements at the measured density), not an overlay query. The capped path
+(`cave_entrances_in_capped`) walks the rect in center-first 256-block tiles
+and stops at the requested count, so a 10,000×10,000 query capped at 10,000
+entrances completes in 2.27 s (release, warm). The explorer's adapter caps the
+overlay's cave kind at 256 blocks per side; the other kinds continue over the
+full rect. The full cave view belongs to T33's tiling/streaming work.
 
 ## Cost
 
