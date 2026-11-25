@@ -1963,7 +1963,6 @@ impl BlockSimulation {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     fn test_block_physics_at_position(
         &self,
         world: &World,

@@ -247,8 +247,8 @@ impl ChunkColumn {
     /// Replace one column environment and clear per-block overrides.
     pub fn set_environment_column(&mut self, x: i32, z: i32, environment: i32) {
         self.environment_column[column_index(x, z)] = environment;
-        for index in 0..SECTION_COUNT {
-            if let Some(section) = self.sections[index].as_mut() {
+        for slot in &mut self.sections {
+            if let Some(section) = slot.as_mut() {
                 section.environment.set_column(x, z, environment);
             }
         }
@@ -428,7 +428,7 @@ impl ChunkColumn {
             column.heightmap = Heightmap::Legacy(legacy_heightmap(generated, registries));
         }
 
-        for section_index in 0..SECTION_COUNT {
+        for (section_index, section_slot) in column.sections.iter_mut().enumerate() {
             let start = section_index * SIZE_BLOCKS as usize;
             let end = start + SIZE_BLOCKS as usize;
             let needs_section = blocks[start..end].iter().any(|value| *value != 0)
@@ -458,7 +458,7 @@ impl ChunkColumn {
                 &rotations[start..end],
                 generated.rotation_first_use(section_index as i32),
             )?;
-            let section = column.sections[section_index].get_or_insert_with(|| {
+            let section = section_slot.get_or_insert_with(|| {
                 Box::new(ChunkSection {
                     block: BlockSection::from_palettes(
                         block_palette,
